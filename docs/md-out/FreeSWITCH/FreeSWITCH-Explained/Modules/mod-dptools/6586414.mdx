@@ -1,0 +1,512 @@
+
+# mod_dptools: bind_digit_action 
+
+ Created by  Italo Rossi, last modified by  Martin Paterson on 2021.11.08
+
+---
+
+Table of Contents (click to expand)
+
+* [0\. About](#-freeswitch--mod_dptools-bind_digit_action-)
+* [1\. Description](#1-description)
+* [2\. Syntax](#-freeswitch--mod_dptools-bind_digit_action-)
+* [3\. Examples](#-freeswitch--mod_dptools-bind_digit_action-)  
+   * [3.0 Usage](#-freeswitch--mod_dptools-bind_digit_action-)  
+   * [3.1 Two-realm example 1](#31-two-realm-example-1)  
+   * [3.2 Two-realm example 2](#31-two-realm-example-1)  
+   * [3.3 Call Recording](#33-call-recording)  
+         * [Denis 2016.01.26](#-freeswitch--mod_dptools-bind_digit_action-)  
+         * [3.3.1 Extension definitions](#331-extension-definitions)  
+         * [3.3.2 Application](#332-application)  
+                  * [3.3.2.1 Outbound calls](#3321-outbound-calls)  
+                  * [3.3.2.2 Inbound calls](#3322-inbound-calls)  
+   * [3.4 Capture dialed digits](#34-capture-dialed-digits)  
+   * [3.5 Lua example](#35-lua-example)
+* [4\. Channel Variables](#4-channel-variables)
+* [Usage](#-freeswitch--mod_dptools-bind_digit_action-)  
+   * [4.1 Example use case: using mod\_dptools: play\_and\_get\_digits and mod\_dptools: bind\_digit\_action together](#-freeswitch--mod_dptools-bind_digit_action-)
+* [5\. Notes](#-freeswitch--mod_dptools-bind_digit_action-)  
+   * [5.1 Using bind\_digit\_action with a conference](#51-using-bind_digit_action-with-a-conference-)  
+   * [5.2 Inband vs. 2833 DTMFs](#52-inband-vs-2833-dtmfs)  
+   * [5.3 Setting on the B leg](#53-setting-on-the-b-leg)
+* [6\. See Also](#-freeswitch--mod_dptools-bind_digit_action-)
+
+---
+
+## 0\. About
+
+  
+Bind a key sequence or regular expression to an action to match on incoming DTMF tones.  
+
+## 1\. Description
+
+The `bind_digit_action` application is very similar to [mod\_dptools: bind\_meta\_app](./6586418.mdx#about) but is better, more flexible, and can be used to replace it in all cases.
+
+Be aware that when using `bind_digit_action` you may inadvertently break other apps that rely upon DTMFs. This is because any digits that match a pattern are _consumed_ by `bind_digit_action`, and thus will not be sent through.
+
+However, **any non-matching digits will be sent through**. Therefore you should make sure that you don't have any regular expressions (or regexes) that "grab everything" unless you are equipped to handle that scenario.
+
+`bind_digit_action` uses the concept of **realm**s for binding various **action**s.
+
+* A **realm** is similar to a dialplan context where the dialed number means something different depending upon which context the call is in.  
+(Could also be perceived as a state in a finite state machine.)
+* You may bind one or more digits or a regular expression (also called regex) to an **action**.
+
+Note that you cannot "capture" digits in `bind_digit_action`.
+
+TODO Is this still valid? Section **3.4 Capture dialed** **digits** describes exactly this scenario, and there's even a channel variable for it.
+
+## 2\. Syntax
+
+```xml
+<action application="bind_digit_action" data="<realm>,<binding>,<command_string>[,<value>][,<dtmf_target_leg>][,<event_target_leg>]"/>
+```
+
+  
+| Parameter            | Description                                                                                                                                                                                                                                                                                                                                                                                                                                                                    | Example                                                                                                                 |
+| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------- |
+| &lt;realm>              | Somewhat similar to a dialplan context (see [XML Dialplan](../../Dialplan/XML-Dialplan/index.mdx#why)) or a state in a finite state machine.To clear or remove the digit bindings, use [mod\_dptools: clear\_digit\_action](./6586422.mdx#about).To switch between realms, use [mod\_dptools: digit\_action\_set\_realm](./6586771.mdx#0-about).                                                                                                                                                             | get\_passcode                                                                                                           |
+| &lt;binding>            | A &lt;binding> can either bea **sequence of digits to** **match** ora **[PCRE-compatible regular expression](https://www.pcre.org/)**that must start with a **\~** TODO Only assuming PCRE-compatibility because other module descriptions mention it, and [one of FreeSWITCH dependencies is the PCRE library.](https://freeswitch.org/confluence/display/FAH/FreeSWITCH+Dependencies)                                                                                           | 1234567\~7\\d{3}                                                                                                        |
+| &lt;command\_string>    | &lt;command\_string> Descriptionexec:&lt;dialplan\_app>To execute a [dialplan application](../mod_dptools_1970333.mdx#-c). This can have an optional flag 'H' which disables putting the other leg on hold during this operation. Can have an optional flag 'i' which makes the command blocking (it will execute in the thread of of the digit callback). Setting 'i' means 'H' has no effect.api:&lt;api\_command>To issue a [FreeSWITCH API](../../Introduction/FreeSWITCH-API_30867723.mdx#-freeswitch--freeswitch-api-) command. | exec:execute\_extension,att\_xfer XML default,both,selfexec\[H\]:execute\_extension,start\_record XML defaultapi:hupall |
+| &lt;value>              | OPTIONAL Contains the arguments to the &lt;command\_string>                                                                                                                                                                                                                                                                                                                                                                                                                       |                                                                                                                         |
+| &lt;dtmf\_target\_leg>  | OPTIONAL Possible values: self (the default) peer both Any other value is treated as self.                                                                                                                                                                                                                                                                                                                                                                                     | peer                                                                                                                    |
+| &lt;event\_target\_leg> | OPTIONAL See &lt;dtmf\_target\_leg> above                                                                                                                                                                                                                                                                                                                                                                                                                                         | self                                                                                                                    |
+
+  
+**Priority flag for &lt;binding>parameter**
+
+TODO Write this up properly. The following text is directly from the commit comment.
+
+`<binding>` can have a flag, 'P' (for "Priority") to bind\_digit\_action so that a match is returned as soon as it is found, without waiting for the inter-digit timeout to expire.
+
+This can be very useful where the system needs to be more responsive to the user.
+
+By default, if multiple bindings are enabled and one or more use a regex, switch\_ivr\_dmachine\_check\_match waits for the inter-digit timeout to expire before returning a match. This ensures overlapping patterns, such as "^\\d{4}$" and "^\\12{3}$" can both be reliably matched
+
+When the 'P' flag is specified with bind\_digit\_action, whose action is exec, a match is returned as soon as the condition is satisfied, regardless of whether or not a longer match may be possible if further digits were entered.
+
+For example:
+
+&lt;action application="bind\_digit\_action" data="test,\~^\*\\d{2}$, exec\[P\]:execute\_extension,myextn,self,self"/>
+
+&lt;action application="bind\_digit\_action" data="test,\~^#\\d{2}$", exec:execute\_extension,myotherextn,self,peer"/>
+
+The first example causes a match to be returned immediately after the 2nd digit is received, whereas the second example defaults to waiting for the inter-digit timeout to expire before returning.
+
+In cases where the 'P' flag is used with a regex and string, and both are matched, the more explicit, string match will be returned.
+
+For example:
+
+&lt;action application="bind\_digit\_action" data="test,\~^\*\\d{2}$, exec\[P\]:execute\_extension,myextn,self,self"/>
+
+&lt;action application="bind\_digit\_action" data="test,\*12, exec\[P\]:execute\_extension,myotherextn,self,self"/>
+
+If "\*12" is matched, myotherextn is executed, because "\*12" is more explicit/specific than "^\*\\d{2}$"
+
+If the 'P'(riority) flag is not used, behaviour is unchanged from previous versions. This ensures backward compatibility.
+
+## 3\. Examples
+
+### 3.0 Usage
+
+```xml
+<action application="bind_digit_action" data="my_digits,11,exec:execute_extension,att_xfer XML default,both,self"/>
+<action application="bind_digit_action" data="my_digits,11,api:hupall"/>
+```
+
+### 3.1 Two-realm example 1
+
+TODO Is this right? "_The initial realm is `test1` (set by_ _[mod\_dptools: digit\_action\_set\_realm](./6586771.mdx#0-about)), and realm `myrealm` is never used, but shows how to use multiple realms._"
+
+```xml
+<action application="bind_digit_action" data="myrealm,500,exec:playback,ivr/ivr-welcome_to_freeswitch.wav"/>
+<action application="bind_digit_action" data="test1,456,exec:playback,ivr/ivr-welcome_to_freeswitch.wav"/>
+<action application="bind_digit_action" data="test1,##,exec:execute_extension,mix_welcome_to_freeswitch"/>
+<action application="digit_action_set_realm" data="test1"/>
+```
+
+### 3.2 Two-realm example 2
+
+* The initial realm is `cool` (set by [mod\_dptools: digit\_action\_set\_realm](./6586771.mdx#0-about)),
+* dialling 500 or any number starting with 7 will start playing the `ivr/ivr-welcome_to_freeswitch.wav` file, and
+* any sequence of numbers that start with the digit 1 will switch between realms (or contexts or states).
+
+```xml
+<action application="bind_digit_action" data="cool,500,exec:playback,ivr/ivr-welcome_to_freeswitch.wav"/> 
+<action application="bind_digit_action" data="cool,~7\d{3},exec:playback,ivr/ivr-welcome_to_freeswitch.wav"/> 
+<action application="bind_digit_action" data="cool,~1\d+,exec:digit_action_set_realm,rad"/> 
+<action application="bind_digit_action" data="rad,~1\d+,exec:digit_action_set_realm,cool"/> 
+<action application="digit_action_set_realm" data="cool"/>
+```
+
+### 3.3 Call Recording
+
+TODO From the comment section:
+
+#### [Denis](https://freeswitch.org/confluence/display/~denis) [2016.01.26](../mod_abstraction_1966663.mdx#comments)
+
+Call Recording On/Off Switch - work only with 1 bind, you can not make several binds - after enable|disable record and switch context we got new bindings with new realm.
+
+The following [dialplan](../../Dialplan/XML-Dialplan/index.mdx#why) example demonstrates how to use `bind_digit_action` to create an on/off sequence for call recording. We'll use **`*2`** as the key sequence that toggles the record, but you can use whichever key sequence you see fit.
+
+We need three different extensions for this operation:
+
+* The `SETUP_RECORDING` extension
+* The `START_RECORDING` extension
+* The `STOP_RECORDING` extension
+
+#### 3.3.1 Extension definitions
+
+**SETUP\_RECORDING extension**
+
+```xml
+<extension name="setup bind_digit_action_recording"> 
+  <condition field="destination_number" expression="^SETUP_RECORDING$">
+    <action application="log" data="INFO Configuring bind_digit_action to do recording on this session..."/>
+    <action application="bind_digit_action" data="start_recording,*2,exec:execute_extension,START_RECORDING XML default"/>
+    <action application="bind_digit_action" data="stop_recording,*2,exec:execute_extension,STOP_RECORDING XML default"/>
+    <action application="digit_action_set_realm" data="start_recording"/>
+  </condition> 
+</extension> 
+```
+
+  
+**START\_RECORDING extension**
+
+```xml
+<extension name="bind_digit_action Start Recording">
+  <condition field="destination_number" expression="^START_RECORDING$">
+    <action application="log" data="INFO Starting recording..."/>
+    <action 
+      application="set" 
+      inline="true" 
+      data="rec_file=$${base_dir}/recordings/${strftime(%Y-%m-%d-%H-%M-%S)}_${destination_number}_${caller_id_number}.wav"
+    />
+    <action application="record_session" data="${rec_file}"/>
+    <action application="digit_action_set_realm" data="stop_recording"/>
+  </condition> 
+</extension>
+```
+
+  
+**STOP\_RECORDING extension**
+
+```xml
+<extension name="bind_digit_action Stop Recording">
+  <condition field="destination_number" expression="^STOP_RECORDING$">
+    <action application="log" data="INFO Stop recording [${rec_file}]"/>
+    <action application="stop_record_session" data="${rec_file}"/>
+    <action application="digit_action_set_realm" data="start_recording"/>
+  </condition> 
+</extension>
+```
+
+#### 3.3.2 Application
+
+Now we need to apply this to our inbound and outbound calls.
+
+##### 3.3.2.1 Outbound calls
+
+Outbound calls (A leg) are simple, just add an execute extension:
+
+**Outbound**
+
+```xml
+<!-- ... -->
+<action application="execute_extension" data="SETUP_RECORDING XML default"/>
+<action application="bridge" data="<your bridge stuff here>"/>
+<!-- ... -->
+```
+
+##### 3.3.2.2 Inbound calls
+
+For inbound calls (or the B leg) you need to do a little bit more.
+
+Add this to the Local\_Extension after the `bind_digit_action` calls:
+
+```xml
+<!-- ... -->
+<action application="set" data="bridge_pre_execute_bleg_app=execute_extension"/>
+<action application="set" data="bridge_pre_execute_bleg_data=SETUP_RECORDING XML default"/>
+<!-- ... -->
+```
+
+### 3.4 Capture dialed digits
+
+Sometimes it is useful to know what digit(s) the caller dialed, especially when using a regular expression to capture digits. This is done with a channel variable called [last\_matching\_digits](../../../Channel-Variables-Catalog/last_matching_digits_16353848.mdx#usage) that is updated with each match.
+
+This dialplan snippet demonstrates how it works:
+
+```xml
+<extension name="Bind a regex">
+  <condition field="dialed_number" expression="^(9921)$">
+    <action application="bind_digit_action" data="my_digits,~^\d+,exec:execute_extension,LOG_DIGITS XML default"/>
+    <action application="digit_action_set_realm" data="my_digits"/>
+  </condition>
+</extension>
+
+<extension name="Display digits dialled">
+  <condition field="dialled_number" expression="^LOG_DIGITS$">
+    <action application="log" data="INFO Called dialled ${last_matching_digits}"/>
+    <action application="say" data=" en number iterated ${last_matching_digits}"/>
+  </condition>
+</extension>
+```
+
+### 3.5 Lua example
+
+While on a call, you can dial 555, 556, or 557.
+
+Put this in your dialplan extension "Local\_Extension":
+
+```xml
+ <action application="lua" data="test.lua"/>
+```
+
+and this in ${scripts\_dir}/test.lua file
+
+```xml
+wav1 = "ivr/ivr-welcome_to_freeswitch.wav"
+wav2 = "ivr/ivr-you_are_number_one.wav"
+
+session:execute("bind_digit_action","myrealm,555,exec:playback," .. wav1);
+
+session:execute("set","playback_delimiter=#");
+session:execute("set","playback_sleep_val=100");
+session:execute("bind_digit_action","myrealm,556,exec:playback," .. wav1 .. "#" .. wav2);
+
+session:execute("bind_digit_action","myrealm,557,exec:playback,file_string://" .. wav1 .. "!" .. wav2);
+```
+
+## 4\. Channel Variables
+
+See [Channel Variables Catalog](../../../Channel-Variables-Catalog/index.mdx#comments) to see all channel variables.
+
+  
+| Channel variable name                                                             | Description                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| --------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **[bind\_digit\_digit\_timeout](../../../Channel-Variables-Catalog/bind_digit_digit_timeout_32178449.mdx#-freeswitch--bind_digit_digit_timeout-)** | Integer Inter-digit timeout, in milliseconds. This sets the time to wait between individual dialed digits.Default value is 1500 milliseconds.Mostly only useful in conjunction with [mod\_dptools: play\_and\_get\_digits](../mod_dptools_1970333.mdx#-c) in the same dialplan extension.See section **3.1** in [mod\_dptools: bind\_digit\_action](../mod_dptools_1970333.mdx#-c).Usage**Example** &lt;!-- To wait 10 seconds between digits: --> &lt;execute application="set" data="bind\_digit\_digit\_timeout=10000" /> |
+| **[bind\_digit\_input\_timeout](../../../Channel-Variables-Catalog/bind_digit_input_timeout_32178450.mdx#usage)** | Integer Overall timeout, in milliseconds. This sets the overall time to wait for the entire digit sequence to be entered.Default value is 0 milliseconds.Mostly only useful in conjunction with [mod\_dptools: play\_and\_get\_digits](../mod_dptools_1970333.mdx#-c) in the same dialplan extension.See section **3.1** in [mod\_dptools: bind\_digit\_action](../mod_dptools_1970333.mdx#-c).Usage**Example** &lt;execute application="set" data="bind\_digit\_input\_timeout=10000" />                                 |
+
+### 4.1 Example use case: using [mod_dptools: play_and_get_digits](./6586933.mdx#about) and [mod_dptools: bind_digit_action](./6586414.mdx#0-about) together
+
+TODO Still not sure why one would need to use these two together.
+
+Quoting from [\[Freeswitch-users\] problem with "play\_and\_get\_digits" command (DTMF delay time)](https://lists.freeswitch.org/pipermail/freeswitch-users/2015-August/115397.html):
+
+Click here to expand the mailing list thread
+
+**Manish Talwar** [manish.talwar at nexxuspg.com](mailto:freeswitch-users%40lists.freeswitch.org?Subject=[Freeswitch-users] problem with "play_and_get_digits" command (DTMF
+	delay time)&In-Reply-To=)  
+_Tue Aug 25 16:56:25 MSD 2015_
+
+---
+
+Hi,
+
+I have found one small problem with "[play\_and\_get\_digits](./6586933.mdx#about)" command.
+
+We have a IVR application and I am trying to get either "16 digit" card number or "0" for move to customer support from the user.
+
+Please find my dialplan as follows: 2015-08-25 18:05:37.535806 \[CRIT\] mod\_httapi.c:1148 Debugging Return Data:
+
+```xml
+<document type="xml/freeswitch-httapi">
+<params>
+</params>
+<work>
+<execute application="log" data="card number inputed: 2"/>
+<execute application="flush_dtmf"/>
+<execute application="sleep" data="2000"/>
+<execute application="clear_digit_action" data="my_digit" />
+<execute application="bind_digit_action" data="my_digit,~\d{16}|^[0]{1},exec:transfer,dummy_transfer" />
+<execute action="http://localhost:8080/ivr/fsentercardnumber/response/" application="play_and_get_digits" data="0 16 1 1000 # en-US/enter_card_number.mp3 '' Digits '' 1000 '' " />
+<getVariable name="Digits"/>
+<execute action="http://localhost:8080/ivr/fsentercardnumber/response/" application="play_and_get_digits" data="0 16 1 20000 # en-US/menu_speak_csr.mp3 '' Digits '' 20000 '' " />
+<getVariable name="Digits"/>
+<execute application="clear_digit_action" data="my_digit" />
+</work>
+</document>
+
+
+```
+
+ It is working fine as expected if user input 16 digit number continuously without any delay. After getting full 16 digit number it will match the "bind\_digit\_action" and move to other dialplan. But my problem is if a user enter card number slowly then its trying to match already inputed DTMF values with matching binding and received next inputed value as different DTMF values. As a example, if I tried to input 55 and then wait for 1-2 seconds then Freeswitch tried to match 55 with binding.
+
+```xml
+2015-08-25 18:05:39.535920 [DEBUG] switch_ivr_play_say.c:1305 Codec Activated L1 6 at 8000hz 1 channels 20ms 
+2015-08-25 18:05:39.755933 [DEBUG] switch_rtp.c:5819 RTP RECV DTMF 5:2080 
+2015-08-25 18:05:40.015948 [DEBUG] switch_rtp.c:5819 RTP RECV DTMF 5:2080 
+2015-08-25 18:05:41.536035 [DEBUG] mod_dptools.c:132 sofia/internal/18188535351@ 192.168.1.112 Digit NOT match binding [55] 
+2015-08-25 18:05:41.536035 [DEBUG] switch_channel.c:486 RECV DTMF 5:2000 
+2015-08-25 18:05:41.536035 [DEBUG] switch_channel.c:582 sofia/internal/181885353 51 at 192.168.1.112 Queue dtmf digit=5 ms=250 samples=2000 
+2015-08-25 18:05:41.536035 [DEBUG] switch_channel.c:486 RECV DTMF 5:2000 
+2015-08-25 18:05:41.536035 [DEBUG] switch_channel.c:582 sofia/internal/181885353 51 at 192.168.1.112 Queue dtmf digit=5 ms=250 samples=2000
+```
+
+ I don't want fresswtich tried to match the binding if there is any pause time while inputed the number as user can type slowly. I want to reset this binding delay time so that user can type slowly and we will get full 16 digits number for matching inputed value in certain time interval. Please suggest me how can I resolve this problem and increase the DTMF delay time. Thanks, Regards, Manish Talwar
+
+**Michael Collins** [msc at freeswitch.org](mailto:freeswitch-users%40lists.freeswitch.org?Subject=[Freeswitch-users] problem with "play_and_get_digits" command
+ (DTMF delay time)&In-Reply-To=DM2PR07MB416E0A32B6D2F55D9D71F328C610%40DM2PR07MB416.namprd07.prod.outlook.com)  
+_Wed Aug 26 18:42:32 MSD 2015_[\]](https://lists.freeswitch.org/pipermail/freeswitch-users/2015-August/author.html#115414)
+
+---
+
+Is there a reason that you're trying to use both [bind\_digit\_action](./6586414.mdx#0-about) and [play\_and\_get\_digits](./6586933.mdx#about)? Normally you'd use just one or the other, and if you're explicitly asking the user for input then I'd think that you would only need [play\_and\_get\_digits](./6586933.mdx#about).
+
+\-MC
+
+**Manish Talwar** [manish.talwar at nexxuspg.com](mailto:freeswitch-users%40lists.freeswitch.org?Subject=[Freeswitch-users] problem with "play_and_get_digits" command
+ (DTMF delay time)&In-Reply-To=CAKzWOxUTN%3DN1Sx4aDTPDRUcF6DUPvvohsvVQR%3DhjYOAS4LF_pA%40mail.gmail.com)  
+_Thu Aug 27 09:16:24 MSD 2015_[\]](https://lists.freeswitch.org/pipermail/freeswitch-users/2015-August/author.html#115422)
+
+---
+
+Hi,
+
+Thank you for your response. Actually, we are using multiple [play\_and\_get\_digits](./6586933.mdx#about) in a single dialplan. And when user inputed any matching format of input then we need to leave all remaining [play\_and\_get\_digits](./6586933.mdx#about) commands of that dialplan. That is why I used [bind\_digit\_action](./6586414.mdx#0-about) also in same dialplan.
+
+Please suggest how do we make the changes for this concern, how do we break the dialplan when required matching input found. Basically, its works fine as our requirement but we need to increase the DTMF delay time only, whenever user inputed slowly then its take the chunk of inputed data and tried to match the [bind\_digit\_action](./6586414.mdx#0-about) expression. As its break the DTMF into many chunks so its not matching expected regular expression of command. Please suggest. Thanks,
+
+Regards,
+
+Manish Talwar
+
+**Michael Collins** [msc at freeswitch.org](mailto:freeswitch-users%40lists.freeswitch.org?Subject=[Freeswitch-users] problem with "play_and_get_digits" command
+ (DTMF delay time)&In-Reply-To=DM2PR07MB41660FFE1911E91F0BECDD18C6F0%40DM2PR07MB416.namprd07.prod.outlook.com)  
+_Fri Aug 28 21:45:06 MSD 2015_
+
+---
+
+I found this in mod_dptools.c inside the bind_to_session function:
+
+    if (!(dmachine = switch_core_session_get_dmachine(session, target))) {
+        uint32_t digit_timeout = 1500;
+        uint32_t input_timeout = 0;
+        const char *var;
+
+        if ((var = switch_channel_get_variable(channel,
+"bind_digit_digit_timeout"))) {
+            digit_timeout = switch_atoul(var);
+        }
+
+        if ((var = switch_channel_get_variable(channel,
+"bind_digit_input_timeout"))) {
+            input_timeout = switch_atoul(var);
+        }
+
+        switch_ivr_dmachine_create(&dmachine, "DPTOOLS", NULL,
+digit_timeout, input_timeout, NULL, digit_nomatch_action_callback, session);
+        switch_core_session_set_dmachine(session, dmachine, target);
+    }
+
+
+It appears that there might be two channel variables for you to try:
+bind_digit_digit_timeout
+bind_digit_input_timeout
+
+These appear not to be documented at present, so I think you can help pay
+it forward by tinkering with them and then reporting back what you find
+out. As a guess, I'd say you're running into an issue with people who spend
+more than 1.5 seconds between digits. (It appears the default is 1500ms.)
+Try setting the bind_digit_digit_timeout value in the dialplan. Set it to
+something absurdly long like 7500 so that you can know for sure it is
+working.
+
+Please report back with your findings so that the docs team can document
+this. Bonus points if you document it yourself. :)
+
+Hope this helps,
+Michael
+
+**Manish Talwar** [manish.talwar at nexxuspg.com](mailto:freeswitch-users%40lists.freeswitch.org?Subject=[Freeswitch-users] problem with "play_and_get_digits" command
+ (DTMF delay time)&In-Reply-To=CAKzWOxUjJvvHcxdP0t-5O1s76dP%2BLBD-q%3DSn7%2B-_RuQHVar-oA%40mail.gmail.com)  
+_Mon Aug 31 14:34:30 MSD 2015_ 
+
+---
+
+Hi Michael,
+
+Thanks for your help.
+
+Its working fine now with setting the value of "bind_digit_digit_timeout" and "bind_digit_input_timeout" channel variable. I have set it as 10000 and its wait till 10 sec now for matching the regular expression.
+
+&lt;execute application="set" data="bind_digit_digit_timeout=10000" />
+
+&lt;execute application="set" data="bind_digit_input_timeout=10000" />
+
+Its working fine with me, your docs team can document this if required.
+
+Thanks,
+
+
+Regards,
+
+Manish Talwar
+
+## 5\. Notes
+
+### 5.1 Using `bind_digit_action` with a conference 
+
+Be aware that when using `bind_digit_action` you may inadvertently break other apps that rely upon DTMFs. This is because any digits that match a pattern are _consumed_ by `bind_digit_action`, and thus will not be sent through.
+
+However, **any non-matching digits will be sent through**. Therefore you should make sure that you don't have any regular expressions (or regexes) that "grab everything" unless you are equipped to handle that scenario.
+
+The `bind_digit_action` can definitely be used with conferences, however the above rule about matching digits still applies. Make sure that any keys that you wish to be available to your callers to control the conference (i.e. the [conference caller-controls](../../Conference/index.mdx#conference-examples)) do not "match" in your `bind_digit_action`s. There should be no overlap or overload of defined digits.
+
+If you have a PIN on your conference then you will need to make sure that the PIN code also does not "match" any of your bound digit actions, otherwise `bind_digit_action` will consume the digits that the caller dials and will \*not\* send them on to the conference! This results in a caller not being able to join a conference that is locked with a PIN code.
+
+### 5.2 Inband vs. 2833 DTMFs
+
+The `bind_digit_action` supports both inband and 2833 DTMFs. For an example on how to check the SDP for RFC 2833 and automatically start in-inband dtmf detection look in conf/dialplan/default.xml and locate the "global" extension. The 2833 detection is commented out by default.
+
+TODO [RFC 2833](https://tools.ietf.org/html/rfc2833) is obsoleted by [RFC 4733](https://tools.ietf.org/html/rfc4733).
+
+### 5.3 Setting on the B leg
+
+TODO How does this relate to section 3.3? Didn't touch this section.
+
+Here are several choices:
+
+Set the dtmf target leg to "peer" (see above)
+
+These 2 vars on the A leg using the set app:
+
+```xml
+<action application="set" data="bridge_pre_execute_bleg_app=bind_digit_action"/>
+<action application="set" data="bridge_pre_execute_bleg_data=whatever"/>
+```
+
+This var with export app:
+
+```xml
+<action application="export" data="nolocal:execute_on_answer=bind_digit_action whatever"/>
+```
+
+These vars with export app:
+
+```xml
+<action application="export" data="nolocal:bridge_pre_execute_app=bind_digit_action"/>
+<action application="export" data="nolocal:bridge_pre_execute_data=whatever"/>
+```
+
+or one of these vars in the dial string {}:
+
+```xml
+{bridge_pre_execute_app=bind_digit_action,bridge_pre_execute_data='whatever'}
+{execute_on_answer='bind_digit_action whatever'}
+```
+
+## 6\. See Also
+
+* [mod\_dptools: digit\_action\_set\_realm](./6586771.mdx#0-about)[ ](./6586771.mdx#0-about)\- switch realms
+* [mod\_dptools: clear\_digit\_action](./6586422.mdx#about) \- clear digit binding
+* [last\_matching\_digits](../../../Channel-Variables-Catalog/last_matching_digits_16353848.mdx#usage) channel variable
+  
+  
+## Comments:
+
+| Call Recording On/Off Switch - work only with 1 bind, you can not make several binds - after enable\|disable record and switch context we got new bindings with new realm. ![](/images/icons/contenttypes/comment_16.png) Posted by denis at gen 26, 2016 05:36 |
+| -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+
+Document generated by Confluence on nov 11, 2022 04:27

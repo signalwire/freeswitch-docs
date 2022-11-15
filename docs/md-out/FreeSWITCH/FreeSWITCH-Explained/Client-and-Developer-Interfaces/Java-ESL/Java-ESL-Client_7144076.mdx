@@ -1,0 +1,210 @@
+
+# Java ESL Client 
+
+ Created by  John Boteler, last modified by  livem Chan on 2019.03.28
+
+# About
+
+This page documents the org.freeswitch.esl.client library maintained in the freeswitch-contrib git repository. See [Java ESL](./index.mdx#about) page for overview of other options for using Java with the FreeSWITCH Event Socket.
+
+Click here to expand Table of Contents
+
+* 1 [Features](#features)
+* 2 [Getting Java ESL library](#getting-java-esl-library)  
+   * 2.1 [Binary jar files](#binary-jar-files)  
+   * 2.2 [Building from source in contrib git](#building-from-source-in-contrib-git)
+* 3 [Usage](#usage)  
+   * 3.1 [Inbound client usage](#inbound-client-usage)  
+   * 3.2 [Outbound socket client usage](#outbound-socket-client-usage)
+* 4 [Issues](#issues)
+* 5 [Roadmap](#roadmap)
+* 6 [Donations](#donations)
+* 7 [See Also](#see-also)
+
+## Features
+
+* Licensed under Apache License version 2 <http://www.apache.org/licenses/LICENSE-2.0>
+* Runtime dependency on [Netty](http://www.jboss.org/netty) (Apache License) and [SLF4j](http://www.slf4j.org) (MIT License) libraries
+* No native library runtime dependencies
+* ESL Inbound and Outbound support, see [Event Socket](../../Modules/mod_event_socket_1048924.mdx#11-acl) and [Event Socket Outbound](../Event-Socket-Library/Event-Socket-Outbound_3375460.mdx#faq).
+* OSGi ready
+* Built using maven
+
+## Getting Java ESL library
+
+### Binary jar files
+
+Current released version
+
+* org.freeswitch.esl.client-0.9.2.jar
+* org.freeswitch.esl.client-0.9.2-sources.jar
+* org.freeswitch.esl.client-0.9.2-javadoc.jar
+
+Each of these artifacts is signed with GPG key 1024D/74B7C72A (david.varnes \[at\] gmail \[dot\] com), which allows you to verify that the binary files you download are the same as those originally uploaded.
+
+#### Download manually
+
+Download the artifacts directly from:
+
+<https://oss.sonatype.org/content/repositories/releases/org/freeswitch/esl/client/org.freeswitch.esl.client/>
+
+Now it is available and update on github, welcome you to join us. ^\_^
+
+<https://github.com/esl-client/>
+
+This is the hosted repository maintained by Sonatype for OSS projects. The files are automatically synced from there to the maven central repository
+
+#### From maven central repository
+
+Assuming you are using a build tool that can resolve dependencies from the maven 2 central repository, add the following to your project pom.xml
+
+```xml
+<dependencies>
+   ...
+   <dependency>
+     <groupId>org.freeswitch.esl.client</groupId>
+     <artifactId>org.freeswitch.esl.client</artifactId>
+     <version>0.9.2</version>
+   </dependency>
+   ...
+ </dependencies>
+```
+
+Note: The netty dependency is not available from the maven 2 central repository. Either:
+
+* Follow the instructions in the [netty](http://www.jboss.org/netty) website, or
+* In your maven build activate the profile 'jboss-public-repository' which is in the org.freeswitch.esl.client pom, and will add the appropriate jboss repository to your build. ie: run
+
+ mvn install -Pjboss-public-repository
+
+#### Runtime dependencies
+
+If you download and install the jar(s) manually, you must also supply the following jars on your Java classpath
+
+* [netty-3.2.1.Final.jar](http://www.jboss.org/netty) for async socket comms
+* [slf4j-api-1.6.1.jar](http://www.slf4j.org) for logging
+* An [slf4j](http://www.slf4j.org) implementation, use slf4j-nop.jar if no logging required.
+
+### Building from source in contrib git
+
+The binary artifacts described above can of course be built from latest git HEAD (or TAG) using the following steps.
+
+#### Build dependency on maven tool
+
+A Java build tool analogous in some ways to 'autotools' and 'make' for the main FreeSWITCH code, this library is built using the [maven](http://maven.apache.org) build tool.
+
+Installing maven is beyond the scope of this page, just use the latest available from the link, and it is also packaged for some of the major Linux distributions.
+
+Maven will download the two compile dependencies (netty and slf4j-api) and the test dependency (logback) for you, as well as compile the java classes, run unit tests and assemble the 'jar' archive file.
+
+#### Checkout from git
+
+Must first [install git](https://wiki.freeswitch.org/wiki/Git%5FInstall "Git Install"). The code can be obtained from the freeswitch-contrib git repository. This command gets that repository (you get all the other good stuff in freeswitch-contrib too).
+
+$ git clone git://git.freeswitch.org/freeswitch-contrib.git
+
+#### Compiling, running tests and making jar
+
+Assuming 'mvn' is on path.
+
+$ cd freeswitch-contrib/dvarnes/java/esl-client
+$ mvn install
+
+If this is the first time you have run the maven tool, it will take some time as it downloads a seemingly endless set of jars from the central maven repository. This will only happen the first time, subsequent builds will be much faster.
+
+Note: some tests will try to connect to a running FreeSWITCH installation on the default port 8021 and password. See Configuration section of [Event\_Socket](https://wiki.freeswitch.org/wiki/Event%5FSocket "Event Socket"). These tests will **not** be run in a normal maven build, you will need to run them however you usually invoke junit test cases (IDE etc).
+
+These tests try to connect to a host called 'freeswitch-test', so add an entry to your hosts file that points 'freeswitch-test' to a host that with a listening ESL socket, can be localhost.
+
+## Usage
+
+For general usage of the ESL, browse the wiki, some [links](https://wiki.freeswitch.org/wiki/Java%5FESL%5FClient#See%5FAlso) below. Each of the different wiki pages for various language bindings and clients have useful snippets and clues.
+
+Chapter 9 of the [FreeSWITCH Book](https://www.packtpub.com/freeswitch-1-0-6-build-robust-high-performance-telephony-systems/book) also introduces events and the ESL.
+
+### Inbound client usage
+
+A simple unit test is included in the src/test/java directory of the source:
+
+```java
+ org.freeswitch.esl.client.inbound.ClientTest
+```
+
+This test assumes that it can connect to a FreeSWITCH with the default socket port and password at a host called 'freeswitch-test' in your hosts file.
+
+Note that the test source is not included in the packaged jar, it is available from the git repository.
+
+### Outbound socket client usage
+
+A **very** simple example is implemented as an example included in the main client jar: See the class ``
+
+```java
+ org.freeswitch.esl.client.outbound.example.SimpleHangupOutboundHandler
+```
+
+with an example of how to run it in the Outbound 'unit' test (really an application example) in the the src/test/java source directory.
+
+In order to make the test work, configure an extension in a running FreeSWITCH similar to
+
+```xml
+ <extension>
+   <condition field="destination_number" expression="444">
+     <action application="socket" data="192.168.100.88:8084 async full"/>
+   </condition>
+ </extension>
+```
+
+where the IP address needs to be the address that the FreeSWITCH will connect to your running test. Then run the test, which gives you 45 seconds to make a call to extension 444 and watch the information logged to the console, before the call is hung up, and then the test will end (thus closing the outbound socket client).
+
+Note that the unit test source described above is not included in the packaged jar, it is available from the git repository.
+
+**Outbound application**
+
+An application developer would need to extend (most importantly) the 
+
+```java
+org.freeswitch.esl.client.outbound.AbstractOutboundClientHandler
+```
+
+and (trivially) the 
+
+```java
+org.freeswitch.esl.client.outbound.AbstractOutboundPipelineFactory
+```
+
+classes with their own logic, and invoke the 
+
+```java
+org.freeswitch.esl.client.outbound.SocketClient
+```
+
+## Issues
+
+TODO - set up module under FreeSWITCH Jira
+
+Feedback, questions, issues, patches are very welcome either directly to the email address below, or via the [freeswitch-users](http://lists.freeswitch.org/mailman/listinfo/freeswitch-users) mailing list. The author is generally in [IRC](https://wiki.freeswitch.org/wiki/IRC "IRC") using nick 'dvarnes'.
+
+## Roadmap
+
+As of 30 August 2010
+
+* Add the content of this section to Jira
+* Fill in the TODO items in this doco page
+* Complete some more examples
+* Complete the items in TODO.txt in root of project source
+
+## Donations
+
+This java library was created and is maintained as a spare time effort.
+
+You can donate to the author via paypal to david.varnes \[at\] gmail \[dot\] com
+
+## See Also
+
+* [Event Socket](../../Modules/mod_event_socket_1048924.mdx#11-acl)
+* [Event Socket Library](../Event-Socket-Library/index.mdx#-new-)
+* [Event Socket Outbound](../Event-Socket-Library/Event-Socket-Outbound_3375460.mdx#faq)
+* [Debugging Event Socket Message](../../Introduction/Event-System/Debugging-Event-Socket-Message_9634071.mdx#using-netcat-as-middleman)
+* [Event List](../../Introduction/Event-System/Event-List_7143557.mdx#nat)
+
+Document generated by Confluence on nov 11, 2022 04:27

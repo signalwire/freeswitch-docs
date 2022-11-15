@@ -1,0 +1,263 @@
+
+# Perl ESL 
+
+ Created by  John Boteler, last modified on 2017.01.10
+
+## About
+
+The Perl ESL module allows for native interaction with FreeSWITCH over the event socket interface. It allows for sending commands, receiving their output, and receiving events from the FreeSWITCH server. The Perl ESL module is an auto-generated swig perl module with a binary component to it. You CANNOT just copy the PM file and use that, you must properly compile the module and get the ESL.so file generated also (which must be kept in the same directory as the ESL.pm). Note any time a change to libesl occurs you will need to re-make and install the updated perl ESL module or else things may break or work unexpectedly.
+
+Click to expand Table of Contents
+
+* 1 [Installation](#installation)
+* 2 [Usage](#usage)
+* 3 [Troubleshooting](#troubleshooting)
+* 4 [Examples](#poe-example)  
+   * 4.1 [fs\_ivrd Example](#fs_ivrd-example)  
+   * 4.2 [POE Example](#poe-example)
+
+# Installation
+
+See: <https://freeswitch.org/confluence/display/FREESWITCH/Event+Socket+Library#EventSocketLibrary-Installation>
+
+# Usage
+
+You must include the module in your perl script:
+
+require ESL;
+
+If you installed them somewhere not in the default path:
+
+use lib '/path/to/ESL/Location';
+
+You can then establish a connection using:
+
+my $fs = new ESL::ESLconnection($host, $port, $password);
+
+$port should be a string and not a number. Apparently the SWIG interface behind the scenes fails silently if it's passed as a number.
+
+Some common commands used in an esl client:
+
+* $fs->connected() - test if you are connected
+* my $reply = $fs->recvEvent() - get the next event
+* my $reply = $fs->recvEventTimed(timeout\_ms) - recv the next event or timeout after X ms
+* $reply->getHeader("header-name") - get the value of the named header from this event
+* $reply->getBody() - receive the body of the event; can be many lines
+* $fs->disconnect() - disconnect the ESL socket
+* $fs->events("event\_type","events to subscribe to") - subscribe to these events for example: $fs->events("plain","heartbeat CHANNEL\_HANGUP\_COMPLETE");
+* my $result = $fs->api("api command") - execute an api command
+
+For more examples see the libs/esl/perl source code folder for various perl examples for doing things with Perl ESL.
+
+# Troubleshooting
+
+* DO NOT use alarm in combination with the module at all (or at least with recvEvent) it will cause you to become disconnected from the server, use recvEventTimed instead.
+* If you call an invalid function like $reply->blah it may throw a swig error and say unable to load X, unfortunately X most likely doesn't exist and you just made a mistake.
+* Make sure after updating FreeSWITCH you recompile the perl module with `make perlmod` and `make perlmod-install` to ensure the libesl is properly up to date.
+* Do NOT use the old FreeSWITCH::Client esl module this is extremely outdated and does NOT work properly any more.
+
+# Examples
+
+## fs_ivrd Example
+
+Another way to do this is by using the fs\_ivrd script.
+
+To call this script from the dialplan use:
+
+```xml
+<extension name="ivr-application">
+  <condition field="destination_number" expression="^.$">
+    <action application="set" data="ivr_path=/usr/src/freeswitch/libs/esl/perl/ivr1.pl"/>
+    <action application="socket" data="127.0.0.1:9090 full"/>
+  </condition>
+</extension>
+```
+
+fs\_ivrd needs to run in the background to await the connection from FreeSWITCH; this is started by:
+
+cd /usr/local/freeswitch/bin
+
+./fs_ivrd -h 127.0.0.1 -p 9090
+
+This will start it, listening on localhost port 9090 for the outbound ESL connection from FS.
+
+You can specify fs\_ivrd to start automatically in conf/autoload\_configs/perl.conf.xml
+
+An example of ivr1.pl is below:
+
+**Example ivr1.pl**
+
+```perl
+#!/usr/bin/perl
+use ESL::IVR;
+
+$| = 1;
+
+select STDERR;
+my $sound_root = '/usr/local/freeswitch/sounds/en/us/callie';
+my $authenticated = 0;
+my $tries = 0;
+my $con = new ESL::IVR;
+my $number;
+my $pin;
+
+#$con->setVar('tts_engine', 'flite');
+#$con->setVar('tts_voice', 'slt');
+#$con->setVar('sound_prefix', $sound_root);
+
+my $uuid = $con->{_uuid};
+$con->execute("answer", "", $uuid);
+$con->execute("sleep", "500");
+
+while (!$authenticated && $tries < 3) {
+  my $number = $con->playAndGetDigits(
+    4, 4, 3, 10000, "#",
+    "ivr/ivr-please_enter_extension_followed_by_pound.wav",
+    "ivr/ivr-that_was_an_invalid_entry.wav",
+    "EXT", "^\\\d{4}\$"
+  );
+  if (not defined $number) {
+    $con->playback("voicemail/vm-goodbye.wav");
+    $con->execute("hangup");
+  }
+  $con->execute("sleep", "1000");
+  $con->execute("flush_dtmf");
+  $pin = $con->playAndGetDigits(
+    4, 4, 3, 10000, "#",
+    "ivr/ivr-please_enter_pin_followed_by_pound.wav",
+    "ivr/ivr-that_was_an_invalid_entry.wav",
+    "PIN", "^\\\d{4}"
+  );
+  $tries++;
+  $authenticated = 1;
+  $con->execute("sleep", "1000");
+  $con->execute("flush_dtmf");
+}
+
+$con->execute("hangup");
+```
+
+See also [Ivrd](../../Prototypes/IVRd_13173376.mdx#about) for more info.
+
+## POE Example
+
+This is an example of perl daemon that checks the event socket connection to FreeSWITCH every 5 seconds, if connected, it listens for Valet Parking events and does some MySQL stuff. I'm not a perl expert so I'm sure this code could be cleaned up a bit, but it works!
+
+POE = [Perl Object Environment](http://poe.perl.org/)
+
+**Example POE**
+
+```perl
+#!/usr/bin/perl
+# Written by ES on 02/07/12
+use warnings;
+use strict;
+use DBI; 
+use POE;
+use IO::Handle; 
+require ESL;
+
+# become daemon
+my $pid = fork();
+if($pid) {
+  open ("PID", ">/var/run/perl-esl-out.pid");
+  print PID $pid;
+  close (PID);
+  #end parent process
+  #print "#parent process";
+  exit(0);
+}
+
+# set new process group
+setpgrp;
+
+open STDOUT, '>>/var/log/perl-esl-out.log' or die "$0: Can't write to /var/log/perl-esl-out.log: $!";
+open STDERR, '>>/var/log/perl-esl-out.log' or die "$0: Can't write to /var/log/perl-esl-out.log: $!";
+open my $log_fh, '>>', '/var/log/perl-esl-out.log' or die "failed to open log: $!";
+$log_fh->autoflush(1);
+
+my $switch = "fs_switch01";
+my $database = "perl-esl-out";
+my $host = "perl-esl-out";
+my $port = "3306";
+my $user = "perl-esl-out";
+my $pass = "perl-esl-out";
+my $dsn = "DBI:mysql:database=$database;host=$host;port=$port";
+
+my $ping = 0;
+my $inbound;
+my $success = 0;
+my $sth;
+
+POE::Session->create(
+  inline_states => {
+    _start => sub {
+		$_[KERNEL]->delay(checkESL => 1);
+    },
+    checkESL => sub {
+		if($inbound) {
+			$ping = $inbound->api("eval 1");
+			if (!$ping) {
+				$inbound = undef;
+			} elsif($success) {
+				printf $log_fh "success!\n";
+				$success = 0;
+			}
+		}
+		if(!$inbound) {
+			$inbound = new ESL::ESLconnection("127.0.0.1", "8021", "ClueCon");
+			if($inbound->connected()) {
+				$success = 1;
+				# event plain CUSTOM valet_parking::info
+				$inbound->events("plain", "CUSTOM valet_parking::info");
+				# filter Action hold
+				# filter Action exit
+				$inbound->filter("Action", "hold");
+				$inbound->filter("Action", "exit");
+				my $descriptor = $inbound->socketDescriptor();
+				open my $fh, "+<&=$descriptor" or die $!;
+				$_[KERNEL]->select_read($fh, 'receiveESL');
+				#$fh->blocking(1);
+			}
+			printf $log_fh "Connecting...";
+		}
+		$_[KERNEL]->delay(checkESL => 5);
+    },
+	receiveESL => sub {
+		printf $log_fh "Received ESL.\n";
+		if(!$inbound->connected()) {
+			$_[KERNEL]->select_read($_[ARG0], undef);
+		} else {
+			my $e = $inbound->recvEvent();
+			if ($e) {
+				my $dbh = DBI->connect($dsn, $user, $pass) || die "Could not connect to database: $DBI::errstr";
+				my $action = $e->getHeader("Action");
+				if ($action) {
+					if ($action eq "exit") {
+						my $query = "DELETE FROM parking_lots WHERE lot=? and spot=?";
+						if (!($sth = $dbh->prepare($query))) {
+							die ("Failed to prepare statement: " . DBI->errstr);
+						}
+						$sth->execute($e->getHeader("Valet-Lot-Name"),$e->getHeader("Valet-Extension"));
+						printf $log_fh "Removed spot %s on %s\n", $e->getHeader("Valet-Extension"), $e->getHeader("Valet-Lot-Name");
+					}
+					if ($action eq "hold") {
+						$dbh->do('INSERT into parking_lots VALUES (?,?,?)', undef, ($switch,$e->getHeader("Valet-Lot-Name"),$e->getHeader("Valet-Extension")));
+						printf $log_fh "Added spot %s on %s\n", $e->getHeader("Valet-Extension"), $e->getHeader("Valet-Lot-Name");
+					}
+				}
+				$dbh->disconnect();
+			}	
+		}
+	},	
+  },
+);
+
+# Start the server.
+$poe_kernel->run();
+
+close $log_fh;
+exit 0;
+```
+
+Document generated by Confluence on nov 11, 2022 04:27

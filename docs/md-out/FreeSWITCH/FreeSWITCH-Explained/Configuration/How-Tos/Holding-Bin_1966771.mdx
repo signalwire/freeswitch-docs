@@ -1,0 +1,594 @@
+
+# Holding Bin 
+
+ Created by  John Boteler, last modified by  Branden Jordan on 2018.10.09
+
+# About
+
+The Holding Bin is a nice place to store useful information before there exists a final destination for it. Many of these notes and ideas come from the development team and power users on the IRC channel or mailing list and are too valuable to be lost to time.
+
+If you see a section that now has a page that is a good place to contain it, please move it to there and embellish the narrative to make it readable and useful.
+
+Some of the following items need explanation by developers or other research to be transferred to a final Confluence page.
+
+Click to expand Table of Contents
+
+* 1 [Debian vs Others](#debian-vs-others)
+* 2 [N.A.T.](#nat)
+* 3 [DNS vs IP Address](#dns-vs-ip-address)
+* 4 [mod\_commands](#mod_commands)
+* 5 [tone\_stream](#tone_stream)
+* 6 [Caller\*ID](#callerid)
+* 7 [Logging](#logging)
+* 8 [Multiple Calls](#multiple-calls)
+* 9 [mod\_sofia](#mod_sofia)  
+   * 9.1 [auth-messages](#auth-messages)  
+   * 9.2 [auth-subscriptions](#auth-subscriptions)  
+   * 9.3 [sofia global debug presence](#sofia-global-debug-presence)
+* 10 [Sofia](#mod_sofia)
+* 11 [FreeSWITCH version 1.4](#freeswitch-version-14)
+* 12 [send\_info](#send_info)
+* 13 [Networking](#networking)
+* 14 [Raspberry Pi (Rpi)](#raspberry-pi-rpi)
+* 15 [Media Position Pointers](#media-position-pointers)
+* 16 [TLS](#tls)
+* 17 [SRTP](#srtp)  
+   * 17.1 [rtp\_sdes\_suites](#rtp_sdes_suites)
+* 18 [zrtp](#zrtp)
+* 19 [Logging](#logging)
+* 20 [Timeouts](#timeouts)  
+   * 20.1 [Short](#short)  
+   * 20.2 [Long](#long)
+* 21 [Shared Call Appearance](#shared-call-appearance)
+* 22 [rtp\_secure\_media](#rtp_secure_media)
+* 23 [Dialplan Database](#dialplan-database)
+* 24 [Params\_Vars](#params_vars)
+* 25 [DTMF Detection](#dtmf-detection)
+* 26 [Show Commands](#show-commands)
+* 27 [Attended Transfers and VoiceMail](#attended-transfers-and-voicemail)
+* 28 [Dialed Digit regex](#dialed-digit-regex)
+* 29 [Script Bridge](#script-bridge)  
+   * 29.1 [First Time](#first-time)
+* 30 [302 Redirect](#302-redirect)
+* 31 [Load Measurement](#load-measurement)  
+   * 31.1 [PLC (Packet Loss Concealment)](#plc-packet-loss-concealment)
+
+# Debian vs Others
+
+(08:05:31) strata: i decided to give freeswitch a try last night after experimenting with asterisk for a while.  
+(08:06:09) strata: the fact that debian 8 is considered a "reference implementation" with centos install docs essentially being "meh. just use debian 8" and freebsd install docs being about the same...  
+(08:06:44) strata: this concerns me. if freeswitch has problems compiling on anything except the "reference implementation OS", what other problems does it have?  
+(08:07:22) strata: code that can't even cross distro boundaries probably has a host of other problems.  
+(10:47:05) SwK: strata, the reason the reference implementation is on Debian 8 and not Centos is because Centos doesn't have there required up-to-date libraries required for all the features on FreeSWITCH to work... if you dont want all the features, we already build FreeSWITCH on Centos7 64 and provide RPMs...  
+(10:48:02) SwK: strata, now if you want 100% feature parity with Centos and Debian, you're going to be getting a lotta packages to work on Centos and upgrading so many packages that by the time it's done you really won't be running Centos7 anymore it'll be Centos 7.5  
+(10:48:08) strata: why wouldn't you just create a freeswitch repo and put the up to date libraries in there with the freeswitch pacakge? (on centos)  
+(10:48:33) SwK: and I dont mean centos 7.5 as in what they are calling point 5 but what's 1/2 way to centos 8 which they haven't announced yet  
+(10:49:07) SwK: strata, I'd be more than happy to do that if someone wanted to fund the man month of work that's going to be required re-packaging all the updated libraries  
+(10:49:10) troffasky: strata, "just"? presumably it's a fair bit of work  
+(10:50:04) _strata left the room ("WeeChat 1.3")._  
+(10:50:07) SwK: strata, even on debian there's close to a full gig of dependancy tarballs alone  
+(10:51:15) SwK: and there were only a small handfull of packages we needed to update and push fixes upstream to Debian for  
+(10:51:53) SwK: with Centos some of the packages we need for 100% feature parity we can't even redistribute due to patent and licensing issues... debian figured out how to work around those issues somehow  
+(10:55:39) troffasky: speaking of debian...how does freeswitch fare on stretch/sid?  
+(10:56:06) SwK: troffasky, havent tried it lately...  
+(10:56:16) SwK: they are way unstable at this point  
+(10:56:34) BoteMan: Admittedly, the "Installation" tree in Confluence should be reorganized to explain this at the top level, then direct users to the best installation path. Currently, it retains the old method where the choice of linux distribution was broader. 
+
+# N.A.T.
+
+Lots of good network address translation discussion in FreeSWITCH Cookbook. Import to Confluence.
+
+# DNS vs IP Address
+
+(17:39:34) SwK: jglover, there are settings in the directory and on the sofia profiles for what domains they support... the stuff in vars.xml is just an example...  
+(17:40:27) jglover: SwK: I think the issue is that my domain names are being set in the hosts file  
+(17:40:41) jglover: Im trying to simulate production locally and I'm wondering if that's screwing things up  
+(17:40:55) jglover: when I use the ip address it works perfectly  
+(17:41:11) BoteMan: I found that if FreeSWITCH uses a DNS name, the phones had better register using that name and not i.p. addresses or it won't work :-(  
+(17:41:38) SwK: BoteMan, theres a setting for that too lol  
+(17:41:56) BoteMan: I KNEW IT!!  
+(17:42:25) SwK: jglover, not sure... but if you are using IPs on phones then doing something else in the FS configs like bote said you can have issues  
+(17:42:35) SwK: that's where the force domain settings on the sofia profiles come into play  
+(17:43:18) jglover: I'm trying to set things up using the multi-tenant directions, so I have commented out the three force options as outlined in the docs  
+(17:43:34) jglover: and set the domain to be test.local  
+(17:43:54) jglover: and changed the directory domains to reflect that  
+(17:43:59) SwK: **then you have to force other settings in the phones**  
+(17:44:08) SwK: like force a proxy setting and domain  
+(17:44:21) jglover: hm. I don't understand how that works.  
+(17:44:31) SwK: if you have the force options turned off  
+(17:44:41) SwK: then freeswitch matches the user on the domain they send  
+(17:45:00) SwK: so if they are trying to register to test.local and there is no test.local domain in the directory they can't register  
+(17:45:48) SwK: but if you have [mydomain.com](http://mydomain.com) in the directory and not in DNS then the phones cant find it, so you use the proxy settings in the phone to specify the IP of the FS box and the phone still sends the correct domain but to an overridden IP address  
+(17:46:10) SwK: its like saying hey use this hostname but instead of doing the DNS lookup just send it to this IP over here  
+(17:46:14) jglover: so, this is not related to freeswitch, but the phones (x-lite and zoiper) don't seem to be even trying to connect to test.local. I am using tcpdump to monitor connections  
+(17:46:49) jglover: otherwise I do actually know what you're talking about, because I've seen similar errors via fs\_cli  
+(17:47:20) jglover: it's strange. if I use 192.168.2.227:5080 then they connect perfectly but test.local:5080 i get nothing  
+(17:47:47) jglover: if I do nmap on that host however, I get a ping  
+(17:47:54) jglover: anyways, that's not really related to FS  
+(17:49:31) SwK: jglover, the proxy settings on the soft phone are relative to the that piece of software... I know there is a proxy setting on them, but without looking at each one I couldnt tell you what i tis  
+(17:49:43) SwK: usually it's in the advanced section of the sip client config  
+(17:51:07) BoteMan: Yeah, the phones can't see the /etc/hosts on the FreeSWITCH box so they have no idea what test.local resolves to.  
+(17:51:26) jglover: BoteMan: I have it resolved on my computer as well  
+(17:51:28) jglover: it's in both  
+(17:52:40) jglover: I have this guess that perhaps they are just doing a DNS lookup for domains that don't look like ip addresses. but could be wrong.  
+(17:52:49) jglover: It seems bizarre that I wouldn't even get a ping.  
+(17:53:14) jglover: in that case the domain would resolve to nothing (obviously, invalid TLD) and I would get a 503, which is what's happening.
+
+# mod_commands
+
+# tone_stream
+
+I discovered in XML\_Switch\_Configuration an example of the ability to impart attack fade-in and release fade-out to generated tone sequences, but I'm not entirely sure how it works.It also appears in the stock config files that install with a fresh copy of FS.
+
+&lt;action application="playback" data="tone_stream://v=-10;%(100,0,941.0,1477.0);v=-3;>=26;+=1;%(1400,0,350,440)"/>
+
+\=> See TGML for complete listing of parameters and definitions!!
+
+# Caller\*ID
+
+There are at least 10,791,253 different expressions of Caller\*ID in FreeSWITCH. Here are the ones that I have been able to divine through trial-and-error.
+
+Example
+
+${caller_id_name}
+
+caller\_id\_name - Caller\*ID name inbound from leg A caller phone; neither setting in extension nor exporting sends data to Leg B
+
+caller\_id\_number - Caller\*ID number inbound from leg A caller phone; neither setting in extension nor exporting sends data to Leg B
+
+\*effective\_caller\_id\_name - null until set in the dialplan or a script, automatically exported to Leg B \*DEPRECATED per anthm
+
+\*effective\_caller\_id\_number - null until set in the dialplan or a script, automatically exported to Leg B \*DEPRECATED per anthm
+
+outbound\_caller\_id\_name - neither setting in extension nor exporting sends data to Leg B
+
+outbound\_caller\_id\_number - neither setting in extension nor exporting sends data to Leg B
+
+outbound\_caller\_name - system-wide variable set in vars.xml; used by conference outdial, NOT by bridge even when exported
+
+outbound\_caller\_id - system-wide variable set in vars.xml; used by conference outdial, NOT by bridge even when exported; note the absence of "number" on the end
+
+# Logging
+
+Information on setting loglevel and the interaction of the various log and debug settings needs to be much easier to find.
+
+The prefix "variable\_" is displayed in CDRs and other places to indicate that the value is a variable. To work with the variable in code strip off the prefix "variable\_" and use the result.
+
+# Multiple Calls
+
+[Example Dialplan - FollowMe](../../Dialplan/Dialplan-FollowMe_9634428.mdx#about)
+
+leg\_delay\_start can delay ringing of selected outbound calls to permit other calls an earlier chance to get call, but variables are only documented on that linked page
+
+# mod_sofia
+
+As of 2014.05.19
+
+Here is the reference material for two sofia parameters.
+
+Auth-messages has been in the source for quite a while but not documented.
+
+Auth-subscritptions is brand new.
+
+Please add these to new wiki after RussT gives the OK, it's currently being worked in [FS-6466](https://freeswitch.org/jira/browse/FS-6466?src=confmacro)  \-[Autentica](https://freeswitch.org/confluence/plugins/servlet/applinks/oauth/login-dance/authorize?applicationLinkID=c4b15fa3-ad57-3c05-af05-8c167cb92266) per visualizzare i dettagli del problema 
+
+## auth-messages
+
+"true" or "false"
+
+If true the user agent will authenticate MESSAGE requests using Digest access authentication
+
+&lt;param name="auth-messages" value="false"/> 
+
+## auth-subscriptions
+
+"true" or "false"
+
+If true the user agent will authenticate SUBSCRIBE requests using Digest access authentication
+
+&lt;param name="auth-subscriptions" value="false"/> 
+
+## sofia global debug presence
+
+-ERR Usage: siptrace &lt;on|off>|capture &lt;on|off>|watchdog &lt;on|off>|debug &lt;sla|presence|none
+
+# Sofia
+
+\[10:41\] &lt;@bkw\_\_> sofia\_contact(\*/${dialed\_user}@${dialed\_domain})  
+\[10:41\] &lt;@bkw\_\_> its the \*/  
+01\[10:43\] &lt;BoteMan> What does that \*/ in the sofia\_contact string do? Is that a regex that gets stuffed with something?  
+\[10:43\] &lt;@bkw\_\_> BoteMan: looks for the user in all profiles  
+\[10:43\] &lt;@bkw\_\_> BoteMan: you can specify a profile name or \*  
+\[10:44\] &lt;witchdoc> bkw\_\_: hmm i tried both methods. sofia\_contact and user/username  
+\[10:44\] &lt;witchdoc> both failed with : mod\_dptools.c:3943 Can't find user \[[karsten@somewhere.domain](mailto:karsten@somewhere.domain)\]  
+\[10:44\] &lt;@bkw\_\_> user/ is just a proxy for dial-string in the directory
+
+\[10:47\] &lt;witchdoc> BoteMan: did you have alphanumeric usernames?  
+\[10:47\] &lt;BoteMan> Nope. Just plain numerals.  
+\[10:47\] &lt;@bkw\_\_> witchdoc: shouldn't matter  
+01\[10:48\] &lt;BoteMan> Ultimately found that sofia/internal looks in the public context because that's what's in sip\_profiles/internal.xml  
+01\[10:48\] &lt;BoteMan> But user/ does some magic and looks in "default" context  
+\[10:48\] &lt;witchdoc> bkw\_\_: it matters, cos FS is on register caseinsensitive but in the dialplan it is casesensitive  
+\[10:48\] &lt;@bkw\_\_> witchdoc: no its not  
+\[10:48\] &lt;witchdoc> yes it is, sure  
+\[10:48\] &lt;@bkw\_\_> witchdoc: examples  
+\[10:48\] &lt;@bkw\_\_> are you using regex to match these case sensitive thingys?  
+\[10:49\] &lt;witchdoc> bkw\_\_: for example - i have an username like "Username123" - the user registered with "uSerName123" - it is allowed to do so.  
+\[10:49\] &lt;@bkw\_\_> then in dialplan how art thou matching this?  
+\[10:49\] &lt;witchdoc> bkw\_\_: if i dialed "Username123" with sofia/profile/Username123 - it failed  
+\[10:50\] &lt;witchdoc> bkw\_\_: so i matched the dialplan with the ?i magic  
+\[10:50\] &lt;@bkw\_\_> oh you need to learn the difference between **auth-user** and **user** 
+\[10:50\] &lt;@bkw\_\_> &lt;param name="inbound-reg-force-matching-username" value="true"/>  
+\[10:50\] &lt;@bkw\_\_> will prevent that sillyness  
+\[10:50\] &lt;@bkw\_\_> at least thats the INTENT  
+\[10:51\] &lt;witchdoc> bkw\_\_: i have this already enabled  
+\[10:52\] &lt;witchdoc> bkw\_\_: and as i started with 1.2.8 or so, this sillyness was allready there  
+\[10:52\] &lt;@bkw\_\_> if (zstr(username) || zstr(to\_user) || strcasecmp(to\_user, username)) {  
+\[10:52\] &lt;@bkw\_\_> LOL, I think thats a bug to use strcasecmp there  
+\[10:52\] &lt;@bkw\_\_> witchdoc: I would file a JIRA  
+\[10:52\] &lt;@bkw\_\_> because User1234 and uSER1234 aren't the same in my book.  
+\[10:53\] &lt;@bkw\_\_> because that needs a little discussion.  
+\[10:53\] &lt;@bkw\_\_> because it says 'Optional check that auth name == SIP username'  
+\[10:53\] &lt;@bkw\_\_> User1234 != uSER1234  
+\[10:54\] &lt;witchdoc> in kamailio (1.5) it is allowed  
+\[10:54\] &lt;@bkw\_\_> REALLY?  
+\[10:54\] &lt;witchdoc> thats the problem, cos i migrated from that to FS and it breaks  
+\[10:54\] &lt;witchdoc> YES  
+\[10:54\] &lt;@bkw\_\_> file jira either way, this is a good item to debate  
+\[10:58\] &lt;witchdoc> bkw\_\_: hmm only &lt;action application="bridge" data="sofia/external/${dialed\_extension}%${domain\_name}"/> as dialstring works. i get crazy...  
+\[10:58\] &lt;pantera\_neagra> witchdoc: is @ not %  
+\[10:59\] &lt;witchdoc> pantera\_neagra: that dialstring \*works\*! if i know the profile  
+\[10:59\] &lt;@bkw\_\_> pantera\_neagra: % is valid  
+\[10:59\] &lt;@bkw\_\_> witchdoc: run sofia\_contact at fs\_cli  
+\[10:59\] &lt;@bkw\_\_> sofia\_contact \*/user@domain  
+\[10:59\] &lt;@bkw\_\_> does that return anything?  
+\[11:00\] &lt;@bkw\_\_> pantera\_neagra: [FAQ: What is the difference between using a % and @ in a sofia dial string?](../../[DEAD/FAQ/index.mdx#q-what-is-the-difference-between-using-a--and--in-a-sofia-dial-string)  
+\[11:00\] &lt;@bkw\_\_> witchdoc: guessing you forgot to alias the domain to your profile?  
+\[11:00\] &lt;witchdoc> error/user\_not\_registered  
+\[11:00\] &lt;@bkw\_\_> herpa derp  
+\[11:00\] &lt;@bkw\_\_> witchdoc: sofia status says?  
+\[11:00\] &lt;witchdoc> bkw\_\_: i think so  
+\[11:00\] &lt;@bkw\_\_> is domain an alias to the profile?  
+\[11:01\] &lt;@bkw\_\_> pastebin sofia status please  
+\[11:01\] &lt;pantera\_neagra> bkw\_\_: lol i'm stupid :D  
+\[11:04\] &lt;witchdoc> bkw\_\_: is an alias of my sipdomain an must-have for every profile?
+
+# FreeSWITCH version 1.4
+
+Build differences
+
+Moving libraries from in-tree to system libs
+
+WebRTC
+
+# send_info
+
+(12:57:06) lirakis\_: yeah i see a send\_info\_function  
+(12:57:32) anthm: yes  
+(12:57:32) babak: Hi anybody knows how to enable ECT Expicit Call Transfer feature of Libpri on freeswitch? it is very usfull service to eliminate tromboned calls  
+(12:58:09) anthm: you just call send\_info app with arg of data you want in the body  
+(12:58:12) lirakis\_: anthm, just no docs for it in the wiki. ill root around and edit the wiki page after i figure it out  
+(12:58:15) lirakis\_: anthm, thanks  
+(12:58:21) anthm: the content-type is fixed to freeswitch/data  
+(12:58:23) lirakis\_: going ot test that now  
+(13:03:04) lirakis\_: must set fs\_send\_unsupported\_info
+
+# Networking
+
+(00:42:36) SwK: the Juniper M7's are old but for about 2K to 2500 you got something that's not gonna fall over under high PPS loads from RTP  
+(00:42:51) NYSolutions: Gigabit?  
+(00:42:54) SwK: yeah  
+(00:43:00) SwK: multi-gigabit Ethernet uplinks  
+(00:43:27) coppice: if you are handling voip, the critical spec for any switch or router is **PPS**  
+(00:43:27) SwK: you get the right RE (route engine) in the M7s they have 2GB of ram for handling a couple of views  
+(00:43:33) SwK: (bgp views that is)  
+(00:43:43) SwK: coppice: yes it is, most people dont get that  
+(00:44:09) SwK: coppice: they don't get that they'll saturate their 400K PPS Cisco 3845 long before they saturate their gig-e interconnects  
+(00:44:33) coppice: most low end 1G routers choke at about 20M of VoIP  
+(00:44:47) coppice: and quite a few higher end ones  
+(00:52:32) SwK: NYSolutions: M7's are rated at 7million pps heh  
+(00:52:47) NYSolutions: what does MX give you more?  
+(00:53:09) SwK: more flexibility and much newer hardware  
+(00:53:38) SwK: pretty much all the M series is EOL from juniper but they are pennies on the dollar vs MX stuff  
+(00:54:15) SwK: most of the lower end M series arent just EOL they are EOSupport from jtac  
+(00:54:44) SwK: but they just dont die heh  
+(00:57:08) NYSolutions: I wish I could find something decent on ebay for a few hundred $  
+(00:57:27) SwK: you aren't going to find that for what you are probably doing  
+(00:57:35) SwK: which is dual homed for voip  
+(00:58:18) NYSolutions: Don't have the $ for this <http://www.ebay.com/itm/JUNIPER-MX80-ROUTER-CHASSIS-MX80-T-AC-U-S-VERSION-/301026717266?pt=US%5FEnterprise%5FRouters&hash=item4616972e52>  
+(00:58:35) SwK: yeah I dont either  
+(00:58:56) SwK: thast why I have the old M7s  
+(01:00:31) SwK: its not the chasis thats expensive… its the damned PICs  
+(01:00:52) SwK: Juniper PIC = Cisco WIC  
+(01:01:39) NYSolutions: How about using a pfsence at the edge?  
+(01:04:08) SwK: i wouldnt  
+(01:09:24) NYSolutions: I may try this <http://www.amazon.com/Ubiquiti-ERPRO-8-EdgeMAX-Gigabit-Rackmount/dp/B00IA5J8M8/ref=sr%5F1%5F1?ie=UTF8&qid=1400821479&sr=8-1&keywords=ERPRO-8>  
+(01:11:56) coppice: the ubiquity stuff claims very respectable PPS figures  
+(01:15:04) SwK: ubnt seems to have some pretty sharp people working there
+
+# Raspberry Pi (Rpi)
+
+19:14:58) haux: hi all. anyone installed fs 1.4 on raspberry pi ?  
+(19:15:14) haux: I conpiled it twice but getting codec problem  
+(19:17:26) bkw\_\_: yes  
+(19:17:30) bkw\_\_: you need to use 4.7 gcc  
+(19:17:35) bkw\_\_: 4.6 has this really nasty bug  
+(19:17:52) haux: thx a lot bkw !  
+(19:17:59) bkw\_\_: <http://quentusrex.com/drafts/freeswitch-raspberrypi-gcc-compiler-optimization-bug.html>  
+(19:18:04) bkw\_\_: if you wanna read about the fun stuff  
+(19:18:37) haux: I'll try it right now  
+(19:18:51) bkw\_\_: don't trust a single thing 4.6 produces  
+(19:19:00) haux: I am not a c++ develope. Thx to give me the short answer :-)  
+(19:19:02) quentusrex: bkw\_\_, I'm talking to a couple gcc devs to dig further into the issue and narrow down where the ccp stage went wrong.
+
+# Media Position Pointers
+
+(04:02:05) bluOxigen: BoteMan : playback\_seconds giving much better result then the playback\_last\_offset\_pos
+
+# TLS
+
+FS does not implement Diffie-Hellman ephemeral something-or-other only, elliptical something-or-other.
+
+# SRTP
+
+## rtp_sdes_suites
+
+(15:15:42) bkw\_\_: rtp\_sdes\_suites is only a made up variable to dictate what we'll ACCEPT and trigger for inboud SRTP  
+(15:15:44) bkw\_\_: used in defaults only  
+(15:15:51) bkw\_\_: ecrist: NO this is outbound  
+(15:16:12) bkw\_\_: rtp\_secure\_media\_outbound=true:AES\_CM\_256\_HMAC\_SHA1\_80,AES\_CM\_256\_HMAC\_SHA1\_32  
+(15:16:20) bkw\_\_: use that to set it to offer only those two on outbound
+
+# zrtp
+
+Brian West - The zrtp-hash IS required for us to dynamically enable p2p media, If you wish to force it yourself then you MUST set proxy\_media=true when this behavior is required. Also you can NOT set zrtp\_secure\_media=true and proxy\_media=true, It will never work,
+
+If you wish to enable passthrough you MUST set:
+
+zrtp_secure_media=false  
+proxy_media=true
+
+If you wish to talk to FS with ZRTP and then bridge to a non-zrtp endpoint you MUST set these:
+
+unset proxy_media  
+zrtp_secure_media=true
+
+zrtp\_secure\_media only deals with enablement of the ZRTP stack in FreeSWITCH, Nothing else.
+
+Travis Cross - I'm going to close this as incomplete for now. Which is to say that it's not yet clear to us that there is a FS issue here. If after taking into account Brian's explanation you're still seeing the CRC issue initially described and can explain to us how to reproduce it, please re-open.
+
+Brian West - I'm doing a patch to disable zrtp\_secure\_media if proxy\_media is set to true, The issue here is the zrtp stack in FS is is also spewing packets into the stream I suspect.
+
+# Logging
+
+log-uuid-short - includes only the first handful of characters of the uuid for shorter log strings; added by [Travis Cross](https://freeswitch.org/confluence/display/~tc) ask him for write-up.
+
+# Timeouts
+
+## Short
+
+Timeouts on the order of 30-90 seconds are usually caused by NAT traversal problems.
+
+## Long
+
+Timeouts on the order of 15 minutes are caused by something else.
+
+# Shared Call Appearance
+
+When using SCA, all phones must support the codec of the original phone call on which you're barging in.
+
+# rtp_secure_media
+
+As of Commit: 69c3c7d the variable has changed to rtp\_secure\_media as well as others after this commit.
+
+Per [FS-5755](https://freeswitch.org/jira/browse/FS-5755?src=confmacro)  \-[Autentica](https://freeswitch.org/confluence/plugins/servlet/applinks/oauth/login-dance/authorize?applicationLinkID=c4b15fa3-ad57-3c05-af05-8c167cb92266) per visualizzare i dettagli del problema 
+
+rtp_secure_media=mandatory
+
+rtp_secure_media=optional
+
+rtp_secure_media=mandatory:AES_CM_256_HMAC_SHA1_80,AES_CM_256_HMAC_SHA1_32
+
+rtp_secure_media=optional:AES_CM_256_HMAC_SHA1_80
+
+rtp_secure_media=forbidden
+
+true implies mandatory
+
+false implies forbidden
+
+not set implies optional
+
+rtp\_secure\_media\_inbound or rtp\_secure\_media\_outbound take precedence and are treated the same way based on leg direction
+
+# Dialplan Database
+
+(10:48:37) SwK: hackeron\_: there are 3 ways to get dialplan out of the database, 1) mod\_xml\_curl as crienzo mentioned, 2) you can create XML bindings with the built in scripting languages see XML bindings, see [Serving Configuration with Lua](../../Modules/mod-lua/Serving-Configuration-with-Lua_3965134.mdx#xml), or 3) you can write a custom dialplan hander in C to totally bypass the existing XML dialplan module  
+(10:48:49) bkw\_\_1: use xml\_curl if you want speed and no leaks  
+(10:48:58) bkw\_\_1: using perl will leak like crazy in some cases due to how per works when embeded
+
+# Params_Vars
+
+Parameters use dash: pass-rfc2833
+
+Variables use underscore: ${destination\_number}
+
+# DTMF Detection
+
+07:39:34) bulkorok: does play\_and\_get\_diigits recognizes DTMF tones embedded as real tone in RTP streams!?  
+(07:47:41) bkw\_\_: 2833 is in the RTP stream, what I think you mean to ask is does it detect them inband  
+(07:47:45) bkw\_\_: as in THE audio stream itself  
+(07:47:57) bkw\_\_: and the answer is NO, you need to execute the app that enables inband detection  
+(07:48:24) bkw\_\_: spandsp\_start\_dtmf  
+(07:48:33) bkw\_\_: and to turn off you call spandsp\_stop\_dtmf
+
+# Show Commands
+
+(16:13:59) bkw\_\_: show calls is BRIDGED CALLS  
+(16:14:02) bkw\_\_: show channels is all calls
+
+# Attended Transfers and VoiceMail
+
+(17:42:48) nneul: trying to diagnose an issue with skinny transfer code with a blind transfer... what I'm seeing is it's establishing a secondary channel - but when that secondary channel attaches to voicemail or something other than a completed bridge - there is no remote uuid for the channel, and as a result switch\_ivr\_uuid\_bridge won't work.  
+(17:46:11) anthm: you need to call one legged apps like vm and conference either with loopback or by sip loopback over an internal profile you setup on 127.0.0.1  
+(17:46:25) anthm: if you intend on being able to attended transfer them to someone  
+(17:46:47) nneul: this is being generated internally - i.e. not controlled by user config of the dialplan.  
+(17:47:00) nneul: how is it done with pure sip?  
+(17:47:38) nneul: i.e. when doing the transfer, I have no idea what it's going to go to.  
+(17:47:55) nneul: the actual execution of voicemail/conference/etc. is being done by the target extension.  
+(17:48:19) anthm: right, so if you want to be able to attended transfer such apps you need to call them over a loopback 100% of the time so there is something you can transfer otherwise you cannot do it  
+(17:48:22) nneul: should I just have skinny (when doing a transfer) always fake it through loopback?  
+(17:49:03) nneul: since it won't ever know what's on the other end?  
+(17:50:31) anthm: to clarify, you are talking about A calls B, gets VM' then wants to attended transfer that to C ?  
+(17:50:55) nneul: no...  
+(17:51:16) nneul: A calls B, B answers, talks, presses transfer, dials C, then presses transfer again  
+(17:51:24) nneul: if C goes to VM, it fails.  
+(17:53:30) anthm: ok same thing though  
+(17:54:29) anthm: you have to change it so when it goes to VM it uses loopback bridge instead of executing the app, so that the vm is a bridged call to the same box  
+(17:54:30) nneul: ok, going to have to figure out how to make that whole loopback happen since all of that happens in a completely separate portion of the code - from the perspective of the skinny code handling the transfer request for B - it's just dialing another number.  
+(17:55:40) anthm: for instance:  
+(17:55:41) anthm: &lt;action application="bridge" data="loopback/app=voicemail:default ${domain\_name} ${dialed\_extension}"/>  
+(17:56:11) anthm: that lets you run apps in a pseudo bridge so you have 2 uuid and a bridge going on to be able to perform transfers  
+(17:56:19) nneul: hmm... that seems simple enough.  
+(17:56:45) nneul: but where would that go - currently it does answer/playback-silence/voicemail  
+(17:57:32) anthm: in your normal call routing, wherever you would normally execute the voicemail app  
+(17:57:33) anthm: dp etc  
+(17:58:17) anthm: so you do it 100% of the time when voicemail is executed so you always have it like that for cases like you described  
+(17:58:20) nneul: ok, so leave the answer/playback as is - but change exec of voicemail to a bridge?  
+(17:58:26) anthm: yes  
+(17:58:31) nneul: ok, i'll try that, brb  
+(17:59:16) anthm: alternative is to make a special sofia profile on the loopback i.p. and call your own box via SIP and have a special dial plan context for that profile with calls to voicemail etc  
+(17:59:55) nneul: as always anthony, you rock!  
+(18:00:25) anthm: i try
+
+# Dialed Digit regex
+
+(15:23:26) SwK: sina0: depends on how you are using that but if in a condition you use the regex () capture method… where `^0(123450(8|9)(\d))$` captures everything but the leading 0 into $1, then 8|9 would be $2 and the last \\d would be $3  
+(15:24:09) sina0: thanks SwK . rtreleaven showed me the way   
+
+# Script Bridge
+
+From: Anthony Minessale &lt;anthony.minessale@gmail.com>  
+Date: Mon, 22 Sep 2014 13:20:29 -0500
+
+uuid\_bridge is a "transfer to" type of bridge so if you want to use it and your script is running on one of the legs involved, you need to allow your script to exit so the bridge can begin.
+
+If you have the uuid of another leg and you want to bridge this leg to it you can use:
+
+session:execute("intercept", "&lt;other uuid>")
+
+If you are manually creating legs inside Lua scripts just to bridge them, it's generally overkill. You can just do
+
+session:execute("bridge", "&lt;dial string>")
+
+which is a blocking call that will dial and bridge and return to your script when it's done.
+
+If you don't need to remain in your script you should set a custom variable to the destination you want to dial, exit the script, and use the bridge app from the xml dialplan.
+
+  
+**BAD instructions!**
+
+### First Time
+
+cd /usr/local/freeswitch/bin
+
+./freeswitch
+
+This will start FreeSWITCH™ and output many messages to the screen, allowing you to observe the startup sequence and any error messages. It is a Good Thing to do this at least once so that you can see the modules being loaded and understand how much information is available to you as you learn how to work with FreeSWITCH™. After all modules, users, and profiles have fully loaded you will see a prompt similar to
+
+freeswitch@domain>
+
+where domain is replaced by the domain name, machine name, or address on which FreeSWITCH™ is running. Refer to [mod\_commands](../../Modules/mod_commands_1966741.mdx#--) to learn what commands are available. Start with
+
+sofia status
+
+Type 'help' to get a long listing of commands available. Refer to [mod\_commands](../../Modules/mod_commands_1966741.mdx#--) for descriptions of the commands.
+
+If you wish to start FreeSWITCH™ in the background with no output to standard output:
+
+./freeswitch -ncwait
+
+FreeSWITCH will now be running until you terminate your session. Use fs\_cli to interact with the engine.
+
+  
+# 302 Redirect
+
+**From:** Steven Ayre  
+**Sent:** Tuesday, 12 January, 2016 15:40  
+**Subject:** Re: \[Freeswitch-users\] deflect vs redirect vs bridge
+
+But bear in mind that the client might not follow the 302\. FreeSWITCH for example either terminates the call on 302 or returns to the dialplan so you can validate the new destination, so that you don't (as an example) have someone redirecting you to a premium rate number without the caller's knowledge.
+
+# Load Measurement
+
+(10:47:48) eschmidbauer: this may seem like a dumb questions, but does 24 "threads" mean 24 CPUs ?  
+(10:48:03) eschmidbauer: because someone reported in the e-mail thread 24 threads with 8gb memory  
+(10:50:45) eschmidbauer: ah i see each core can run multiple threads  
+(10:50:53) eschmidbauer: how can you tell how many threads a core can run?  
+(11:53:16) Melt-Down: eschmidbauer start top and press 1  
+(10:53:49) Melt-Down: cat /proc/cpuinfo  
+(10:53:58) Melt-Down: and lookup the cpu on google :)  
+(11:17:53) bongfrog: can anyone point me to any realtime measures of what might be causing a freeswitch system to have CPU loads of over 10?  
+(11:23:39) SwK: bongfrog, what you mean loads over 10?  
+(11:25:37) bongfrog: CPU load - like from Uptime or top. CPU utilization stays at 20% box does not seem to be lagged or anything just has me questioning...  
+(11:26:25) bongfrog: SwK: I was curious if there is a way to see what subsystems are using resources at a particular point.  
+(11:34:40) Melt-Down: bongfrog check io wait  
+(11:34:45) SwK: bongfrog, well keep in mind that FS is highly multi-threaded and loadavg is just the number of threads in the run queue at sample time...  
+(11:34:48) Melt-Down: almost always its diskio  
+(11:35:24) SwK: it could be or it could just be normal for that system under that load  
+(11:39:54) bongfrog: SwK: no iowait that I have been able to see. Agree that it looks like but No. the box is usually way below 1 except for during a conference with large number of users  
+(11:41:23) bongfrog: SwK: that is why I was hoping there was some way to see if it is a particular thread the load to spike and what the thread is doing  
+(11:43:37) SwK: htop with gcore maybe...  
+(11:43:45) anthm: **top -H shows each thread**  
+(11:44:19) anthm: there is a syndrome where people get uptight about computers using the cpu =D  
+(11:46:04) coppice: anthm: I think they are worried it will wear out  
+(11:48:26) SwK: bongfrog, if it's not causing a problem, i don't consider a load avg of (number of cores \* 10) to be something to worry about with freeswitch... just knowing how linux calculates the load avg will make you go oh....  
+(11:50:08) bongfrog: anthm: I understand but when the loads get to double the number of cores on the box in other uses I have seen crazy things. When the same number of concurrent users but no conference the loads are very low.  
+(11:51:09) anthm: what distro is it?  
+(11:51:46) bongfrog: SwK: understood. You see that type of loading in normal use? And I agree that the 'black math' could be making me worry for nothing.  
+(11:52:18) bongfrog: anthm: CentOS release 6.7 (Final)  
+(11:53:28) bongfrog: SwK: still makes me nervous and nagios to go crazy :0  
+(11:53:42) anthm: I've seen load say 100 and still work normal because it depends on how it's calculated  
+(11:54:24) Melt-Down: load more than you have cpus/cores is usally bad :)  
+(11:54:40) anthm: centos versions > 5 are also bad  
+(11:55:00) bongfrog: anthm: holy cow that would make me cry if I happened to peek and saw that.  
+(11:55:00) Melt-Down: load due to cpu use more than number of cores/cpu is slowdown  
+(11:55:19) Melt-Down: load due to io use usally means end of service :)  
+(11:56:14) anthm: not when its load caused by FS. You have N timerfds open and N rtp sockets where N is number of active channels  
+(11:56:35) anthm: all the threads opened by the scheduler mess with the stats  
+(11:56:53) anthm: multi cores still suffer from a decent formula  
+(11:56:54) SwK: ^^^^  
+(11:57:13) anthm: and things done by the kernel can avoid being shown in the load avg and kill the box just as much but you won't even see it  
+(11:57:27) SwK: Melt-Down, I've had FS boxes averaging over 200 on the loadavg day to day with no issues and that was 8 core boxes  
+(11:57:34) anthm: the best test for load on a box is log in to ssh and feel it from experience of typing stuff  
+(11:58:20) anthm: depending on the timer scheme the reported load avg can move from the user average to the kernel  
+(11:58:53) anthm: if you are not running as root so that FS can't use the fifo scheduler and realtime threads you are in even more trouble  
+(11:59:00) anthm: and centos 6 100% sucks for sure hands down  
+(11:59:07) anthm: since the day it was released  
+(11:59:31) anthm: and i would not touch it with a 36" pole  
+(11:59:51) anthm: but that's purely editorial
+
+(12:01:59) SwK: centos7 doesnt feel much better than centos6.... I know this is pure speculation but it feels more like RHEL-BETA than centos these days  
+(12:02:40) bongfrog: SwK: that was my fear when they acquired the project. Fedora for enterprise?  
+(12:02:54) lazedo: anthm: noticed that the FS builds for Debian removed some libs in favor of Debian ones, and there were also some commits in mod\_shout, so i was wondering if something’s wrong with mod\_shout  
+(12:04:07) coppice: RedHat has lost a lot of CAD business to Ubuntu  
+(12:05:02) bongfrog: anthm: that is what had me so confused about where to look as the CLI and other tasks all seemed normal. No reports of audio quality issues. Guess I am just a nervous nelly  
+(12:06:30) anthm: centos 5 was good. it was an accident I suspect though because the kernel was very old which protected it from all the crazyness that happened between 2008 and 2013  
+(12:07:29) anthm: centos 6 was released too soon and had serious I/O issues. it was supposedly corrected now but I lost trust in it  
+(12:08:01) anthm: so it's less about the distro and more about how they patch the kernel or react to changes in it  
+(12:11:17) \]TechnoPhreak\[: anthm, ubuntu is the new recommended distro ?  
+(12:11:55) anthm: we develop from debian and soon will also have packages for ubuntu  
+(12:12:10) \]TechnoPhreak\[: ok, great  
+(12:12:11) anthm: gathering supporters for ubuntu to sponsor the effort  
+(12:12:32) anthm: centos packages are community-driven and have some issues  
+(12:12:44) anthm: they are not derived but they use the same packaging tools  
+(12:13:14) anthm: but because of the division among distros each one is a challenge  
+(12:13:35) anthm: because it's not just FS it's all the dependencies
+
+  
+## PLC (Packet Loss Concealment)
+
+When the jitter buffer is enabled, FreeSWITCH uses Spandsp's PLC algorithm to fill in missing frames in the audio stream. The algorithm uses previously received audio frames to generate synthesized frames, attenuating the synthesized samples linearly.
+
+  
+Document generated by Confluence on nov 11, 2022 04:24

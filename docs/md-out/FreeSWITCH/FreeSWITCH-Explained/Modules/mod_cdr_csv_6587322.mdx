@@ -1,0 +1,406 @@
+
+# mod_cdr_csv 
+
+ Created by  Italo Rossi, last modified by  Attila Gulyas on 2020.10.12
+
+---
+
+Table of Contents (click to expand)
+
+* 1 [0\. About](#0-about)
+* 2 [1\. Default configuration](#1-default-configuration)
+* 3 [2\. API commands](#2-api-commands)
+* 4 [2\. XML](#2-xml)  
+   * 4.1 [2.1 Settings (&lt;settings>)](#21-settings-settings)
+* 5 [3\. FreeSWITCH variables in a template (&lt;template>)](#3-freeswitch-variables-in-a-template-template)  
+   * 5.1 [3.1 Some notable FreeSWITCH variables](#31-some-notable-freeswitch-variables)
+* 6 [4\. Generating SQL from template](#4-generating-sql-from-template-)
+* 7 [5\. Examples](#5-examples)  
+   * 7.1 [5.1 SQL Script to create MySQL CDR table for default "example" CDRs](#51-sql-script-to-create-mysql-cdr-table-for-default-example-cdrs-)  
+   * 7.2 [5.2 Perl Script for CDR into MySQL](#52-perl-script-for-cdr-into-mysql-)
+
+---
+
+## 0\. About
+
+This module allows you to log call detail records (CDRs) to a text file using text generation templates. These templates along with the default configuration are stored in the file `<conf_dir>/autoload_configs/cdr_csv.conf.xml`.
+
+Which template is used for the default is defined by the line below (which uses "example" in the default installation).
+
+```xml
+<param name="default-template" value="example"/>
+```
+
+ Further down in the `cdr_csv.conf.xml` file, the "example" template is defined within the `<templates>`, `</templates>` opening and closing tags. Therefore to change what is being logged you may edit the example template or create a new template and update the `default-template` param to that template name.
+
+## 1\. Default configuration
+
+**&lt;conf\_dir>/autoload\_configs/cdr\_csv.conf.xml**
+
+```xml
+<configuration name="cdr_csv.conf" description="CDR CSV Format">
+<settings>
+  <!-- 'cdr-csv' will always be appended to log-base -->
+  <!--<param name="log-base" value="/var/log"/>-->
+  <param name="default-template" value="example"/>
+  <!-- This is like the info app but after the call is hung up -->
+  <!--<param name="debug" value="true"/>-->
+  <param name="rotate-on-hup" value="true"/>
+  <!-- may be a b or ab -->
+  <param name="legs" value="a"/>
+</settings>
+<templates>
+  <template name="sql">INSERT INTO cdr VALUES ("${caller_id_name}","${caller_id_number}","${destination_number}","${context}","${start_stamp}","${answer_stamp}","${end_stamp}","${duration}","${billsec}","${hangup_cause}","${uuid}","${bleg_uuid}", "${accountcode}");</template>
+  <template name="example">"${caller_id_name}","${caller_id_number}","${destination_number}","${context}","${start_stamp}","${answer_stamp}","${end_stamp}","${duration}","${billsec}","${hangup_cause}","${uuid}","${bleg_uuid}","${accountcode}","${read_codec}","${write_codec}"</template>
+  <template name="snom">"${caller_id_name}","${caller_id_number}","${destination_number}","${context}","${start_stamp}","${answer_stamp}","${end_stamp}","${duration}","${billsec}","${hangup_cause}","${uuid}","${bleg_uuid}", "${accountcode}","${read_codec}","${write_codec}","${sip_user_agent}","${call_clientcode}","${sip_rtp_rxstat}","${sip_rtp_txstat}","${sofia_record_file}"</template>
+  <template name="linksys">"${caller_id_name}","${caller_id_number}","${destination_number}","${context}","${start_stamp}","${answer_stamp}","${end_stamp}","${duration}","${billsec}","${hangup_cause}","${uuid}","${bleg_uuid}","${accountcode}","${read_codec}","${write_codec}","${sip_user_agent}","${sip_p_rtp_stat}"</template>
+  <template name="asterisk">"${accountcode}","${caller_id_number}","${destination_number}","${context}","${caller_id}","${channel_name}","${bridge_channel}","${last_app}","${last_arg}","${start_stamp}","${answer_stamp}","${end_stamp}","${duration}","${billsec}","${hangup_cause}","${amaflags}","${uuid}","${userfield}"</template>
+</templates>
+</configuration>
+```
+
+Useful things to know: 
+
+* You can change the `legs` value `a` for a-leg, `b` for b-leg and `ab` for both legs.
+* The template can be changed to include useful information such as `${remote_media_ip}` and `${network_addr}`
+* The template can be changed to include any custom variables you have set in the dialplan of the corresponding leg, with something like `{customer_name=whitehouse}sofia/gateway/foo/$1`. Then `${customer_name}` can be used in the CDR template.
+* If you log CDR for only one leg and you would like to include some data of the other leg, then u need to prefix `aleg_` or `bleg_` before the variable in the template
+* If you log b-leg then variables can be used directly for that leg such as `${caller_id_name}` and the a-leg variables need to be prefixed with `aleg_` and `bleg_` if you log a-leg calls
+
+## 2\. API commands
+
+To rotate CDRs without HUPing (i.e., shutting down) the entire FreeSWITCH instance (if `rotate-on-hup` is set, that is, see below).
+
+**In fs\_cli**
+
+```xml
+cdr_csv rotate
+```
+
+Or, from the system terminal:
+
+**On the system terminal**
+
+```xml
+fs_cli -x 'cdr_csv rotate'
+```
+
+## 2\. XML
+
+### 2.1 Settings (`<settings>`)
+
+The following parameters (self-closing `<param>` tags in `<settings>`) can be set under the `<settings>` tag in your `<conf_dir>/autoload_configs/cdr_csv.conf.xml` file.
+
+```xml
+<settings>
+  <param name="PARAM-NAME-HERE" value="VALUE"/>
+  <!-- PARAM-NAME-HERE = debug, default-template, legs, etc. -->
+
+  <!-- param 2 -->
+  <!-- ...     -->
+  <!-- param N -->
+</settings>
+```
+
+#### `debug`
+
+When set to true, this prints out all channel data in your log when creating a new CDR record is generated.
+
+* Possible values: `true`, `false`
+* Default value: `false`
+
+#### `default-template`
+
+The name of a template as defined in the `<templates>` section of your `<conf_dir>/autoload_configs/cdr_csv.conf.xml`.
+
+* Default value: `default`
+
+#### `legs`
+
+Choose whether the module will save CDRs for the a or b leg, or both of them.
+
+* Possible values: `a`, `b`, `ab`
+* Default value: `a`
+
+#### `log-base`
+
+The directory where the CSV files will be written to.
+
+* Default value: &lt;`root-of-your-freeswitch-installation>/log/cdr-csv` (or `/var/log/freeswitch/`)
+* The value can be overridden by `cdr_csv_base` channel variable.
+
+#### `master-file-only`
+
+When enabled, all CDRs will be written to a single file instead of to multiple files split up per `accountcode`.
+
+* Possible values: `true`, `false`
+* Default value: `false`
+
+#### `rotate-on-hup`
+
+When enabled, after sending a HUP signal to FreeSWITCH (i.e., when the FreeSWITCH server is stopped), the logfile will be rotated to a format like this:
+
+`Master.csv.YYYY-mm-dd-HH-MM-SS`
+
+* Possible values: `true`, `false`
+* Default value: TODO What is the default?
+
+## 3\. FreeSWITCH variables in a template (`<template>`)
+
+FreeSWITCH variables are given in the form `${varname}`. For an overview of variables, check [Channel Variables](http://wiki.freeswitch.org/wiki/Channel%5FVariables "Channel Variables"). You can specify any channel variable.
+
+API calls can also be specified in variables, such as:
+
+```xml
+<template name="custom_timestamp">"${expr(${end_epoch}-${my_timestamp})}"</template>
+```
+
+For example, the first line below shows the definition of the default `example` template, and the second one is the output after a successful call:
+
+```xml
+<template name="example">
+"${caller_id_name}","${caller_id_number}","${destination_number}",
+"${context}",       "${start_stamp}",     "${answer_stamp}",
+"${end_stamp}",     "${duration}",        "${billsec}",
+"${hangup_cause}",  "${uuid}",            "${bleg_uuid}",
+"${accountcode}",   "${read_codec}",      "${write_codec}"
+</template>
+
+
+"+19168897510",        "+19168897510",                         "+19167324000",
+"default",             "2020-10-12 16:52:37",                  "2020-10-12 16:52:37",
+"2020-10-12 16:52:42", "5",                                    "5",
+"NORMAL_CLEARING",     "5f26b500-d6b1-4c8a-b3ed-cfbea629f011", "",
+"",                    "PCMU",                                 "PCMU"
+
+```
+
+### 3.1 Some notable FreeSWITCH variables
+
+Read about [Variables](../Introduction/Variables/index.mdx#0-about), and see the full list in [Channel Variables](../Dialplan/Channel-Variables_16352493.mdx#about).
+
+#### `accountcode`
+
+An arbitrary value given at whim. Useful for billing and segregating calls by account. This is the `accountcode` of the aleg.
+
+If the value of the [accountcode variable](../Introduction/Variables/index.mdx#0-about) matches the name of a template then that template will be used. This is valuable for having a specific template be used on a per-call basis.
+
+#### `amaflags`
+
+Automatic Message Accounting, an archaic system that "flags" CDR for post-processing. Commonly used flags are `billing`, `default`, `documentation`, `omit`.
+
+#### `answer_epoch`
+
+UNIX [epoch](http://en.wikipedia.org/wiki/Unix%5Fepoch) value when the call was answered, eg. 1294060468 for Mon, 03 Jan 2011 13:14:28 GMT.
+
+#### `answer_stamp`
+
+Timestamp when the call was answered (eg, SIP 200 OK is received), in ISO 8601 format (YYYY-MM-DD hh:mm:ss), in the local timezone (not UTC). If the call is not answered, this will be an empty string.
+
+#### `billsec`
+
+The answered or billing span of the calls in seconds, i.e. "end\_stamp - answer\_stamp". Should only be > 0 in calls where HANGUP\_CAUSE == NORMAL\_CLEARING (16).
+
+#### `bleg_uuid`
+
+The [UUID](http://wiki.freeswitch.org/wiki/Mod%5Fcdr%5Fcsv#uuid) of the bleg, i.e. the called party or terminating end.
+
+#### `bleg_uuidaccountcode`
+
+The `accountcode` of the `bleg_uuid` in the call.
+
+#### `bridge_channel`
+
+The channel name of the bleg that the aleg was bridged to. e.g. `sofia/out/+919814440333@222.199.89.27`
+
+#### `channel_name`
+
+This is the `channel_name` of the A-leg originating end. In this case its `sofia/in/2185738219@89.212.283.238:5060`
+
+#### `context`
+
+The context where the call first entered the dialplan, in this case `default.`
+
+#### `destination_number`
+
+This is the number (rather, extension) specified by the A-leg. The dialplan can perform any mutation on this number before its actually dialed out (in the case above a + is added).
+
+#### `duration`
+
+The entire duration of the call, end to end in seconds, i.e. "start\_stamp - end\_stamp". Duration should always be >= billsec.
+
+#### `end_epoch`
+
+UNIX [epoch](http://en.wikipedia.org/wiki/Unix%5Fepoch) value when the call ended, eg. 1294060468 for Mon, 03 Jan 2011 13:14:28 GMT.
+
+#### `end_stamp`
+
+Timestamp when the call was hung up, in ISO 8601 format (YYYY-MM-DD hh:mm:ss), in the local timezone (not UTC).
+
+#### `hangup_cause`
+
+See [Hangup Causes](http://wiki.freeswitch.org/wiki/Hangup%5FCauses "Hangup Causes")
+
+#### `last_app`
+
+The last application run by the call; for example, `bridge` .
+
+#### `last_arg`
+
+The arguments passed to the last\_app, i.e. _sofia/out/+919814440203@222.199.89.27_
+
+#### `sip_gateway_name`
+
+See [How does FreeSWITCH CDR determine which gateway was used in failover?](http://lists.freeswitch.org/pipermail/freeswitch-users/2010-April/057411.html)
+
+#### `start_epoch`
+
+UNIX [epoch](http://en.wikipedia.org/wiki/Unix%5Fepoch) value when the call was started, eg. 1294060468 for Mon, 03 Jan 2011 13:14:28 GMT.
+
+#### `start_stamp`
+
+Timestamp when the call was started, in ISO 8601 format (YYYY-MM-DD hh:mm:ss), in the local timezone (not UTC).
+
+#### `userfield`
+
+A field to set your own custom values. For example:
+
+```xml
+<action application="set" data="userfield=${network_addr}"/>
+```
+
+#### `uuid`
+
+A unique identifier for the call. A UUID is a block of 16 bytes [ref](http://docs.freeswitch.org/structswitch%5F%5Fuuid%5F%5Ft.html). This is the UUID of the aleg of the call, i.e. the calling party or origination end. According to [ref](http://docs.freeswitch.org/group%5F%5Fswitch%5F%5F%5Fu%5Fu%5Fi%5Fd.html#ga3) UUIDs are formatted as: `00112233-4455-6677-8899-AABBCCDDEEFF`
+
+## 4\. Generating SQL from template 
+
+Some strings may contain characters that need escaping to generate a valid SQL statement. These include characters such as ', " and many non-printable characters. The API call `sql_escape` can be used to escape these variables to generate valid SQL.
+
+For example:
+
+```xml
+<template name="sql">INSERT INTO cdr (caller_id, ...) VALUES ('${sql_escape(${caller_id_name})}', ...);</template>
+```
+
+## 5\. Examples
+
+### 5.1 SQL Script to create MySQL CDR table for default "example" CDRs 
+
+To confirm that the `mod_cdr_csv` is set for the "sql" template, check the file `<conf_dir>/autoload_configs/cdr_csv.conf.xml`.
+
+The default is the example template. If that is indeed the case, the script below is just what you will need to create a the cdr table.
+
+**MySQL schema**
+
+```xml
+ CREATE TABLE cdr (
+   caller_id_name varchar(30) DEFAULT NULL,
+   caller_id_number varchar(30) DEFAULT NULL,
+   destination_number varchar(30) DEFAULT NULL,
+   context varchar(20) DEFAULT NULL,
+   start_stamp datetime DEFAULT NULL,
+   answer_stamp datetime DEFAULT NULL,
+   end_stamp datetime DEFAULT NULL,
+   duration int(11) DEFAULT NULL,
+   billsec int(11) DEFAULT NULL,
+   hangup_cause varchar(50) DEFAULT NULL,
+   uuid varchar(100) DEFAULT NULL,
+   bleg_uuid varchar(100) DEFAULT NULL,
+   accountcode varchar(10) DEFAULT NULL,
+   domain_name varchar(100) DEFAULT NULL
+ ); 
+```
+
+For PostgreSQL
+
+**PostgreSQL schema**
+
+```xml
+ CREATE TABLE cdr (
+   caller_id_name character varying(30),
+   caller_id_number character varying(30),
+   destination_number character varying(30),
+   context character varying(20),
+   start_stamp timestamp without time zone,
+   answer_stamp timestamp without time zone,
+   end_stamp timestamp without time zone,
+   duration integer,
+   billsec integer,
+   hangup_cause character varying(50),
+   uuid uuid,
+   bleg_uuid uuid,
+   accountcode character varying(10),
+   read_codec character varying(20),
+   write_codec character varying(20)
+ ); 
+```
+
+### 5.2 Perl Script for CDR into MySQL 
+
+TODO Someone with a little knowledge of Perl could probably fix up all the `system()` and other hacks and lack of error checking...
+
+Ensure the following line is uncommented in [cdr\_csv.conf.xml](../Configuration/CDR/index.mdx#about)
+
+```xml
+<param name="rotate-on-hup" value="true"/>
+```
+
+What this does is to allow the `Master.csv` and other CDR files to be rotated via the same method as used by the [mod\_logfile](./mod_logfile_1048990.mdx#about) method. The script below uses one of these methods to rotate the log file and load the file into a database. (The naming format for the rotated files is from e.g. `Master.csv` to `Master.csv.yyyy-mm-dd-hh-mm-ss`)
+
+Create the script using the code below, and run through cron every minute if you like.
+
+**Example Perl script**
+
+```perl
+#!/usr/bin/perl -w
+
+# Convergence FreeSWITCH(tm) Tools Version 7.0
+# (c) MMII Convergence. All rights reserved.
+# <info@convergence.pk> http://www.convergence.pk
+
+# This program is free software, distributed under the terms of
+# the GNU General Public License.http://www.gnu.org/licenses.html
+
+use strict;
+use DBI();
+use File::Copy;
+
+# this command sends -SIGHUP to fs, she creates new cdr.csv files, so we can load the old ones up
+my @cc  = ("killall", "-HUP", "freeswitch");
+system(@cc) == 0 or die "$0: system @cc failed: $?";
+
+my $dbh = DBI->connect("DBI:mysql:database=freeswitch;host=localhost","fsdbuser","fsdbpass") or die "$0: Couldn't connect to database: " . DBI->errstr;
+
+# this is the standard location of the cdr-csv
+my @LS  = `ls -1t /usr/local/freeswitch/log/cdr-csv/Master.csv.*`;
+foreach my $line (@LS) {
+    chop($line);
+    my $stm     = "LOAD DATA LOW_PRIORITY LOCAL INFILE '$line' INTO TABLE cdr FIELDS ENCLOSED BY '\"' TERMINATED BY ','";
+    my $ul      = $dbh->prepare($stm) or die "$0: Couldn't prepare statement $stm: " . $dbh->errstr;;
+    $ul->execute();
+    $ul->finish;
+    system("cat $line >> /usr/local/freeswitch/log/cdr-csv/FULL_Master.csv"); # we do this to maintain a single FULL file if needed
+    unlink $line;
+}
+
+# one silly thing is that each accountcode has its own cdr.csv as well, either handle those here, by loading them into their own tables, or rm them
+my @BS  = ("xtec","megaphone","mafcom","xeivacom");
+foreach my $code (@BS) {
+   @LS = `ls -1t /usr/local/freeswitch/log/cdr-csv/$code.csv.*`;
+   foreach my $line (@LS) {
+       chop($line);
+       #unlink($line);  #to delete
+       move($line, "/usr/local/freeswitch/log/cdr-csv/trash/$code/"); # or move into a separate dir for later procession
+   }
+}
+exit 0;
+ 
+```
+
+## Comments:
+
+| /usr/local/freeswitch/conf/autoload\_configs/cdr\_csv.conf.xmlWhen I had modifed this config file, the only way to reload this file,just "**reload mod\_cdr\_csv**", what reload the mod\_cdr\_csv module, can work well. Has other command can reload the cdr\_csv.conf.xml ?Thanks ![](/images/icons/contenttypes/comment_16.png) Posted by livem at feb 24, 2017 04:22 |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+
+Document generated by Confluence on nov 11, 2022 04:27

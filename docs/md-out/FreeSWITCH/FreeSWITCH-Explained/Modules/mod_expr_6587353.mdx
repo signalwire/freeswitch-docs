@@ -1,0 +1,188 @@
+
+# mod_expr 
+
+ Created by  Italo Rossi, last modified by  Pat Beirne on 2015.10.09
+
+# About
+
+mod\_expr implements Brian Allen Vanderburg's [ExprEval](http://expreval.sourceforge.net/) expression evaluation library for FreeSWITCH.
+
+Click here to expand Table of Contents
+
+* 1 [Overview](#overview)
+* 2 [Use Cases:](#use-cases)  
+   * 2.1 [Console](#console)  
+   * 2.2 [Dialplan](#dialplan)
+* 3 [Expression Syntax](#expression-syntax)  
+   * 3.1 [Order of Operators](#order-of-operators)  
+   * 3.2 [ExprEval Internal Functions](#expreval-internal-functions)  
+   * 3.3 [ExprEval Internal Constants](#expreval-internal-constants)
+
+## Overview
+
+This module provides expression evaluation so that you can do math inside any context where module code can be invoked. The most likely place you will use this is in the [dialplan](../Dialplan/index.mdx#0-about). 
+
+The syntax allows you create expressions that have multiple parts, separated by a semicolon. You can then create temporary variables that can be used to build more complex expressions.
+
+## Use Cases:
+
+### Console
+
+From the command line you can do things like this:
+
+```xml
+freeswitch@internal> expr 1+1
+2
+freeswitch@internal> expr 2/4
+0.5
+freeswitch@internal> expr sin(0)
+0
+freeswitch@internal> expr cos(0)
+1
+freeswitch@internal> expr randomize(&x);ceil(random(0,100,&x))
+39
+```
+
+Of course you can also invoke this from fs\_cli or through the event socket.
+
+### Dialplan
+
+You can use expr in the dialplan with the ${...} syntax. Example:
+
+```xml
+<!-- generate random number between 1 and 100 -->
+<action application="set" data="rand_val=${expr(randomize(&x);ceil(random(0,100,&x)))}"/>
+<action application="log" data="INFO Random value is ${rand_val}"/>
+```
+
+Suppose, you want to check if the balance of a customer is below zero, without calling a script, and execute a dialplan:
+
+**Check customer credit balance**
+
+```xml
+<action application="set" data="balance=0.55" />
+<action application="set" data="myext=${expr(select(above(${balance}, 0) - 0.5, 514, 515))}" />
+<action application="transfer" data="${myext} XML mydialplan" />
+```
+
+You could use the **below** here instead, with the logical modification.
+
+## Expression Syntax
+
+If you build a compound expression, each internal phrase must end with a semicolon. The value of the expression is the value of the last phrase.
+
+```xml
+4*x+5
+y=5+2;g=4+6
+y=r*sin(a);x=r*cos(a)
+```
+
+The asterisk '\*' must be used to multiply. Round brackets () are used for setting precedence.
+
+Some functions may take reference parameters. These parameters are references to other variables. You can mix reference parameters with normal parameters. The order of the normal parameters must remain the same and the order of the reference parameters must remain the same.
+
+```xml
+min(1,2,3,4,&mval);		&mval is a reference to a variable mval
+min(1,2,&mval,3,4); 	You may mix them inside like this.
+min(1,2,(&mval),3,4);	You may not nest reference parameters in any way
+```
+
+Expressions may also have whitespace characters and comments. Whitespace characters such as newlines, linefeeds, carriage returns, spaces, and tabs are ignored. Comments begin with the pound sign '#' and end at the end of the line.
+
+If a variable is used in an expression, but that variable does not exist, it is considered zero. If it does exist then its value is used instead.
+
+Notice: An expression can NOT assign to a constant and an expression can NOT use a constant as a reference parameter.
+
+### Order of Operators
+
+The order of operators are processed correctly in ExprEval. The parameters to functions may be evaluated out of order, depending on the function itself.
+
+The following illustrates the order of operators:
+
+| Operator                    | Direction     | Example            |
+| --------------------------- | ------------- | ------------------ |
+| Functions and Parenthesis   | N/A           | (x + 5) \* sin(d); |
+| Negation                    | Right to Left | y = -2;            |
+| Exponents                   | Left to Right | y = x ^ 2;         |
+| Multiplication and Division | Left to Right | x \* 5 / y;        |
+| Addition and Subtraction    | Left to Right | 4 + 5 - 3;         |
+| Assignment                  | Right to Left | x = y = z = 0;     |
+
+### ExprEval Internal Functions
+
+The following functions are provided with ExprEval:
+
+| Function                                                  | Min. Args | Max. Args | Min. Ref Args | Max. Ref Args | Result/Comment                                                                                                                                                                                                                                                                                                                                                           |
+| --------------------------------------------------------- | --------- | --------- | ------------- | ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| abs(v)                                                    | 1         | 1         | 0             | 0             | Absolute value of v.abs(-4.3) returns 4.3                                                                                                                                                                                                                                                                                                                                |
+| mod(v,d)                                                  | 2         | 2         | 0             | 0             | Remainder of v/d.mod(5.2,2.5) return 0.2                                                                                                                                                                                                                                                                                                                                 |
+| ipart(v)                                                  | 1         | 1         | 0             | 0             | The integer part of v.ipart(3.2) returns 3                                                                                                                                                                                                                                                                                                                               |
+| fpart(v)                                                  | 1         | 1         | 0             | 0             | The fractional part of v.fpart(3.2) returns 0.2                                                                                                                                                                                                                                                                                                                          |
+| min(v,...)                                                | 1         | None      | 0             | 0             | The minimum number passed.min(3,2,-5,-2,7) returns -5                                                                                                                                                                                                                                                                                                                    |
+| max(v,...)                                                | 1         | None      | 0             | 0             | The maximum number passed.max(3,2,-5,-2,7) returns 7                                                                                                                                                                                                                                                                                                                     |
+| pow(a,b)                                                  | 2         | 2         | 0             | 0             | The value a raised to the power b.pow(3.2,1.7) returns 3.21.7                                                                                                                                                                                                                                                                                                            |
+| sqrt(a)                                                   | 1         | 1         | 0             | 0             | The square root of a.sqrt(16) returns 4                                                                                                                                                                                                                                                                                                                                  |
+| sin(a)                                                    | 1         | 1         | 0             | 0             | The sine of a radians.sin(1.5) returns around 0.997                                                                                                                                                                                                                                                                                                                      |
+| sinh(a)                                                   | 1         | 1         | 0             | 0             | The hyperbolic sine of a.sinh(1.5) returns around 2.129                                                                                                                                                                                                                                                                                                                  |
+| asin(a)                                                   | 1         | 1         | 0             | 0             | The arc-sine of a in radians.asin(0.5) returns around 0.524                                                                                                                                                                                                                                                                                                              |
+| cos(a)                                                    | 1         | 1         | 0             | 0             | The cosine of a radians.cos(1.5) returns around 0.0707                                                                                                                                                                                                                                                                                                                   |
+| cosh(a)                                                   | 1         | 1         | 0             | 0             | The hyperbolic cosine of a.cosh(1.5) returns around 2.352                                                                                                                                                                                                                                                                                                                |
+| acos(a)                                                   | 1         | 1         | 0             | 0             | The arc-cosine of a in radians.acos(0.5) returns around 1.047                                                                                                                                                                                                                                                                                                            |
+| tan(a)                                                    | 1         | 1         | 0             | 0             | The tangent of a radians.tan(1.5) returns around 14.101                                                                                                                                                                                                                                                                                                                  |
+| tanh(a)                                                   | 1         | 1         | 0             | 0             | The hyperbolic tangent of a.tanh(1.5) returns around 0.905                                                                                                                                                                                                                                                                                                               |
+| atan(a)                                                   | 1         | 1         | 0             | 0             | The arc-tangent of a in radians.atan(0.3) returns about 0.291                                                                                                                                                                                                                                                                                                            |
+| atan2(y,x)                                                | 2         | 2         | 0             | 0             | The arc-tangent of y/x, with quadrant correction.atan2(4,3) returns about 0.927                                                                                                                                                                                                                                                                                          |
+| log(a)                                                    | 1         | 1         | 0             | 0             | The base 10 logarithm of a.log(100) returns 2                                                                                                                                                                                                                                                                                                                            |
+| pow10(a)                                                  | 1         | 1         | 0             | 0             | 10 raised to the power of a.pow10(2) returns 100                                                                                                                                                                                                                                                                                                                         |
+| ln(a)                                                     | 1         | 1         | 0             | 0             | The base e logarithm of a.ln(2.8) returns around 1.030                                                                                                                                                                                                                                                                                                                   |
+| exp(a)                                                    | 1         | 1         | 0             | 0             | e raised to the power of a.exp(2) returns around 7.389                                                                                                                                                                                                                                                                                                                   |
+| logn(a,b)                                                 | 2         | 2         | 0             | 0             | The base b logarithm of a.logn(16,2) returns 4                                                                                                                                                                                                                                                                                                                           |
+| ceil(a)                                                   | 1         | 1         | 0             | 0             | Rounds a up to the nearest integer.ceil(3.2) returns 4                                                                                                                                                                                                                                                                                                                   |
+| floor(a)                                                  | 1         | 1         | 0             | 0             | Rounds a down to the nearest integer.floor(3.2) returns 3                                                                                                                                                                                                                                                                                                                |
+| rand(&seed)                                               | 0         | 0         | 1             | 1             | Returns a number between 0 up to but not including 1.                                                                                                                                                                                                                                                                                                                    |
+| random(a,b,&seed)                                         | 2         | 2         | 1             | 1             | Returns a number between a up to and including b.                                                                                                                                                                                                                                                                                                                        |
+| randomize(&seed)                                          | 0         | 0         | 1             | 1             | Seed the random number generator with a value based on the current time.Return value is unknown                                                                                                                                                                                                                                                                          |
+| deg(a)                                                    | 1         | 1         | 0             | 0             | Returns a radians converted to degrees.deg(3.14) returns around 179.909                                                                                                                                                                                                                                                                                                  |
+| rad(a)                                                    | 1         | 1         | 0             | 0             | Returns a degrees converted to radians.rad(180) returns around 3.142                                                                                                                                                                                                                                                                                                     |
+| recttopolr(x,y)                                           | 2         | 2         | 0             | 0             | Returns the polar radius of the rectangular co-ordinates.recttopolr(2,3) returns around 3.606                                                                                                                                                                                                                                                                            |
+| recttopola(x,y)                                           | 2         | 2         | 0             | 0             | Returns the polar angle (0...2PI) in radians of the rectangular co-ordinates.recttopola(2,3) returns around 0.588                                                                                                                                                                                                                                                        |
+| poltorectx(r,a)                                           | 2         | 2         | 0             | 0             | Returns the x rectangular co-ordinate of the polar co-ordinates.poltorectx(3,1.5) returns around 0.212                                                                                                                                                                                                                                                                   |
+| poltorecty(r,a)                                           | 2         | 2         | 0             | 0             | Returns the y rectangular co-ordinate of the polar co-ordinates.poltorecty(3,1.5) returns around 2.992                                                                                                                                                                                                                                                                   |
+| if(c,t,f)                                                 | 3         | 3         | 0             | 0             | Evaluates and returns t if c is not 0.0\. Else evaluates and returns f.if(0.1,2.1,3.9) returns 2.1                                                                                                                                                                                                                                                                       |
+| select(c,n,z\[,p\])                                       | 3         | 4         | 0             | 0             | Returns n if c is less than 0.0.Returns z if c is 0.0\. If c is greater than 0.0 and only three arguments were passed, returns z. If c is greater than 0.0 and four arguments were passed, return p. select(3,1,4,5) returns 5                                                                                                                                           |
+| equal(a,b)                                                | 2         | 2         | 0             | 0             | Returns 1.0 if a is equal to b. Else returns 0.0equal(3,2) returns 0.0                                                                                                                                                                                                                                                                                                   |
+| above(a,b)                                                | 2         | 2         | 0             | 0             | Returns 1.0 if a is above b. Else returns 0.0above(3,2) returns 1.0                                                                                                                                                                                                                                                                                                      |
+| below(a,b)                                                | 2         | 2         | 0             | 0             | Returns 1.0 if a is below b. Else returns 0.0below(3,2) returns 0.0                                                                                                                                                                                                                                                                                                      |
+| avg(a,...)                                                | 1         | None      | 0             | 0             | Returns the average of the values passed.avg(3,3,6) returns 4                                                                                                                                                                                                                                                                                                            |
+| clip(v,min,max)                                           | 3         | 3         | 0             | 0             | Clips v to the range from min to max. If v is less than min, it returns min. If v is greater than max it returns max. Otherwise it returns v.clip(3,1,2) returns 2                                                                                                                                                                                                       |
+| clamp(v,min,max)                                          | 3         | 3         | 0             | 0             | Clamps v to the range from min to max, looping if needed.clamp(8.2,1.3,4.7) returns 1.4                                                                                                                                                                                                                                                                                  |
+| pntchange(side1old, side2old, side1new, side2new, oldpnt) | 5         | 5         | 0             | 0             | This is used to translate points from different scale. It works no matter the orientation as long as the sides are lined up correctly.pntchange(-1,1,0,480,-0.5) returns 120 (x example) pntchange(-1,1,480,0,-0.5) returns 360 (y example)                                                                                                                              |
+| poly(x,c1,...)                                            | 2         | None      | 0             | 0             | This function calculates the polynomial. x is the value to use in the polynomial. c1 and on are the coefficients.poly(4,6,9,3,1,4) returns 2168 same as 6\*44 + 9\*43 + 3\*42 + 1\*41 + 4\*40                                                                                                                                                                            |
+| and(a,b)                                                  | 2         | 2         | 0             | 0             | Returns 0.0 if either a or b are 0.0 Else returns 1.0and(2.1,0.0) returns 0.0                                                                                                                                                                                                                                                                                            |
+| or(a,b)                                                   | 2         | 2         | 0             | 0             | Returns 0.0 if both a and b are 0.0 Else returns 1.0or(2.1,0.0) returns 1.0                                                                                                                                                                                                                                                                                              |
+| not(a)                                                    | 1         | 1         | 0             | 0             | Returns 1.0 if a is 0.0 Else returns 0.0not(0.3) returns 0.0                                                                                                                                                                                                                                                                                                             |
+| for(init,test,inc,a1,...)                                 | 4         | None      | 0             | 0             | This function acts like a for loop in C. First init is evaluated. Then test is evaluated. As long as the test is not 0.0, the action statements (a1 to an) are evaluated, the inc statement is evaluated, and the test is evaluated again. The result is the result of the final action statement.for(x=0,below(x,11),x=x+1,y=y+x) returns 55.0 (if y was initially 0.0) |
+| many(expr,...)                                            | 1         | None      | 0             | 0             | This function treats many subexpressions as a single object (function). It is mainly for the 'for' function.for(many(j=5,k=1),above(j\*k,0.001),many(j=j+5,k=k/2),0)                                                                                                                                                                                                     |
+
+### ExprEval Internal Constants
+
+The following constants are provided with ExprEval:
+
+| Constant     | Math Form | Value                  |
+| ------------ | --------- | ---------------------- |
+| M\_E         | e         | 2.7182818284590452354  |
+| M\_LOG2E     | log2(e)   | 1.4426950408889634074  |
+| M\_LOG10E    | log10(e)  | 0.43429448190325182765 |
+| M\_LN2       | ln(2)     | 0.69314718055994530942 |
+| M\_LN10      | ln(10)    | 2.30258509299404568402 |
+| M\_PI        | π         | 3.14159265358979323846 |
+| M\_PI\_2     | π/2       | 1.57079632679489661923 |
+| M\_PI\_4     | π/4       | 0.78539816339744830962 |
+| M\_1\_PI     | 1/π       | 0.31830988618379067154 |
+| M\_2\_PI     | 2/π       | 0.63661977236758134308 |
+| M\_1\_SQRTPI | 1/√(π)    | 0.56418958354776       |
+| M\_2\_SQRTPI | 2/√(π)    | 1.12837916709551257390 |
+| M\_SQRT2     | √(2)      | 1.41421356237309504880 |
+| M\_1\_SQRT2  | 1/√(2)    | 0.70710678118654752440 |
+
+Document generated by Confluence on nov 11, 2022 04:27

@@ -1,0 +1,675 @@
+
+# OpenZap 
+
+ Created by  Italo Monteiro, last modified on 2016.12.23
+
+**Note that OpenZAP has been superseded by [FreeTDM](../../Client-and-Developer-Interfaces/FreeTDM/index.mdx#--).** OpenZAP development is stalled and no new features will be developed. Use FreeTDM instead.This page is kept only for historical purposes. If you are using OpenZAP then please update to FreeTDM. If you have not yet started using a TDM card yet then go straight to FreeTDM.
+
+OpenZAP is a library used by FreeSWITCH's to interface to Sangoma, DAHDI and PIKA boards. OpenZap implements a TDM unified abstraction for both signaling (PRI, BRI, SS7, MFC-R2 etc) and board I/O APIs (Sangoma TDM API, DAHDI, PIKA etc). Depending on your hardware requirements, the proper drivers are still needed. If you have Sangoma boards you must install the wanpipe drivers first, OpenZAP then will use the drivers to communicate to Sangoma boards. The same apply for other board APIs like Zaptel/DAHDI.
+
+OpenZAP also offers services like DTMF detection to its user applications (in most cases FreeSWITCH).
+
+Click here to expand Table of Contents
+
+* 1 [Overview](#overview)  
+   * 1.1 [Status](#status)  
+   * 1.2 [License](#license)  
+   * 1.3 [History](#history)  
+   * 1.4 [Design](#design)
+* 2 [Hardware/Driver compatibility](#hardwaredriver-compatibility)
+* 3 [FXO/FXS Terminology](#fxofxs-terminology)
+* 4 [Setup hardware drivers](#setup-hardware-drivers)  
+   * 4.1 [Non-Debian Instructions](#non-debian-instructions)  
+   * 4.2 [Debian Instructions](#non-debian-instructions)  
+   * 4.3 [Use outside North America](#use-outside-north-america)
+* 5 [OpenZap](#openzap-download)  
+   * 5.1 [OpenZAP Download](#openzap-download)  
+   * 5.2 [OpenZAP Compilation](#openzap-compilation)  
+   * 5.3 [Zaptel mode](#zaptel-mode)  
+   * 5.4 [Wanpipe mode](#wanpipe-mode)  
+   * 5.5 [Examples](#examples)
+* 6 [Start Up FreeSWITCH](#start-up-freeswitch)  
+   * 6.1 [OpenZAP CLI Commands](#openzap-cli-commands)
+* 7 [Dialplan Configuration](#dialplan-configuration)  
+   * 7.1 [Channel Variables](#channel-variables)  
+   * 7.2 [Usage](#usage)  
+   * 7.3 [Examples](#examples)
+* 8 [Debugging your OpenZAP set up](#openzap-download)  
+   * 8.1 [Symptom: "Why bother changing state on 1:1 from UP to UP" or "Cannot get a RING\_START event on a non-fxo channel"](#symptom-why-bother-changing-state-on-11-from-up-to-up-or-cannot-get-a-ring_start-event-on-a-non-fxo-channel)  
+   * 8.2 [Symptom: \[ERR\] ozmod\_wanpipe.c:440 wp\_open\_range() failure configuring device s\*c\*\* using a Sangoma card with FreeSWITCH running as a normal user](#q-openzap-vs-mod_wanpipe)  
+   * 8.3 [Symptom: Signalling works but buzzing audio is heard using Wanpipe on a 64 bit system with > 4 GB RAM](#symptom-signalling-works-but-buzzing-audio-is-heard-using-wanpipe-on-a-64-bit-system-with--4-gb-ram)
+* 9 [FAQ](#faq)  
+   * 9.1 [Q: OpenZAP vs. mod\_wanpipe](#q-openzap-vs-mod_wanpipe)  
+   * 9.2 [Q: OpenZAP vs. libpri](#q-openzap-vs-libpri)  
+   * 9.3 [Q: Does OpenZAP support libss7?](#q-does-openzap-support-libss7)  
+   * 9.4 [Q: How do I configure spanmaps?](#q-how-do-i-configure-spanmaps)  
+   * 9.5 [Q: Do you need a special tor2.c for using Tormenta2?](#q-do-you-need-a-special-tor2c-for-using-tormenta2)  
+   * 9.6 [Q: For analog cards (XP100), will I need zaptel kernel drivers?](#q-for-analog-cards-xp100-will-i-need-zaptel-kernel-drivers)  
+   * 9.7 [Q: How do I send a hook flash?](#q-how-do-i-send-a-hook-flash)  
+   * 9.8 [Q: If I want Sangoma with OpenZAP, do I need wanpipe installed?](#openzap-download)  
+   * 9.9 [Q: Does OpenZAP support ccs, hdb3 with Digium te420?](#q-does-openzap-support-ccs-hdb3-with-digium-te420)  
+   * 9.10 [Q: Does OpenZAP support EuroISDN?](#q-does-openzap-support-euroisdn)  
+   * 9.11 [Q: I hear some line noise on analog card](#q-i-hear-some-line-noise-on-analog-card)  
+   * 9.12 [Q: Does OpenZAP support OSLEC?](#q-does-openzap-support-oslec)
+* 10 [API](#api)
+* 11 [See Also](#see-also)
+
+## Overview
+
+### Status
+
+* Development is finished and testers are currently wanted.
+* So far we have analog (only tested in US so far but we are working on UK too) and Q.931 PRI signaling but we should be able to add more things like RBS as time progresses.
+* The PRI stack is incomplete.
+* [MFC/R2 support](../../Client-and-Developer-Interfaces/FreeTDM/FreeTDM-OpenR2_13173077.mdx#freetdm-openr2-commands) has been added using the OpenR2 signaling library but still needs stress testing.
+
+### License
+
+BSD
+
+### History
+
+Zaptel is actually a decendant of the original public domain tormenta driver made by Jim Dixon in 2000.
+
+<http://www.zapatatelephony.org/zap.c>
+
+<http://www.zapatatelephony.org/zap.h>
+
+Our goal here is to pick up where this left off and keep the important functionality in the driver and the rest in user space. Eventually we hope to make our own platform-agnostic driver interface.
+
+### Design
+
+We only use zaptel as a device via the socket opened on the operating system to access the low level features such as open close read write and the rest of the functionality is implemented in our own user space layer.
+
+For clarification -- we simply speak to the zaptel kernel interface. In fact, we don't even use their header files to build. So if you have a card that requires modified drivers, then you would need to use those, but they should work as long as they maintain the same zaptel interface.
+
+[![Openzap-design.png](https://wiki.freeswitch.org/images/5/50/Openzap-design.png)](https://wiki.freeswitch.org/wiki/File:Openzap-design.png)
+
+## Hardware/Driver compatibility
+
+OpenZAP should work with the latest Sangoma TDM API as well as any Zaptel dating back to when there was only Tormenta 2.
+
+The hardware support thus far includes Zaptel and native Sangoma TDM API. The existing codebase includes mod\_openzap for FreeSWITCH that is currently functional with analog and Euro or DMS100 PRI.
+
+Rhino Cards: Rhino cards use Zaptel, however there are some caveats. Please see the [Rhino](./OpenZap-Rhino_13173053.mdx#issues) page for details.
+
+R2 Support: Moises Silva has added preliminary support for R2\. Please see the [FreeTDM OpenR2](../../Client-and-Developer-Interfaces/FreeTDM/FreeTDM-OpenR2_13173077.mdx#freetdm-openr2-commands) page for details.
+
+## FXO/FXS Terminology
+
+A port that connects to a telephone line is an FXO port. If you use zaptel, you configure the port as an FXO port in zaptel.cfg. The port uses FXS signalling, so you configure OpenZAP in openzap.conf to use FXS signalling for the same port.
+
+A port that connects to a telephone extension is an FXS port. If you use zaptel, you configure the port as an FXS port in zaptel.cfg. The port uses FXO signalling, so you configure OpenZAP in openzap.conf to use FXS signalling for the same port.
+
+To summarize:
+
+| usage               | type / zaptel.cfg | signalling / openzap.cfg |
+| ------------------- | ----------------- | ------------------------ |
+| telephone line      | FXO               | FXS                      |
+| telephone extension | FXS               | FXO                      |
+
+## Setup hardware drivers
+
+OpenZAP can be used in two modes. See the diagram (above). The first mode uses Zaptel and will let you use any card Zaptel supports. The other mode is wanpipe, which will let you interact directly with Sangoma cards without going through Zaptel. The hardware drivers only need to be configured if you are using the first mode. If you are using wanpipe, then skip this step.
+
+A set of step-by-step instructions is available on the [Zaptel Tutorial page](./Zapata-zaptel/Zaptel-Tutorial_13173122.mdx#--).
+
+You must have the Zaptel API up and running in order to use the OpenZap module.
+
+The hardware you intend to use, e.g., an FXO/FXS card or a PRI card, should be installed first so you can verify the zaptel installation after it's been completed. (Make sure the system has internet connectivity as it downloads some utilities)
+
+At this point we can follow two different paths: general instruction and Debian instructions.
+
+### Non-Debian Instructions
+
+Note in this example, channel 1 is connected to the telephone line (FXO), and channel 4 is connected to a telephone extension (FXS).
+
+ 1\. Download the zaptel-1.4.2.tar.gz from reliable sources. Untar the source tarball, compile and install it.
+
+```xml
+# I had to rely on this older zaptel version that works for me, as the newer ones were troubling me.
+$ tar -zxvf zaptel-1.4.2.tar.gz
+$ cd zaptel-1.4.2
+$ ./configure
+$ make
+$ make install
+$ make config
+```
+
+ 2\. Make sure you have the proper zaptel.conf in your /etc directory
+
+ 3\. Be cautious while configuring country zone in zaptel.conf at /etc. For India, e.g.,
+
+```xml
+ ----- @/etc/zaptel.conf -----
+loadzone=in
+defaultzone=in
+fxsks=4
+fxoks=1
+```
+
+ 4\. Add the wctdm and zaptel modules now.
+
+```xml
+$ modprobe wctdm
+$ modprobe zaptel
+```
+
+ 5\. Now verify the installation with the ztcfg command
+
+```xml
+$ ztcfg -vv
+Zaptel Version: 1.4.2
+Echo Canceller: MG2
+Configuration
+======================
+Channel map:
+Channel 01: FXO Kewlstart (Default) (Slaves: 01)
+Channel 04: FXS Kewlstart (Default) (Slaves: 04)
+2 channels configured.
+```
+
+###   
+Debian Instructions
+
+Debian makes this entire process rather easy.
+
+ 1\. Install the zaptel and zaptel-source package by using your favorite package management tool, e.g., apt-get or aptitude.
+
+ 2\. Build the zaptel-source package and create a deb which contains the Zaptel kernel modules:
+
+```xml
+$ module-assistant prepare
+$ module-assistant build zaptel-source
+```
+
+You may wish to example the Debian-specific README files provided by the zaptel (not the zaptel-source) package.
+
+ 3\. Install the deb created in the previous step, which is likely found at /usr/src.
+
+ 4\. Create the /etc/zaptel.conf file. The easiest way to do this is with genzaptelconf:
+
+```xml
+genzaptelconf -vsdM
+```
+
+(Note: If genzaptelconf cannot "find" the hardware, you may have to use modprobe to load the wctdm or zaptel kernel modules, or perhaps both.)
+
+genzaptelconf may complain about some obscure program named "asterisk" not being present on your system. Regardless, /etc/zaptel.conf will be created.
+
+ 5\. Configure the board:
+
+```xml
+zapcfg
+```
+
+ 6\. check to see the board's status:
+
+```xml
+ztscan
+```
+
+Your installation is up and running. At next boot, if you use udev, your hardware will be detected automatically and the system will load the Zaptel modules and configure the hardware from the /etc/zaptel.conf file.
+
+### Use outside North America
+
+If you are using zaptel cards outside North America (e.g. Australia) you may have to specify the operating country when the module loads. Just specifying the zone in zaptel.cfg is not sufficient. In Debian Lenny I configure mine to use the Australian standards mode by putting the following line in /etc/modprobe.d/zaptel.
+
+```xml
+options wctdm opermode=AUSTRALIA
+```
+
+At boot I see messages like:
+
+```xml
+Boosting ringer on slot 1 (89V peak)
+Module 0: Installed -- AUTO FXS/DPO
+Boosting ringer on slot 2 (89V peak)
+Module 1: Installed -- AUTO FXS/DPO
+Module 2: Installed -- AUTO FXO (AUSTRALIA mode)
+Module 3: Installed -- AUTO FXO (AUSTRALIA mode)
+Found a Wildcard TDM: Wildcard TDM400P REV I (4 modules)
+```
+
+##   
+OpenZap
+
+### OpenZAP Download
+
+mod\_openzap is now included with Git clone of FreeSWITCH under libs/open\_zap. Therefore, you do not have to download the svn.
+
+However, if you have not checked out FreeSWITCH and would like to look at the OpenZAP code, you can [browse the OpenZAP source code here](http://fisheye.freeswitch.org/browse/OpenZAP) or
+
+Download via subversion:
+
+```xml
+svn co http://svn.openzap.org/svn/openzap/trunk openzap_trunk
+```
+
+OpenZAP has its own PRI stack that might do everything you require. However, it is still in development. If you would like to use libpri as the PRI stack within OpenZAP, install libpri and compile OpenZAP to use it.
+
+Download and install libpri:
+
+```xml
+cd /usr/src
+wget http://downloads.digium.com/pub/libpri/libpri-1.4-current.tar.gz
+tar -zxvf libpri-1.4-current.tar.gz
+cd libpri-1.4.X
+make && make install
+```
+
+Note: replace 'X' with the correct release number. As of this writing, libpri-1.4.10 is the latest version.
+
+When you **load mod\_openzap**, if you're getting an error stating that **libpri.so.1.4 is missing** (or whatever version you've compiled), it may be because the LD\_LIBRARY\_PATH isn't set up correctly. Be sure **/usr/lib** is included in the **LD\_LIBRARY\_PATH** environment variable when you start FS. Consider adding it to **/etc/init.d/freeswitch** if it's not already there.
+
+### OpenZAP Compilation
+
+ 1\. Make sure while compiling FreeSWITCH source, you have included ../../libs/openzap/mod\_openzap in modules.conf (just need to uncomment it)
+
+ 2\. Tones should be configured in OpenZAP and not in zaptel. FreeSWITCH uses its libteletone for tones generation and detection, and does not rely on zaptel tones configuration. Therefore it does not matter which country zone is configured in zaptel. Make sure that you have loaded your country-specific tones at /etc/openzap/tones.conf. Check for your country-specific dial-tone/ring-tone/busy-tone etc in tones.conf because you can't make outbound calls on FXO unless you have proper tones configured.For eg, the tones.conf(India) will look like this [tones.conf Example](../../Client-and-Developer-Interfaces/FreeTDM/Tones.conf-Examples_9634287.mdx#about)
+
+NOTE: By default, tones.conf for USA is available at ${freeswitch\_src}/libs/openzap/conf/ , For the new versions, it's installed under ${prefix}/conf/tones.conf
+
+ 3\. If you are using libpri (as per previous step), re-configure OpenZAP to use libpri:
+
+```xml
+./configure --with-libpri
+makemake mod_openzap-install
+```
+
+Depending upon your specific hardware there are several configuration files. The two primary files are openzap.conf (located in the conf directory) and openzap.conf.xml (located in conf/autoload\_configs directory).
+
+In a typical zaptel-based installation, the openzap.conf file will mirror the contents of the zaptel.conf file. The openzap.conf file has several configuration options:
+
+* name - default caller ID name for this span
+* number - default caller ID number for this span
+* trunk\_type - trunk type, i.e. t1, e1, etc.
+* b-channel - specify one or more b-channels (ISDN)
+* d-channel - specify one or more d-channels (ISDN)
+* fxo-channel - specify one or more FXO channels (analog, RBS)
+* fxs-channel - specify one or more FXS channels (analog, RBS)
+
+Note for the fxo/fxs settings you specify what signalling is used. This is typically the opposite of the type of port which you specified (if applicable) in zaptel.cfg.
+
+See the [openzap.conf\_Examples](./Openzap.conf-Examples_13173056.mdx#t1) page for some typical setup examples.
+
+The openzap.conf.xml contains the higher layer configuration information for the span(s) that are described in openzap.conf. The openzap.conf.xml file defines a span as analog or PRI. For PRI spans, the dialect type is also specified here.
+
+See the [openzap.conf.xml\_Examples](./Openzap.conf.xml-Examples_13173057.mdx#--) page for some typical setup examples.
+
+NOTE: The new OpenZAP install process will now put the appropriate conf files in ${prefix}/conf/openzap.conf and will put openzap.conf.xml in ${prefix}/conf/autoload-configs/ This is different from the old process. openzap.conf is now located at ${prefix}/conf/openzap.conf and is no longer needed in /etc/openzap.
+
+### Zaptel mode
+
+to be written
+
+### Wanpipe mode
+
+In this mode you do not need to have Zaptel installed. You will a recent version of Wanpipe (3.5.10 works) and compile it in TDM Voice API mode. For an E1 span the openzap.conf file will look like this, where the SPAN is put in Wanpipe mode by specifying _span wanpipe_
+
+The [examples](Openzap.conf.xml-Examples_13173057.mdx#using-with-pri-libpri-compatibility-stack) page shows how to configure PRI spans to use libpri.
+
+```xml
+[span wanpipe PRI_1]
+number => 1
+trunk_type => e1
+b-channel => 1:1-15
+d-channel => 1:16
+b-channel => 1:17-31
+```
+
+A T1 span would look more like this:
+
+```xml
+[span wanpipe PRI_1]
+number => 1
+trunk_type => t1
+b-channel => 1:1-23
+d-channel => 1:24
+```
+
+/etc/wanpipe/wanpipe1.conf will look like this:
+
+```xml
+[devices]
+wanpipe1 = WAN_AFT_TE1, Comment
+
+[interfaces]
+w1g1 = wanpipe1, , TDM_VOICE_API, Comment
+
+[wanpipe1]
+CARD_TYPE       = AFT
+S514CPU         = A
+CommPort        = PRI
+AUTO_PCISLOT    = NO
+PCISLOT         = 4
+PCIBUS          = 13
+FE_MEDIA        = E1
+FE_LCODE        = HDB3
+FE_FRAME        = CRC4
+FE_LINE         = 1
+TE_CLOCK        = NORMAL
+TE_REF_CLOCK    = 0
+TE_SIG_MODE     = CCS
+TE_HIGHIMPEDANCE        = NO
+LBO             = 120OH
+FE_TXTRISTATE   = NO
+MTU             = 1500
+UDPPORT         = 9000
+TTL             = 255
+IGNORE_FRONT_END = NO
+TDMV_SPAN       = 1
+TDMV_DCHAN      = 16
+TDMV_HW_DTMF    = YES
+
+[w1g1]
+ACTIVE_CH       = ALL
+TDMV_ECHO_OFF   = NO
+TDMV_HWEC       = YES
+MTU             = 80
+```
+
+Only spans configured as _TDM\_VOICE\_API_ in _wanpipe\*.conf_ can be used together with a SPAN configured as _wanpipe_ in _openzap.conf_
+
+The autoload\_configs/openzap.conf.xml will then look like this:
+
+```xml
+<configuration name="openzap.conf" description="OpenZAP Configuration">
+  <settings>
+    <param name="debug" value="0"/>
+    <!--<param name="hold-music" value="$${moh_uri}"/>-->
+    <!--<param name="enable-analog-option" value="call-swap"/>-->
+    <!--<param name="enable-analog-option" value="3-way"/>-->
+  </settings>
+   <pri_spans>
+     <span name="PRI_1">
+       <!-- Log Levels: none, alert, crit, err, warning, notice, info, debug -->
+       <param name="q921loglevel" value="alert"/>
+       <param name="q931loglevel" value="alert"/>
+       <param name="mode" value="user"/>
+       <param name="dialect" value="q931"/>
+       <param name="dialplan" value="XML"/>
+       <param name="context" value="pstn"/>
+     </span>
+   </pri_spans>
+</configuration>
+```
+
+If Wanrouter has been brought up by doing /etc/init.d/wanrouter start and you now start FreeSWITCH the span should come up and you can now hopefully dial out using
+
+```xml
+ <extension name="outgoing-pri">
+  <condition field="destination_number" expression="^.+$">
+    <action application="bridge" data="openzap/1/a/${destination_number}"/>
+  </condition>
+</extension>
+```
+
+Make sure you give access rights to /dev/wptdm\* for FreeSWITCH user in case you are running as non-root user. You can make it with putting:
+
+```xml
+SUBSYSTEM=="wptdm", OWNER="freeswitch", GROUP="freeswitch", MODE="0660"
+```
+
+into /etc/udev/rules.d/wanpipe.rules and restarting the udev service.
+
+You may also need to add the following to /etc/udev/rules.d/wanpipe.rules:
+
+```xml
+SUBSYSTEM=="wanpipe", OWNER="freeswitch", GROUP="freeswitch", MODE="0660"
+```
+
+The Boost PRI stack groups together all channels from all spans into a single logical span. You may still dial a specific span by using the group nomenclature. &lt;STUB, more to come when I get a sec to track it all down...>
+
+### Examples
+
+As an example, let's see configuration for OpenZap module with Digium TDM400P 2FXS/2FXO card. [Configuration OpenZAP- DigiumTDM400P Example](../Gateways/Configuration-OpenZAP---DigiumTDM400P-Example/index.mdx#about)
+
+Tormenta2: [Openzap.conf Examples](./Openzap.conf-Examples_13173056.mdx#t1) and [Openzap.conf.xml Examples](./Openzap.conf.xml-Examples_13173057.mdx#--). You will also need a zaptel.conf, since it is tied in with ztcfg into the kernel module configs.
+
+Here's a [step-by-step](https://wiki.freeswitch.org/wiki/Openzap.sangoma.libpri "Openzap.sangoma.libpri") for installing and configuring a **Sangoma A101DE** card with **libpri** configured for **T1/NI2**.
+
+## Start Up FreeSWITCH
+
+ 1\. Once you are done with installing zaptel drivers and fixed the FXS/FXO card on your machine, the green LEDs(Digium TDM400 card in my case) on your card will start glowing. (that's good omen for you :-) )
+
+ 2\. At the time of running FreeSWITCH from /usr/local/freeswitch/bin/, make sure again that &lt;load module ="mod\_openzap"/> is included in /usr/local/freeswitch/conf/autoload\_configs/modules.conf.xml
+
+ 3\. Make sure you see the OpenZAP FXS and FXO configuration messages on your console when you run FreeSWITCH. For example,
+
+```xml
+2008-05-01 18:10:32 [INFO] zap_zt.c:170 zt_open_range() configuring device /dev/zap/channel channel 1 as OpenZAP  device 1:1 fd:33
+2008-05-01 18:10:32 [INFO] zap_zt.c:170 zt_open_range() configuring device /dev/zap/channel channel 4 as OpenZAP device 2:1 fd:34
+2008-05-01 18:10:32 [INFO] zap_io.c:1978 load_config() Configured 2 channel(s)
+2008-05-01 18:10:32 [CONSOLE] switch_loadable_module.c:749 switch_loadable_module_load_file() Successfully Loaded [mod_openzap]
+2008-05-01 18:10:32 [NOTICE] switch_loadable_module.c:139 switch_loadable_module_process() Adding Endpoint 'openzap'
+2008-05-01 18:10:32 [NOTICE] switch_loadable_module.c:245 switch_loadable_module_process() Adding API Function 'oz'
+```
+
+For digital channels like PRI's the messages will be similar:
+
+```xml
+2008-09-26 10:55:26 [INFO] zap_io.c:2213 zap_load_module() Loading IO from /usr/local/freeswitch/mod/ozmod_zt.so
+2008-09-26 10:55:26 [INFO] zap_io.c:2006 load_config() auto-loaded 'zt'
+2008-09-26 10:55:26 [INFO] ozmod_zt.c:170 zt_open_range() configuring device /dev/zap/channel channel 1 as OpenZAP device 1:1 fd:50
+2008-09-26 10:55:26 [INFO] ozmod_zt.c:170 zt_open_range() configuring device /dev/zap/channel channel 2 as OpenZAP device 1:2 fd:51
+2008-09-26 10:55:26 [INFO] ozmod_zt.c:170 zt_open_range() configuring device /dev/zap/channel channel 3 as OpenZAP device 1:3 fd:52
+.
+.
+.
+2008-09-26 10:55:26 [INFO] ozmod_zt.c:170 zt_open_range() configuring device /dev/zap/channel channel 96 as OpenZAP device 4:24 fd:144
+2008-09-26 10:55:26 [INFO] zap_io.c:2137 load_config() Configured 96 channel(s)
+2008-09-26 10:55:27 [INFO] zap_io.c:2230 zap_load_module() Loading SIG from /usr/local/freeswitch/mod/ozmod_isdn.so
+2008-09-26 10:55:27 [INFO] zap_io.c:2346 zap_configure_span() auto-loaded 'isdn'
+2008-09-26 10:55:27 [CONSOLE] switch_loadable_module.c:789 switch_loadable_module_load_file() Successfully Loaded [mod_openzap]
+```
+
+ 4\. Now you can take a ride on your Ozzzzzzz... zip zap zoom ;)
+
+### OpenZAP CLI Commands
+
+To see a list of your configured spans, at the CLI type
+
+```xml
+oz list
+```
+
+To see detailed information about a specific span type
+
+```xml
+oz dump <span_id> [<chan_id>]
+```
+
+To save Q.931 packets in a \*.pcap file for decoding in wireshark
+
+```xml
+oz q931_pcap <span_id> on|off [pcapfilename without suffix]
+```
+
+Note: Only if you have libpcap and libpcap-devel installed on your system! Also note that you can't use libpri if you want to be able to capture the q931 traffic, it only works with ozmod\_isdn.
+
+To see debug messaging if you are using libpri
+
+```xml
+oz libpri debug <span_id> all
+```
+
+To turn off the debug messaging if you are using libpri
+
+```xml
+oz libpri debug <span_id> off
+```
+
+Sangoma's _wanpipemon_ utility is handy for generating [pcap](https://wiki.freeswitch.org/wiki/Packet%5FCapture "Packet Capture") files on the d-channel of a PRI circuit. Check out Sangoma's [wiki entry](http://wiki.sangoma.com/wanpipe-wireshark-pcap-pri-bri-wan-t1-e1-tracing) for more information.
+
+## Dialplan Configuration
+
+### Channel Variables
+
+* openzap\_span\_number
+
+ OpenZAP span number
+
+* openzap\_chan\_number
+
+ OpenZAP channel number
+
+### Usage
+
+The syntax of the bridge application data's option is openzap/span/port/phone-number.  
+To automatically discover of a free port number instead of a number you can use "a" or "A". For example, "openzap/1/a/123456789" will pick up the first available port in span 1 to dial the number 123456789.  
+Using "A" for the port will find the highest-numbered port available.
+
+### Examples
+
+ 1\. To bridge an inbound call to your FXS that is configured on channel 1, for an UA registered as [507@proxy.com](mailto:507@proxy.com) configure as below
+
+```xml
+ <extension name="incoming-fxs">
+   <condition field="destination_number" expression="^(507)$">
+     <action application="bridge" data="openzap/1/1"/>
+   </condition>
+ </extension>
+```
+
+ 2\. To bridge an outbound call onto your FXO card that is configured on channel 4, for any 10-digit destination configure as below
+
+```xml
+ <extension name="outgoing-fxo">
+   <condition field="destination_number" expression="^(\d{10})$">
+     <action application="bridge" data="openzap/2/1/${dialed_ext}"/>
+   </condition>
+ </extension>
+```
+
+ 3\. To bridge an outbound call to the first available port from a dual-span PRI card, regardless of the span number (will try the 1st span first, then the 2nd span if the 1st one is not available):
+
+```xml
+ <extension name="outgoing-pri">
+   <condition field="destination_number" expression="^(\d{10})$">
+     <action application="bridge" data="openzap/1/a/$1|openzap/2/a/$1"/>
+   </condition>
+ </extension>
+```
+
+ 4\. To bridge about outbound call to the last available channel on a PRI span:
+
+```xml
+ <extension name="outgoing-pri">
+   <condition field="destination_number" expression="^(\d{10})$">
+     <action application="bridge" data="openzap/1/A/$1"/>
+   </condition>
+ </extension>
+```
+
+##   
+Debugging your OpenZAP set up
+
+### Symptom: "Why bother changing state on 1:1 from UP to UP" or "Cannot get a RING_START event on a non-fxo channel"
+
+Resolution: The problem here is that you have your channel that connects to the telco defined as an fxs channel, instead of an fxo channel. Note that the other guys ask you to specify what kind of signalling the channel is expecting at the other end, while FreeSWITCH wants you to specify what type of signalling the FreeSWITCH end is.
+
+To fix this, change your openzap.conf to something similar to.
+
+```xml
+ [span zt]
+ name => OpenZAP
+ number => 1
+ fxo-channel => 1
+```
+
+Your zaptel.conf still requires you to specify what sort of signalling you are expecting to see on the other end so it will look like.
+
+```xml
+fxsks=1
+loadzone=us
+defaultzone=us
+```
+
+###   
+Symptom: \[ERR\] ozmod\_wanpipe.c:440 wp\_open\_range() failure configuring device s\*c\*\* using a Sangoma card with FreeSWITCH running as a normal user
+
+Use UDEV to set the right permissions. Create an file called /etc/udev/rules.d/wanpipe.rules with the following line (replace freeswitch with your actual user):
+
+```xml
+ SUBSYSTEM=="wptdm", OWNER="freeswitch", GROUP="freeswitch", MODE="0660"
+```
+
+Then reload your udev by doing **/etc/init.d/udev reload** or restarting your system and reload your wanpipe, The permissions should now be correct. CentOs I use **start\_udev**
+
+### Symptom: Signalling works but buzzing audio is heard using Wanpipe on a 64 bit system with > 4 GB RAM
+
+Recompile wanpipe with ./Setup install --64bit\_4GB
+
+## FAQ
+
+### Q: OpenZAP vs. mod_wanpipe
+
+OpenZAP replaces mod\_wanpipe
+
+### Q: OpenZAP vs. libpri
+
+OpenZAP can replace libpri or can be used with libpri. Because OpenZAP is licensed under the BSD it is actually compatible with the GPL-licensed libpri. See [OpenZAP#Adding\_libpri\_Support](https://wiki.freeswitch.org/wiki/OpenZAP#Adding%5Flibpri%5FSupport "OpenZAP") for setup instructions.
+
+### Q: Does OpenZAP support libss7?
+
+Currently we do not have any open source SS7 solutions but commercial options are available.
+
+### Q: How do I configure spanmaps?
+
+This can be done in the autoload\_configs/openzap.conf.xml file.
+
+### Q: Do you need a special tor2.c for using Tormenta2?
+
+You should not need anything special, just zaptel loaded with any plugin tor2, whatever. Any variation of the driver should be fine since zaptel is fairly generic. Tormenta2 clones from [pbxhardware.com](http://pbxhardware.com/) are reported to work well.
+
+### Q: For analog cards (XP100), will I need zaptel kernel drivers?
+
+Yes, for analog cards, OpenZAP communicates w/ the zaptel kernel drivers via sockets, which in turn communicates with the hardware card.
+
+### Q: How do I send a hook flash?
+
+Use the **send\_dtmf** app to send **F** like this:
+
+```xml
+<action application="send_dtmf" data="F"/>
+```
+
+###   
+Q: If I want Sangoma with OpenZAP, do I need wanpipe installed?
+
+Yes
+
+Sangoma cards can be used in two ways with OpenZAP depending on the driver set in _FS\_ROOT\_DIR/conf/openzap.conf_
+
+* Using the _wanpipe_ driver if the span is configured as TDM\_VOICE\_API in the Wanrouter setup script.
+* Using the _zaptel_ or _DAHDI_ driver if the span is configured as TDM\_VOICE in Wanrouter setup script.
+
+_wanpipe_ is preferred, but if you need to use things like OSLEC operating in the zaptel/DAHDI driver you will need to use the second option.
+
+### Q: Does OpenZAP support ccs, hdb3 with Digium te420?
+
+Yes, also CAS is supported in MFC-R2 or DTMF-R2 lines.
+
+### Q: Does OpenZAP support EuroISDN?
+
+Yes, via libpri, sangoma prid, and to some extent via the openzap pri stack. FreeTDM should have full support when we re-enable our native isdn stack, but you can use via the other stacks already.
+
+### Q: I hear some line noise on analog card
+
+FreeSWITCH/OpenZAP (in opposition to Asterisk/ZAPATA) doesn't implement it's own echo canceller in software. If you are hearing strange noise on analog card without hardware echo cancellation, try to apply separate echo canceller - e.g. [OSLEC](http://www.rowetel.com/ucasterisk/oslec.html).
+
+### Q: Does OpenZAP support OSLEC?
+
+Yes. OSLEC operates at the Zaptel driver level so no special OpenZAP configuration is needed. Just load OSLEC and go!
+
+## API
+
+See [Zapata\_zaptel\_interface](./Zapata-zaptel/Zapata-zaptel-interface_13173132.mdx#--).
+
+## See Also
+
+* World Tone Database: [\[1\]](http://www.3amsystems.com/wireline/tone-search.htm?start=0&kTone=9)
+* ITU World Tone List: [\[2\]](http://www.itu.int/oth/?lang=en&parent=T0206000004)
+
+Document generated by Confluence on nov 11, 2022 04:28

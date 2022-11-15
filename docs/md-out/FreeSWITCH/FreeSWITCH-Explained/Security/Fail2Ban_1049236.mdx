@@ -1,0 +1,381 @@
+
+# Fail2Ban 
+
+ Created by  John Boteler, last modified on 2018.05.24
+
+## About  
+
+Fail2Ban is an intrusion prevention system that works by scanning log files and then taking actions based on the log entries. Fail2ban specifically supports FreeSWITCH as part of its base configuration and can be easily enabled.
+
+Fail2ban scans FreeSWITCH logs, and optionally other logs, for patterns that indicate problems; e.g., an attempt by an intruder to register with FreeSWITCH. Fail2ban looks for IP addresses in the log entries, and when problems from a specific IP address reach a threshold (as set in a configuration file), fail2ban will update iptable firewall rules to block access from that IP address – that is, "ban" that IP address. As explained at the fail2ban web site [fail2ban.org](http://www.fail2ban.org), the thresholds for a ban – what constitutes a problem, number of problems found, time frame of problems, duration of a ban, etc. – can all be configured.
+
+Fail2Ban is available via github page <https://github.com/fail2ban/fail2ban> and in various Linux distribution repositories.
+
+Click to expand Table of Contents
+
+* 1 [Requirements](#-requirements-)
+* 2 [Install](#-install-)  
+   * 2.1 [Examples](#examples)  
+   * 2.2 [CentOS](#centos)
+* 3 [Configure](#-configure-)  
+   * 3.1 [Baseline Configuration of FreeSWITCH](#baseline-configuration-of-freeswitch--)  
+   * 3.2 [Baseline Configuration of Fail2ban](#-baseline-configuration-of-fail2ban)  
+   * 3.3 [Custom Fail2ban Monitoring](#custom-fail2ban-monitoring)  
+   * 3.4 [Customizing Log Files for Use by fail2ban](#customizing-log-files-for-use-by-fail2ban)
+* 4 [Start and Test Fail2ban and Verify Operation](#start-and-test-fail2ban-and-verify-operation)  
+   * 4.1 [Starting Fail2ban](#starting-fail2ban)  
+   * 4.2 [Test the actual failure mode](#-test-the-actual-failure-mode-)  
+   * 4.3 [Errors](#errors)
+* 5 [See Also](#see-also)
+
+##  Requirements 
+
+An installation of fail2ban requires:
+
+* iptables, used to ban IP addresses
+* fail2ban
+* log file(s) of problems to detect
+
+Some distributions of fail2ban (CentOS, for example) require firewalld.  
+
+##  Install 
+
+### Examples
+
+**Debian**
+
+```bash
+apt-get install fail2ban
+```
+
+**Suse**
+
+```bash
+zypper sa http://download.opensuse.org/repositories/security/SLE_11 openSUSE-security
+zypper refresh
+zypper up
+zypper install fail2ban
+```
+
+**FreeBSD**
+
+```bash
+pkg install py27-fail2ban
+... and all the files referenced later are in /usr/local/etc/ rather than /etc/
+```
+
+### CentOS
+
+Fail2ban may be installed from the EPEL repository. See <http://fedoraproject.org/wiki/EPEL/FAQ>.
+
+The EPEL repository is non-architecture specific; the links to i386 are identical to x86\_64.
+
+##  Configure 
+
+### Baseline Configuration of FreeSWITCH  
+
+For FreeSWITCH, one common intrusion is Authentication Attempts/Failures. Reports of these failures can be placed into the standard FreeSWITCH log in one of two ways:
+
+* Beta: [mod\_fail2ban](../Modules/mod_fail2ban_6587363.mdx#hint), a module that will publish failure attempts to the FreeSWITCH log; or
+* Enable "log-auth-failures" for each Sofia profile  
+```bash  
+<param name="log-auth-failures" value="true"/>  
+```
+
+In both cases, **loglevel** must set to loglevel 4 (**WARNING**) or higher.
+
+Later on in this document we'll see an example of how to configure a custom warning.
+
+###  Baseline Configuration of Fail2ban
+
+The maintainers of Fail2Ban have taken an interest in supporting FreeSWITCH. They have asked that we use fail2ban's FreeSWITCH configuration file at <https://github.com/fail2ban/fail2ban/blob/master/config/filter.d/freeswitch.conf> rather than specify a custom configuration here. If anyone wishes to submit other regular expressions that should be included in the fail2ban distribution, please provide samples to <https://github.com/fail2ban/fail2ban/issues>.
+
+Fail2ban's jail.conf file contains a standard configuration for FreeSWITCH.
+
+**From Standard jail.conf**
+
+```bash
+[freeswitch]
+
+port     = 5060,5061
+action   = %(banaction)s[name=%(__name__)s-tcp, port="%(port)s", protocol="tcp", chain="%(chain)s", actname=%(banaction)s-tcp]
+           %(banaction)s[name=%(__name__)s-udp, port="%(port)s", protocol="udp", chain="%(chain)s", actname=%(banaction)s-udp]
+           %(mta)s-whois[name=%(__name__)s, dest="%(destemail)s"]
+logpath  = /var/log/freeswitch.log
+maxretry = 10
+```
+
+To enable monitoring of FreeSWITCH create a file in /etc/fail2ban/jail.d called freeswitch.local. This file **must** contain the line "enabled=true," because by default freeswitch is not enabled.
+
+**jail.d/freeswitch.local**
+
+```bash
+[freeswitch]
+enabled = true
+
+# Ignore failures from our local internal network
+ignoreip = 127.0.0.0/8 X.Y.0.0/16
+```
+
+"ignoreip" is not mandatory; if present it can be set to whatever values make sense for your installation. The usual use case is to prevent internal IP addresses from being banned.
+
+### Custom Fail2ban Monitoring
+
+Fail2ban sets some standard values in jail.conf; among them, the number of retries that constitute a failure, the time window in which the failures must occur, and how long to ban the IP address. Here's how freeswitch.local looks if we change the values:
+
+**Customized freeswitch.local**
+
+```bash
+[freeswitch]
+enabled = true
+
+# Ignore failures from our local internal network
+ignoreip = 127.0.0.0/8 X.Y.0.0/16
+
+maxretry  =   4    ; for a total of five failures
+findtime  =  3600  ; based on empirical testing
+bantime   =  1200  ; ban for 20 minutes
+
+```
+
+If your system has only port 5060 enabled, and other ports blocked by iptables, you'll want to restrict fail2ban to control 5060 only. In that case, freeswitch.local becomes:
+
+**freeswitch.local**
+
+```bash
+[freeswitch]
+enabled = true
+
+# Ignore failures from our local internal network
+ignoreip = 127.0.0.0/8 X.Y.0.0/16
+
+maxretry  =   4    ; for a total of five failures
+findtime  =  3600  ; based on empirical testing
+bantime   =  1200  ; ban for 20m (which lets us pick up repeat offenders)
+
+# We do not use 5061 and it is not open to the outside world, so act on 5060 only
+port     = 5060
+
+```
+
+If email notifications are not useful, re-define the default actions – one per line, regardless of how the browser displays it below – and leave off the "mta" that's in the freeswitch section of jail.conf. Our freeswitch.local now reads:
+
+**freeswitch.local**
+
+```bash
+[freeswitch]
+enabled = true
+
+# Ignore failures from our local internal network
+ignoreip = 127.0.0.0/8 X.Y.0.0/16
+
+maxretry  =   4    ; for a total of five failures
+findtime  =  3600  ; based on empirical testing
+bantime   =  1200  ; ban for 20m (which lets us pick up repeat offenders)
+
+# We do not use 5061 and it is not open to the outside world, so act on 5060 only
+port     = 5060
+
+# we do not want mail, so remove that action from standard jail.conf freeswitch config
+action   = %(banaction)s[name=%(__name__)s-tcp, port="%(port)s", protocol="tcp", chain="%(chain)s", actname=%(banaction)s-tcp]
+           %(banaction)s[name=%(__name__)s-udp, port="%(port)s", protocol="udp", chain="%(chain)s", actname=%(banaction)s-udp]
+
+```
+
+### Customizing Log Files for Use by fail2ban
+
+The "baseline configuration of FreeSWITCH" section, above, creates entries in the FreeSWITCH log file for unauthorized attempts to register. Let's say that aside from unauthorized attempts to register, intruders also attempt to make unauthorized calls. Here's an example of how to configure FreeSWITCH and fail2ban to find these unauthorized calls and block the IP address of the attacker.
+
+In step one, check each incoming call request over the public-facing SIP port and determine if the call is a spoof attempt. When FreeSWITCH finds that attempt, execute the following line in the dialplan:
+
+**Anti-Action in Dialplan**
+
+```bash
+<anti-action application="set" data="accountcode=instrusion"/>
+```
+
+Of course the choice of how to set accountcode will vary according to how intrusion is detected.
+
+In autoload\_configs/cdr\_csv.conf.xml, add the following line inside the `templates` section:
+
+**Template in cdr\_csv.conf.xml**
+
+```bash
+<template name="instrusion">"FAIL2BAN_HOST=${sip_received_ip}","{sip_call_id}"</template>
+```
+
+As the result of these two settings, a line will be printed in that format for each intrusion attempt in the log file` /var/log/freeswitch/cdr-csv/spam.csv.` Only the sip\_received\_ip is actually necessary here; but in this example, I assume that a human reviewing the file may be interested in more information.
+
+Next, fail2ban must be configured to look for this pattern. This is accomplished by adding a new filter, freeswitch.local, to fail2ban's filter.d directory:
+
+**filter.d/freeswitch.local**
+
+```bash
+[Definition]
+failregex = ^\.\d+ \[WARNING\] sofia_reg\.c:\d+ SIP auth (failure|challenge) \((REGISTER|INVITE)\) on sofia profile \'[^']+\' for \[.*\] from ip <HOST>$
+            ^\.\d+ \[WARNING\] sofia_reg\.c:\d+ Can't find user \[\d+@\d+\.\d+\.\d+\.\d+\] from <HOST>$
+            \"FAIL2BAN_HOST=<HOST>\"
+```
+
+The first two lines of failregex are the original filter from filter.d/freeswitch.conf, and the next line is a regex to find the IP address to ban in the log entry we just specified in cdr\_csv.config.xml.
+
+Finally, we need to modify jail.d/freeswitch.local's list of log files to search:
+
+**freeswitch.local**
+
+```bash
+[freeswitch]
+enabled = true
+
+# Ignore failures from our local internal network
+ignoreip = 127.0.0.0/8 X.Y.0.0/16
+
+maxretry  =   4    ; for a total of five failures
+findtime  =  3600  ; based on empirical testing
+bantime   =  1200  ; ban for 20m (which lets us pick up repeat offenders)
+
+# We do not use 5061 and it is not open to the outside world, so act on 5060 only
+port     = 5060
+
+# we do not want mail, so remove that action from standard jail.conf freeswitch config
+action   = %(banaction)s[name=%(__name__)s-tcp, port="%(port)s", protocol="tcp", chain="%(chain)s", actname=%(banaction)s-tcp]
+           %(banaction)s[name=%(__name__)s-udp, port="%(port)s", protocol="udp", chain="%(chain)s", actname=%(banaction)s-udp]
+
+# Add intrusion log, which contains special string for host (see freeswitch.local filter)
+logpath = /var/log/freeswitch/freeswitch.log
+          /var/log/freeswitch/cdr-csv/intrusion.csv 
+```
+
+As a result of these modifications, fail2ban will look for both the standard registration attempts as well as our custom-defined intrusions. If a threshold is reached by a particular IP address, fail2ban will ban the IP address of the intruder.
+
+## Start and Test Fail2ban and Verify Operation
+
+### Starting Fail2ban
+
+Restart fail2ban (/etc/init.d/fail2ban restart, or service fail2ban restart, or systemctl restart fail2ban). The following, or something similar, should be in your /var/log/fail2ban.log:
+
+2018-01-03 18:55:06,436 fail2ban.server         [410]: INFO    Changed logging target to /var/log/fail2ban.log for Fail2ban v0.9.7
+
+2018-01-03 18:55:06,439 fail2ban.jail           [410]: INFO    Creating new jail 'freeswitch'
+
+2018-01-03 18:55:06,440 fail2ban.jail           [410]: INFO    Jail 'freeswitch' uses poller {}
+
+2018-01-03 18:55:06,443 fail2ban.jail           [410]: INFO    Initiated 'polling' backend
+
+2018-01-03 18:55:06,446 fail2ban.filter         [410]: INFO    Added logfile = /var/log/freeswitch/freeswitch.log
+
+2018-01-03 18:55:06,448 fail2ban.filter         [410]: INFO    Added logfile = /var/log/freeswitch/cdr-csv/spam.csv
+
+2018-01-03 18:55:06,449 fail2ban.filter         [410]: INFO    Set maxRetry = 4
+
+2018-01-03 18:55:06,452 fail2ban.filter         [410]: INFO    Set jail log file encoding to ANSI_X3.4-1968
+
+2018-01-03 18:55:06,453 fail2ban.actions        [410]: INFO    Set banTime = 1200
+
+2018-01-03 18:55:06,455 fail2ban.filter         [410]: INFO    Set findtime = 3600
+
+2018-01-03 18:55:06,483 fail2ban.jail           [410]: INFO    Creating new jail 'recidive'
+
+2018-01-03 18:55:06,483 fail2ban.jail           [410]: INFO    Jail 'recidive' uses poller {}
+
+2018-01-03 18:55:06,484 fail2ban.jail           [410]: INFO    Initiated 'polling' backend
+
+2018-01-03 18:55:06,485 fail2ban.filter         [410]: INFO    Added logfile = /var/log/fail2ban.log
+
+2018-01-03 18:55:06,486 fail2ban.filter         [410]: INFO    Set maxRetry = 1
+
+2018-01-03 18:55:06,486 fail2ban.filter         [410]: INFO    Set jail log file encoding to ANSI_X3.4-1968
+
+2018-01-03 18:55:06,486 fail2ban.actions        [410]: INFO    Set banTime = 43200
+
+2018-01-03 18:55:06,487 fail2ban.filter         [410]: INFO    Set findtime = 7200
+
+2018-01-03 18:55:06,487 fail2ban.server         [410]: INFO    Jail recidive is not a JournalFilter instance
+
+2018-01-03 18:55:06,499 fail2ban.jail           [410]: INFO    Jail 'freeswitch' started
+
+2018-01-03 18:55:06,508 fail2ban.jail           [410]: INFO    Jail 'recidive' started
+
+ The values will vary, of course, based on values for findtime, bantime, etc. If you've set up other jails – for example, fail2ban's recidive to ban repeat offenders – expect to see multiple jails started.
+
+Verify that the iptables rules were created:
+
+```bash
+# iptables -L f2b-freeswitch
+Chain f2b-freeswitch (1 references)
+target     prot opt source               destination         
+RETURN     all  --  anywhere             anywhere
+
+```
+
+ ###  Test the actual failure mode 
+
+Setup your favorite client with an invalid userid or invalid password. Try to login as many times as you have set your failure threshold in Fail2Ban. Watch Fail2Ban log:
+
+tail -f /var/log/fail2ban.log
+2010-02-05 10:13:12,070 fail2ban.actions: WARNING [freeswitch-udp] Ban 192.168.1.10
+2010-02-05 10:13:12,098 fail2ban.actions: WARNING [freeswitch-tcp] Ban 192.168.1.10
+
+Verify your client can no longer do a register (should just time out). Also verify iptables:
+
+```bash
+# iptables -n -L f2b-freeswitch
+Chain fail2ban-freeswitch-tcp (1 references)
+target     prot opt source               destination
+DROP       all  --  192.168.1.10         0.0.0.0/0
+RETURN     all  --  0.0.0.0/0            0.0.0.0/0
+# iptables -n -L f2b-freeswitch
+Chain fail2ban-freeswitch-udp (1 references)
+target     prot opt source               destination
+DROP       all  --  192.168.1.10         0.0.0.0/0
+RETURN     all  --  0.0.0.0/0            0.0.0.0/0
+```
+
+You can then wait for Fail2Ban to clear the the block, or do it yourself:
+
+```bash
+# iptables -D f2b-freeswitch 1
+# iptables -L f2b-freeswitch
+RETURN     all  --  anywhere             anywhere
+
+# iptables -D f2b-freeswitch 1
+# iptables -L f2b-freeswitch
+Chain fail2ban-freeswitch-udp (1 references)
+target     prot opt source               destination
+RETURN     all  --  anywhere             anywhere
+```
+
+You might also take a look at [this oreilly scn my systemript](http://etel.wiki.oreilly.com/wiki/index.php/SIP%5FDoS/DDoS%5FMitigation)
+
+### Errors
+
+_The problems in this section are likely solved in modern versions of iptables, i.e., greater than 1.4.7, by the "lockingopt" parameter which is included by default in fail2ban's actions.d/iptables-common.conf_  
+
+If you're seeing something like this in your Fail2Ban logfile:
+
+2011-02-27 14:11:42,326 fail2ban.actions.action: ERROR  iptables -N fail2ban-freeswitch-tcp
+
+add the time.sleep(0.1) to /usr/bin/fail2ban-client
+
+def __processCmd(self, cmd, showRet = True):
+	beautifier = Beautifier()
+	for c in cmd:
+		**time.sleep(0.1)**
+		beautifier.setInputCmd(c)
+
+or
+
+sed -i -e s,beautifier\.setInputCmd\(c\),'time.sleep\(0\.1\)\n\t\t\tbeautifier.setInputCmd\(c\)', /usr/bin/fail2ban-client
+
+[Source: fail2ban wiki](http://www.fail2ban.org/wiki/index.php/Fail2ban%5Ftalk:Community%5FPortal#fail2ban.action.action%5FERROR%5Fon%5Fstartup.2Frestart)
+
+## See Also
+
+[fail2ban Webinar](https://youtu.be/K-k6qHfzlp4) by Moshe Yudkowsky on ClueCon Weekly Conference Call
+
+## Comments:
+
+| (failure\|challenge)Here you may leave **failure** only, if your **f2b** bans legal users. ![](/images/icons/contenttypes/comment_16.png) Posted by kvishnivetsky at mag 07, 2019 03:57 |
+| -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+
+Document generated by Confluence on nov 11, 2022 04:24

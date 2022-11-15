@@ -1,0 +1,287 @@
+
+# mod_dingaling 
+
+ Created by  Luan Fonseca de Farias, last modified by  John Boteler on 2022.08.30
+
+# About
+
+mod\_dingaling is a generic xmpp registration that can be used for Google talk or any other XMPP integration.
+
+More information about Jingle can be found here: [Wikipedia Jingle Protocol](http://en.wikipedia.org/wiki/Jingle%5F%28protocol%29)
+
+As of 2022.08.29 mod\_dingaling was removed from FreeSWITCH tree and placed in <https://github.com/freeswitch>   
+
+  
+It has been announced that Google Voice over xmpp service, which is a dependency of several of the below examples, will be discontinued on May 15th, 2014\. Keep that in mind when planning any deployments using GV.
+
+Click here to expand Table of Contents
+
+* 1 [Getting it working](#getting-it-working)  
+   * 1.1 [OpenSSL](#openssl)  
+         * 1.1.1 [CentOS 5.x](#centos-5x)  
+         * 1.1.2 [Ubuntu 10.x / Debian](#ubuntu-10x--debian)
+* 2 [Build Module](#build-module)  
+   * 2.1 [Windows using MSVC 2008](#windows-using-msvc-2008)  
+   * 2.2 [Enable Module](#enable-module)  
+   * 2.3 [Sample Configuration (Google)](#sample-configuration-google)  
+   * 2.4 [Sample Configuration w/ Jingle & Video support (Google)](#sample-configuration-w-jingle--video-support-google)  
+   * 2.5 [Sample Configuration (Openfire)](#sample-configuration-openfire-)  
+   * 2.6 [Sample Configuration (ejabberd)](#sample-configuration-ejabberd)
+* 3 [Reference](#reference)  
+   * 3.1 [Variables](#variables)  
+   * 3.2 [Events](#events)
+* 4 [FAQ](#faq)  
+   * 4.1 [What is Component (server to server) mode?](#what-is-component-server-to-server-mode)  
+   * 4.2 [How do I call the FreeSWITCH conference?](#how-do-i-call-the-freeswitch-conference)  
+   * 4.3 [Why do I get messed up sound when I try to connect Google Talk to echo or delay\_echo?](#why-do-i-get-messed-up-sound-when-i-try-to-connect-google-talk-to-echo-or-delay_echo)  
+   * 4.4 [How do I send DTMF with Googletalk?](#how-do-i-send-dtmf-with-googletalk)  
+   * 4.5 [Tell me more about mod\_conference integration](#tell-me-more-about-mod_conference-integration)
+* 5 [Troubleshooting](#troubleshooting)  
+   * 5.1 [The FreeSWITCH conference does not respond to my invites?](#the-freeswitch-conference-does-not-respond-to-my-invites)  
+   * 5.2 [FreeSWITCH and Google Talk can't get connected to each other after a successful ringing and answering](#freeswitch-and-google-talk-cant-get-connected-to-each-other-after-a-successful-ringing-and-answering)
+* 6 [See also](#see-also)
+
+# Getting it working
+
+## OpenSSL
+
+OpenSSL is required to ensure that your XMPP stanzas are encrypted as required by the specifications. Before running, make sure you have the ssl package installed.
+
+### CentOS 5.x
+
+```xml
+yum install openssl-devel
+```
+
+### Ubuntu 10.x / Debian
+
+```xml
+sudo apt-get install libssl-dev
+```
+
+# Build Module
+
+Make sure the following line is present and uncommented in /usr/src/freeswitch/modules.conf
+
+```xml
+endpoints/mod_dingaling
+```
+
+Then build and install mod\_dingaling:
+
+```xml
+make mod_dingaling-install
+```
+
+For freeBSD, use gmake. 
+
+If you have installed SSL after building the dingaling module, you will need to re-bootstrap, re-configure and re-build freeswitch.
+
+Run 'fs\_cli'.
+
+```xml
+load mod_dingaling
+```
+
+### Windows using MSVC 2008
+
+* Since October 17,2011 this is no longer needed now OpenSSL is used. Mod\_dingaling will now build with ssl out of the box.
+* Install [GnuTls for windows](http://josefsson.org/gnutls4win/). Take gnutls-2.9.9.exe, maybe more recent will work.
+* Build libgnutls-26.lib. This file will be used as a import library for Visual Studio projects. Open visual studio command prompt (**not** your normal console) and type in GnuTls bin folder:  
+```xml  
+lib /def:libgnutls-26.def  
+```
+* Configure ixemel library to work with TLS library. [Example](https://wiki.freeswitch.org/wiki/Ixemel%5FMSVS%5Fproject%5Fexample "Ixemel MSVS project example")  
+   * Add additional include directory.  
+   * Add additional dependency
+* If you have problems with the iksemel compilation process try:  
+   * for "syntax error: type" because of va\_arg: include &lt;starg.h> in config.h  
+   * for ENOENT errors: include &lt;errno.h> - now found that the reason was config.h in libs/win32/iksemel was not included - to be checked  
+   * for ssize\_t errors: add typedef long ssize\_t in gnutls.h
+* If you have problems linking iksemel.lib because of strcasecmp errors, add the following in iksemel/utility.c  
+   * #define strcasecmp(s1, s2) stricmp(s1, s2)  
+   * #define strncasecmp(s1, s2, n) strnicmp(s1, s2, n)
+* Make sure the TLS dlls are copied to the configuration environment. For example, if you’re running on debug mode, you should have the following files in &lt;your freeswitch root>/Debug:  
+   * libgcrypt-11.dll  
+   * libgnutls-26.dll  
+   * libgnutls-extra-26.dll  
+   * libgnutls-openssl-26.dll  
+   * libgpg-error-0.dll  
+   * libtasn1-3.dll
+
+### Enable Module
+
+Uncomment the following in [Modules.conf.xml](./index.mdx#about).
+
+```xml
+<load module="mod_dingaling"/>
+```
+
+### Sample Configuration (Google)
+
+Settings similar to the following should work for A basic gtalk account:
+
+```xml
+<profile type="client">
+   <param name="name" value="gmail.com"/>
+   <param name="login" value="MyUserName@gmail.com/gtalk"/>
+   <param name="password" value="myPassWord"/>
+   <param name="server" value="talk.google.com"/>
+   <param name="dialplan" value="XML"/>
+   <param name="message" value="FreeSwitch (The Future of Telephony)"/> <!-- You must specify a message for the profile to be valid -->
+   <param name="rtp-ip" value="auto"/>
+   <!-- if you are behind NAT, you should probably use STUN -->
+   <param name="ext-rtp-ip" value="$${external_rtp_ip}"/>
+   <param name="auto-login" value="true"/>
+   <param name="auto-reply" value="Press *Call* to join my conference"/>
+   <param name="sasl" value="plain"/>
+   <param name="tls" value="true"/>
+   <param name="use-rtp-timer" value="true"/>
+   <param name="exten" value="1000"/> <!-- The extension you want a call in to connect to -->
+ </profile>
+```
+
+You may also want to enable debug mode in Dingaling.conf.xml. This will enable you to see XMPP messages.
+
+### Sample Configuration w/ Jingle & Video support (Google)
+
+Settings similar to the following will enable Jingle support:
+
+```xml
+<profile type="client">
+   <param name="name" value="gmail.com"/>
+   <param name="login" value="MyUserName@gmail.com/gtalk"/>
+   <param name="password" value="myPassWord"/>
+   <param name="server" value="talk.google.com"/>
+   <param name="dialplan" value="XML"/>
+   <param name="message" value="FreeSwitch (The Future of Telephony)"/> <!-- You must specify a message for the profile to be valid -->
+   <param name="rtp-ip" value="auto"/>
+   <!-- if you are behind NAT, you should probably use STUN -->
+   <param name="ext-rtp-ip" value="$${external_rtp_ip}"/>
+   <param name="auto-login" value="true"/>
+   <param name="auto-reply" value="Press *Call* to join my conference"/>
+   <param name="sasl" value="plain"/>
+   <param name="tls" value="true"/>
+   <param name="use-jingle" value="true"/> 
+   <param name="use-rtp-timer" value="true"/>
+   <param name="exten" value="1000"/> <!-- The extension you want a call in to connect to -->
+ </profile>
+```
+
+To enable Video support, edit dingaling.conf.xml as follows (video does NOT work with GVoice):
+
+```xml
+<configuration name="dingaling.conf" description="XMPP Jingle Endpoint">
+  <settings>
+    <param name="debug" value="1"/>
+    <param name="codec-prefs" value="H264,PCMU"/>
+  </settings>
+  <X-PRE-PROCESS cmd="include" data="../jingle_profiles/*.xml"/>
+</configuration>
+```
+
+H264 codec is now enabled by default however it results in all outbound calls through Google Talk to fail immediately with a 'Fast Busy', removing it fixes issue. - [Daniel Sokolowski](https://wiki.freeswitch.org/wiki/User:Daniel%5FSokolowski "User:Daniel Sokolowski") 01:24, 13 January 2013 (EST)
+
+### Sample Configuration (Openfire) 
+
+1. **In Openfire:**  
+   * * Navigate to Server -> Server Settings -> External Components Enable and set port + secret
+2. **In freeswitch**  
+   * Make a copy of the included server.xml (in conf/jingle\_profiles/) and configure the password and server parameters (tweak the others as applicable for your situation).
+
+One "reloadxml" and "reload mod\_dingaling" later and you should have a successful connection!
+
+### Sample Configuration (ejabberd)
+
+```xml
+<profile type="component">
+   <param name="name" value="xmpp.example.com"/>
+   <param name="password" value="123456"/>
+   <param name="dialplan" value="XML"/>
+   <param name="context" value="public"/>
+   <param name="rtp-ip" value="$${bind_server_ip}"/>
+   <param name="server" value="xmpp.example.com:5275"/>
+   <param name="use-rtp-timer" value="true"/>
+   <param name="exten" value="_auto_"/>
+ </profile>
+```
+
+# Reference
+
+## Variables
+
+mod\_dingaling sets the following variables:
+
+```xml
+variable_dl_from_user: accessed as 'dl_from_user' using the getVariable API call
+variable_dl_from_host: accessed as 'dl_from_host' using the getVariable API call
+```
+
+```xml
+Lua Example:
+freeswitch.consoleLog("info", "Receiving call from " .. session:getVariable('dl_from_user') .. " at the domain " .. session:getVariable('dl_from_host') .. "\n")
+```
+
+## Events
+
+Custom events:
+
+```xml
+dingaling::login_success
+dingaling::login_failure
+dingaling::connected
+```
+
+# FAQ
+
+## What is Component (server to server) mode?
+
+Component mode means you can log in as a server component so you can get all of the messages for the whole domain, allowing you to use any random user id at the given domain.
+
+## How do I call the FreeSWITCH conference?
+
+* Add a new buddy to your buddy list: **[conf+888@conference.freeswitch.org](mailto:conf+888@conference.freeswitch.org)**
+* Click the entry and choose Call
+
+## Why do I get messed up sound when I try to connect Google Talk to echo or delay_echo?
+
+This will happen when FreeSWITCH is configured to use speex with Dingaling.
+
+There is a bug in the current version of Google Talk (1.0.0.104) that causes it to send G.711 PCMU instead of speex audio even though it signals that speex is accepted and will be used. Many softphones are able to deal with this, but it happens so that Google Talk itself is not! It will expect speex, but will receive its own G.711 PCMU data back causing it to produce messy sounds (and even crash after a while in some cases).
+
+To use echo or delay\_echo you should use G.711 PCMU. Versions down to 1.0.0.96 are verified to have this bug too.
+
+## How do I send DTMF with Googletalk?
+
+The Gtalk client does not support sending DTMF codes. As a workaround, DTMF from within GTtalk can be sent by sending a chat message and prefixing the DTMF code with a '+' sign.
+
+So to send \*1, enter +\*1 in the messaging box
+
+## Tell me more about mod_conference integration
+
+mod\_dingaling muc support is limited to non-existent at the present time (January 2012).
+
+Watch this space for the ability to list/kick users etc.
+
+(Information gleaned from "bougyman")
+
+# Troubleshooting
+
+## The FreeSWITCH conference does not respond to my invites?
+
+If you use [Google Apps](https://www.google.com/a/) for your email domain hosting, and you are logging in with an email address from this domain, it may not work unless you enable S2S properly using the information provided in the URL below:
+
+<http://www.google.com/support/a/bin/answer.py?answer=34143>
+
+## FreeSWITCH and Google Talk can't get connected to each other after a successful ringing and answering
+
+It appears that there are some localised versions of Google Talk that are very old even though they report to be version 1.0.0.105\. Those versions do not even support Speex yet and also lack other features found in the latest version. These versions also do not connect to FreeSWITCH. To see if you are dealing with a problem caused by an old version of Google Talk, please test everything with the latest English version! If you still have problems, there is something else going on.
+
+Known localisations to have this problem: Dutch, Russian
+
+# See also
+
+* [dingaling.conf.xml](https://wiki.freeswitch.org/wiki/Dingaling.conf.xml "Dingaling.conf.xml")
+* [Google Voice](http://wiki.freeswitch.org/wiki/Google%5FVoice)
+
+Document generated by Confluence on nov 11, 2022 04:27

@@ -1,0 +1,172 @@
+
+# Virtualization Experiences 
+
+ Created by  John Boteler, last modified on 2016.02.02
+
+# About
+
+This page captures some comments from user who have deployed FreeSWITCH™ in virtual environments. Each installation has its own considerations so there are no hard and fast rules for virtualization. Hopefully, these reports can guide you.
+
+Most importantly, we need **specific data** on the configuration of virtual machine that hosts your FreeSWITCH™ installation. It is not enough to say that "it worked OK" or "we had problems". Without specifics there is no way to choose a virtual platform to match it to the need. Thanks.
+
+Click here to expand Table of Contents
+
+* 1 [Amazon AWS](#-freeswitch--virtualization-experiences-)
+* 2 [CPU Resources](#-freeswitch--virtualization-experiences-)
+* 3 [ESXi](#-freeswitch--virtualization-experiences-)
+* 4 [LXC](#-freeswitch--virtualization-experiences-)
+* 5 [OpenVZ](#-freeswitch--virtualization-experiences-)
+* 6 [ProfitBricks](#profitbricks)
+
+# Amazon AWS
+
+**Amazon AWS**
+
+(07:05:42) playnet: is amazon compatible with FS?  
+(07:11:45) bigmoose: playnet: as long as it's running Debian 8 (as recommended here <https://freeswitch.org/confluence/display/FREESWITCH/Debian+8+Jessie>) I don't see why not. Also, read <https://freeswitch.org/confluence/display/FREESWITCH/FAQ#FAQ-Q:DoesitrunonAmazonElasticCloud?>  
+(07:12:41) bigmoose: woops - ignore that last link, I meant <https://freeswitch.org/confluence/display/FREESWITCH/Amazon+EC2> of course ;)  
+(08:26:52) eschmidbauer: bigmoose: you deploy on AWS ?  
+(08:33:18) bigmoose: nope  
+(08:33:51) playnet: i create amazon account...  
+(08:34:10) playnet: who have AMI with fs-compatible centos 6&  
+(08:40:17) \*\*\*eschmidbauer wonders if anyone deploys FS in AWS production environments  
+(08:42:26) crienzo: i'm going to try that out at some point this year... i've seen FS run well on Xen, but not in AWS  
+(09:22:47) lwm459: eschmidbauer: I'm been testing with it and seen good results  
+(09:24:41) crienzo: lwm459, what size instance and which OS are you using?  
+(09:25:44) lwm459: crienzo: just use the debian ami that's on their wiki  
+(09:26:04) lwm459: haven't put any real load on it yet though but don't see why it should be an issue  
+(09:26:18) lwm459: started messing around with t2.micro but have since moved to m4.large  
+(09:28:33) BoteMan: The problem with virtualized hosts is that you never know what other loads are being placed on the entire bare metal machine, unless you control the entire system. With Amazon, who knows? They could starve your FreeSWITCH instance, cause problems, then by the time you troubleshoot it the problems are gone.  
+(09:29:35) crienzo: With enough money, you can pay to guarantee that isn't the case. I haven't check on that pricing or if it's even worth it.  
+(09:29:48) BoteMan: Ahhh, there's the rub.  
+(09:30:13) lwm459: BoteMan: Agreed. But spreading the load across multiple FS instances might help...?  
+(09:31:07) BoteMan: I go through this all the time with prospective customers. Everybody wants to virtualize EVERYTHING. I get why, but when you're streaming real-time media you can't cut corners the way you can with a web, email, database server that can withstand some latency.  
+(09:31:33) crienzo: nice thing with virtualization is you can deploy to regions of the world that you lack presence  
+(09:31:41) crienzo: so that helps with latency  
+(09:32:08) lwm459: Sounds like it's very much based on requirement and need (plus personal experience)  
+(09:32:12) BoteMan: I mean internal system latency. Every 20 milliseconds those RTP packets MUST go out, can't wait for the machine to service other virtual hosts on the same box.  
+(09:32:29) BoteMan: Yep.  
+(09:32:48) BoteMan: People want hard and fast assurances and you can't provide them with a VM.  
+(09:33:44) BoteMan: There are considerations of system clock stability and CPU scheduling, to name 2\. There was a recent discussion on the -users mailing list I think last week about this.  
+(09:37:36) lwm459: I think there are probably quite a few people running FreeSWITCH on AWS EC2\. Maybe not processing huge amounts of traffic but I'm sure there are those that have had success with it. But even then, 'huge amounts of traffic' is a matter of perspective.  
+(09:37:50) DigiDaz\_: eschmidbauer, I have seen a few people report good success on AWS, that NAT alone puts me off  
+(09:53:48) mase2hot: I'm running freeswitch on AWS  
+(09:54:38) mase2hot: I have ran asterisk for 2+ years on AWS too without any issues which I would put down to virtualisation.  
+(09:55:40) mase2hot: I have had issues with Digital Ocean some time back, which resulted in bad call quality and random CPU usage even when moving to a 32 core.  
+(09:56:10) mase2hot: It turned out another user was taking all the CPU, no doubt for bitcoin mining..  
+(09:56:43) saratogga: it's just so much simpler to just run FS on a bare metal and not worry about all these things  
+(09:57:00) saratogga: so many other things to worry about, at least you get rid of this part  
+(09:58:19) mase2hot: That is true, but if you want to scale up in minutes then scale back hours later, there is no beating it. Plus takes out the worry for massive investment etc. But I would say **there is no right or wrong solution it needs to be done case by case.**  
+(09:58:20) BoteMan: saratogga: SO TRUE! But it's very difficult to convince people of that.  
+(09:59:24) MafooUK: we use virtualization on our instances, but we own and operate the others so they don't share with anything that can spike any of the pbx hosts  
+(10:00:11) mase2hot: You can go for single tenant on AWS if you feel the need as an option.
+
+(10:17:09) eschmidbauer: how much memory/cpu and how many cps ?
+
+(10:40:34) mase2hot: sorry I was busy, treat it like bare metal put at much into it as you can afford. A M3.large will do around 200 concurrent calls, but depends what else you ahve running. Never touch G729 stick with alaw / ulaw.
+
+# CPU Resources
+
+**CPU Resources**
+
+From: Stanislav Sinyagin  
+ Sent: Thursday, 28 January, 2016 17:37  
+ To: FreeSWITCH Users Help  
+ Subject: Re: \[Freeswitch-users\] FreeSWITCH in virtual environments
+
+A relatively modern VMWare server should not be a problem, but you need to provide the VM some guaranteed CPU cycles.
+
+I made a number of tests in various cloud hosting offerings, and the hardware clock is not any more an issue. But there was always the issue that the VM was serviced in best-effort manner, and there's never a guaranteed CPU resource for it. So, with 10+ simultaneous calls, FreeSWITCH sometimes failed to send RTP on time, simply because the CPU cycles were not available when needed.
+
+You can perform the tests relatively easily, by firing calls from an automated dialer, and analyzing the RTP streams with tshark.
+
+# ESXi
+
+**ESXi**
+
+From: Grant Bagdasarian  
+ Sent: Friday, 29 January, 2016 03:04  
+ Subject: Re: \[Freeswitch-users\] FreeSWITCH in virtual environments
+
+We're currently running around 20 FS VM's on multiple physical ESXi hosts and some on vCenter clusters with no issues at all. The current versions are still 1.4 (updating soon) but haven't had any issues with timing or RTP streams. We do limit the number of VM's per physical host not to overcommit resources, but in some cases overcommitting resources worked out fine too.
+
+We've been running FS virtualized on VMWare for almost 2-3 years now and haven't had any issues with timing or rtp.
+
+A single VM host (6 Cores, 12 Threads) with 3 FS VM's (bridging calls between the FS instances) should be able to handle close to 500 calls active without any issues. In this setup and our load test of this setup we had in total 5 call legs, bridged from the first to the last FS VM in the chain.
+
+We never tested with 300 CPS, but the host itself has 8 GB of memory. Our VM’s usually have 2-4 CPU’s and 1-2 GB of memory, but memory is hardly used. It’s CPU you need.
+
+# LXC
+
+**LXC**
+
+From: Peter Steinbach  
+Sent: Tuesday, 02 February, 2016 06:41  
+Subject: Re: \[Freeswitch-users\] FreeSWITCH in virtual environments  
+  
+we have just setup Freeswitch on Debian 8 inside LXC. We are examinating to switch from OpenVZ zu LXC.  
+  
+Freeswitch works so far productive, but with almost no load, so I have no performance figures yet. We will do some load and stress tests during this month to compare against OpenVZ.  
+  
+We expect advantages compared to OpenVZ with a newer kernel and in networking, let's see then where the drawbacks are.  
+  
+Best regards  
+Peter
+
+# OpenVZ
+
+**OpenVZ**
+
+**From:** Volodymyr Fedorov  
+**Sent:** Friday, 29 January, 2016 13:09  
+**Subject:** Re: \[Freeswitch-users\] FreeSWITCH in virtual environments
+
+Hi all. From behind, we used OpenVz container and freeswitch 1.4 without any performance impact. Stats 300-500 calls, cps around 10-15 without transcoding, but sometimes record-session was involved.  
+ Actually, it depends on transcoding, dtmf-conversion, conferencing.
+
+# ProfitBricks
+
+**ProfitBricks**
+
+From: Chad Phillips  
+ Sent: Thursday, 28 January, 2016 17:56  
+ To: FreeSWITCH Users Help  
+ Subject: Re: \[Freeswitch-users\] FreeSWITCH in virtual environments
+
+I've had very good luck running the newer video branch (1.6) code on ProfitBricks: <https://www.profitbricks.com/>
+
+As far as I understand, the CPU cycles are guaranteed on their platform. I've had to put as many as 20 cores on a server to handle some of our busier video conference calls, but with that it runs quite smoothly.
+
+That was with 15 - 18 connected participants. My setup is probably a bit different than most, though, as I only have 2 video feeds up at a time (the rest are video muted). Guessing it would require quite a few more cores if I had more active video feeds.
+
+From: freeswitch-users-bounces@lists.freeswitch.org \[mailto:freeswitch-users-bounces@lists.freeswitch.org\] On Behalf Of Peter Steinbach  
+ Sent: Tuesday, 02 February, 2016 06:41  
+ To: FreeSWITCH Users Help  
+ Subject: Re: \[Freeswitch-users\] FreeSWITCH in virtual environments
+
+Hello Stanislav,
+
+we have just setup Freeswitch on Debian 8 inside LXC. We are examinating
+
+to switch from OpenVZ zu LXC.
+
+Freeswitch works so far productive, but with almost no load, so I have
+
+no performance figures yet. We will do some load and stress tests during
+
+this month to compare against OpenVZ.
+
+We expect advantages compared to OpenVZ with a newer kernel and in
+
+networking, let's see then where the drawbacks are.
+
+Best regards
+
+Peter
+
+## Comments:
+
+| Freeswitch in LXCCommented out the following in /lib/systemd/system/freeswitch.service#IOSchedulingClass=realtime #IOSchedulingPriority=2 #CPUSchedulingPolicy=rrand Freeswitch service is working fine. ![](/images/icons/contenttypes/comment_16.png) Posted by rlieback at ott 19, 2018 10:13 |
+| ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+
+Document generated by Confluence on nov 11, 2022 04:24

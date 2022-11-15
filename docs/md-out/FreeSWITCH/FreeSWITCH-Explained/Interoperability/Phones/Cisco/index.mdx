@@ -1,0 +1,242 @@
+
+# Cisco 
+
+ Created by  Mario G, last modified by  John Boteler on 2022.07.27
+
+# About
+
+Cisco offers a wide range of hard phones, some of which are documented here. Some older phones listed here are no longer available from Cisco, but can still be found on the used aftermarket.
+
+Cisco has firmware images for both their own proprietary CUCM as well as 3PCC (3rd party call control) also known as MPP (multi-platform phone). You should observe carefully which phone you purchase to ensure that it has the 3PCC/MPP firmware, also listed as SIP firmware. While some experimenters have had success getting the CUCM phones to work with FreeSWITCH and Asterisk, the time spent on tweaking things exceeds any cost savings. Order carefully.
+
+There have been many issues with the older Cisco SIP implementations (buggy and non-RFC), but almost all have workarounds in FreeSWITCH.
+
+Click to expand Table of Contents
+
+* 1 [Cisco Functionality Table](#cisco-functionality-table)
+* 2 [Cisco Analog Telephone Adapters](#cisco-analog-telephone-adapters)  
+   * 2.1 [ATA 186](#cisco-7941)  
+   * 2.2 [SPA 112](#cisco-7941)
+* 3 [Cisco Hard Phones](#cisco-hard-phones)  
+   * 3.1 [Cisco 7941](#cisco-7941)  
+   * 3.2 [Cisco 7960/7960G](#cisco-79607960g)  
+   * 3.3 [Cisco 7945/7965/7970](#cisco-794579657970)  
+   * 3.4 [Cisco CP-88xx Series](#cisco-cp-88xx-series)  
+   * 3.5 [Cisco SPA50X/SPA30X](#cisco-spa50xspa30x)
+* 4 [Cisco UCM](#cisco-ucm)  
+   * 4.1 [Cisco Unified CallManager Express (UC500/UC520 and ISR router platforms)](#cisco-unified-callmanager-express-uc500uc520-and-isr-router-platforms)  
+   * 4.2 [Cisco Unified Call Manager](#cisco-unified-call-manager)
+
+# Cisco Functionality Table
+
+**In the body of the table:**  
+Y = yes, the phone performs this function fully.  
+L = limited functionality  
+n = no, the function does not work  
+&lt;blank> = not tested, no information  
+  
+**Legend:**  
+Model = Cisco model number  
+FW = firmware version tested  
+Reg = SIP registration  
+CID = Caller\*ID number and/or name  
+In = receives inbound calls  
+Out = places outbound calls  
+CW = Call\*Waiting  
+Xfer = call transfer  
+Park = call park  
+BLF = Busy Lamp Field, shows state of other FS extensions  
+MWI = Message Waiting Indicator, shows at least 1 voicemail message is unheard
+
+  
+| Model        | FW                  | Reg | CID | In | Out | CW | Xfer | Park | BLF | MWI |
+| ------------ | ------------------- | --- | --- | -- | --- | -- | ---- | ---- | --- | --- |
+| 79057912     |                     | Y   | Y   | Y  | Y   |    |      |      |     | Y   |
+| 7940         |                     | Y   | Y   | Y  | Y   | Y  | Y    | Y    |     |     |
+| 7940G        |                     | Y   | Y   | Y  | Y   | Y  | Y    | Y    |     |     |
+| 7941         | 8.5.28.4.12         | Y   | Y   | Y  | Y   | Y  | Y    | Y    | Y   | Y   |
+| 79607960G    | P0S3-08-8P0S3-08-11 | Y   | Y   | Y  | Y   | Y  | Y    |      |     |     |
+| 7961         | 8.5.2SR1            | Y   | Y   | Y  | Y   | Y  | Y    | Y    | Y   | Y   |
+| 794579657970 | 8.5.2               | Y   | Y   | Y  | Y   | Y  | Y    | Y    |     |     |
+| 88418851     | 11.3.7              | Y   | Y   | Y  | Y   |    |      |      | Y   |     |
+| SPA301SPA50x | 7.5.1a7.5.4         | Y   | Y   | Y  | Y   | Y  | Y    | Y    | Y   | Y   |
+
+Additional notes and information follow.
+
+# Cisco Analog Telephone Adapters
+
+## ATA 186
+
+* **Registration:** Works
+* **Caller Id:** Not tested
+* **Call in/out:** Works
+* **Fax over G.711:** Works
+
+## SPA 112
+
+* **Registration:** Works
+* **Caller Id:** Not tested
+* **Call in/out:** Not tested
+* **Fax over G.711:** Not tested
+
+For TLS:
+
+Follow directions at the following link: <https://supportforums.cisco.com/docs/DOC-9852>. Then...
+
+```xml
+cat `file.crt` `file.key` > agent.pem
+cp `combinedca.crt` cafile.pem
+And in the sip profile you need to use sslv23 not tlsv1.
+<param name="tls-version" value=sslv23"/>
+```
+
+# Cisco Hard Phones
+
+## Cisco 7941
+
+Place in the root of your TFTP server this file named SEP&lt;MAC\_ADDRESS>.cnf.xml, along with a dialplan.xml file and the latest firmware from the Cisco web site. Alter the load information node to get the firmware to upgrade:
+
+Click to expand 7941 configuration
+
+  
+```xml
+<?xml version="1.0" ?>
+<device>
+      <deviceProtocol>SIP</deviceProtocol>
+      <sshUserId>root</sshUserId>
+      <sshPassword>cisco</sshPassword>
+      <devicePool>
+            <dateTimeSetting>
+                  <dateTemplate>D-M-Y</dateTemplate>
+                  <timeZone>New Zealand Standard/Daylight Time</timeZone>
+                  <ntps>
+                        <ntp>
+                              <name>10.168.66.1</name>
+                              <ntpMode>Unicast</ntpMode>
+                        </ntp>
+                  </ntps>
+            </dateTimeSetting>
+            <callManagerGroup>
+                  <members>
+                        <member priority="0">
+                              <callManager>
+                                    <processNodeName>192.168.10.98</processNodeName>
+                                    <ports>
+                                          <sipPort>5060</sipPort>
+                                    </ports>
+                              </callManager>
+                        </member>
+                  </members>
+            </callManagerGroup>
+      </devicePool>
+      <sipProfile>
+            <sipProxies>
+                  <registerWithProxy>true</registerWithProxy>
+            </sipProxies>
+            <preferredCodec>g711alaw</preferredCodec>
+            <phoneLabel>Test 7941</phoneLabel>
+            <sipLines>
+                  <line button="1">
+                        <featureID>9</featureID>
+                        <featureLabel>1009</featureLabel>
+                        <proxy>192.168.10.98</proxy>
+                        <port>5060</port>
+                        <authName>1009</authName>
+                        <name>1009</name>
+                        <authPassword>1234</authPassword>
+                        <messageWaitingLampPolicy>3</messageWaitingLampPolicy>
+                        <messagesNumber>4000</messagesNumber>
+                  </line>
+            </sipLines>
+            <dialTemplate>dialplan.xml</dialTemplate>
+      </sipProfile>
+      <loadInformation>SIP41.8-5-2S</loadInformation>
+      <networkLocale>New_Zealand</networkLocale>
+      <networkLocaleInfo>
+            <name>New_Zealand</name>
+            <version>5.0(2)a</version>
+      </networkLocaleInfo>
+      <directoryURL>http://192.168.10.4/cisco/directory</directoryURL>
+      <servicesURL>http://192.168.10.4/cisco/directory</servicesURL>
+</device>
+```
+
+  
+## Cisco 7960/7960G
+
+See also: [Cisco 7960 SIP](./Cisco-7960-SIP_1966945.mdx#about)
+
+## Cisco 7945/7965/7970
+
+Latest tested build: SIP45.8-5-2S.loads (8.5.2)
+
+Busy Lamp Field display is not currently supported as of FreeSWITCH 1.0.3 \[deprecated\]  
+
+Wideband codec support works well on phone-to-phone, IVR, auto attendant and SIP trunk calls.   
+If you are having issues with proper codec selection, make sure your XML IP phone configuration contains:   
+`<preferredCodec>none</preferredCodec>` 
+
+Also, make sure your internal SIP profile (${conf\_dir}/sip\_profiles/internal.xml) contains:   
+`<param name="inbound-codec-negotiation" value="greedy"/>` 
+
+To debug your codec selection and call quality, you can press the Help button (blue question) twice in a row quickly during a call for detailed statistics.
+
+A sample XML configuration with troubleshooting instructions are available here: [Cisco Sample XML Config 79xx](./Cisco-Sample-XML-Config-79xx_1967002.mdx#introduction) 
+
+## Cisco CP-88xx Series
+
+Applies to CP-8841, CP-8851, CP-8861 at least.
+
+Cisco documentation shows an incorrect template for BLF configuration. The correct XML line to watch another FreeSWITCH extension is:
+
+`<Extended_Function_n_>fnc=blf;sub=watched-phone@server;nme=Name to appear on display</Extended_Function_n_>`
+
+\_n\_ = number of the line button which will display the BLF state of the other extension, e.g. Extended\_Function\_5\_  
+watched-phone = the FS user directory id, typically the extension number, e.g. 1001  
+server = FS server i.p. address or FQDN  
+nme = name to display on the phone screen next to this BLF button
+
+## Cisco SPA50X/SPA30X
+
+For Cisco SPA 5xx/3xx phones, I had to do quite a bit of NAT setup. Login to the phone through the web interface as 'admin' with default password of 456\. Click "Advanced" in top right corner. Click on the SIP tab. Scroll down to the NAT Support Parameters section. I set the first 6 dropdown boxes to YES. They are:   
+Handle VIA received,   
+Handle VIA rport,   
+Insert VIA received,   
+Insert VIA rport,   
+Substitue VIA Addr, and   
+Send Resp to Src Port.   
+They might not all be required, but it worked like this for me.
+
+I also found on many routers that NAT requires unique local SIP ports on the phone. On each extension tab (Ext 1, Ext 2, ...) that you register with FreeSWITCH, scroll down to the SIP Settings and set the SIP Port to a number that is unique to each line on this phone.
+
+# Cisco UCM
+
+## Cisco Unified CallManager Express (UC500/UC520 and ISR router platforms)
+
+Latest tested versions:  
+Cisco IOS 12.4(24)T - UCME 7.1 T Train build (uc500-advipservicesk9-mz.124-24.T.bin)  
+Cisco IOS 12.4(22)YB3 - UCME 7.1 Special build (uc500-advipservicesk9-mz.124-22.YB3.bin) 
+
+The [Cisco UC520](http://www.cisco.com/en/US/products/ps7293/index.html) is a fairly flexible PBX geared for small businesses; and the Cisco IOS SIP stack it uses seems to be reasonably compatible with FreeSWITCH without too much messing around. Cisco Integrated Services Routers, such as the 1861, 2800, 3800 can also connect to FreeSWITCH using Unified CallManager Express as PBX or using Cisco Unified Border Element as a session border controller.
+
+* **Registration:** Works
+* **Caller Id:** Works
+* **Call in/out:** Works
+* **Call waiting:** Works
+* **Transfer calls:** Works
+* **Park calls:** Works
+
+## Cisco Unified Call Manager
+
+CUCM (formerly Cisco Call Manager) defaults to requiring the FreeSWITCH [Sofia](../../../Configuration/Sofia-SIP-Stack/Sofia-Configuration-Files_7144453.mdx#--) profile configuration option of third party call control (3pcc). This is because the default CUCM SIP Trunk configuration is to send the initial INVITE without an SDP. Even with 3pcc enabled in FreeSWITCH this can cause issues (especially when ringback/progress needs to be provided).
+
+The workaround is to enable "Media Termination Point Required" in the SIP trunk configuration screen in CUCM. With this change you should no longer need to enable 3pcc in your FreeSWITCH Sofia profile. Tested and confirmed to work with CUCM 7.1.
+
+An alternative to using "Media Termination Point Required" is to enable "Early Offer" which includes the SDP in the initial invite. Delayed offer does not include the SDP and instead waits for the receiving device to send it's capabilities first. Delayed Offer is the default setting on the SIP Profile in CUCM 7.0+. You may change this by navigating to Device → Device Settings → SIP Profile. Find the existing SIP Profile and make a copy. Edit the copy you just created and check the box near the bottom of the page "Early Offer support for voice and video calls (insert MTP if needed)". Save this profile, apply it to your FreeSWITCH trunk. Remember that you must reset the trunk in CUCM for this change to take effect.
+
+If you press the ? mark twice during a call from a Cisco phone you will notice the active codec is now G.722 instead of G.711.
+
+  
+See also: [Cisco UC520 HowTo](./Cisco-UC520-HowTo_1967008.mdx#introduction) 
+
+Document generated by Confluence on nov 11, 2022 04:28

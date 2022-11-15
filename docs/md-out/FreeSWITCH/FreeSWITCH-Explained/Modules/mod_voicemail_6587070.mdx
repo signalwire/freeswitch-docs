@@ -1,0 +1,1798 @@
+
+# mod_voicemail 
+
+ Created by  Italo Rossi, last modified by  Martin Paterson on 2022.09.15
+
+# About
+
+mod\_voicemail is a Dialplan Application that provides voicemail services via Diaplans. It lets you send calls to voicemail, which allows callers to leave messages for users and allows users to retrieve and manage any messages left by callers.
+
+Click here to expand Table of Contents
+
+* 1 [Synopsis](#synopsis)
+* 2 [Dialplan variables](#dialplan-variables)  
+   * 2.1 [skip\_greeting](#skip_greeting)  
+   * 2.2 [skip\_instructions](#vm-skip-instructions)  
+   * 2.3 [voicemail\_callback\_dialplan](#voicemail_callback_dialplan)  
+   * 2.4 [voicemail\_callback\_context](#voicemail_callback_context)
+* 3 [Controlling User Parameters & Variables](#controlling-user-parameters--variables)  
+   * 3.1 [vm-enabled](#vm-enabled)  
+   * 3.2 [vm-alternate-greet-id](#voicemail_alternate_greet_id)  
+   * 3.3 [voicemail\_alternate\_greet\_id](#voicemail_alternate_greet_id)  
+   * 3.4 [voicemail\_greeting\_number](#voicemail_greeting_number)  
+   * 3.5 [http-allowed-api](#http-allowed-api)  
+   * 3.6 [vm-disk-quota](#vm-disk-quota)  
+   * 3.7 [vm-mailto](#send-voice-mail-to-email)  
+   * 3.8 [vm-mailfrom](#vm-mailfrom)  
+   * 3.9 [vm-notify-mailto](#vm-notify-mailto)  
+   * 3.10 [vm-password](#vm-password)  
+   * 3.11 [vm-a1-hash](#vm-a1-hash)  
+   * 3.12 [vm-email-all-messages](#vm-email-all-messages)  
+   * 3.13 [vm-notify-email-all-messages](#vm-notify-email-all-messages)  
+   * 3.14 [vm\_cc](#voicemail_inject)  
+   * 3.15 [vm-keep-local-after-email](#vm-keep-local-after-email)  
+   * 3.16 [vm-attach-file](#vm-attach-file)  
+   * 3.17 [vm-message-ext](#vm-message-ext)  
+   * 3.18 [vm\_message\_ext](#vm-message-ext)  
+   * 3.19 [vm-skip-instructions](#vm-skip-instructions)  
+   * 3.20 [notify-template-file](#notify-template-file)  
+   * 3.21 [vm-storage-dir](#vm-domain-storage-dir)  
+   * 3.22 [vm-storage-dir-shared](#vm-storage-dir-shared)  
+   * 3.23 [vm-domain-storage-dir](#vm-domain-storage-dir)
+* 4 [Using Outside Programs to Send Voicemail to Email](#using-outside-programs-to-send-voicemail-to-email)
+* 5 [Send\_mail setting](#send_mail-setting)
+* 6 [Exim4 settings](#exim4-settings)  
+   * 6.1 [Using MSMTP for Local Relay to Exim4 on Debian](#using-msmtp-for-local-relay-to-exim4-on-debian)
+* 7 [Windows settings](#windows-settings)
+* 8 [Mail via PHP](#send-voice-mail-to-email)
+* 9 [nullmailer settings](#nullmailer-settings)
+* 10 [sSMTP settings](#ssmtp-settings)
+* 11 [Debugging an external mailer](#debugging-an-external-mailer)
+* 12 [Example](#example)  
+   * 12.1 [Send Voice Mail to Email](#send-voice-mail-to-email)  
+   * 12.2 [Send Call To Voice Mail](#send-call-to-voice-mail)  
+   * 12.3 [Check Voice Mail](#send-voice-mail-to-email)  
+   * 12.4 [Retrieve Voice Mail Via Web Interface](#retrieve-voice-mail-via-web-interface)  
+         * 12.4.1 [Configuration](#configuration)  
+   * 12.5 [Retrieve Voice Mail Via IMAP Interface](#retrieve-voice-mail-via-imap-interface)  
+   * 12.6 [Using voicemail to authenticate a caller's PIN](#using-voicemail-to-authenticate-a-callers-pin)
+* 13 [Configuration Parameters](#configuration-parameters)  
+   * 13.1 [file-extension](#file-extension)  
+   * 13.2 [Key FS Mapping](#key-fs-mapping)  
+   * 13.3 [callback-dialplan](#voicemail_callback_dialplan)  
+   * 13.4 [callback-context](#voicemail_callback_context)  
+   * 13.5 [terminator-key](#terminator-key)  
+   * 13.6 [max-login-attempts](#max-login-attempts)  
+   * 13.7 [digit-timeout](#digit-timeout)  
+   * 13.8 [max-record-len](#max-record-len)  
+   * 13.9 [tone-spec](#tone-spec)  
+   * 13.10 [play-new-messages-key](#play-new-messages-key)  
+   * 13.11 [play-saved-messages-key](#play-saved-messages-key)  
+   * 13.12 [main-menu-key](#main-menu-key)  
+   * 13.13 [config-menu-key](#config-menu-key)  
+   * 13.14 [record-greeting-key](#record-greeting-key)  
+   * 13.15 [choose-greeting-key](#choose-greeting-key)  
+   * 13.16 [record-name-key](#record-name-key)  
+   * 13.17 [record-file-key](#record-file-key)  
+   * 13.18 [listen-file-key](#listen-file-key)  
+   * 13.19 [save-file-key](#save-file-key)  
+   * 13.20 [delete-file-key](#delete-file-key)  
+   * 13.21 [undelete-file-key](#undelete-file-key)  
+   * 13.22 [email-key](#send-voice-mail-to-email)  
+   * 13.23 [pause-key](#email-key)  
+   * 13.24 [restart-key](#restart-key)  
+   * 13.25 [ff-key](#email-key)  
+   * 13.26 [rew-key](#email-key)  
+   * 13.27 [odbc-dsn](#odbc-dsn)  
+   * 13.28 [record-silence-threshold](#record-silence-threshold)  
+   * 13.29 [record-silence-hits](#record-silence-hits)  
+   * 13.30 [email-from](#vm-mailfrom)  
+   * 13.31 [db-password-override](#db-password-override)  
+   * 13.32 [dbname](#voicemail_inject)  
+   * 13.33 [allow-empty-password-auth](#allow-empty-password-auth)  
+   * 13.34 [auto-playback-recordings](#auto-playback-recordings)
+* 14 [Database Schema](#database-schema)
+* 15 [API](#voicemail_inject)  
+   * 15.1 [vm\_boxcount](#vm_boxcount)  
+   * 15.2 [voicemail\_inject](#voicemail_inject)  
+   * 15.3 [vm\_prefs](#vm_prefs)  
+   * 15.4 [vm\_list](#voicemail_inject)  
+   * 15.5 [vm\_delete](#vm_delete)  
+   * 15.6 [vm\_read](#vm_read)
+* 16 [Advanced API](#advanced-api)  
+   * 16.1 [vm\_fsdb\_pref\_password\_set](#vm_fsdb_pref_password_set)  
+   * 16.2 [vm\_fsdb\_pref\_greeting\_set](#vm_fsdb_pref_greeting_set)  
+   * 16.3 [vm\_fsdb\_pref\_recname\_set](#vm_fsdb_pref_recname_set)  
+   * 16.4 [vm\_fsdb\_msg\_list](#vm_fsdb_msg_list)  
+   * 16.5 [vm\_fsdb\_msg\_email](#vm_fsdb_msg_email)  
+   * 16.6 [vm\_fsdb\_msg\_purge](#vm_fsdb_msg_purge)  
+   * 16.7 [vm\_fsdb\_msg\_delete](#vm_fsdb_msg_delete)  
+   * 16.8 [vm\_fsdb\_msg\_save](#vm_fsdb_msg_save)  
+   * 16.9 [vm\_fsdb\_msg\_undelete](#vm_fsdb_msg_undelete)  
+   * 16.10 [vm\_fsdb\_auth\_login](#vm_fsdb_auth_login)  
+   * 16.11 [vm\_fsdb\_msg\_get](#vm_fsdb_msg_get)  
+   * 16.12 [vm\_fsdb\_msg\_count](#vm_fsdb_msg_count)
+* 17 [FAQ](#check-voice-mail)
+* 18 [How do I reload new configuration without restarting FreeSWITCH?](#how-do-i-reload-new-configuration-without-restarting-freeswitch)
+* 19 [Do I need a text-to-speech engine installed?](#do-i-need-a-text-to-speech-engine-installed)
+* 20 [How do I install sound files?](#how-do-i-install-sound-files)
+* 21 [Voicemail Voice Prompt / Troubleshooting Problems](#voicemail-voice-prompt--troubleshooting-problems)
+* 22 [How to update keys for accessing voicemail from outside?](#how-to-update-keys-for-accessing-voicemail-from-outside)
+* 23 [How can I disable remote login/access to voicemail?](#how-can-i-disable-remote-loginaccess-to-voicemail)
+* 24 [Can I share voicemail boxes between multiple phones/users?](#can-i-share-voicemail-boxes-between-multiple-phonesusers)  
+   * 24.1 [To Monitor Voicemail](#to-monitor-voicemail)  
+         * 24.1.1 [1\. SUBSCRIBE feature method](#1-subscribe-feature-method)  
+         * 24.1.2 [SNOM 320 configuration](#snom-320-configuration)  
+         * 24.1.3 [2\. Force MWI Info in Sofia](#2-force-mwi-info-in-sofia)  
+   * 24.2 [To Receive Voicemail](#to-receive-voicemail)  
+   * 24.3 [Voicemail Callback](#voicemail-callback)
+* 25 [Transcribing Voicemail](#transcribing-voicemail)
+
+# Synopsis
+
+```xml
+voicemail,Voicemail,[check] [auth] <profile_name> <domain_name> [<id>]
+```
+
+# Dialplan variables
+
+## skip_greeting
+
+  
+Skips playback of greeting message when leaving messages. Variable is unset after voicemail application finishes.
+
+If using a command to access voicemail, you can use the following to direct the playout of a custom greeting to the caller:
+
+```xml
+<action application="set" data="skip_greeting=true"/>
+<action application="voicemail" data="default $${domain} $1"/>
+```
+
+  
+However, if using bridge to get to voicemail, you need to use "export" instead of "set" to get the channel variable to the correct leg of the call
+
+```xml
+<action application="export" data="skip_greeting=true"/>
+<action application="bridge" data="loopback/app=voicemail:default $${domain} $1"/>
+```
+
+  
+## skip_instructions
+
+  
+Skips playback of instructions when leaving messages. Variable is unset after voicemail application finishes.
+
+```xml
+<action application="set" data="skip_instructions=true"/>
+<action application="voicemail" data="default $${domain} $1"/>
+```
+
+However, if using bridge to get to voicemail, you need to use "export" instead of "set" to get the channel variable to the correct leg of the call
+
+```xml
+<action application="export" data="skip_greeting=true"/>
+<action application="bridge" data="loopback/app=voicemail:default $${domain} $1"/>
+```
+
+For instance, in dialplan/default.xml under &lt;extension name="Local\_Extension">, you would modify the xml by:
+
+```xml
+<action application="export" data="skip_instructions=true"/>
+<action application="bridge" data="loopback/app=voicemail:default ${domain_name} ${dialed_extension}"/>
+```
+
+## voicemail_callback_dialplan
+
+Set's the dialplan for the voicemail callback. This channel variable will override the parameter 'callback\_dialplan' in voicemail.conf.xml
+
+```xml
+<action application="set" data="voicemail_callback_dialplan=XML"/>
+```
+
+## voicemail_callback_context
+
+Set's the dialplan context for the voicemail callback. This channel variable will override the parameter 'callback\_context' in voicemail.conf.xml
+
+```xml
+<action application="set" data="voicemail_callback_context=mydomain.com"/>
+```
+
+# Controlling User Parameters & Variables
+
+When the following parameters are set in the extension conf files located in (conf/directory/'extension'.xml or conf/directory/default/'extension'.xml), they set options for your voicemail users
+
+## vm-enabled
+
+When set to false this user will not have a voicemail box. This means busy and no answer calls will not forward to a voicemail box, nor will the user be able to log in to a voicemail box.
+
+## vm-alternate-greet-id
+
+## voicemail_alternate_greet_id
+
+The parameter allows you to override the default extension or phone number spoken by the system in the voicemail greeting. This can also be set in the dialplan before calling the voicemail app.
+
+This controls system greetings that read back a phone number, not user recorded greetings. To change to a different recorded greeting, use voicemail\_greeting\_number below.
+
+  
+Example setting the parameter in the user's directory entry. This example will say "8661234567" in the voicemail generic system greeting instead of the extension number 1004.
+
+**Parameter set in user directory entry**
+
+```xml
+<!-- note use of dashes in parameter name -->
+<include>
+  <user id="1004">
+    <params>
+      <param name="password" value="xyzzy"/>
+      <param name="vm-password" value="1234"/>
+      <param name="vm-alternate-greet-id" value="8661234567"/>
+    </params>
+    <variables>
+      <variable name="toll_allow" value="domestic,local"/>
+      <variable name="user_context" value="default"/>
+      <variable name="effective_caller_id_number" value="703-591-1635"/>
+      <variable name="effective_caller_id_name" value="Frank Haynes"/>
+      <variable name="callgroup" value="tech_support"/>
+    </variables>
+  </user>
+</include>
+```
+
+  
+Example setting the variable before trasferring to voicemail. This example will say "2024561000" in the voicemail greeting instead of the extension number, for example 1019.
+
+**Variable set in dialplan**
+
+```xml
+<!-- 
+dial the extension (1000-1019) for 30 seconds and go to voicemail if the 
+call fails (continue_on_fail=true), otherwise hang up after a successful
+bridge (hangup_after_bridge=true) 
+-->
+<extension name="Local_Extension">
+  <condition field="destination_number" expression="^(10[01][0-9])$">
+    <action application="export" data="dialed_extension=$1"/>
+    <action application="set" data="ringback=${us-ring}"/>
+    <action application="set" data="transfer_ringback=$${hold_music}"/>
+    <action application="set" data="call_timeout=30"/>
+    <action application="set" data="hangup_after_bridge=true"/>
+    <action application="set" data="continue_on_fail=true"/>
+    <action application="bridge" data="user/${dialed_extension}@${domain_name}"/>
+    <action application="answer"/>
+<!-- Note the use of underscore_ between elements of the variable name -->
+    <action application="export" data="voicemail_alternate_greet_id=2024561000"/>
+    <action application="sleep" data="1000"/>
+    <action application="bridge" data="loopback/app=voicemail:default ${domain_name} ${dialed_extension}"/>
+  </condition>
+</extension>
+```
+
+  
+## voicemail_greeting_number
+
+  
+Selects the user-recorded greeting to play.
+
+If using a command to access voicemail, you can use the following to direct the playout of a custom greeting to the caller:
+
+```xml
+<action application="set" data="voicemail_greeting_number=1"/>
+<action application="voicemail" data="default $${domain} ${dialed_extension}"/>
+```
+
+  
+However, if using bridge to get to voicemail, you need to use "export" instead of "set" to get the channel variable to the correct leg of the call
+
+```xml
+<action application="export" data="voicemail_greeting_number=1"/>
+<action application="bridge" data="loopback/app=voicemail:default $${domain} ${dialed_extension}"/>
+```
+
+By default, either of the above would play the file in $${base\_dir}/storage/voicemail/default/$${domain}/&lt;user>/greeting\_1.wav. However, this file is not created until the user has recorded a custom greeting in slot 1.
+
+If you have defined voicemail\_greeting\_number in the user's XML directory entry and would like to follow that value then execute the [set\_user](./mod-dptools/6587133.mdx#about) app before transferring to voicemail.
+
+## http-allowed-api
+
+This allows the user to use the web vm
+
+```xml
+<param name="http-allowed-api" value="voicemail"/>
+```
+
+## vm-disk-quota
+
+  
+This will put a limit to the length of voicemail messages a user can store. If 0 or missing doesn't make any limitation. Default is no limitation.
+
+The following example will limit the user's voicemail box to 30 seconds. When the limit exceed, The caller will hear "mailbox is full, please try your call again later, goodbye".
+
+```xml
+<param name="vm-disk-quota" value="30"/>
+```
+
+## vm-mailto
+
+This is the user's email address, default: undefined.  
+(originally called email-addr. Use vm-mailto instead)
+
+This is defined in the directory for the particular user as a param. Multiple email addresses can be defined using a comma-separated list.
+
+```xml
+<param name="vm-mailto" value="user101@mydomain.com" />
+```
+
+## vm-mailfrom
+
+This is the FROM address to send the email, default: undefined
+
+This is defined in the directory for the particular user as a param.
+
+```xml
+<param name="vm-mailfrom" value="noreply@yourdomain.com" />
+```
+
+  
+in the voicemail template you can get this value using: ${voicemail\_email\_from}
+
+## vm-notify-mailto
+
+  
+The address you want notification messages sent to, default: same as vm-mailto.
+
+This is defined in the directory for the particular user as a param.
+
+```xml
+<param name="vm-notify-mailto" value="user101_manager@yourdomain.com" />
+```
+
+## vm-password
+
+  
+This is the user's configured voicemail PIN. This is additional to the voicemail password that the user can change in the voicemail system. If the value is set to "user-choose", then there is no configured password and only the user set password is used. Note that if you set the vm\_password in the directory XML, any changes to the password from a phone are stored in the voicemail\_prefs table. The module does not update the XML. The result is that there will be 2 passwords that can access the mail box, the one set in XML and the one that the user set from the phone.
+
+This is defined in the directory for the particular user as a param.
+
+Example:
+
+```xml
+<param name="vm-password" value="12345" />
+```
+
+## vm-a1-hash
+
+This parameter allows you to avoid sending the voicemail password in plain text. This is the same as the user a1-hash (see \[\[XML\_User\_Directory\_Guide\]\]). Set this parameter to the MD5 hash of "userid:domain\_name:vm-password". Example:
+
+```xml
+<!-- The password has been left as a comment for example -->
+<!-- <param name="vm-password" value="12345"/> -->
+<!-- The MD5 hash of "101:mydomain.com:12345" -->
+<param name="vm-a1-hash" value="fd5184d9d36a2009c72e1571abf0493e" />
+```
+
+## vm-email-all-messages
+
+Setting to true will send all messages to vm-mailto address (attachment based on vm-attach-file param), default: false
+
+This is defined in the directory for the particular user as a param.
+
+```xml
+<param name="vm-email-all-messages" value="true" />
+```
+
+## vm-notify-email-all-messages
+
+  
+Setting to true will send a notify email to vm-notify-mailto when a vm is left (never has attachment)  
+default: false
+
+This is defined in the directory for the particular user as a param.
+
+```xml
+<param name="vm-notify-email-all-messages" value="true" />
+```
+
+## vm_cc
+
+Setting this variable will inject the message into the specified voicemail mailbox.  
+This is defined in the directory for the particular user as a variable.  
+Please note that the variable 'vm\_cc' needs to be set as a channel variable before mod\_voicemail is called. When set as a directory variable, it only becomes a channel variable when the UA is authenticated.
+
+Dialplan Example (recommended):
+
+```xml
+<action application="set" data="vm_cc=1001@mydomain.com"/>
+<action application="voicemail" data="default mydomain.com 1000"/>
+<!--If you want to cc the message to multiple users, use a comma separated list of users:-->
+<action application="set" data="vm_cc=1001@mydomain.com,1002@mydomain.com,1003@mydomain.com"/>
+```
+
+Directory Example:
+
+```xml
+<include>
+  <domain name="mydomain.com">
+    <user id="101">
+      <params>
+        <!--Note: for user directory you can use either vm_cc in variables or the vm-cc param-->
+        <param name="vm-cc" value="1001@mydomain.com,1002@mydomain.com,1003@mydomain.com" />
+      </params>
+      <varibles>
+        <variable name="vm_cc" value="1001@mydomain.com" />
+        <!--If you want to cc the message to multiple users, use a comma separated list of users:-->
+        <variable name="vm_cc" value="1001@mydomain.com,1002@mydomain.com,1003@mydomain.com" />
+      </varibles>
+    </user>
+  </domain>
+</include>
+```
+
+## vm-keep-local-after-email
+
+Setting to false will delete the local copy of the voicemail file after transmission of the mail message. When set to true the voicemail file will be kept locally and set as New for the phone to retrieve.  
+default: true
+
+Example:
+
+```xml
+<param name="vm-keep-local-after-email" value="false" />
+```
+
+## vm-attach-file
+
+  
+Setting to true will attach the audio file to the main email  
+default: false
+
+This is defined in the directory for the particular user as a param.
+
+Example:
+
+```xml
+<param name="vm-attach-file" value="true" />
+
+```
+
+## vm-message-ext
+
+This Parameter determines the storage type (and email type) for voicemails received and can be set per user. In order to use MP3 you must have mod\_shout installed and loaded. The default is 'wav'.
+
+Example:
+
+```xml
+<param name="vm-message-ext" value="mp3"/>
+
+```
+
+## vm_message_ext
+
+Determines the storage type (and email type) for voicemails received and can be set per originating user or the Dial Plan. In order to use MP3 you must have mod\_shout installed and loaded. The default is 'wav'. This may be set from the Dial Plan to override the file type. If this variable is set it overrides the vm-message-ext parameter.  
+When this variable is set on the originating user the specified file type will apply to the receiver of the message.
+
+Example:
+
+```xml
+<variable name="vm_message_ext" value="mp3"/>
+
+```
+
+## vm-skip-instructions
+
+  
+This disables instructions for how to leave a message, and instead just plays a beep.
+
+```xml
+<param name="vm-skip-instructions" value="true"/>
+```
+
+## notify-template-file
+
+The notify email will use the same template as the main email unless you define the new profile   
+default: undefined
+
+```xml
+<param name="notify-template-file" value="other_template"/>
+```
+
+## vm-storage-dir
+
+  
+This parameter allows to force the storage directory for voicemail files received and can be set per user. By default, voicemail files are stored in 'BASE\_DIR/storage/voicemail/DOMAIN\_NAME/USER\_ID'.
+
+It can be set to a full path, or a path relative to the BASE\_DIR (usually /usr/local/freeswitch or /opt/freeswitch for debian installs).
+
+Example:
+
+```xml
+<param name="vm-storage-dir" value="/home/voicemail/test.com/100"/>
+
+```
+
+![(attenzione)](/images/icons/emoticons/warning.svg) Note: Most users either save voicemails locally, on a network file share directory or using a distribusted network file system, like glusterFS. [https://www.gluster.org](https://www.gluster.org/) You can also save the voicemails locally and transfer to different FreeSWITCH servers in any manner: scp, rsync, Borgbackup, sneakernet, etc.
+
+Here's a users input on GlusterFS:
+
+_Essentially, gluster is a cluster distributed filesystem. It uses local storage on each 'server' node, and that can then_  
+_be mounted on clients. It's intended for high performance compute resources, but works quite nicely for freeswitch backend._  
+  
+_In my case, I have 4 servers accessing the cluster - 2 freeswitch nodes that are setup as an HA pair using keepalived_  
+_(article already in wiki for that), 2 web server front end nodes for a local custom UI._  
+  
+_On the backend, I have the three gluster nodes for file service (odd number to insure quorum) and 3 Percona XTraDB mysql_  
+_nodes also operating as a cluster._  
+  
+_Everything except the two freeswitch instances is running as a VM. The FS nodes are running on real hardware._  
+  
+_The key difference with NFS is that the filesystem itself is redundant - so you can take any one of those backend nodes_  
+_out of service and it isn't visible (except as a momentary hang) to the servers that have the filesystem mounted._
+
+_<http://lists.freeswitch.org/pipermail/freeswitch-users/2016-August/121650.html>_
+
+![](https://ssl.gstatic.com/ui/v1/icons/mail/images/cleardot.gif)
+
+## vm-storage-dir-shared
+
+If this is set to true (default false) we assume the storage-dir is shared, organized by realm/domain, with uses other than voicemail, so we adopt a directory structure of:
+
+```xml
+<storage_dir>/<realm>/voicemail/<id>
+```
+
+Example:
+
+```xml
+<param name="vm-storage-dir-shared" value="true"/>
+
+```
+
+## vm-domain-storage-dir
+
+This is like vm-storage-dir but we append the user ID to the directory so if vm-domain-storage-dir is /var/lib/freeswitch/storage/[example.com](http://example.com), it will store VM in /var/lib/freeswitch/storage/[test.com/user\_id](http://test.com/user%5Fid).
+
+Example:
+
+```xml
+<param name="vm-domain-storage-dir" value="/var/lib/voicemail/test.com/"/>
+
+```
+
+# Using Outside Programs to Send Voicemail to Email
+
+  
+There are times when you don't want or need an email server on your PBX. For these times it would be nice to be able to  
+use an outside program to send the email.
+
+Below is a python script that does just that. Note that it will give deprecation warnings on later versions of Python so needs to be rewritten to used MIME in place of MimeWriter.
+
+TODO: Fix indentation
+
+```xml
+#!/usr/bin/python
+#
+"""
+Copyright (c) 2009, ChronosTelecom, LLC
+All rights reserved.
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are met:
+* Redistributions of source code must retain the above copyright
+notice, this list of conditions and the following disclaimer.
+* Redistributions in binary form must reproduce the above copyright
+notice, this list of conditions and the following disclaimer in the
+documentation and/or other materials provided with the distribution.
+* Neither the name of the <organization> nor the
+names of its contributors may be used to endorse or promote products
+derived from this software without specific prior written permission.
+THIS SOFTWARE IS PROVIDED BY <copyright holder> ''AS IS'' AND ANY
+EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+DISCLAIMED. IN NO EVENT SHALL <copyright holder> BE LIABLE FOR ANY
+DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+(INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
+LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
+ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+(INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+"""
+import smtplib
+import sys
+import MimeWriter
+import mimetools
+import mimetypes
+import os
+import StringIO
+import re
+import shutil
+import time
+import os.path
+from optparse import OptionParser
+SERVER = 'smtp.gmail.com'
+PORT = 587
+USER = 'YOUR_MAIL_USER'
+PASSWORD = 'PASSWORD'
+attach = ""
+# Write data to a file given the filename. Make a backup of the file FIRST!
+def write_file(filename,data):
+    fh = ""
+    cur_time = time.time()
+    if not fh:
+        if not os.path.exists(filename):
+            fh = open(filename,'w')
+    else:
+#print "WARNING: %s exists! Moving it to %s.bak.%s" % (filename,filename,cur_time)
+shutil.move(filename,"%s.bak.%s" % (filename,cur_time))
+fh = open(filename,'w')
+
+fh.write(data)
+fh.close()
+# send the mail
+def send(sender,to,message,verbose=False):
+smtp = smtplib.SMTP(SERVER, PORT)
+if verbose:
+smtp.set_debuglevel(1)
+smtp.ehlo()
+smtp.starttls()
+smtp.ehlo()
+smtp.login(USER,PASSWORD)
+smtp.sendmail(sender, to, message)
+smtp.quit()
+
+
+def mail(sender='', to='', subject='', text='', attachments=None, verbose=False):
+"""
+Usage:
+mail()
+Params:
+sender: sender's email address
+to: receipient email address
+subject: subject line
+text: Email message body main part.
+attachments: list of files to attach
+"""
+message = StringIO.StringIO()
+writer = MimeWriter.MimeWriter(message)
+writer.addheader('To', to)
+writer.addheader('From', sender)
+writer.addheader('Subject', subject)
+writer.addheader('MIME-Version', '1.0')
+
+writer.startmultipartbody('mixed')
+
+# start with a text/plain part
+part = writer.nextpart()
+body = part.startbody('text/plain')
+part.flushheaders()
+body.write(text)
+# now add the attachments
+if attachments is not None:
+for a in attachments:
+filename = os.path.basename(a)
+ctype, encoding = mimetypes.guess_type(a)
+if ctype is None:
+ctype = 'application/octet-stream'
+encoding = 'base64'
+elif ctype == 'text/plain':
+encoding = 'quoted-printable'
+else:
+encoding = 'base64'
+
+part = writer.nextpart()
+part.addheader('Content-Transfer-Encoding', encoding)
+body = part.startbody("%s; name=%s" % (ctype, filename))
+print filename
+mimetools.encode(open(a, 'rb'), body, encoding)
+# that's all folks
+writer.lastpart()
+send(sender,to,message.getvalue(),verbose)
+
+def validate_email(fromAddress):
+email_addr = re.compile(r'(([a-zA-Z0-9_\-\.]+)@((\[[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.)|(([a-zA-Z0-9\-]+\.)+))([a-zA-Z]{2,4}|[0-9]{1,3})(\]?))')
+return bool(email_addr.search(fromAddress))
+
+if __name__ == "__main__":
+fromAddress = ""
+to = ""
+subject = ""
+infile = ""
+body = ""
+translate = ""
+tempfile = ""
+usestdin = False
+verbose = False
+delete = False
+log = False
+
+parser = OptionParser()
+parser.add_option('-f', dest='fromAddress', metavar='FROMADDRESS',help="The from address for the email")
+parser.add_option('-t', dest='toAddress', metavar='TOADDRESS',help="The to address for the email")
+parser.add_option('-s', dest='subject', metavar='SUBJECT',help="The subject for the email")
+parser.add_option('-a', dest='attachment', metavar='ATTACHMENT',help="The file to attach to the email")
+parser.add_option('-b', dest='body', metavar='BODY',help="The body of the email")
+parser.add_option('-x', dest='translate', metavar='TRANSLATE',help="Translate the attachment using a translator program.\ntiff2pdf is the only supported option at this time.")
+parser.add_option('-i', dest='use_stdin', action="store_true", default=False,help="Use standard in as the input for the email message.")
+parser.add_option('-d', dest='delete', action="store_true", default=False,help="Delete the attachments when done processing.")
+parser.add_option('-v', dest='verbose', action="store_true", default=False,help="Verbose output for debugging.")
+parser.add_option('-l', dest='log', action="store_true", default=False,help="Log the message to a file stored in /tmp/sendemail.log")
+(options, args) = parser.parse_args()
+if options.fromAddress:
+    fromAddress = options.fromAddress
+if not validate_email(fromAddress):
+    print "Invalid From email address. Please try again."
+    exit(1)
+if options.toAddress:
+    to = options.toAddress
+if not validate_email(to):
+    print "Invalid To email address. Please try again."
+    exit(1)
+if options.subject: subject = options.subject
+if options.attachment: infile = options.attachment
+if options.body: body = options.body
+if options.translate: translate = options.translate
+if options.use_stdin: usestdin = options.use_stdin
+if options.verbose: verbose = options.verbose
+if options.delete: delete = options.delete
+if options.log: log = options.log
+if usestdin is True:
+message = ""
+attachment = infile
+for line in sys.stdin:
+message += line
+to_field = re.compile(r'To: <(([a-zA-Z0-9_\-\.]+)@((\[[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.)|(([a-zA-Z0-9\-]+\.)+))([a-zA-Z]{2,4}|[0-9]{1,3})(\]?))>')
+if to_field.search(message):
+to_match = to_field.search(message)
+to = str(to_match.group(1))
+if log:
+write_file('/tmp/sendemail.log',message)
+send(fromAddress,to,message,verbose)
+else:
+if translate == 'tiff2pdf':
+tempfile = "/tmp/%s.pdf" % os.path.basename(infile)
+command = "tiff2pdf %s -o %s" % (infile, tempfile)
+os.system(command)
+attachment = tempfile
+else:
+attachment = infile
+
+attach=[attachment]
+mail(sender=fromAddress, to=to, subject=subject, text=body, attachments=attach, verbose=verbose)
+
+# delete our temporary file - it's up to the caller to delete the attachments, if they want
+if tempfile:
+os.unlink(tempfile)
+if delete and attachment:
+os.unlink(attachment)
+
+
+```
+
+Make the following changes to /usr/local/freeswitch/autoload\_configs/switch.conf.xml:
+
+```xml
+<param name="mailer-app" value="/usr/local/freeswitch/scripts/sendemail.py"/>
+<param name="mailer-app-args" value="-i -d -f freeswitch@mydomain.com -t"/>
+
+```
+
+# Send_mail setting
+
+To enable email setting for voicemail, make sure the following two lines are configured correctly in switch.conf.xml
+
+```xml
+<param name="mailer-app" value="sendmail"/>
+<param name="mailer-app-args" value="-t"/>
+
+```
+
+'''Note''' - On CentOS and possibly other OSs, \`sendmail\` isn't in the non-root PATH so you'll want to specify the entire path in the mailer-app value or modify your PATH prior to running FreeSWITCH&trade;.
+
+# Exim4 settings
+
+There have been several reports of segfaults with Exim4 in combination with Debian and FreeSWITCH - so far no definite resolution has been posted - mostly citing the advice below - which does not help(See \[<http://lists.freeswitch.org/pipermail/freeswitch-users/2009-June/043660.html> here\],\[<http://lists.freeswitch.org/pipermail/freeswitch-users/2010-January/052529.html> here\] and \[<http://jira.freeswitch.org/browse/FS-1923> here\]).  
+A default installation of '''postfix''' instead of exim4 is a workaround, if you just quickly want to setup a mailer for FreeSWITCH on Debian --\[\[User:Peletiah|Peletiah\]\] 15:19, 1 June 2011 (UTC).
+
+Using '''msmtp''' together with exim4 on the same host works and can be used as a workaround, see the notes below in a dedicated sub-section -- \[\[User:Miconda|miconda\]\] Sep 24, 2012.
+
+As of April 22, 2013, a patch was applied to resolve the stack size setting for child processes, which is the primary cause of this issue. See \[<http://jira.freeswitch.org/browse/FS-5332> here\] for details.
+
+VM to email notification can also use other MTAs such as Debian's default Exim4\. For email notification basically mod\_voicemail constructs an email message that is then passed to standard input of the application defined in the "mailer-app" param found in switch.conf.xml.
+
+The MTA application then needs to be configured in a way so that the recipients of the message are obtained from the To:, Cc:, and Bcc: header lines of the message passed to it. This is achieved in Exim4 with the -t option.
+
+However, FS also adds another argument with the To: address to the command defined in the parameters above, so that the final command would look like:
+
+```xml
+cat /tmp/mail.12336173682b88 | exim4 -t someone@someaddress.net
+```
+
+If you have set:
+
+```xml
+<param name="mailer-app" value="exim4"/>
+<param name="mailer-app-args" value="-t"/>
+```
+
+This is because as documented in O'Reilly Sendmail's book, some versions of Sendmail add argument addresses to those obtained from the headers and also as a good measure to send the To: address to applications that cannot parse the headers in the email msg.
+
+Exim's default behavior however is that these extra addresses specify addresses to which the message is NOT to be delivered. So in the command line described above "someone@[someaddress.net](http://someaddress.net)" is the actual recipient of the email message, but exim's default behavior takes the argument from the command line and subtracts the "someone@[someaddress.net](http://someaddress.net)" email address from the To: headers of the actual message, leaving it with no recipients at all.
+
+Exim can be made to add the argument instead of subtracting it by setting the option extract\_addresses\_remove\_arguments false in it's config and then you can use:
+
+```xml
+<param name="mailer-app" value="exim4"/>
+<param name="mailer-app-args" value="-t"/>
+```
+
+But if you do not want to go through the hassle of changing exim's configuration, then you could also overcome the "extra" argument using a script such as:
+
+eximcompat.sh:
+
+```xml
+#!/bin/bash
+exec exim4 -t
+```
+
+  
+And then pointing the mailer app to this script:
+
+```xml
+<param name="mailer-app" value="/usr/local/bin/eximcompat.sh"/>
+<!-- <param name="mailer-app-args" value="-t"/> -->
+```
+
+If you're using the sysV init script from this wiki, the stack size is set to some low value (240) which can cause exim to segfault; add a line in your exim4compat.sh to increase this value (8192 works for me).
+
+## Using MSMTP for Local Relay to Exim4 on Debian
+
+This is a possible workaround to make voicemail email notification work on Debian with Exim4 as main MTA.
+
+MSMTP can be installed together with Exim4 on the same host and can be configured to do relay to local exim4 instance. In this way, Voicemail module can use MSMTP, but the public email relaying is taken care by Exim.
+
+Installation of MSMTP on Debian is very simple:
+
+```xml
+apt-get install msmtp
+```
+
+Its configuration has to be stored in '''/etc/msmtprc'''. To relay to localhost SMTP server, just set its content to the next three lines:
+
+```xml
+account default
+host 127.0.0.1
+syslog LOG_MAIL
+```
+
+  
+By default, exim4 accepts messages from localhost without user authentication (to allow running processes to send email alerts), so you don't need to change anything in exim4 configuration (unless you disabled that default option).
+
+On FreeSwitch configuration side, edit switch.conf.xml to set sending emails with MSMTP:
+
+```xml
+<param name="mailer-app" value="msmtp"/>
+```
+
+# Windows settings
+
+Example setting in switch.conf.xml for sending email on windows.
+
+```xml
+<param name="mailer-app" value="msmtp"/>
+```
+
+#   
+Mail via PHP
+
+Example setting in switch.conf.xml for sending email with PHP mailer. Make sure the path to php is correct for mailer-app.
+
+```xml
+<param name="mailer-app" value="/usr/bin/php /usr/local/www/freeswitch/mailer_app.php"/>
+<param name="mailer-app-args" value=""/>
+```
+
+# nullmailer settings
+
+<http://untroubled.org/nullmailer/> is installed sometimes as a sendmail service. Make sure the following two lines are configured correctly in switch.conf.xml
+
+```xml
+<param name="mailer-app" value="sendmail"/>
+<param name="mailer-app-args" value=""/>
+<-- don't comment out the args line, leave it in with no value -->
+```
+
+If you don't take out the ''-t'' default argument, nullmailer will create duplicate emails.
+
+# sSMTP settings
+
+<http://wiki.debian.org/sSMTP> can be used as a null mailer and has the advantage over <http://untroubled.org/nullmailer/> that it permits sending to mail hosts that require SSL/TLS and/or authentication. It also logs to /var/log/mail.log which is useful for debugging.
+
+sSMTP uses the same sendmail command, ignoring some options and failing if others are specified. Within conf/autoload\_configs//switch.conf.xml, you need to include:
+
+```xml
+<param name="mailer-app" value="sendmail"/>
+<param name="mailer-app-args" value="-f freeswitch@mydomain.com"/>
+```
+
+Within /etc/ssmtp/ssmtp.conf, your mileage may vary, but to relay to a Postfix server using submission (tcp/587), the config looks like this:
+
+```xml
+root=postmaster # part of the default config
+mailhub=smtp.mydomain.com:587
+UseTLS=YES
+UseSTARTTLS=YES
+AuthUser=myusername
+AuthPass=mypassword
+rewriteDomain=mydomain.com # This is useful if your FS box is not in DNS or has a different domain from the sending email
+hostname=myFShostname.domain
+FromLineOverride=NO # This stops the mail message overriding the -f switch on the command line, useful if your FS ${domain} is an IP address
+```
+
+Google will help you get a config that matches your configuration.
+
+# Debugging an external mailer
+
+FreeSWITCH does very little error reporting on emails. Basically, once the email is   
+accepted for queueing, FreeSWITCH has (rightly) lost interest. So, it is best to first test that mails can be sent from your FreeSWITCH box before trying to get FreeSWITCH to do it.
+
+First, create a minimal email in a text file:
+
+```xml
+From: <freeswitch@mydomain.com>
+To: <testuser@mydomain.com>
+Date: Thu, 2 Feb 2012 13:13:40 +0100
+Subject: Test 131340 (I always put a timestamp in the subject line when 
+testing email due to the queueing and routing and stuff)
+Minimal test email 131340 (and I try to remember to put the same timestamp in the body of the text)
+```
+
+Then send it from the command line with:
+
+```xml
+cat email.txt | sendmail -f freeswitch@mydomain.com testuser@mydomain.com
+```
+
+Nearly all mailers have a 'sendmail' alias even if they are not sendmail itself. Depending on the local mail server you are using, you may have to include the -t switch which extracts the To address(es) from the message itself.
+
+If this command fails, then you may not have sendmail, or a clone, installed. If you don't need the weight and features of sendmail, exim or postfix, leave them alone and use a simple null mailer like nullmailer or sSMTP as described above.
+
+If the command works but the mail still does not reach the destination, then you know you have a mail transport issue and can solicit the assistance of your friendly postmaster or a forum appropriate to your operating system and mailer.
+
+Once you are reliably sending email from the shell, transfer your settings into conf/autoload\_configs/switch.conf.xml
+
+For example, for sSMTP:
+
+```xml
+<param name="mailer-app" value="sendmail"/>
+<param name="mailer-app-args" value="-f freeswitch@mydomain.com"/>
+```
+
+Note that if you need to run your mailer-app with no args, explicitly state them as &lt;param name="mailer-app-args" value="" /> as the default if not specified is to use "-t".
+
+With your external mailer known to be working, you can now narrow down your debugging to FreeSWITCH. Make sure that you include all the parameters required in the user directory entry. For example, in conf/directory/default/1001.xml:
+
+```xml
+<param name="vm-password" value="1001" />
+<param name="vm-email-all-messages" value="true" />
+<param name="vm-mailto" value="user.name@mydomain.com" />
+<!-- or just notify -->
+<param name="vm-notify-mailto" value="user.name@mydomain.com" />
+<!-- don't need notify if you have the full voicemail -->
+<param name="vm-attach-file" value="true" />
+<!-- You need this if you want the voicemail attached -->
+<param name="vm-message-ext" value="wav" />
+<!-- Can be 'mp3' but needs mod_lame to be loaded. -->
+```
+
+Then, use fs\_cli in /log 7 and leave a voicemail on a configured extension. After completing the voicemail, you should see something like this (both mailto and notify-mailto have been set in this case):
+
+```xml
+2012-02-02 18:21:36.494891 [DEBUG] mod_voicemail.c:2641 Deliver VM to 1001@192.168.100.100
+2012-02-02 18:21:36.894770 [DEBUG] switch_utils.c:761 Emailed file [/tmp/mail.1328206896cebf] to [user.name@mydomain.com]
+2012-02-02 18:21:36.894770 [DEBUG] mod_voicemail.c:2831 Sending message to user.name@mydomain.com
+2012-02-02 18:21:37.394793 [DEBUG] switch_utils.c:763 Emailed data to [user.name@mydomain.com]
+2012-02-02 18:21:37.394793 [DEBUG] mod_voicemail.c:2881 Sending notify message to user.name@mydomain.com
+```
+
+  
+# Example
+
+## Send Voice Mail to Email
+
+  
+The following is an example of sending a voicemail to email
+
+```xml
+<include>
+  <user id="1001" number-alias="1001">
+    <params>
+      <param name="password" value="1234" />
+      <param name="vm-password" value="4321" />
+      <param name="vm-email-all-messages" value="true" />
+      <param name="vm-attach-file" value="true" />
+      <param name="vm-mailto" value="example@yahoo.com" />
+    </params>
+    <variables>
+      <variable name="accountcode" value="1001" />
+      <variable name="user_context" value="default" />
+    </variables>
+  </user>
+</include>
+```
+
+## Send Call To Voice Mail
+
+The following is an example of sending a call to voicemail after you've decided that a user isn't available.
+
+```xml
+<action application="answer"/>
+<action application="voicemail" data="default $${domain} $1"/>
+```
+
+where '''default''' is the profile name (must be configured in voicemail.conf.xml), '''$${domain}''' is (obviously) the domain (in this case the system-wide domain setting for your switch from vars.xml) and '''$1''' is the dialed extension.
+
+## Check Voice Mail
+
+The following is an example of checking vm (will prompt for PIN if ${voicemail\_authorized} is not "true")
+
+Please make sure the password is set in order for the mailbox to prompt for a password.
+
+```xml
+<action application="voicemail" data="check $${voicemail_profile} $${domain} $1"/>
+```
+
+The following example will allow the user to check vm whether they're "voicemail\_authorized" or not. If voicemail\_authorized=true , then user can access voicemail without prompting for password. If it's set to false, then the system will ask to enter the password. I found that even if you don't put &lt;auth> in the following example, it will still check if it is authed. Someone please verify.
+
+```xml
+<action application="voicemail" data="check auth $${voicemail_profile} $${domain} $1"/>
+```
+
+To automatically pass all registered users on your domain without prompting to enter the password:
+
+```xml
+<action application="set" data="voicemail_authorized=${sip_authorized}"/>
+<action application="voicemail" data="check auth $${voicemail_profile} $${domain} $1"/>
+```
+
+(Preliminary 2012.02.06) To speak the called party number before speaking the date of the voicemail message, enable channel variable vm\_announce\_cid. This only speaks the number, it does not preface it with introductory words such as "The caller's number is..." nor separate the number from the date that follows it.
+
+```xml
+<action application="set" data="vm_announce_cid=true" />
+<action application="voicemail" data="check $${voicemail_profile} $${domain} $1"/>
+```
+
+## Retrieve Voice Mail Via Web Interface
+
+### Configuration
+
+To enable the web interface for voice mail, you must first install/enable [mod\_xml\_rpc](./mod_xml_rpc_1048928.mdx#about)
+
+You also need to enable the user or domain to use the web interface using #http-allowed-api
+
+There are two different URLs for retrieving voice mail via a browser.  
+The following are functionally equivalent:
+
+```xml
+* http://fs.ip:8080/api/voicemail/web
+* http://fs.ip:8080/domains/this/api/voicemail/web
+```
+
+Enter the username and password in the challenge box. When authorized, the list of current voice mails will be displayed.&lt;br/>  
+Note: use the actual IP address (or domain name) and not something like 127.0.0.1 or "localhost" because it won't work.&lt;br/>  
+Domains are used in various circumstances. Here are some scenarios:
+
+* [your.domain.com](http://your.domain.com) is on the public Internet
+
+In this case you could do this:
+
+<http://your.domain.com:8080/api/voicemail/web>
+
+Log in with user and password and you are in  
+  
+Alternatively, you could use the IP address:
+
+<http://1.2.3.4:8080/api/voicemail/web>
+
+Then login with [user@your.domain.com](mailto:user@your.domain.com) and password
+
+Finally, you could even do this:
+
+<http://1.2.3.4:8080/domains/your.domain.com/api/voicemail/web>
+
+And log in with just user and password (no @[your.domain.com](http://your.domain.com))
+
+## Retrieve Voice Mail Via IMAP Interface
+
+This is not implemented yet.
+
+See \[\[Bounty#IMAP integration of voicemail\]\]
+
+## Using voicemail to authenticate a caller's PIN
+
+This example allows you to authenticate a user by requiring him/her to enter a PIN. If the user enters the correct PIN then dialplan processing continues. If not, then the system will play an error message and then disconnect the caller.
+
+```xml
+<action application="voicemail" data="check auth_only ${extension_number_against_which_to_check}"/>
+```
+
+you can also set the "vm\_auth\_only" channel variable to true before calling the voicemail application, instead of using the auth\_only arg
+
+# Configuration Parameters
+
+## file-extension
+
+This is the extension which you want to use for the voicemail messages to be recorded. The default is wav but can be gsm, raw, ul, al, etc.
+
+```xml
+<param name="file-extension" value="wav"/>
+```
+
+## Key FS Mapping
+
+\[\[mod\_voicemail key map\]\]
+
+## callback-dialplan
+
+```xml
+<param name="callback-dialplan" value="XML"/>
+```
+
+## callback-context
+
+```xml
+<param name="callback-context" value="default"/>
+```
+
+## terminator-key
+
+```xml
+<param name="terminator-key" value="#"/>
+```
+
+## max-login-attempts
+
+```xml
+<param name="max-login-attempts" value="3"/>
+```
+
+## digit-timeout
+
+```xml
+<param name="digit-timeout" value="10000"/>
+```
+
+## max-record-len
+
+```xml
+<param name="max-record-len" value="300"/>
+```
+
+## tone-spec
+
+```xml
+<param name="tone-spec" value="%(1000, 0, 640)"/>
+```
+
+## play-new-messages-key
+
+```xml
+<param name="play-new-messages-key" value="1"/>
+```
+
+## play-saved-messages-key
+
+```xml
+<param name="play-saved-messages-key" value="2"/>
+```
+
+## main-menu-key
+
+```xml
+<param name="main-menu-key" value="0"/>
+```
+
+## config-menu-key
+
+```xml
+<param name="config-menu-key" value="5"/>
+```
+
+## record-greeting-key
+
+```xml
+<param name="record-greeting-key" value="1"/>
+```
+
+## choose-greeting-key
+
+```xml
+<param name="choose-greeting-key" value="2"/>
+```
+
+## record-name-key
+
+```xml
+<param name="record-name-key" value="3"/>
+```
+
+## record-file-key
+
+```xml
+<param name="record-file-key" value="3"/>
+```
+
+## listen-file-key
+
+```xml
+<param name="listen-file-key" value="1"/>
+```
+
+## save-file-key
+
+```xml
+<param name="save-file-key" value="2"/>
+```
+
+## delete-file-key
+
+```xml
+<param name="delete-file-key" value="7"/>
+```
+
+## undelete-file-key
+
+```xml
+<param name="undelete-file-key" value="8"/>
+```
+
+## email-key
+
+```xml
+<param name="email-key" value="4"/>
+```
+
+## pause-key
+
+```xml
+<param name="pause-key" value="0"/>
+```
+
+## restart-key
+
+```xml
+<param name="restart-key" value="1"/>
+```
+
+## ff-key
+
+```xml
+<param name="ff-key" value="6"/>
+```
+
+## rew-key
+
+```xml
+<param name="rew-key" value="4"/>
+```
+
+## odbc-dsn
+
+This option allows you to override the default sqlite with an ODBC handle. You can use any valid DSN from your odbc.ini to store your voicemail configuration
+
+```xml
+<param name="odbc-dsn" value="dsn:user:pass"/>
+```
+
+## record-silence-threshold
+
+This parameter defines an 'energy level', it is a numeric value of how "quiet" the channel is.
+
+See \[\[Misc. Dialplan Tools wait\_for\_silence#Description|DP Tool 'wait\_for\_silence'\]\] for more info.
+
+```xml
+<param name="record-silence-threshold" value="200"/>
+```
+
+## record-silence-hits
+
+This parameter defines how many consecutive hits below record-silence-threshold it takes to end the recording.
+
+See \[\[Misc. Dialplan Tools wait\_for\_silence#Description|DP Tool 'wait\_for\_silence'\]\] for more info.
+
+```xml
+<param name="record-silence-hits" value="2"/>
+```
+
+## email-from
+
+Setting this value will set the from address on the email sent
+
+```xml
+<param name="email-from" value="${voicemail_account}@${voicemail_domain}"/>
+```
+
+## db-password-override
+
+If db-password-override=true, the db password will only be used if present, if not present fallback to the xml config file vm-password. By default, both values in voicemail db and xml config file work.
+
+```xml
+<param name="db-password-override" value="false"/>
+```
+
+## dbname
+
+If you want to have a non-standard location for the sqlite3 db, you can specify a different location for the profile.
+
+```xml
+<param name="dbname" value="/dev/shm/voicemail_default.db"/>
+```
+
+## allow-empty-password-auth
+
+If allow-empty-password-auth=false, it will disable login via a authentication method if there is no password set in the user account (This wont affect voicemail\_authorize=true login)
+
+```xml
+<param name="allow-empty-password-auth" value="true"/>
+```
+
+## auto-playback-recordings
+
+```xml
+<param name="auto-playback-recordings" value="true"/>
+```
+
+# Database Schema
+
+This will be automatically created by FreeSWITCH if it does not already exist.
+
+**Voicemail Message Settings**
+
+```sql
+-- #### Voicemail Message Settings #### --
+CREATE TABLE voicemail_msgs (
+created_epoch INTEGER, -- when this voicemail message was created
+read_epoch INTEGER, -- when this voicemail message was read, '0' means its unread
+username VARCHAR(255), -- recipient's username
+domain VARCHAR(255), -- recipient's domain
+uuid VARCHAR(255), -- call uuid which created this voicemail message
+cid_name VARCHAR(255), -- sender caller-id name
+cid_number VARCHAR(255), -- sender caller-id number
+in_folder VARCHAR(255), -- voicemail box folder name
+file_path VARCHAR(255), -- physical path to voicemail message on disk
+message_len INTEGER, -- length of voiemail message in seconds
+flags VARCHAR(255), -- voicemail message status, 'save' (saved message) | 'delete' (deleted message) | ' ' (normal message)
+read_flags VARCHAR(255), -- voicemail message priority, 'A_URGENT' | 'B_NORMAL'
+forwarded_by VARCHAR(255) -- n/a
+);
+```
+
+**Voicemail User Preferences**
+
+```sql
+-- #### Voicemail User Preferences #### --
+CREATE TABLE voicemail_prefs (
+username VARCHAR(255), -- voicemail user's name
+domain VARCHAR(255), -- voicemail user's domain
+name_path VARCHAR(255), -- named path of user defined greeting file (see [[#vm_prefs]])
+greeting_path VARCHAR(255), -- physical path to user defined greeting file (see [[#vm_prefs]])
+password VARCHAR(255) -- voicemail user's password
+);
+```
+
+```sql
+create index voicemail_msgs_idx1 on voicemail_msgs(created_epoch);
+create index voicemail_msgs_idx2 on voicemail_msgs(username);
+create index voicemail_msgs_idx3 on voicemail_msgs(domain);
+create index voicemail_msgs_idx4 on voicemail_msgs(uuid);
+create index voicemail_msgs_idx5 on voicemail_msgs(in_folder);
+create index voicemail_msgs_idx6 on voicemail_msgs(read_flags);
+create index voicemail_msgs_idx7 on voicemail_msgs(forwarded_by);
+create index voicemail_msgs_idx8 on voicemail_msgs(read_epoch);
+create index voicemail_msgs_idx9 on voicemail_msgs(flags);
+create index voicemail_prefs_idx1 on voicemail_prefs(username);
+create index voicemail_prefs_idx2 on voicemail_prefs(domain);
+```
+
+# API
+
+## vm_boxcount
+
+vm\_boxcount can be called from console, xml\_rpc or any other interface that exposes FreeSWITCH API.
+
+The function takes the following arguments:
+
+\[profile/\]&lt;user>@&lt;domain>\[|\[new|saved|new-urgent|saved-urgent|all\]\]
+
+and defaults to "new" voicemails and to the "default" voicemail profile.
+
+Examples:
+
+```xml
+vm_boxcount myprofile/0001@my.domain.com|new
+vm_boxcount 0001@default|saved     (defaults to "default" voicemail profile)
+```
+
+  
+## voicemail_inject
+
+&lt;user>@&lt;domain>\[@&lt;profile>\] &lt;sound\_file> \[&lt;cid\_num>\] \[&lt;cid\_name>\]
+
+voicemail\_inject is used to add an arbitrary sound file to a users voicemail mailbox.
+
+## vm_prefs
+
+Syntax:  
+vm\_prefs \[profile/\]&lt;user>@&lt;domain>\[|\[name\_path|greeting\_path|password\]\]  
+vm\_prefs is used to check the preference changed by user  
+&lt;br>  
+Example:   
+vm\_prefs [1000@192.168.15.186](mailto:1000@192.168.15.186)|name\_path|greeting\_path|password  
+Output:  
+  
+/etc/freeswitch.trunk/storage/voicemail/default/192.168.15.186/1000/greeting\_1.[wav:/etc/freeswitch.trunk/storage/voicemail/default/192.168.15.186/1000/recorded\_name.wav:9999](http://wav/etc/freeswitch.trunk/storage/voicemail/default/192.168.15.186/1000/recorded%5Fname.wav:9999)
+
+Example:  
+vm\_prefs [1000@192.168.15.186](mailto:1000@192.168.15.186)|greeting\_path  
+Output:  
+  
+/etc/freeswitch.trunk/storage/voicemail/default/192.168.15.186/1000/greeting\_1.wav
+
+## vm_list
+
+Syntax:  
+vm\_list &lt;id>@&lt;domain>\[/profile\] \[xml\]  
+vm\_list is used to get list of all the voicemails for the user
+
+Example  
+vm\_list [1000@192.168.15.186](mailto:1000@192.168.15.186)   
+  
+1303500797:1303501043:1000:192.168.15.186:[inbox:/etc/freeswitch.trunk/storage/voicemail/default/192.168.15.186/1000/msg\_051dfd52-3318-4edc-b2ac-ba4d66dd55da.wav:051dfd52-3318-4edc-b2ac-ba4d66dd55da:Extension](http://inbox/etc/freeswitch.trunk/storage/voicemail/default/192.168.15.186/1000/msg%5F051dfd52-3318-4edc-b2ac-ba4d66dd55da.wav:051dfd52-3318-4edc-b2ac-ba4d66dd55da:Extension) 1001:1001
+
+Example  
+vm\_list [1001@192.168.0.207](mailto:1001@192.168.0.207) xml  
+&lt;voicemail>  
+&lt;message>  
+&lt;created\_epoch>1308582141&lt;/created\_epoch>  
+&lt;read\_epoch>0&lt;/read\_epoch>  
+&lt;username>1001&lt;/username>  
+&lt;domain>192.168.0.207&lt;/domain>  
+&lt;folder>inbox&lt;/folder>  
+&lt;path>/usr/share/freeswitch/storage/192.168.0.207/1001/msg\_ae850faa-1661-4245-a551-3a8c5154fe1b.wav&lt;/path>  
+&lt;uuid>ae850faa-1661-4245-a551-3a8c5154fe1b&lt;/uuid>  
+&lt;cid-name>TheCaller&lt;/cid-name>  
+&lt;cid-number>1001&lt;/cid-number>  
+&lt;message-len>28&lt;/message-len>  
+&lt;/message>  
+&lt;/voicemail>
+
+## vm_delete
+
+Syntax:  
+vm\_delete &lt;id>@&lt;domain>\[/profile\] \[&lt;uuid>\]
+
+## vm_read
+
+Syntax:  
+vm\_read &lt;id>@&lt;domain>\[/profile\] &lt;read|unread> \[&lt;uuid>\]
+
+# Advanced API
+
+This advanced API was introduced in Apr 2011\. It provides for configuring voicemail as well as the retrieval of voicemail related information. Using this api avoids needing to access voicemail\_defaults.db directly. It was created for use with \[\[Mod\_voicemail\_ivr\]\], and was as well used in some GUI implementations.
+
+This is also the base reference API for future \[\[Mod\_voicemail\_ivr\]\] improvement.
+
+## vm_fsdb_pref_password_set
+
+Syntax  
+vm\_fsdb\_pref\_password\_set &lt;profile> &lt;domain> &lt;userid> &lt;new-password>   
+Sets the mailbox password
+
+## vm_fsdb_pref_greeting_set
+
+Syntax  
+vm\_fsdb\_pref\_greeting\_set &lt;profile> &lt;domain> &lt;userid> &lt;slot> \[file-path\]  
+Sets the file in file\_path as the current greeting in voicemail\_prefs table (voicemail\_defaults.db)
+
+&lt;need to determine the slot parameter action>
+
+The voicemail\_prefs table is updated to reflect the currently active greeting
+
+Returns -ERR if the file is not present
+
+## vm_fsdb_pref_recname_set
+
+Syntax  
+vm\_fsdb\_pref\_recname\_set &lt;profile> &lt;domain> &lt;user> &lt;file-path>  
+Sets or updates (if there is already a name file path) the file in file-path as the current name recording in voicemail\_prefs
+
+returns -ERR if the file is not present
+
+## vm_fsdb_msg_list
+
+Syntax  
+vm\_fsdb\_msg\_list &lt;format> &lt;profile> &lt;domain> &lt;user> &lt;folder> &lt;filter>  
+&lt;format> is ignored but must be present  
+&lt;folder> For future implementation but must be present  
+&lt;filter> If none specified, then all messages are returned. Support the following filter :  
+\* not-read  
+\* new  
+\* save  
+Example:   
+freeswitch@default> vm\_fsdb\_msg\_list 0 default mydomain.com 1000 0 new ASC
+
+  
+Returns the list of unread messages for the user@domain for Inbox in JSON format
+
+This function returns only New messages so it is not a full replacement for vm\_list
+
+## vm_fsdb_msg_email
+
+Syntax  
+vm\_fsdb\_msg\_list &lt;profile> &lt;domain> &lt;user> &lt;uuid> &lt;email address>  
+Example:   
+freeswitch@default> vm\_fsdb\_msg\_email default mydomain.com 1000 1dfdc31c-7615-4e54-bfbc-dadacc3e5807 me@myemail.com
+
+## vm_fsdb_msg_purge
+
+Syntax  
+vm\_fsdb\_msg\_purge &lt;profile> &lt;domain> &lt;user>  
+This function purges voicemails marked as Delete for the user@domain
+
+Returns -OK or -ERR (if missing a parameter or profile not found)
+
+## vm_fsdb_msg_delete
+
+Syntax  
+vm\_fsdb\_msg\_delete &lt;profile> &lt;domain> &lt;user> &lt;uuid>  
+Deletes the message specified by uuid for user@domain
+
+returns -OK or -ERR (if missing parameter or profile not found)
+
+## vm_fsdb_msg_save
+
+Syntax  
+vm\_fsdb\_msg\_save &lt;profile> &lt;domain> &lt;user> &lt;uuid>  
+Marks the file specified by uuid for user@domain to 'save'
+
+Returns -OK or -ERR if missing a parameter or profile not found
+
+## vm_fsdb_msg_undelete
+
+Syntax  
+vm\_fsdb\_msg\_undelete &lt;profile> &lt;domain> &lt;user> &lt;uuid>  
+Clears the flags field (regardless of whether it was 'delete' or not)
+
+Returns -OK or -ERR if missing a paramter or profile is not found
+
+## vm_fsdb_auth_login
+
+Syntax  
+vm\_fsdb\_auth\_login &lt;profile> &lt;domain> &lt;user> &lt;password>  
+password is assumed to be 64 chars or less
+
+Seems to verify that the password in voicemail\_prefs is same as in xml?????
+
+Returns -OK or -ERR if:   
+#missing parameters or profile not found  
+#password in voicemail\_prefs doesn't match password passed in call  
+#password in xml does not match password passed in call  
+#"Login Denied" if vm is disabled  
+If a password exists in voicemail\_prefs, it is used in preference to xml
+
+## vm_fsdb_msg_get
+
+Syntax  
+vm\_fsdb\_msg\_get &lt;format> &lt;profile> &lt;domain> &lt;user> &lt;uuid>  
+&lt;format> is ignored but must be present
+
+Returns a JSON formatted list detailing the VM  
+or -ERR if missing parameters or profile is not found
+
+Assumes that the uuid can exist in more than 1 row of voicemail\_msgs
+
+## vm_fsdb_msg_count
+
+Syntax  
+vm\_fsdb\_msg\_count &lt;format> &lt;profile> &lt;domain> &lt;user> &lt;folder>  
+Returns a count of the number of read and unread VM's in the Inbox folder for this user@domain
+
+Counts are returned in JSON format for   
+VM-Total-New-Messages  
+VM-Total-New-Urgent-Messages  
+VM-Total-Saved-Messages  
+VM-Total-Saved-Urgent-Messages  
+(VM's in other folders are not counted but includes VM's marked as delete or save)
+
+Returns -ERR if missing a parameter or if profile is not found
+
+# FAQ
+
+# How do I reload new configuration without restarting FreeSWITCH?
+
+If you happened to change settings in autoload\_configs/voicemail.conf.xml and would like to make it effective without restarting FreeSWITCH, enter the following command in console mode in sequence:
+
+reloadxml  
+reload mod\_voicemail
+
+# Do I need a text-to-speech engine installed?
+
+No, it will work with sound files or a text-to-speech engine.
+
+# How do I install sound files?
+
+make sounds-install
+
+# Voicemail Voice Prompt / Troubleshooting Problems
+
+  
+Unfortunately mod\_voicemail does not have a great ability to be debugged, even with logging turned up tracking down errors can be tricky and an incorrect config upgrade can leave you without working voicemail. Make sure that dialed\_extension is SET and exported (you can use the info app to verify) as if this variable is not set voicemail will most likely not be working for you.
+
+If you encounter a problem where the voice mail prompts are either missing, or fail to play with this error on the console:
+
+  
+switch\_ivr\_phrase\_macro() Macro \[voicemail\_config\_menu\] did not match any patterns  
+  
+or  
+  
+Can't find macro
+
+This is caused by a missing voicemail prompt sound file or invalid conf/lang files.  
+You will need to perform the corrective command below in the FreeSWITCH source directory:
+
+  
+make vm-sync
+
+After you run the make vm-sync, you'll need to do a reloadxml at the FreeSWITCH console, or restart FreeSWITCH. If the error is in certain xml files then this may not fix it, try to temporarily replace your conf/lang folder with that from trunk (or the base install).
+
+If you've installed french sound files, you have to do the following:  
+\* rename \`conf/lang/fr/ca/vm/sounds.xml\` to \`conf/lang/fr/ca/vm/tts.xml\`   
+\* copy \`conf/lang/en/us/vm/sounds.xml\` to \`conf/lang/fr/ca/vm/sounds.xml\` 
+
+# How to update keys for accessing voicemail from outside?
+
+  
+You need to edit the /&lt;path to freeswitch>/conf/autoload\_configs/voicemail.conf.xml file.
+
+&lt;param name="login-keys" value="0"/>   
+\-Key to prompt the voicemail's password  
+&lt;param name="vmain-key" value="\*"/>   
+\-Key to prompt the voicemail's UserID  
+&lt;br>&lt;br>  
+The login-keys param is the key to prompt the password, while the vmain-key is the key to prompt the UserID.
+
+# How can I disable remote login/access to voicemail?
+
+Set the following two params in autoload\_configs/voicemail.conf.xml:
+
+&lt;param name="vmain-key" value="a"/>   
+&lt;param name="login-keys" value="a"/>
+
+# Can I share voicemail boxes between multiple phones/users?
+
+## To Monitor Voicemail
+
+  
+There are 2 ways to do this, the correct way would be to use the subscribe feature of your phone to monitor a particular mailbox
+
+### 1\. SUBSCRIBE feature method
+
+  
+: The phones in question all need to support using SUBSCRIBE to monitor their mailbox.&lt;br/>  
+: Phones that use other methods (ie. gratuitous/parasitic "NOTIFY" style) will not work.&lt;br/>  
+: Other concerns you may face include: whether you can configure the extension dialed when you press the 'retrieve' button.&lt;br/>  
+: This configuration tested successfully on two SNOM 320 handsets, but fails on the Cisco 7960 because it does not use SUBSCRIBE.&lt;br/>
+
+### SNOM 320 configuration
+
+This configuration tested with firmware 7.1.30 and newer.&lt;br/>  
+\* Under 'Identity-->Login', set Mailbox to the shared box number.
+
+### 2\. Force MWI Info in Sofia
+
+  
+: To populate the param MWI-Account of the directory user (or domain) with user@domain of the voicemail you want to monitor.  
+: This will force sofia to send the MWI info for that mailbox even if you registred for another phone. This method only allow you to monitor mailbox  
+  
+&lt;param name="MWI-Account" value="1000@$${domain}"/>
+
+## To Receive Voicemail
+
+''receiving voicemail into the shared mailbox (e.g. when no answer)''
+
+In each user's directory entry, add a variable named 'mailbox' that looks like this:  
+  
+&lt;variable name="mailbox" value="1500"/>
+
+This sets the stage for which mailbox they're actually going to use, shared or not.. it is used ONLY in the dialplan.  
+Change your dialplan to reflect this:  
+  
+The old entry:  
+  
+&lt;action application="voicemail" data="default ${domain\_name} ${dialed\_extension}"/>  
+  
+The new entry:  
+  
+&lt;action application="voicemail" data="default ${domain\_name} ${user\_data(${dialed\_extension}@${domain\_name} var mailbox)}"/>
+
+## Voicemail Callback
+
+''calling back a caller while checking voicemail''
+
+When a user is listening to voicemail messages - they are able to dial '5' and be connected to the caller of that voicemail.
+
+You are able to control the dial plan execution of this callback method by modifying the vm\_callback.xml file located under BASE\_FREESWITCH\_DIR/conf/dialplan
+
+An example vm\_callback.xml is as follows:
+
+```xml
+<include>
+  <context name="vm_callback">
+    <extension name="vm_return_call">
+      <condition field="destination_number" expression="^(\+1|\+)?(\d+)$">
+        <action application="info" />
+        <action application="bridge" data="sofia/vm/+1$2@GATEWAY" />
+      </condition>
+    </extension>
+  </context>
+</include>
+```
+
+```xml
+/usr/bin/python /home/chronos_client/persistent/freeswitch.app/conf/scripts/sendemail.py -l -i -d -f revolutionpbx@chronostelecom.com -t
+```
+
+  
+# Transcribing Voicemail
+
+There's no real simple way to do this as of now with mod\_voicemail.
+
+If you use Fusionpbx's mailer for FS, then you can intercept the wav file mid-mailing and send it to some sort of API.
+
+NOTE: "Transcription" is the full text, where as IVR speech recognition is to recognize audio vs a specific list of options, "grammar". These are very different things.
+
+The available APIs for some sort of transcription are:
+
+* [twilio](http://twilio.com) \- 5cents/minute
+* [voicecloud](http://voicecloud.com) \- 10cents/minute. They seem to have a $250/month minumum.
+* [tropo](http://tropo.com) \- 3 cents/minute I think (60 second billing) BUT they need to record the file, on their system. They have all-SIP plans with alternate billing.
+* [quicktate](http://quicktate.com) \- $0.0175/word, volume at 1.10cents/word. Avg of 160 words per minute = $2.80/minute.
+* [mycaption](http://mycaption.com) \- 9c/minute for purely machine-based.
+* [mycaption](http://mycaption.com) \- 43c/minute upto 55c/minute - 15 second increments -premium that combines machine-based speech recognition with error correction by human editors.
+* Google speech API - free, but it's not that great as of right now. Some info on how to access it [here](http://wiki.openmoko.org/wiki/Google%5FVoice%5FRecognition#Google%5FVoice%5FAPI).  
+   * Add this to FusionPBX's voicemail mailer with the [code from AviMarcus](http://wiki.fusionpbx.com/index.php?title=Voicemail#Transcribing%5FVoicemails%5Fwith%5Fgoogle%5Fspeech%5FAPI)
+
+Here is a script you can use for tinkering with Google Speech API:
+
+**Google Speech API**
+
+```bash
+#!/bin/sh
+echo "1 SoX Sound Exchange - Convert WAV to FLAC with 16000" 
+sox $1 message.flac pad .1 0 rate 16k
+echo "2 Submit to Google Voice Recognition"
+wget -q -U "Mozilla/5.0" --post-file message.flac --header="Content-Type: audio/x-flac; rate=16000" -O - "http://www.google.com/speech-api/v1/recognize?lang=en-us&client=chromium" > message.ret
+echo "3 SED Extract recognized text" 
+cat message.ret | sed 's/.*utterance":"//' | sed 's/","confidence.*//' > message.txt
+echo "4 Remove Temporary Files"
+rm message.flac
+# rm message.ret
+echo "5 Show Text "
+cat message.txt
+```
+  
+  
+Example:
+
+./googlevoice.sh /usr/local/freeswitch/sounds/en/us/callie/ivr/8000/ivr-one_more_mistake.wav 
+1 SoX Sound Exchange - Convert WAV to FLAC with 16000
+2 Submit to Google Voice Recognition
+3 SED Extract recognized text
+4 Remove Temporary Files
+5 Show Text 
+that's odd 1 more mistake and I will hang up on your ass
+
+It should be "that's it" instead of "that's odd" but otherwise Google actually got it right. Try other sound prompts.
+
+  
+## Comments:
+
+| there are few useful variables for skipping post messages: **skip\_record\_urgent\_check** and **skip\_record\_check** ![](/images/icons/contenttypes/comment_16.png) Posted by alexey\_khabulyak at lug 18, 2018 09:00 |
+| ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+
+Document generated by Confluence on nov 11, 2022 04:27

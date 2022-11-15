@@ -1,0 +1,272 @@
+
+# IVR in Perl 
+
+ Created by  Stanislav Sinyagin, last modified by  John Boteler on 2016.04.27
+
+# About
+
+This example demonstrates the usage of [mod\_perl](../Modules/mod_perl_1048930.mdx#about) in the dialplan.It requires `mod_perl` to be activated in the FreeSWITCH XML configuration.
+
+Click here to expand Table of Contents
+
+* 1 [](#--)
+* 2 [Example Dialplan XML](#example-dialplan-xml)
+* 3 [Example Perl script](#example-perl-script)
+
+#   
+
+# Example Dialplan XML
+
+```xml
+<?xml version="1.0" encoding="utf-8"?> 
+
+<\!--
+
+    In this XML file (/usr/local/freeswitch/conf/dialplan/default.xml),
+    we're passing everything over to a perl script called "controller.pl".
+
+    by Kareem Hamdy 2009-01-21
+
+--\>
+
+<include>
+  <context name="default">
+    <extension name="perl_ivr">
+      <condition field="destination_number" expression=".">
+        <action application="perl" data="/usr/local/freeswitch/conf/controller.pl" />
+      </condition>
+    </extension>
+  </context>
+</include>
+```
+
+  
+# Example Perl script
+
+**/usr/local/freeswitch/conf/controller.pl**
+
+```perl
+ # This is an example Perl script to execute and manage your IVR
+ #
+ # by Kareem Hamdy 2009-01-22
+ 
+ 
+ use strict;
+ use Switch;
+ use Data::Dumper;
+ use POSIX qw(strftime);
+ our $session;
+ 
+ 
+ sub fprint($){
+   my ($msg) = @_;
+   freeswitch::consoleLog("CRIT",$msg . "\n");
+ }
+ 
+ 
+ sub speak { 
+ 
+     my ($text, $engine, $voice) =  @_;
+ 
+     if (!$engine){
+       $engine = 'flite';
+     }
+ 
+     if (!$voice){
+       $voice = 'kal';
+     }
+ 
+     if (!$text){
+       $text = '';
+     }
+ 
+     $session->set_tts_parms($engine, $voice);
+ 
+     print "\n\n".Dumper(\@_)."\n\n";
+ 
+     if ($session->ready ()) {
+        $session->speak($text);
+     }
+ 
+     return 1;
+ 
+  }
+ 
+ 
+ sub playfile {
+ 
+   my ($string, $terminator, $digit_count) = @_;
+   my $dtmf;
+ 
+   if ($terminator){
+     $session->execute("set", "playback_terminators=$terminator");
+   }
+ 
+   print "\n\n".Dumper(\@_)."\n\n";
+ 
+   $session->flushDigits();
+ 
+   unless (!$digit_count){
+     if ($session->ready ()) {
+       $dtmf = $session->playAndGetDigits(1,$digit_count,0,0,$terminator,$string,"","");
+       print "\n\n\n$dtmf\n\n\n";
+     }
+   } else {
+       if ($session->ready ()) {
+         $session->execute("playback",$string);
+       }
+   }
+ 
+   print "\n\n\n$dtmf\n\n\n";
+   return 1;
+ 
+  }
+ 
+  
+ my %VARS;
+ 
+ {
+ 
+ ####The idea of these functions is to allow for easy pull in of variables and then automatically export any ones that have been changed when UPDATEV.  It will ensure you don't write to any non-imported variables, but as we are using a hash we cannot prevent invalid reads.  If you are really concerned about this then you could use a specific read function which first checks to make sure its defined in CLEAN_VARS before returning.
+ #
+ #
+ 
+ my %CLEAN_VARS;
+ 
+ #takes one or more variables names to import in
+ 
+   sub GETV{
+     my @arr = @_;
+     foreach my $var (@arr){
+       $VARS{$var} = $session->getVariable($var);
+      $CLEAN_VARS{$var} = $VARS{$var};
+      $CLEAN_VARS{$var}="" if (! defined $CLEAN_VARS{$var});
+    }
+  }
+ 
+ 
+  sub SETV($$){ #Generally not called directly, but will set the variable to the value requested right away.
+    my ($var,$value) = @_;
+    $session->setVariable($var,$value);
+    $VARS{$var} = $value;
+    $CLEAN_VARS{$var} = $value;
+  }
+ 
+ 
+  sub ADDV(@){
+ 
+  #If we don't care about a variables value, but wan't to override it this will add it to the hash so that when we write to it, we don't consider it a typo{
+    my @arr = @_;
+    foreach my $var(@arr){
+      $CLEAN_VARS{$var}="123zzzzzZnzZZzz"; #something definately won't match
+      $VARS{$var} = "";
+    }
+  }
+ 
+   sub UPDATEV(){
+   #Updates any changed variables
+     foreach my $var (keys %VARS){
+       die "Warning a variable of: $var was not found in CLEAN_VARS, did you forget to GET/ADD it first?" if (! defined $CLEAN_VARS{$var});
+ 
+ 
+        #make sure tehre were no typos 
+ 
+        SETV($var, $VARS{$var}) if ($VARS{$var} ne $CLEAN_VARS{$var});
+       }
+     }
+   }
+ 
+ 
+ sub CAN_ACCESS($){
+         my ($req) = @_;
+         return 1 if ($VARS{app_rights} eq "ALL" || $VARS{app_rights} =~ /#$req#/);
+         return 0;
+ }
+ 
+ 
+ GETV(qw/ani ani2 dnis sip_user_agent destination_number caller_id_name caller_id_number effective_caller_id_number effective_caller_id_name domain outgoing_soundtouch_profile sip_to_uri uuid base_dir app_rights hangup_after_bridge/);
+ 
+ #fetch some generic variables
+ 
+ $VARS{hangup_after_bridge} = "true";
+ 
+ 
+ #    Example IVR Using a Case Statement (switch)
+ 
+ 
+ { 
+   if ($VARS{destination_number} =~ /^\d{4}$/){
+     UPDATEV();
+     if ($session->ready()) {
+       $session->answer();
+       $session->flushDigits();
+ 
+       my $dtmf;
+       my $counter;
+ 
+       while (!$dtmf){
+ 
+         speak("I'm ready to party.  Press 1, 2 or 3.  Press # to hang up.");
+ 
+         $dtmf = $session->getDigits(1, "", 2000);
+ 
+         switch ($dtmf) {
+ 
+           case 1 {
+             speak ("number 1");
+             $session->flushDigits();
+             $dtmf = undef;
+           }
+ 
+           case 2{
+             speak ("number 2");
+             speak ("press # to return to the menu.");
+             playfile('/usr/local/freeswitch/sounds/music/8000/danza-espanola-op-37-h-142-xii-arabesca.wav');
+             $session->flushDigits();
+             $dtmf = undef;
+           }
+ 
+           case 3{
+             speak ("number 3");
+             $dtmf = undef;
+           }
+ 
+           case ['*',4..9,0] {
+             speak("Follow the instructions you degenerate fool!");
+           }
+ 
+           case ['#'] {
+             speak("You bastard!  Now exiting the sample I.V.R.");
+           }
+ 
+           else{
+             $session->flushDigits();
+             $dtmf = undef;
+             $counter++;
+ 
+             if ($counter eq 3){
+               speak ("Please make a selection, or this call will be terminated.");
+               $session->execute("sleep","1000");
+             }
+ 
+             if ($counter eq 4){
+               $dtmf = '#';
+             }
+           }
+         }
+       }
+ 
+       $session->hangup();
+     }
+   }
+ }
+ 
+ 
+ print ($session->execute("info",""));
+ 
+ return 1;
+ 
+ }
+```
+
+Document generated by Confluence on nov 11, 2022 04:28

@@ -1,0 +1,135 @@
+
+# Lua DISA Example 
+
+ Created by  John Boteler, last modified by  Brian Foster on 2015.03.21
+
+# About
+
+Lua script contributed by [Brian Foster](https://freeswitch.org/confluence/display/~bdfoster) to perform D.I.S.A. (Direct Inward System Access) function in FreeSWITCH™.
+
+Click here to expand Table of Contents
+
+* 1 [Usage](#usage)
+* 2 [Dialplan](#dialplan)
+* 3 [Code](#code)
+
+# Usage
+
+SECURITY WARNING
+
+**NOTICE: There are some inherit security concerns when allowing DISA. Mainly, we're transferring an untrusted external call into the default context after first collecting credentials in the form of an extension number and a voicemail PIN. You need to be aware of what's happening on YOUR phone system. The author disclaims any liability and places the script here for purposes of proof of concept.**
+
+Having said that, this script is pretty easy to use. Place 'disa' in the toll\_allow variable in any user's directory record to allow DISA access (you can have multiple comma separated values in toll\_allow). This script checks for the existence of the letter combination 'disa' somewhere in the toll\_allow variable.
+
+# Dialplan
+
+Call this script using the following dialplan:
+
+**DISA dialplan example**
+
+```xml
+<extension name="disa">
+  <condition field="destination_number" expression="^disa$">
+    <action application="lua" data="disa.lua"/>
+  </condition>
+</extension>
+```
+
+# Code
+
+Name the following file 'disa.lua' and place under your FreeSWITCH scripts folder. This script was tested on FreeSWITCH version 1.4.15 and using Lua 5.1 (sorry, we use libraries in other scripts that require 5.1 so we're already set up for it). If it doesn't work in 5.2, please send me a message at [Brian Foster.](https://freeswitch.org/confluence/display/~bdfoster)
+
+**disa.lua**
+
+```cpp
+api = freeswitch.API();
+domain = freeswitch.getGlobalVariable("domain_name"); 
+user_id = "";
+creds_tries = 0;
+creds_tries_limit = 3;
+authorized = false;
+invalid_entry_sound = "ivr/ivr-that_was_an_invalid_entry.wav";
+no_permissions_sound = "ivr/ivr-not_have_permission.wav";
+dialtone = "tone_stream://%(10000,0,350,440)";
+end_call_sound = "tone_stream://%L=3;(100,100,350,440)";
+
+session:answer();
+
+if (session:ready()) then
+    -- Line is live, start talking
+    session:flushDigits();
+    session:execute("playback", "silence_stream://1500");
+    session:execute("playback", "ivr/ivr-hello.wav");
+
+    -- Try authentication
+    while (creds_tries_limit >= creds_tries) do
+        -- Prompt for user id
+        user_id = session:playAndGetDigits(1, 10, creds_tries_limit, 3000, "#", "ivr/ivr-please_enter_extension_followed_by_pound.wav", invalid_entry_sound, "\\d+", "", 3000);
+
+        if (user_id == "") then
+            -- Exceeded tries
+            creds_tries = creds_tries_limit;
+
+        elseif (api:executeString("user_exists id ".. user_id .. " " .. domain)) then
+            -- User id exists, prompt for pin
+            pin = session:playAndGetDigits(1, 64, 3, 3000, "#", "ivr/ivr-please_enter_pin_followed_by_pound.wav", invalid_entry_sound, "\\d+", "", 3000);
+            pin_valid = "";
+            freeswitch.consoleLog("info", "PIN valid: " .. pin_valid);
+
+            if (pin == "") then
+                -- Exceeded tries
+                creds_tries = creds_tries_limit;
+            else
+                pin_valid = api:executeString("vm_fsdb_auth_login default " .. domain .. " " .. user_id .. " " .. pin);
+                freeswitch.consoleLog("info", "PIN valid: " .. pin_valid);
+            
+                if (pin_valid == "-OK") then
+                    -- DISA Authenticated
+                    -- Make sure user is authorized for DISA
+
+                    toll_allow = api:executeString("user_data " .. user_id .. "@" .. domain .. " var toll_allow");
+                    if(string.match(toll_allow, "disa")) then
+                        -- Authorized for service
+                        authorized = true;
+                        break;
+                    else
+                        -- Not authorized for service
+                        session:execute("playback", no_permissions_sound);
+                        break;
+                    end
+                else
+                    -- Bad pin
+                    session:execute("playback", invalid_entry_sound);
+                    creds_tries = creds_tries + 1;
+                end
+            end
+        else
+            -- Bad user id
+            session:execute("playback", invalid_entry_sound);
+			creds_tries = creds_tries + 1;
+		end
+    end
+    
+    if (authorized) then
+        -- Authorized for service, play instructions and give dialtone
+        session:execute("playback", "ivr/ivr-please_enter_the_phone_number.wav");
+        session:execute("playback", "ivr/ivr-followed_by_pound.wav");
+        
+        digits = session:playAndGetDigits(2, 15, 1, 15000, "#", dialtone, invalid_entry_sound, "\\d+", "", "3000");
+
+        if (digits == "") then
+            session:execute("playback", "voicemail/vm-goodbye.wav");
+        else
+			-- Set user using set_user dialplan application, then transfer the call
+			session:execute("set_user", user_id .. "@" .. domain);
+			session:execute("transfer", digits .. " XML default");
+        end
+
+    else
+        session:execute("playback", "voicemail/vm-goodbye.wav");
+    end
+
+end
+```
+
+Document generated by Confluence on nov 11, 2022 04:27

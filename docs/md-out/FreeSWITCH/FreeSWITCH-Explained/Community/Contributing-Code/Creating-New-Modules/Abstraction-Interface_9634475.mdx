@@ -1,0 +1,111 @@
+
+# Abstraction Interface 
+
+ Created by  Pat Beirne, last modified on 2015.10.07
+
+# About
+
+Modules register with an abstraction interface. At the time of this writing there are currently several interfaces and before you add a new one you should really see if what you have exists in any of the existing ones.
+
+* Endpoint - these are endpoints such as SIP, IAX, portaudio, etc.
+* Timer - these are timer interfaces, such as softtimer
+* Dialplan - all the nifty ways to deal with a dialplan can register here
+* Codec - if it encodes/decodes for an endpoint it goes here
+* Application - These are commands that you generally use in a dialplan
+* API - these are commands that generally are not used in a dialplan e.g. event socket, xml-rpc, CLI interface, etc.
+* File - if it deals with a 'file' it goes here. [mod\_shout](https://wiki.freeswitch.org/wiki/Mod%5Fshout "Mod shout") registers here for both MP3 files as well as shoutcast streams
+* Speech - this is for TTS engines, or other automated generation tools
+* Directory - things that manage the user directory, i.e. accounts go here
+* Chat - this is for instant messaging interfaces
+* Say - this is, of course, the say interface, which is used for phrase management
+* ASR - this is the automated speech recognition interface
+* Management - SNMP interfaces
+
+Click here to expand Table of Contents
+
+* 1 [Creating a new Abstraction Interface](#creating-a-new-abstraction-interface)  
+   * 1.1 [src/include/switch\_module\_interfaces.h](#srcincludeswitch_module_interfacesh)  
+   * 1.2 [src/include/switch\_types.h](#srcincludeswitch_typesh)  
+   * 1.3 [src/include/switch\_loadable\_module.h](#srcincludeswitch_loadable_moduleh)  
+   * 1.4 [src/switch\_loadable\_module.c](#srcswitch_loadable_modulec)  
+   * 1.5 [Finally](#finally)
+
+# Creating a new Abstraction Interface
+
+The FreeSWITCH™ core is somewhat guarded. While code contributions won't be refused outright, they do receive extra scrutiny. The core is common to all instances of FreeSWITCH™ and you can not do anything that would jeopardize the stability or performance for other users. Generally you will never have to do this, however there are times when you may. But be warned that if you go down this road your contributions may be rejected for inclusion in the tree.
+
+Before writing your own interface, you should be familiar with how modules are written, as this is what they bind to. Some of the concepts expressed in this document rely on the fact that you know how to write a module for FreeSWITCH™
+
+For the brave souls that still want to attempt this, here is a quick guide to help you along.
+
+First select a unique name for the interface. In this example we will create a name 'widget'. The name Widget should convey what the interface provides, as well as be unique from all other names.
+
+## src/include/switch_module_interfaces.h
+
+First we need to create a type for this new interface. We do that in **src/include/switch\_module\_interfaces.h** We need to create two structures, _switch\_widget\_interface_, which defines the callbacks into a module for its various operations, and a _switch\_widget\_handle_, which is the handle that is passed when the module is called. There are certain required elements within these structures. The following are required:
+
+```xml
+ /*! \brief Abstract interface to a message module */
+ struct switch_widget_interface {
+   /*! the name of the interface */
+    const char *interface_name;
+ 
+    /* add your callback handles here */
+ 
+    /*! linked list this is the next in the list */
+    struct switch_widget_interface *next;
+ };
+ 
+ /*! \brief an abstract representation of a message interface */
+ struct switch_widget_handle {
+    /* place the properties you need inside your module here */
+ 
+    /*! private data for the module to store handle specific info */
+    void *private_info;
+ };
+```
+
+## src/include/switch_types.h
+
+Now we need to typedef the structure. Add the following near where the rest of them are
+
+```xml
+ typedef struct switch_widget_interface switch_widget_interface_t;
+```
+
+In the enum switch\_module\_interface\_name\_t add
+
+```xml
+ SWITCH_MESSAGE_INTERFACE
+```
+
+## src/include/switch_loadable_module.h
+
+We need to add the interface to the structure where it will be used elsewhere. In struct switch\_loadable\_module\_interface add
+
+```xml
+ /*! the table of widget interfaces the module has implemented */
+ switch_widget_interface_t *widget_interface;
+```
+
+## src/switch_loadable_module.c
+
+In struct switch\_loadable\_module\_container add an entry for the hash
+
+```xml
+ switch_hash_t *widget_hash;
+```
+
+In` switch_loadable_module_process()` add an if statement to load the module and fire the event. You can template it around the ones that are already there, but they do vary based on what it does so no example can be provided.
+
+In switch\_loadable\_module\_unprocess() add an if statement to unload the module. Again you can template it around the others that are already there, and since they vary an example cant be provided.
+
+Add a `SWITCH_DECLARE(switch_widget_interface_t *) switch_loadable_module_get_widget_interface(const char *name)` near the others.
+
+In `switch_loadable_module_create_interface()` add a case statement to allocate the interface, this would use the ENUM name that you created in a previous step.
+
+## Finally
+
+You need to add prototype definitions in the appropriate includes, add code that the core does in probably switch\_core\_widget.c, and then write your module that will use this interface.
+
+Document generated by Confluence on nov 11, 2022 04:28

@@ -1,0 +1,480 @@
+
+# SPA2102 HowTo 
+
+ Created by  Mario G, last modified by  John Boteler on 2015.01.16
+
+Click to expand Table of Contents
+
+* 1 [Firmware](#firmware)
+* 2 [Configure SPA2102](#configure-spa2102)
+* 3 [Configure Fax Machine](#configure-fax-machine)  
+   * 3.1 [SPA2102 SYSLOG](#spa2102-syslog)
+* 4 [FS Dialplan](#fs-dialplan)  
+   * 4.1 [Providers](#providers)  
+   * 4.2 [Just Bridge](#just-bridge)  
+   * 4.3 [t38\_gateway mode](#t38_gateway-mode)
+
+## Firmware
+
+Latest release apparently buggy (5.2.12). Get version 5.2.10 instead. Read that as T38 DOES NOT WORK on 5.2.12\. Comment: I am using latest 5.2.13(004) which has no problem at all. Read the release note of 5.2.12 which fixed a few bugs 5.2.10\. One of them I consider major.
+
+* <http://www.cisco.com/en/US/products/ps10026/index.html>
+
+## Configure SPA2102
+
+Provider and registration as per usual. watch the 0.030 bug on the RTP Packet size (login advanced)
+
+* Voice -> SIP  
+   * RTP Packet Size: 0.020
+* Voice -> Line 1 \[or 2\]
+
+| Preferred Codec              | G711u | Second Preferred Codec | G711u            |
+| ---------------------------- | ----- | ---------------------- | ---------------- |
+| Third Preferred Codec        | G711u | Use Pref Codec Only    | yes              |
+| Silence Supp Enable          | no    | Silence Threshold      | medium           |
+| G729a Enable                 | yes   | Echo Canc Enable       | no               |
+| G723 Enable                  | yes   | Echo Canc Adapt Enable | no               |
+| G726-16 Enable               | yes   | Echo Supp Enable       | no               |
+| G726-24 Enable               | yes   | FAX CED Detect Enable  | yes              |
+| G726-32 Enable               | yes   | FAX CNG Detect Enable  | yes              |
+| G726-40 Enable               | yes   | FAX Passthru Codec     | G711u            |
+| DTMF Process INFO            | yes   | FAX Codec Symmetric    | yes              |
+| DTMF Process AVT             | Yes   | FAX Passthru Method    | ReINVITE         |
+| DTMF Tx Method               | Auto  | DTMF Tx Mode           | Strict           |
+| DTMF Tx Strict Hold Off Time | 90    | FAX Process NSE        | yes              |
+| Hook Flash Tx Method         | None  | FAX Disable ECAN       | yes              |
+| Release Unused Codec         | yes   | FAX Enable T38         | yes              |
+| FAX T38 Redundancy           | 1     | FAX Tone Detect Mode   | caller or callee |
+
+  
+In addition to above, you will want to use the following settings:
+
+* Source: [cisco manual](http://www.cisco.com/en/US/docs/voice%5Fip%5Fcomm/csbpvga/ata/administration/guide/ATA%5FAG%5Fv3%5FNC-WEB.pdf)
+
+On the Same Line Tab:
+
+* Network Jitter Buffer: very high
+* Jitter buffer adjustment: disable
+* Call Waiting: no
+* 3 Way Calling: no
+* Echo Canceller: no
+* Silence Suppression: no
+* Preferred Codec: G.711
+* Use Pref. codec Only: Yes
+
+Without the above settings, outbound fax would work (in proxy media mode) some of the time, but T38 negotioation would fail sometimes and never go through. One example was HP's faxback service: [1-888-hpfaxme (1-888-473-2963)](http://h10025.www1.hp.com/ewfrf/wc/document?docname=c00259105&lc=en&dlc=en&cc=us).
+
+## Configure Fax Machine
+
+You'll also need to set your Fax machine to a max speed of 14.4k and a min speed of 7200.
+
+* Source: [cisco manual](http://www.cisco.com/en/US/docs/voice%5Fip%5Fcomm/csbpvga/ata/administration/guide/ATA%5FAG%5Fv3%5FNC-WEB.pdf)
+
+### SPA2102 SYSLOG
+
+This was to a fax extension received by spandsp. It's what we should see on the device when it does t38 (assuming you configured the syslog server)
+
+```xml
+Jan 18 10:37:19 sipuraspa [0]FM 00000020 Tx      T38: i.no_signal
+Jan 18 10:37:19 T38 Decode UDPTL error
+Jan 18 10:37:19 sipuraspa T38: duplicate packet(s) received seq=0
+Jan 18 10:37:19 sipuraspa [0]FM 00000060 Rx      T38: i.no_signal
+Jan 18 10:37:19 sipuraspa T38: duplicate packet(s) received seq=1
+Jan 18 10:37:19 sipuraspa [0]FM 00000280 Rx      T38: i.ced
+Jan 18 10:37:22 sipuraspa T38: duplicate packet(s) received seq=2
+Jan 18 10:37:22 sipuraspa [0]FM 00003300 Rx      T38: i.no_signal
+Jan 18 10:37:22 sipuraspa T38: duplicate packet(s) received seq=3
+Jan 18 10:37:22 sipuraspa [0]FM 00003370 Rx      T38: i.v21_preamble
+Jan 18 10:37:23 sipuraspa [0]FM 00004380 Rx      T38: d.v21 . . .
+Jan 18 10:37:24 sipuraspa [0]FM 00005000 Rx      T38: d.hdlc_fcs_OK
+Jan 18 10:37:24 sipuraspa [0]FM 00005020 Mod CSI Frame [25]:  ff 03 40 2d 20 43                                                                                                                                4c 4c 20 6f 6c 61 48 20 73 75 72 61 74 6c 6f 43 20 ac f4
+Jan 18 10:37:24 sipuraspa [0]FM 00005120 Rx      T38: d.v21 . . .
+Jan 18 10:37:24 sipuraspa T38: duplicate packet(s) received seq=41
+```
+
+ ## FS Dialplan
+
+### Providers
+
+It seems to make a difference here, and I'm not sure why.
+
+* UnivoIP: Likes the T38 Gateway Peer.
+* Flowroute: Likes the Just Bridge Method. Never got a fax complete with either T38\_Gateway method.  
+   * **UPDATE** Faxes still would not go out very reliably. Using Proxy Media method seems to have fixed it.
+* GrnVoIP: Doesn't seem to like anything. Also notable, currently (2012/01/18) they do not allow toll free t38 faxing.
+
+#### Proxy Media
+
+This has worked the best so far for me. Everything else does not seem to work so well.
+
+```xml
+<extension name="00-Fax-7d" >
+  <condition field="${user_name}" expression="^103[0-9]" />
+  <condition field="destination_number" expression="^(\d{7})$" >
+    <action application="set" data="sip_h_X-accountcode=${accountcode}" />
+    <action application="set" data="call_direction=outbound" />
+    <action application="set" data="hangup_after_bridge=true" />
+    <action application="set" data="effective_caller_id_name=${outbound_caller_id_name}" />
+    <action application="set" data="effective_caller_id_number=${outbound_caller_id_number}" />
+    <action application="set" data="proxy_media=true" />
+    <action application="bridge" data="sofia/gateway/flowroute/1361$1" />
+  </condition>
+</extension> 
+```
+
+### Just Bridge
+
+Tried effectively no dialplan, just bridge. This works, but T38 only ends up on the b-leg.
+
+```xml
+<extension name="00_Fax" >
+   <condition field="${user_name}" expression="^103[0-9]" />
+   <condition field="destination_number" expression="^(\d{10})$" >
+       <action application="set" data="sip_h_X-accountcode=${accountcode}" />
+       <action application="set" data="call_direction=outbound" />
+       <action application="set" data="hangup_after_bridge=true" />
+       <action application="set" data="effective_caller_id_name=${outbound_caller_id_name}" />
+       <action application="set" data="effective_caller_id_number=${outbound_caller_id_number}" />
+       <action application="bridge" data="sofia/gateway/flowroute/1$1" />
+   </condition>
+</extension>
+```
+
+### t38_gateway mode
+
+#### Self
+
+Outbound faxes just fail. T38 does get hit on the spa2102 and the provider, but they rarely go through.
+
+```xml
+<extension name="00_Fax1" >
+   <condition field="${user_name}" expression="^103[0-9]" />
+   <condition field="destination_number" expression="^(\d{10})$" >
+       <action application="set" data="sip_h_X-accountcode=${accountcode}" />
+       <action application="set" data="call_direction=outbound" />
+       <action application="set" data="hangup_after_bridge=true" />
+       <action application="set" data="effective_caller_id_name=${outbound_caller_id_name}" />
+       <action application="set" data="effective_caller_id_number=${outbound_caller_id_number}" />
+       <action application="set" data="inherit_codec=true" />
+       <action application="set" data="fax_enable_t38=true" />
+       <action application="set" data="fax_enable_t38_request=true" />
+       <action application="set" data="execute_on_answer=t38_gateway self" />
+       <action application="bridge" data="sofia/gateway/univoip.ca/1$1" />
+       <action application="bridge" data="sofia/gateway/grnVoIP-T38/account1$1" />
+       <action application="bridge" data="{absolute_codec_string=PCMU}sofia/gateway/univoip.ca/1$1" />
+   </condition>
+</extension>
+```
+
+#### Peer
+
+Outbound faxes. This with above SPA2102 config seems to be the magic ticket.
+
+```xml
+<extension name="00_Fax1" >
+   <condition field="${user_name}" expression="^103[0-9]" />
+   <condition field="destination_number" expression="^(\d{10})$" >
+       <action application="set" data="sip_h_X-accountcode=${accountcode}" />
+       <action application="set" data="call_direction=outbound" />
+       <action application="set" data="hangup_after_bridge=true" />
+       <action application="set" data="effective_caller_id_name=${outbound_caller_id_name}" />
+       <action application="set" data="effective_caller_id_number=${outbound_caller_id_number}" />
+       <action application="set" data="inherit_codec=true" />
+       <action application="set" data="fax_enable_t38=true" />
+       <action application="set" data="fax_enable_t38_request=true" />
+       <action application="set" data="execute_on_answer=t38_gateway peer" />
+       <action application="bridge" data="sofia/gateway/univoip.ca/1$1" />
+       <action application="bridge" data="sofia/gateway/grnVoIP-T38/account1$1" />
+       <action application="bridge" data="{absolute_codec_string=PCMU}sofia/gateway/univoip.ca/1$1" />
+   </condition>
+</extension>
+```
+
+##### Relevant SPA2102 Log
+
+```xml
+ 20 20 20 20 20 20 20 20 20 20 20 20 20 20 20 20 20 91 96
+Jan 18 12:56:43 sipuraspa [0]FM 00001500 Tx      T38: d.hdlc_fcs_OK
+Jan 18 12:56:43 sipuraspa [0]FM 00001660 Tx      T38: d.v21 . . .
+Jan 18 12:56:43 sipuraspa [0]FM 00001840     DCS: 0.5.0.2.0.0.0.1  v17_14400
+Jan 18 12:56:43 sipuraspa [0]FM 00001840 Dem DCS Frame [11]:  ff 13 83 00 a2 98 80 80 00 76 85
+Jan 18 12:56:43 sipuraspa [0]FM 00001860 Tx      T38: d.hdlc_fcs_OK_sig_end
+Jan 18 12:56:43 sipuraspa [0]FM 00001880 Tx      T38: i.no_signal
+Jan 18 12:56:43 sipuraspa [0]FM 00001890 Dem     Modulation v17_14400_long_training
+Jan 18 12:56:43 sipuraspa [0]FM 00001900 Tx      T38: i.v17_14400_long_training
+Jan 18 12:56:45 sipuraspa [0]FM 00003540 Tx      T38: d.v17_14400 . . .
+Jan 18 12:56:46 sipuraspa [0]FM 00004920         Z:2420
+Jan 18 12:56:46 sipuraspa [0]FM 00005070 Dem     Tf=  -2882, Cf=   -226, Ag=   1155, Qc=  0, Di=  0, Do=  0
+Jan 18 12:56:46 sipuraspa [0]FM 00005080 Tx      T38: d.t4_non_ecm_sig_end
+Jan 18 12:56:46 sipuraspa [0]FM 00005100 Tx      T38: i.no_signal
+Jan 18 12:56:47 sipuraspa T38: duplicate packet(s) received seq=1
+Jan 18 12:56:47 sipuraspa [0]FM 00005840 Rx      T38: i.v21_preamble
+Jan 18 12:56:48 sipuraspa [0]FM 00006800 Rx      T38: d.v21 . . .
+Jan 18 12:56:48 sipuraspa [0]FM 00006880 Rx      T38: d.hdlc_fcs_OK
+Jan 18 12:56:48 sipuraspa T38: duplicate packet(s) received seq=6
+Jan 18 12:56:48 sipuraspa T38: duplicate packet(s) received seq=7
+Jan 18 12:56:48 sipuraspa [0]FM 00006900 Rx      T38: d.hdlc_sig_end
+Jan 18 12:56:48 sipuraspa [0]FM 00006900 Rx      T38: i.no_signal
+Jan 18 12:56:48 sipuraspa [0]FM 00006930 Mod CFR Frame [ 5]:  ff 13 84 ea 7d
+Jan 18 12:56:48 sipuraspa [0]FM 00007300 Dem     Modulation v17_14400_short_training
+Jan 18 12:56:49 sipuraspa [0]RegOK. NextReg in 3570 (1)
+Jan 18 12:56:49 sipuraspa [0]FM 00008320 Tx      T38: i.v17_14400_short_training
+Jan 18 12:56:49 sipuraspa [0]FM 00008340 Tx      T38: d.v17_14400 . . .
+Jan 18 12:57:07 sipuraspa [0]FM 00025550 Dem     Tf=  -4115, Cf=   -227, Ag=   1071, Qc=  0, Di=  0, Do=  0
+Jan 18 12:57:07 sipuraspa [0]FM 00025580 Tx      T38: d.t4_non_ecm_sig_end
+Jan 18 12:57:07 sipuraspa [0]FM 00025600 Tx      T38: i.no_signal
+Jan 18 12:57:07 sipuraspa [0]FM 00025780 Tx      T38: i.v21_preamble
+Jan 18 12:57:08 sipuraspa [0]FM 00026720 Tx      T38: d.v21 . . .
+Jan 18 12:57:08 sipuraspa [0]FM 00026740 Dem EOP Frame [ 5]:  ff 13 2f 33 66
+Jan 18 12:57:08 sipuraspa [0]FM 00026760 Tx      T38: d.hdlc_fcs_OK_sig_end
+Jan 18 12:57:08 sipuraspa [0]FM 00026780 Tx      T38: i.no_signal
+Jan 18 12:57:09 sipuraspa T38: duplicate packet(s) received seq=8
+Jan 18 12:57:09 sipuraspa [0]FM 00027600 Rx      T38: i.v21_preamble
+Jan 18 12:57:10 sipuraspa [0]FM 00028580 Rx      T38: d.v21 . . .
+Jan 18 12:57:10 sipuraspa T38: duplicate packet(s) received seq=13
+Jan 18 12:57:10 sipuraspa T38: duplicate packet(s) received seq=14
+Jan 18 12:57:10 sipuraspa [0]FM 00028660 Rx      T38: d.hdlc_fcs_OK
+Jan 18 12:57:10 sipuraspa [0]FM 00028660 Rx      T38: d.hdlc_sig_end
+Jan 18 12:57:10 sipuraspa [0]FM 00028670 Rx      T38: i.no_signal
+Jan 18 12:57:10 sipuraspa [0]FM 00028690 Mod MCF Frame [ 5]:  ff 13 8c a2 f1
+Jan 18 12:57:10 sipuraspa [0]FM 00029260 Tx      T38: i.v21_preamble
+Jan 18 12:57:11 sipuraspa [0]FM 00030300 Tx      T38: d.v21 . . .
+Jan 18 12:57:11 sipuraspa [0]FM 00030320 Dem DCN Frame [ 5]:  ff 13 fb 9a f6
+Jan 18 12:57:11 sipuraspa [0]FM 00030340 Tx      T38: d.hdlc_fcs_OK_sig_end
+Jan 18 12:57:11 sipuraspa [0]FM 00030360 Tx      T38: i.no_signal
+Jan 18 12:57:13 FM Stop RxTx Forced
+Jan 18 12:57:13 sipuraspa [0]On Hook
+Jan 18 12:57:13 sipuraspa T38: StopRx
+Jan 18 12:57:13 sipuraspa T38: StopTx
+Jan 18 12:57:13 sipuraspa [0]FM Alert Stop RxTx (c=00245e90;a=1)
+Jan 18 12:57:13 sipuraspa [0: 0]AUD Rel Call
+Jan 18 12:57:13 DLG Terminated 29b53c
+Jan 18 12:57:13 Sess Terminated
+```
+
+##### FreeSWITCH Snippet
+
+```xml
+recv 1077 bytes from udp/[192.168.11.244]:5060 at 18:58:45.758720:
+   ------------------------------------------------------------------------
+   INVITE sip:8888771655@192.168.11.54:5060;transport=udp SIP/2.0
+   Via: SIP/2.0/UDP 192.168.11.244:5060;branch=z9hG4bK-24fbcbe;rport
+   From: FAX <sip:1030@voip.example.com>;tag=e05db621ddfca31co0
+   To: <sip:8888771655@voip.example.com>;tag=vme0D1r4j4yHj
+   Remote-Party-ID: FAX <sip:1030@voip.example.com>;screen=yes;party=calling
+   Call-ID: 367a1245-4d4d5548@192.168.11.244
+   CSeq: 103 INVITE
+   Max-Forwards: 70
+   Proxy-Authorization: Digest username="1030",realm="voip.example.com",nonce="6f76029c-4206-11e1-8346-294a4c7c9aeb",uri="sip:8888771655@192.168.11.54:5060",algorithm=MD5,response="a98c693c6f7b1e6f58b238c222360133",qop=auth,nc=00000002,cnonce="e4f5a7f8"
+   Contact: FAX <sip:1030@192.168.11.244:5060>
+   Expires: 30
+   User-Agent: Linksys/SPA2102-5.2.10
+   Content-Length: 269
+   Content-Type: application/sdp
+
+   v=0
+   o=- 727641 727641 IN IP4 192.168.11.244
+   s=-
+   c=IN IP4 192.168.11.244
+   t=0 0
+   m=image 16388 udptl t38
+   a=T38FaxVersion:0
+   a=T38MaxBitRate:14400
+   a=T38FaxRateManagement:transferredTCF
+   a=T38FaxMaxBuffer:200
+   a=T38FaxMaxDatagram:200
+   a=T38FaxUdpEC:t38UDPRedundancy
+   ------------------------------------------------------------------------
+send 376 bytes to udp/[192.168.11.244]:5060 at 18:58:45.760791:
+   ------------------------------------------------------------------------
+   SIP/2.0 100 Trying
+   Via: SIP/2.0/UDP 192.168.11.244:5060;branch=z9hG4bK-24fbcbe;rport=5060
+   From: FAX <sip:1030@voip.example.com>;tag=e05db621ddfca31co0
+   To: <sip:8888771655@voip.example.com>;tag=vme0D1r4j4yHj
+   Call-ID: 367a1245-4d4d5548@192.168.11.244
+   CSeq: 103 INVITE
+   User-Agent: FreeSWITCH-mod_sofia/1.0.head-git-9403064 2011-08-30 09-15-27 -0500
+   Content-Length: 0
+
+   ------------------------------------------------------------------------
+2012-01-18 12:58:45.761828 [DEBUG] switch_core_session.c:859 Send signal sofia/internal/1030@voip.example.com [BREAK]
+2012-01-18 12:58:45.761828 [DEBUG] switch_core_session.c:859 Send signal sofia/internal/1030@voip.example.com [BREAK]
+2012-01-18 12:58:45.771412 [DEBUG] sofia.c:5147 Channel sofia/internal/1030@voip.example.com entering state [received][100]
+2012-01-18 12:58:45.771412 [DEBUG] sofia.c:5158 Remote SDP:
+v=0
+o=- 727641 727641 IN IP4 192.168.11.244
+s=-
+c=IN IP4 192.168.11.244
+t=0 0
+m=image 16388 udptl t38
+a=T38FaxVersion:0
+a=T38MaxBitRate:14400
+a=T38FaxRateManagement:transferredTCF
+a=T38FaxMaxBuffer:200
+a=T38FaxMaxDatagram:200
+a=T38FaxUdpEC:t38UDPRedundancy
+
+recv 1036 bytes from udp/[64.26.150.140]:5060 at 18:58:48.927104:
+   ------------------------------------------------------------------------
+   INVITE sip:gw+voip.example.com-univoip.ca@192.168.11.54:5080;transport=udp;gw=voip.example.com-univoip.ca SIP/2.0
+   Record-Route: <sip:64.26.150.140;lr;ftag=as66afbc98>
+   Via: SIP/2.0/UDP 64.26.150.140;branch=z9hG4bK9391.9f5670a2.0
+   Via: SIP/2.0/UDP 64.26.150.151:5060;received=64.26.150.151;branch=z9hG4bK5b345720;rport=5060
+   Max-Forwards: 69
+   From: <sip:18888771655@64.26.150.140>;tag=as66afbc98
+   To: "example " <sip:example1@64.26.150.140;transport=udp>;tag=Zt796H6BBX93e
+   Contact: <sip:18888771655@64.26.150.151>
+   Call-ID: 46e7065c-bca9-122f-cb8c-7a91d6bec14f
+   CSeq: 102 INVITE
+   User-Agent: GW-2
+   Allow: INVITE, ACK, CANCEL, OPTIONS, BYE, REFER, SUBSCRIBE, NOTIFY, INFO
+   Supported: replaces, timer
+   Content-Type: application/sdp
+   Content-Length: 273
+
+   v=0
+   o=root 2039306861 2039306863 IN IP4 38.57.184.101
+   s=Asterisk PBX 1.6.2.9
+   c=IN IP4 38.57.184.101
+   t=0 0
+   m=image 4555 udptl t38
+   a=T38FaxVersion:0
+   a=T38MaxBitRate:14400
+   a=T38FaxRateManagement:transferredTCF
+   a=T38FaxMaxDatagram:339
+   a=T38FaxUdpEC:t38UDPRedundancy
+   ------------------------------------------------------------------------
+send 534 bytes to udp/[64.26.150.140]:5060 at 18:58:48.934964:
+   ------------------------------------------------------------------------
+   SIP/2.0 100 Trying
+   Via: SIP/2.0/UDP 64.26.150.140;branch=z9hG4bK9391.9f5670a2.0
+   Via: SIP/2.0/UDP 64.26.150.151:5060;received=64.26.150.151;branch=z9hG4bK5b345720;rport=5060
+   Record-Route: <sip:64.26.150.140;lr;ftag=as66afbc98>
+   From: <sip:18888771655@64.26.150.140>;tag=as66afbc98
+   To: "example " <sip:example1@64.26.150.140;transport=udp>;tag=Zt796H6BBX93e
+   Call-ID: 46e7065c-bca9-122f-cb8c-7a91d6bec14f
+   CSeq: 102 INVITE
+   User-Agent: FreeSWITCH-mod_sofia/1.0.head-git-9403064 2011-08-30 09-15-27 -0500
+   Content-Length: 0
+
+   ------------------------------------------------------------------------
+2012-01-18 12:58:48.931194 [DEBUG] switch_core_session.c:859 Send signal sofia/external/18888771655 [BREAK]
+2012-01-18 12:58:48.931194 [DEBUG] switch_core_session.c:859 Send signal sofia/external/18888771655 [BREAK]
+2012-01-18 12:58:48.951836 [DEBUG] sofia.c:5147 Channel sofia/external/18888771655 entering state [received][100]
+2012-01-18 12:58:48.951836 [DEBUG] sofia.c:5158 Remote SDP:
+v=0
+o=root 2039306861 2039306863 IN IP4 38.57.184.101
+s=Asterisk PBX 1.6.2.9
+c=IN IP4 38.57.184.101
+t=0 0
+m=image 4555 udptl t38
+a=T38FaxVersion:0
+a=T38MaxBitRate:14400
+a=T38FaxRateManagement:transferredTCF
+a=T38FaxMaxDatagram:339
+a=T38FaxUdpEC:t38UDPRedundancy
+```
+
+  
+##### **snip**
+
+```xml
+2012-01-18 12:59:01.821215 [WARNING] mod_spandsp_fax.c:898 sofia/internal/1030@voip.example.com already has T.38 data
+2012-01-18 12:59:01.821215 [DEBUG] switch_core_session.c:713 Send signal sofia/internal/1030@voip.example.com [BREAK]
+2012-01-18 12:59:01.821215 [DEBUG] mod_spandsp_fax.c:810 T38FaxVersion = 0
+2012-01-18 12:59:01.821215 [DEBUG] mod_spandsp_fax.c:811 T38MaxBitRate = 14400
+2012-01-18 12:59:01.821215 [DEBUG] mod_spandsp_fax.c:812 T38FaxFillBitRemoval = 0
+2012-01-18 12:59:01.821215 [DEBUG] mod_spandsp_fax.c:813 T38FaxTranscodingMMR = 0
+2012-01-18 12:59:01.821215 [DEBUG] mod_spandsp_fax.c:814 T38FaxTranscodingJBIG = 0
+2012-01-18 12:59:01.821215 [DEBUG] mod_spandsp_fax.c:815 T38FaxRateManagement = 'transferredTCF'
+2012-01-18 12:59:01.821215 [DEBUG] mod_spandsp_fax.c:816 T38FaxMaxBuffer = 200
+2012-01-18 12:59:01.821215 [DEBUG] mod_spandsp_fax.c:817 T38FaxMaxDatagram = 200
+2012-01-18 12:59:01.821215 [DEBUG] mod_spandsp_fax.c:818 T38FaxUdpEC = 't38UDPRedundancy'
+2012-01-18 12:59:01.821215 [DEBUG] mod_spandsp_fax.c:819 T38VendorInfo = ''
+2012-01-18 12:59:01.821215 [DEBUG] mod_spandsp_fax.c:820 ip = '192.168.11.244'
+2012-01-18 12:59:01.821215 [DEBUG] mod_spandsp_fax.c:822 port = 16388
+2012-01-18 12:59:01.821215 [DEBUG] mod_sofia.c:1331 Remote address:port [192.168.11.244:16388] has not changed.
+2012-01-18 12:59:01.821215 [DEBUG] sofia_glue.c:182 sofia/internal/1030@voip.example.com image media sdp:
+v=0
+o=FreeSWITCH 1326896467 1326896470 IN IP4 192.168.11.54
+s=FreeSWITCH
+c=IN IP4 192.168.11.54
+t=0 0
+m=image 16656 udptl t38
+a=T38FaxVersion:0
+a=T38MaxBitRate:14400
+a=T38FaxFillBitRemoval
+a=T38FaxRateManagement:transferredTCF
+a=T38FaxMaxBuffer:2000
+a=T38FaxMaxDatagram:400
+a=T38FaxUdpEC:t38UDPRedundancy
+
+send 996 bytes to udp/[192.168.11.244]:5060 at 18:59:01.824912:
+   ------------------------------------------------------------------------
+   SIP/2.0 200 OK
+   Via: SIP/2.0/UDP 192.168.11.244:5060;branch=z9hG4bK-24fbcbe;rport=5060
+   From: FAX <sip:1030@voip.example.com>;tag=e05db621ddfca31co0
+   To: <sip:8888771655@voip.example.com>;tag=vme0D1r4j4yHj
+   Call-ID: 367a1245-4d4d5548@192.168.11.244
+   CSeq: 103 INVITE
+   Contact: <sip:8888771655@192.168.11.54:5060;transport=udp>
+   User-Agent: FreeSWITCH-mod_sofia/1.0.head-git-9403064 2011-08-30 09-15-27 -0500
+   Accept: application/sdp
+   Allow: INVITE, ACK, BYE, CANCEL, OPTIONS, MESSAGE, UPDATE, INFO, REGISTER, REFER, NOTIFY, PUBLISH, SUBSCRIBE
+   Supported: timer, precondition, path, replaces
+   Content-Type: application/sdp
+   Content-Disposition: session
+   Content-Length: 318
+
+   v=0
+   o=FreeSWITCH 1326896467 1326896469 IN IP4 192.168.11.54
+   s=FreeSWITCH
+   c=IN IP4 192.168.11.54
+   t=0 0
+   m=image 16656 udptl t38
+   a=T38FaxVersion:0
+   a=T38MaxBitRate:14400
+   a=T38FaxFillBitRemoval
+   a=T38FaxRateManagement:transferredTCF
+   a=T38FaxMaxBuffer:2000
+   a=T38FaxMaxDatagram:400
+   a=T38FaxUdpEC:t38UDPRedundancy
+   ------------------------------------------------------------------------
+2012-01-18 12:59:01.821215 [DEBUG] switch_core_session.c:859 Send signal sofia/internal/1030@voip.example.com [BREAK]
+2012-01-18 12:59:01.821215 [DEBUG] sofia.c:5147 Channel sofia/internal/1030@voip.example.com entering state [completed][200]
+2012-01-18 12:59:01.821215 [DEBUG] mod_sofia.c:1331 Remote address:port [192.168.11.244:16388] has not changed.
+2012-01-18 12:59:01.821215 [DEBUG] mod_sofia.c:1331 Remote address:port [192.168.11.244:16388] has not changed.
+2012-01-18 12:59:01.821215 [DEBUG] sofia_glue.c:182 sofia/internal/1030@voip.example.com image media sdp:
+v=0
+o=FreeSWITCH 1326896467 1326896471 IN IP4 192.168.11.54
+s=FreeSWITCH
+c=IN IP4 192.168.11.54
+t=0 0
+m=image 16656 udptl t38
+a=T38FaxVersion:0
+a=T38MaxBitRate:14400
+a=T38FaxFillBitRemoval
+a=T38FaxRateManagement:transferredTCF
+a=T38FaxMaxBuffer:2000
+a=T38FaxMaxDatagram:400
+a=T38FaxUdpEC:t38UDPRedundancy
+
+2012-01-18 12:59:01.821215 [DEBUG] switch_core_session.c:859 Send signal sofia/internal/1030@voip.example.com [BREAK]
+2012-01-18 12:59:01.831282 [DEBUG] switch_ivr_bridge.c:586 BRIDGE THREAD DONE [sofia/external/18888771655]
+2012-01-18 12:59:01.831282 [DEBUG] switch_ivr_bridge.c:606 Send signal sofia/internal/1030@voip.example.com [BREAK]
+2012-01-18 12:59:01.831282 [DEBUG] switch_core_state_machine.c:388 (sofia/external/18888771655) State EXCHANGE_MEDIA going to sleep
+2012-01-18 12:59:01.831282 [DEBUG] switch_core_state_machine.c:330 (sofia/external/18888771655) Running State Change CS_RESET
+2012-01-18 12:59:01.831282 [DEBUG] switch_core_state_machine.c:381 (sofia/external/18888771655) State RESET
+2012-01-18 12:59:01.831282 [DEBUG] mod_sofia.c:166 sofia/external/18888771655 SOFIA RESET
+2012-01-18 12:59:01.831282 [DEBUG] mod_spandsp_fax.c:1783 (sofia/external/18888771655) State Change CS_RESET -> CS_CONSUME_MEDIA
+2012-01-18 12:59:01.831282 [DEBUG] switch_core_session.c:1164 Send signal sofia/external/18888771655 [BREAK]
+2012-01-18 12:59:01.831282 [DEBUG] switch_core_state_machine.c:381 (sofia/external/18888771655) State RESET going to sleep
+2012-01-18 12:59:01.831282 [DEBUG] switch_core_state_machine.c:330 (sofia/external/18888771655) Running State Change CS_CONSUME_MEDIA
+2012-01-18 12:59:01.831282 [DEBUG] switch_core_state_machine.c:397 (sofia/external/18888771655) State CONSUME_MEDIA
+2012-01-18 12:59:01.831282 [DEBUG] switch_core_session.c:713 Send signal sofia/external/18888771655 [BREAK]
+2012-01-18 12:59:01.831282 [DEBUG] mod_spandsp_fax.c:1630 Raw read codec activation Success L16 20000
+2012-01-18 12:59:01.831282 [DEBUG] switch_core_codec.c:116 sofia/external/18888771655 Push codec L16:70
+2012-01-18 12:59:01.831282 [DEBUG] mod_spandsp_fax.c:1646 Raw write codec activation Success L16
+```
+
+Document generated by Confluence on nov 11, 2022 04:28

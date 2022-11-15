@@ -1,0 +1,119 @@
+
+# mod_dptools: att_xfer 
+
+ Created by  Italo Rossi, last modified by  Taran Romana on 2016.11.14
+
+# About
+
+Make an attended transfer. 
+
+Click to expand Table of Contents
+
+* 1 [Usage](#usage)
+* 2 [Examples](#examples)  
+   * 2.1 [Example 1](#example-1)  
+   * 2.2 [Example 2](#example-1)  
+   * 2.3 [Example - Using API Call](#example---using-api-call)  
+   * 2.4 [Observations](#observations)
+
+# Usage
+
+att\_xfer &lt;channel\_url>
+
+Bridge a third party specified by channel\_url onto the call, speak privately, then bridge original caller to target channel\_url of att\_xfer.
+
+From revision '''14650''', there is new parameter that can be set - ''origination\_cancel\_key''. This feature is used when you want to cancel a transfer and return to the first caller.
+
+after feature request #FS-9734 three new channel variables are added which will allow the feature codes to be configured by a user -
+
+"attxfer\_cancel\_key" - can be used to cancel a tranfer just like origination\_cancel\_key, but straight from the att\_xfer code (deafault '#')
+
+"attxfer\_hangup\_key" - can be used to hangup the call after user wants to end his or her call  (deafault '\*')
+
+"attxfer\_conf\_key" - can be used to initiate a three way transfer (deafault '0')
+
+# Examples
+
+## Example 1
+
+Make a dialplan feature which read the number to make an attended transfer.
+
+```xml
+<extension name="att_xfer">
+  <condition field="destination_number" expression="^86$">
+    <action application="read" data="3 4 sounds/getdigits.wav attxfer_callthis 30000 #"/>
+    <action application="att_xfer" data="sofia/default/${attxfer_callthis}"/>
+  </condition>
+</extension>
+```
+
+Then bind this feature to DTMF 3.
+
+```xml
+<action application="bind_meta_app" data="3 a a execute_extension::86 XML features"/>
+```
+
+During call press \*3 to activate the feature. Feed it the number then it will make the call.
+
+1. If you hang up (after the other leg answered and you decided what to do), then it will transfer the call and bridge them together.
+2. If the other leg hang up thus indicating it doesn't want the transfer then you get it back.
+3. If the other leg is a voicemail or doesn't answered you can hangup that leg by pressing DTMF # (fixed in r14438)
+4. If you press DTMF 0 then it will convert it to a three-way, hangup and complete the transfer.
+
+## Example 2
+
+In your dialplan add bind\_meta\_app key that will transfer the call to the extensions that will execute the att\_xfer application.
+
+Example:
+
+```xml
+<extension name="local_number">
+  <condition field="destination_number" expression="^(\d{3})$">
+    <action application="set" data="dialed_extension=$1"/>
+    <action application="export" data="dialed_extension=$1"/>
+    <action application="bind_meta_app" data="1 b s execute_extension::attended_xfer XML features"/>
+    <action application="set" data="transfer_ringback=$${hold_music}"/>
+    <action application="set" data="call_timeout=10"/>
+    <action application="set" data="hangup_after_bridge=true"/>
+    <action application="bridge" data="user/${dialed_extension}@${domain_name}"/>
+  </condition>
+</extension>
+```
+
+In the features.xml add the extensions attended\_xfer. The extensions below first waits for input from the user (30sec) and then makes attended transfer to the entered extension.
+
+Example:
+
+```xml
+<extension name="attended_xfer">
+  <condition field="destination_number" expression="^attended_xfer$">
+    <action application="set" data="continue_on_fail=true"/>
+    <action application="read" data="3 4 ivr/ivr-enter_ext.wav attxfer_callthis 30000 #"/>
+    <action application="set" data="attxfer_cancel_key=#"/>
+    <action application="set" data="attxfer_hangup_key=*"/>
+    <action application="set" data="attxfer_conf_key=0"/>
+    <action application="att_xfer" data="user/${attxfer_callthis}@${domain_name}"/>
+  </condition>
+</extension>
+```
+
+## Example - Using API Call
+
+You can also set channel variables on the command issued via XML-RPC or Event Socket by adding {myvar=myval,myvar1=myval1} e.g
+
+```xml
+att_xfer {attxfer_conf_key=3,attxfer_hangup_key=2,attxfer_cancel_key=1}loopback/1000/context
+```
+
+| Feature Code | Channel Variable Name | Purpose                                                            | When to use                                     |
+| ------------ | --------------------- | ------------------------------------------------------------------ | ----------------------------------------------- |
+| 0            | attxfer\_conf\_key    | it will convert the call to three-way conference                   | After the last party answers the call           |
+| #            | attxfer_cancel_key  | to hangup the B leg and return you to the caller                   | After the last party answers the call           |
+| \*           | attxfer\_hangup\_key  | it will hangup the B leg and bridge A to C (fixed in '''r15013''') | After the last party answers the call           |
+| #            | attxfer_cancel_key  | it will cancel the B leg and will return you the caller            | Before the answer of the call by the last party |
+
+## Observations
+
+att\_xfer will not work with loopback channels because the application blocks when bridged to the C leg. If the C leg hangs up, it will bridge back to A. Since loopback hangs up to replace the legs to the correct legs, att\_xfer will detect that and bridge it back to the A leg automatically.
+
+Document generated by Confluence on nov 11, 2022 04:27

@@ -1,0 +1,126 @@
+
+# Building debs for other architectures 
+
+ Created by  Stanislav Sinyagin, last modified on 2016.02.22
+
+# About
+
+This page explains how to build FreeSWITCH Debian packages for other architectures, like ARM or MIPS.
+
+Click here to expand Table of Contents
+
+* 1 [Building procedure](#building-procedure)
+
+# Building procedure
+
+The following instructions build Debian 8 packages for architectures that are not available from official FreeSWITCH repositories. The FreeSWITCH package build process depends on prerequisite libraries which are expected to be available from a package repository via HTTP. So, you need to set up your own Debian package repository, create your own PGP key, and upload the dependency packages onto it.
+
+```bash
+# Get the architecture name. 
+export MY_HOST_ARCH=`dpkg-architecture -q DEB_HOST_ARCH`
+
+apt-get update && apt-get install -y git curl screen aptitude reprepro make sox flac
+
+# create a PGP key for signing your repository
+mkdir ~/.gnupg/
+cat >~/.gnupg/gpg.conf <<'EOT'
+default-preference-list SHA512 SHA384 SHA256 SHA224 AES256 AES192 AES CAST5 BZIP2 ZLIB ZIP Uncompressed
+cert-digest-algo SHA512
+personal-digest-preferences SHA512
+EOT
+apt-get install -y rng-tools
+rngd -r /dev/urandom
+gpg --gen-key
+
+gpg --list-public-keys
+# further on, AEEA3C42 is my public key, and you need to use yours
+
+# optionally remove passphrase
+gpg --edit-key AEEA3C42
+passwd
+save
+
+# the build process may take several hours, so screen is a good way to avoid terminal interruptions
+cd 
+screen -RL
+
+
+####
+# build the dependency libraries. The process may take a long time, so use Ctrl-A Ctrl-D to detach from the screen if needed
+
+mkdir /usr/src/freeswitch-video-deps
+git clone https://freeswitch.org/stash/scm/sd/freeswitch-video-deps.git /usr/src/freeswitch-video-deps/src
+/usr/src/freeswitch-video-deps/src/debian/sd-repo-builder --arch=${MY_HOST_ARCH} \
+  --dir=/usr/src/freeswitch-sd --repo=/var/local/freeswitch-unstable-${MY_HOST_ARCH} --sign=AEEA3C42
+
+####
+# build the sound packages and add them to the repo manually
+
+mkdir /usr/src/freeswitch-sounds
+cd /usr/src/freeswitch-sounds
+git clone https://github.com/traviscross/freeswitch-sounds.git music-default
+cd music-default
+./debian/bootstrap.sh -p freeswitch-music-default
+./debian/rules get-orig-source
+tar -xv --strip-components=1 -f *_*.orig.tar.xz && mv *_*.orig.tar.xz ../
+dpkg-buildpackage -uc -us -Zxz -z1
+
+
+cd /usr/src/freeswitch-sounds
+git clone https://github.com/traviscross/freeswitch-sounds.git sounds-en-us-callie
+cd sounds-en-us-callie
+./debian/bootstrap.sh -p freeswitch-sounds-en-us-callie
+./debian/rules get-orig-source
+tar -xv --strip-components=1 -f *_*.orig.tar.xz && mv *_*.orig.tar.xz ../
+dpkg-buildpackage -uc -us -Zxz -z1
+
+reprepro -Vb /var/local/freeswitch-unstable-${MY_HOST_ARCH} includedeb jessie /usr/src/freeswitch-sounds/*.deb
+
+####
+# set up the HTTP repository 
+
+# publish the repo to your web server
+rsync -av --delete /var/local/freeswitch-unstable-${MY_HOST_ARCH} USER@WEBSERVER.EXAMPLE.COM:/srv/www/www.EXAMPLE.COM/debian
+
+# publish your PGP key
+gpg --armor --output EXAMPLE.COM.gpg.key --export AEEA3C42
+scp EXAMPLE.COM.gpg.key USER@WEBSERVER.EXAMPLE.COM:/srv/www/www.EXAMPLE.COM/debian
+
+# add the repo to your sources list
+vi /etc/apt/sources.list
+# add a line pointing to your server, like 
+# deb http://www.EXAMPLE.COM/debian/freeswitch-unstable-armhf/ jessie main
+
+# import the key 
+curl http://www.EXAMPLE.COM/debian/EXAMPLE.COM.gpg.key | apt-key add -
+
+# check that there are no errors
+apt-get update 
+
+####
+# Build FreeSWITCH packages
+
+# we need our own copy of public PGP keys and sources.list
+apt-key exportall >/root/debian_keyring.asc
+
+vi /root/sources.list 
+# supply a sources list that has the Debian packages for your architecture and a link to your custom repo:
+# deb http://ftp.fr.debian.org/debian/ jessie main contrib non-free
+# deb http://www.EXAMPLE.COM/debian/freeswitch-unstable-armhf/ jessie main
+
+mkdir /usr/src/freeswitch-debs
+git clone https://freeswitch.org/stash/scm/fs/freeswitch.git /usr/src/freeswitch-debs/freeswitch
+cd /usr/src/freeswitch-debs/freeswitch
+fgrep -v 'mod_sangoma_codec' build/modules.conf.most  >/root/modules.conf.${MY_HOST_ARCH}  
+./debian/util.sh build-all -bijn -z1 -a ${MY_HOST_ARCH} -c jessie \
+  -f /root/modules.conf.${MY_HOST_ARCH} -T /root/sources.list -K /root/debian_keyring.asc
+
+reprepro -Vb /var/local/freeswitch-unstable-${MY_HOST_ARCH} includedeb jessie /usr/src/freeswitch-debs/*.deb
+rsync -av --delete /var/local/freeswitch-unstable-${MY_HOST_ARCH} USER@WEBSERVER.EXAMPLE.COM:/srv/www/www.EXAMPLE.COM/debian
+```
+
+After finishing this scenario, you should be able to install the packages onto your target hosts, following the standard installation sequence (with the only exception that you need to import your own PGP key and the repo URL).
+
+FreeSWITCH maintainers strictly discourage publishing third-party repositories, for obvious reasons of security and reliability.
+
+Document generated by Confluence on nov 11, 2022 04:24

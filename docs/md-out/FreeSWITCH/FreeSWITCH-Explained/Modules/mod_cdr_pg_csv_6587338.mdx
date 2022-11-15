@@ -1,0 +1,141 @@
+
+# mod_cdr_pg_csv 
+
+ Created by  Luan Fonseca de Farias, last modified by  sean on 2016.09.01
+
+## About
+
+This module logs call detail records (CDRs) directly to a PostgreSQL database, using the schema defined in the config file (_freeswitch_/conf/autoload\_configs/cdr\_pg\_csv.conf.xml).
+
+If a record insert fails for whatever reason, the record will be locally spooled to disk, in either CSV or SQL format (user-configurable).
+
+Click here to expand Table of Contents
+
+* 1 [Installing](#installing)  
+   * 1.1 [Database Setup](#database-setup)
+* 2 [Schema Definition](#schema-definition)  
+   * 2.1 [Defining a Field](#defining-a-field)
+
+## Installing
+
+**Debian:**
+
+To compile/install the module on Debian the PostgreSQL-Server-Devs are needed.
+
+On Squeeze/Wheezy/Jessie use PostgresSQL packages to install. You can use:
+
+<http://www.postgresql.org/download/linux/debian/>
+
+PostgresSQL maintains Debian packages for Postgres for (currently) Debian Squeeze (6.x), Debian Wheezy (7.x) and Debian Jessie (8.x). Their packages will likely be more modern and up to date than what's in the Debian packages.
+
+Read the link above and carefully add the packages to your system.
+
+Or
+
+```xml
+aptitude install libpq-dev libpq5
+```
+
+For compiling the module from Freeswitch uncomment the module in modules.conf and add the module to _freeswitch_/conf/autoload\_configs/modules.conf.xml for autoload:
+
+**conf/autoload\_configs/modules.conf.xml**
+
+```bash
+<load module="mod_cdr_pg_csv"/>
+```
+
+  
+**CentOS 6.x:**
+
+```xml
+rpm -ivh http://yum.postgresql.org/9.1/redhat/rhel-6-i386/pgdg-centos91-9.1-4.noarch.rpm
+yum -y install postgresql91-devel postgresql91-server postgresql91-odbc postgresql91-plperl
+```
+
+Link your pg\_config like this: ln -s /usr/pgsql-9.1/bin/pg\_config /usr/bin
+
+**For CentOS to use PG 9.X instead of 8.3 (Standard w/git pull version) Series:**
+
+Modify Makefile for mod\_cdr\_pg\_csv to look like this:
+
+```xml
+UNAME := $(shell uname -s)
+ifeq ($(UNAME),SunOS)
+ISA64 := $(shell isainfo -n)
+LOCAL_CFLAGS=-I/usr/pgsql-9.1/include
+ifneq (,$(findstring m64,$(CFLAGS)))
+LOCAL_LDFLAGS=-L/usr/pgsql-9.1/lib/$(ISA64) -R/usr/pgsql-9.1/lib/$(ISA64) -lpq -static
+else
+LOCAL_LDFLAGS=-L/usr/pgsql-9.1/lib -R/usr/pgsql-9.1/lib -lpq -static
+endif
+else
+LOCAL_CFLAGS=-I/usr/pgsql-9.1/include
+LOCAL_LDFLAGS=-L/usr/pgsql-9.1/lib -lpq -static
+endif
+include ../../../../build/modmake.rules
+```
+
+### Database Setup
+
+Edit conf/autoload\_configs/cdr\_pg\_csv.conf.xml
+
+```xml
+<param name="db-info" value="host=localhost dbname=DBname user=DBuser password=DBpass connect_timeout=10" />
+```
+
+make sure postgresql is set as md5 login in the pg\_hba.conf.
+
+```xml
+host     all      all    127.0.0.1/32 md5 
+local    all      all                 md5
+```
+
+## Schema Definition
+
+The _schema_ section of the config tells the module which channel variable to grab from the call's session, and how to handle them. The SQL INSERT query will be constructed using parameters defined in the schema section, and fields will be in the order they are listed in the config file. 
+
+* All fields are treated as strings (eg. they will have single quotes around them in the SQL query), unless specified otherwise.
+* If a channel variable resolves to an empty string, it will be cast to a SQL null, unless specified otherwise.  
+   * The reason for this is to be able to use more efficient, native PostgreSQL column types, such as _timestamp_ (optionally with timezone), _inet_ for storing IPv4/IPv6 addresses, and _uuid_ for natively storing a UUID as a 128 bit binary value. PostgreSQL will not automatically cast empty strings for such fields, and therefore the values need to be handled by the module.
+
+### Defining a Field
+
+The absolute minimum required to define a field is the channel variable name. Fields that do not specify a _var_ attribute will be ignored. The following example will attempt to get a value for the channel variable_caller\_id\_number_, and will treat it as a string.
+
+```xml
+ <field var="caller_id_number"/>
+```
+
+To use a column name that is different to the channel variable name, simply override it in the field definition:
+
+```xml
+<field var="local_ip_v4" column="server_address"/>
+```
+
+**Sample CDR table schema**
+
+```sql
+create table cdr (
+    id                        serial primary key,
+    local_ip_v4               inet not null,
+    caller_id_name            varchar,
+    caller_id_number          varchar,
+    destination_number        varchar not null,
+    context                   varchar not null,
+    start_stamp               timestamp with time zone not null,
+    answer_stamp              timestamp with time zone,
+    end_stamp                 timestamp with time zone not null,
+    duration                  int not null,
+    billsec                   int not null,
+    hangup_cause              varchar not null,
+    uuid                      uuid not null,
+    bleg_uuid                 uuid,
+    accountcode               varchar,
+    read_codec                varchar,
+    write_codec               varchar,
+    sip_hangup_disposition    varchar,
+    ani                       varchar
+);
+```
+
+Document generated by Confluence on nov 11, 2022 04:27

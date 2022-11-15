@@ -1,0 +1,121 @@
+
+# Lua with Database 
+
+ Created by  Belaid Areski, last modified by  Mike Jerris on 2016.01.26
+
+# About
+
+Lua scripts allow one to connect to databases and external resources.
+
+Two Lua options are available if you are developing a FreeSWITCH application interfacing with a DBMS.
+
+Click to expand Table of Contents
+
+* 1 [Accessing a Database](#accessing-a-database)
+* 2 [LuaSQL](#luasql)  
+   * 2.1 [LuaSQL Example](#luasql-example)
+* 3 [freeswitch.Dbh](#freeswitchdbh)  
+   * 3.1 [freeswitch.Dbh example](#freeswitchdbh-example)
+* 4 [See Also](#see-also)
+
+# Accessing a Database
+
+There are two ways to access databases from Lua: LuaSQL and freeswitch.Dbh. The Dbh method is preferred because it uses database handle pooling which results in greater efficiency and speed.
+
+With LuaSQL, you can query not only an ODBC data source, but also PostgreSQL, Oracle, or MySQL via native drivers. The LuaSQL module itself will make the connection to your database. LuaSQL does not provide connection pooling as is possible with freeswitch.Dbh.
+
+# LuaSQL
+
+The most common alternative for Lua developers is to use LuaSQL (<http://keplerproject.org/luasql/>). With Luasql you can easily connect to ODBC, ADO, Oracle, MySQL, SQLite and PostgreSQL databases.
+
+## LuaSQL Example
+
+**LuaSQL Example**
+
+```xml
+--  this example of how to connect to postgres from Lua
+local luasql = require "luasql.postgres"
+--
+-- Database connection settings
+--
+DBHOST = '127.0.0.1'
+DBNAME = 'dbname'
+DBUSER = 'dbusername'
+DBPASS = 'dbpassword'
+DBPORT = 5432
+
+local env = assert (luasql.postgres())
+local dbcon = env:connect(DBNAME, DBUSER, DBPASS, DBHOST, DBPORT)
+sql = 'SELECT pin, name FROM customer'
+res, serr = dbcon:execute(sql)
+dbcon:close()
+env:close()
+```
+
+# freeswitch.Dbh
+
+The FreeSWITCH Database Handler
+
+The second solution is using the freeswitch.Dbh
+
+Advantage of this method is that it makes use of connection pooling provided by FreeSWITCH which gives a nice increase in speed when compared to creating a new TCP connection for each LuaSQL env:connect()
+
+It works as follows:
+
+```xml
+local dbh = freeswitch.Dbh("dsn","user","pass") -- when using ODBC (deprecated)
+-- OR --
+local dbh = freeswitch.Dbh("core:my_db") -- when using sqlite (deprecated, if you have to use this to make it work you should upgrade your FS installation)
+-- OR --
+local dbh = freeswitch.Dbh("sqlite://my_db") -- sqlite database in subdirectory "db"
+-- OR --
+local dbh = freeswitch.Dbh("odbc://my_db:uname:passwd") -- connect to ODBC database 
+
+assert(dbh:connected()) -- exits the script if we didn't connect properly
+
+dbh:test_reactive("SELECT * FROM my_table",
+                  "DROP TABLE my_table",
+                  "CREATE TABLE my_table (id INTEGER(8), name VARCHAR(255))")
+
+dbh:query("INSERT INTO my_table VALUES(1, 'foo')") -- populate the table
+dbh:query("INSERT INTO my_table VALUES(2, 'bar')") -- with some test data
+
+dbh:query("SELECT id, name FROM my_table", function(row)
+  stream:write(string.format("%5s : %s\n", row.id, row.name))
+end)
+
+dbh:query("UPDATE my_table SET name = 'changed'")
+stream:write("Affected rows: " .. dbh:affected_rows() .. "\n")
+
+dbh:release() -- optional
+```
+
+* _freeswitch.Dbh(odbc://my\_db:uname:passwd)_ gets an ODBC db handle from the pool.
+* _freeswitch.Dbh("sqlite://my\_db")_ gets a core db (sqlite) db handle from the pool (this automatically creates the db if it didn't exist yet).
+* _dbh:connected()_ checks if the handle is still connected to the database, returns true if connected, false otherwise.
+* _dbh:test\_reactive("test\_sql", "drop\_sql", "reactive\_sql")_ performs test\_sql and if it fails performs drop\_sql and reactive\_sql (handy for initial table creation purposes)
+* _dbh:query("query", function())_ takes the query as a string and an optional Lua callback function that is called on each row returned by the db.
+* The callback function is passed a table representation of the current row for each iteration of the loop.
+* Syntax of each row is: { \["column\_name\_1"\] = "value\_1", \["column\_name\_2"\] = "value\_2" }.
+* If you (optionally) return a number other than 0 from the callback-function, you'll break the loop.
+* _dbh:affected\_rows()_ returns the number of rows affected by the last run INSERT, DELETE or UPDATE on the handle. It does not respond to SELECT operations.
+* _dbh:release()_ (optional) releases the handle back to the pool so it can be re-used by another thread. This is also automatically done when the dbh goes out of scope and is garbage collected (for example when your script returns). Useful for long-running scripts to release the connection sooner.
+
+## freeswitch.Dbh example
+
+```xml
+--  this is an example of how to connect to Postgres using ODBC from Lua
+local dbh = freeswitch.Dbh("odbc://my_db:uname:passwd") -- connect to ODBC database 
+assert(dbh:connected()) -- exits the script if we didn't connect properly
+dbh:query("SELECT pin, name FROM customer", function(row)
+  stream:write(string.format("%5s : %s\n", row.id, row.name))
+end)
+dbh:release() -- optional
+
+```
+
+# See Also
+
+[Lua FreeSWITCH Dbh](./Lua-FreeSWITCH-Dbh_3965358.mdx#about)
+
+Document generated by Confluence on nov 11, 2022 04:24

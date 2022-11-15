@@ -1,0 +1,650 @@
+
+# SBC_Setup 
+
+ Created by  Késsia Castro, last modified on 2017.01.13
+
+# About
+
+This document covers information about the SBC Setup.
+
+Click here to expand Table of Contents
+
+* 1 [Introduction](#introduction)
+* 2 [Preliminaries](#preliminaries)
+* 3 [Installation of FreeSWITCH](#installation-of-freeswitch)
+* 4 [Installation of Kamailio](#installation-of-kamailio)
+* 5 [Configuration of FreeSWITCH](#configuration-of-freeswitch)
+* 6 [Test connectivity between FreeSWITCH and Kamailio](#test-connectivity-between-freeswitch-and-kamailio)
+* 7 [Optimizations](#optimizations)
+* 8 [Check CPU usage](#check-cpu-usage)
+* 9 [Links to Kamailio and carrierroute](#links-to-kamailio-and-carrierroute)
+
+# Introduction
+
+Below you'll find a step by step setup for installing FS as a SBC. The LCR engine is provided by Kamailio and its module carrierroute. Kamailio is an opensource SIP Proxy (not a B2BUA).   
+In this setup, the dialplan is detailed only for inbound to outbound traffic, but it could be easily extended for outbound to inbound traffic (or DID).   
+The design is the following:   
+FS is configured with an internal and an external profile, each profile listening on a different network interface.   
+Kamailio is listening on the loopback interface, and is not used by any other process than FS.
+
+```xml
+Internal--------FS--------External
+                |
+                |
+              Kamailio
+```
+
+When FS receives an INVITE, FS fires this event in the default context, where it always matches the extension named LOOKUP\_ROUTE. In this extension, FS sends the INVITE to Kamailio, that will replies with a 302 Redirect SIP message that contains the route FS has to use to reach the number dialed. The call is then transfered in the context ROUTING where FS will match the associated Gateway (in this setup it is an associated code) that will route the call. 
+
+If Kamailio has no route for the dialed number, it replies with a "604 unable to route the call" that FS will relay.   
+So Kamailio is used only for route lookup by FS, and FS is the only equipment that is seen in the SIP transaction.
+
+  
+This design has been choosen cause I needed a way to store big LCR table (it's now more than 450 000 routes on the production server) and LCR module was not available when I began playing with FS (version 1.0.1).   
+I extensively tested this setup on an Intel Quad Core server (Q9550 running at 2.83Ghz with 8GB RAM. 4GB should have been far enough).   
+I ran some tests using SIPP with 750 simultaneous calls and between 50 to 100 calls per second (CPS) for more than 10 days with 25%-30% CPU ressource free. FS version was 1.2 at this time.
+
+  
+**Advantages**   
+Stable with quite huge routing table: Kamailio was using less than 3% CPU when doing the SIPP tests with 160 000 entries in LCR table.   
+Scalable: some people are using carrierroute module with LCR table up to 1 million entries.   
+Correct call per second rate: up to 100cps.
+
+  
+**Drawbacks**   
+Each INVITE you send to FS will first send an INVITE to Kamailio, and once FS receives the Kamailio answer, FS will bridge the call to the Peer that will process the call.   
+I'm feeling that if you want to process more call per seconds (more than 100 CPS), the fact that the Sofia library is monothreaded and that it has to deal with one more session (FS to Kamailio) before processing the call to the Peer could prevent FS to reach a higher CPS rate. (For everybody that has a better internal knowledge of FS than me, feel free to correct this assumption).
+
+  
+**Other ways to go to achieve the same (not tested)**   
+Try [mod\_lcr](../Modules/mod_lcr_6587457.mdx#lrn) that has been introduced in FS 1.0.3 and report on the list and Wiki.   
+Use the XML CURL module to process the call routing using your preferred script language running on yout HTTP server.
+
+# Preliminaries
+
+**Install Debian stable netinstall (64 bits version, take care you need a 64bit processor)**   
+<http://cdimage.debian.org/debian-cd/5.0.2/amd64/iso-cd/debian-502-amd64-netinst.iso>
+
+**Upgrade debian distribution**   
+_apt-get update_   
+_apt-get dist-upgrade_
+
+**Install SSH Server for remote administration**   
+_apt-get install openssh-server_
+
+**Install Vlan packages**   
+_apt-get install vlan_
+
+**Install Bridge packages**   
+_apt-get install bridge-utils_
+
+**Install Packet Capture packages**   
+_apt-get install ngrep_   
+_apt-get install tshark_   
+_apt-get install tcpdump_
+
+**Install text editor**   
+_apt-get install emacs22-nox_
+
+**Install screen**   
+_apt-get install screen_
+
+**Disable useless services**   
+_/etc/init.d/exim4 stop_   
+_update-rc.d -f exim4 remove_   
+_/etc/init.d/portmap stop_   
+_update-rc.d -f portmap remove_   
+_/etc/init.d/nfs-common stop_   
+_update-rc.d -f nfs-common remove_
+
+**Restart server**   
+_reboot_
+
+**Check TCP or UDP services running**   
+_netstat -tnlp_   
+only SSH (port 22) should be listening   
+_netstat -unlp_   
+only dhclient3 (port 68) should be listening (I need dhcp for my tests and to get an IP for administration of the test server)
+
+**Install utils for compilation**   
+_apt-get install build-essential_
+
+# Installation of FreeSWITCH
+
+**Install dependencies**   
+_apt-get install subversion subversion-tools automake1.9 gcc-4.1 autoconf make wget libtool g++ libncurses5 libncurses5-dev_   
+_apt-get install debhelper automake1.9 autoconf libtool unixodbc-dev libasound2-dev libcurl4-openssl-dev libssl-dev libogg-dev libvorbis-dev libperl-dev libgdbm-dev libdb-dev libgnutls-dev libspandsp-dev libtiff4-dev_
+
+**Download FreeSWITCH latest Git and put them in /opt/sources/freewitch**   
+_cd /opt/sources/_   
+_git clone &lt;git://git.freeswitch.org/freeswitch.git> freeswitch-git_   
+_cd freeswitch-git_   
+_./bootstrap.sh_   
+Edit modules.conf depending on your needs   
+_./configure -prefix=/opt/freeswitch-git --enable-core-odbc-support_   
+_make_   
+_make install_   
+_make sounds-install_   
+_make moh-install_ 
+
+**To upgrade to latest Git**   
+_cd /opt/sources/freeswitch-git_   
+_make current_   
+and that's it you get the latest Git in /opt/freeswitch-git
+
+  
+**Prepare Network interface (I'm using a switch with vlans, useful for network isolation)**   
+\* Load linux vlan module   
+_modprobe 8021q_
+
+  
+\* add 2 vlans (one for internal profile ex: vlan 100, the other for external profile ex: vlan 200)   
+_vconfig add eth0 100_   
+_vconfig add eth0 200_
+
+  
+\* bring these interfaces up   
+_ip link set up dev eth0.100_   
+_ip link set up dev eth0.200_
+
+  
+\* bring them IP   
+_ip addr add 10.10.10.254/24 dev eth0.100_   
+_ip addr add 10.10.20.254/24 dev eth0.200_
+
+  
+**Edit sip\_profiles to use these IP**   
+_cd /opt/freeswitch/conf/sip\_profiles_   
+edit internal.xml and replace $${local\_ip\_v4} with internal IP (10.10.10.254)   
+edit external.xml and replace $${local\_ip\_v4} and $${external\_rtp\_ip} with external IP (10.10.20.254)
+
+**Optimizations before launching FS**
+
+```xml
+ulimit -c unlimited
+ulimit -d unlimited
+ulimit -f unlimited
+ulimit -i unlimited
+ulimit -n 999999
+ulimit -q unlimited
+ulimit -u unlimited
+ulimit -v unlimited
+ulimit -x unlimited
+ulimit -s 240
+ulimit -l unlimited
+ulimit -a
+```
+
+**Start FreeSWITCH** 
+
+_/opt/freeswitch/bin/freeswitch -nc -hp_   
+\-nc stands for no console   
+\-hp stands for high priority
+
+**Connect on FreeSWITCH via fs\_cli**   
+_/opt/freeswitch/bin/fs\_cli_   
+with this tool you'll be able to get a console connection to FS   
+the log level has not been changed so it could be very verbose   
+to disable log, type /nolog in console
+
+**Check if FS is running**   
+_netstat -unlp_   
+you should have this
+
+```xml
+udp        0      0 10.10.10.254:5060       0.0.0.0:*                           9240/freeswitch 
+udp        0      0 10.10.20.254:5060       0.0.0.0:*                           9240/freeswitch 
+```
+
+# Installation of Kamailio
+
+**Installation of Bison, a parser generator**   
+_apt-get install bison_
+
+**Installation of Flex, a fast lexical analyzer generator**   
+_apt-get install flex_
+
+**Installation of MySQL and MySQL dev libraries**   
+_apt-get install mysql-server-5.0_   
+You'll be prompt to set the password of your database, let's test with password "1234" or whatever you want   
+  
+_apt-get install libmysql++-dev_
+
+**Installation of libconfuse, needed for carrierroute module compilation**   
+_apt-get install libconfuse-dev_
+
+  
+**Get sources of Kamailio and put them in /opt/sources**   
+_cd /opt/sources_   
+_wget <http://www.kamailio.org/pub/kamailio/1.5.0/src/kamailio-1.5.0-notls%5Fsrc.tar.gz>_   
+_tar -xvzf kamailio-1.5.0-notls\_src.tar.gz_   
+_cd kamailio-1.5.0-notls_
+
+**If you need a LCR route table of approximatively 50 000 routes, then bypass this step**.   
+For those who'd like to load a bigger LCR route table in carrierroute (for my needs: 160 000 routes)   
+_emacs /opt/sources/kamailio-1.5.0-notls/config.h_ 
+
+```xml
+#define PKG_MEM_POOL_SIZE 32*1024*1024          /*!< Used only if PKG_MALLOC is defined*/
+#define SHM_MEM_SIZE 4*32                       /*!< Used if SH_MEM is defined*/
+```
+
+Note: these values have been set by empirical means and are maybe too high even for 160 000 routes
+
+**Compile Kamailio in /opt/kamailio-1.5.0**   
+_make prefix=/opt/kamailio-1.5.0_   
+_make prefix=/opt/kamailio-1.5.0 modules=modules/db\_mysql modules_   
+_make prefix=/opt/kamailio-1.5.0 modules=modules/carrierroute modules_   
+_make prefix=/opt/kamailio-1.5.0 install_   
+_make prefix=/opt/kamailio-1.5.0 modules=modules/carrierroute install_   
+_make prefix=/opt/kamailio-1.5.0 modules=modules/db\_mysql install_
+
+**Add a symbolic link for /opt/kamailio-1.5.0**   
+_ln -sf /opt/kamailio-1.5.0/ /opt/kamailio_
+
+**Edit Kamailio Database Settings**   
+_cd /opt/kamailio/etc/kamailio/_   
+_emacs kamctlrc_
+
+```xml
+# this parameter...
+ DBENGINE=MYSQL
+## database host
+ DBHOST=localhost
+## database name (for ORACLE this is TNS name)
+ DBNAME=openser
+# database path used by dbtext or db_berkeley
+# DB_PATH="/usr/local/etc/kamailio/dbtext"
+## database read/write user
+ DBRWUSER=openser
+## password for database read/write user
+ DBRWPW="1234"
+## database read only user
+ DBROUSER=openserro
+## password for database read only user
+ DBROPW="1234"
+## database super user (for ORACLE this is 'scheme-creator' user)
+ DBROOTUSER="root"
+# user name column
+ USERCOL="username"
+```
+
+_**Then launch Kamailio utils to create database**_ 
+
+_/opt/kamailio/sbin/kamdbctl create_   
+You'll be prompted for root sql password (remember you used 1234 or ...) and don't forget to set yes for carrierroute table creation
+
+**Populate carrierroute database with some routes**   
+Connect to mysql   
+_mysql -u root -p_   
+Enter your root password   
+In mysql console:
+
+```xml
+use openser;
+INSERT INTO carrier_name (carrier) VALUES ("default");
+INSERT INTO domain_name (domain) VALUES ("default");
+INSERT INTO carrierroute (carrier,domain,scan_prefix,flags,mask,prob,strip,rewrite_host,rewrite_prefix,rewrite_suffix,description) VALUES("1","1","1000","0","0","1","0","PEER-01","","","FRANCE");
+exit
+```
+
+You have inserted your first route, that will match prefix 1000 and route this to PEER\_01 with a description, FRANCE in this example. PEER\_01 will be defined later in FS dialplan. The description parameter could be exported, for billing purpose for example. In this setup, I'll export the description to an AREA variable in FS.
+
+**Configuration of Kamailio**   
+_cd /opt/kamailio/etc/kamailio_   
+_mv kamailio.cfg kamailio.cfg.default_   
+_emacs kamailio.cfg_
+
+  
+and put the config below:
+
+```xml
+# KAMAILIO basic configuration script for use with carrierroute and FS
+
+####### Global Parameters #########
+
+debug=1
+log_stderror=no
+log_facility=LOG_LOCAL0
+
+fork=yes
+children=8
+
+/* uncomment the next line to disable TCP (default on) */
+disable_tcp=yes
+
+/* uncomment the next line to disable the auto discovery of local aliases
+   based on revers DNS on IPs (default on) */
+auto_aliases=no
+
+
+/* uncomment and configure the following line if you want opensips to 
+   bind on a specific interface/port/proto (default bind on all available) */
+listen=udp:127.0.0.1:5062
+
+
+####### Modules Section ########
+
+#set module path
+mpath="/opt/kamailio/lib64/kamailio/modules/"
+
+/* uncomment next line for MySQL DB support */
+loadmodule "db_mysql.so"
+loadmodule "sl.so"
+loadmodule "tm.so"
+loadmodule "rr.so"
+loadmodule "maxfwd.so"
+loadmodule "textops.so"
+loadmodule "mi_fifo.so"
+loadmodule "xlog.so"
+loadmodule "carrierroute.so"
+loadmodule "pv.so"
+loadmodule "avpops.so"
+
+#----------------- setting module-specific parameters ---------------
+
+
+# ----- mi_fifo params -----
+modparam("mi_fifo", "fifo_name", "/tmp/kamailio_fifo")
+
+# ------ Carrierroute ------
+modparam("carrierroute", "config_source", "db")
+modparam("carrierroute", "db_url", "mysql://openser:1234@localhost/openser")
+modparam("carrierroute", "carrierroute_table", "carrierroute")
+modparam("carrierroute", "default_tree", "default")
+modparam("carrierroute", "fetch_rows", 2000)
+
+####### Routing Logic ########
+
+
+# main request routing logic
+
+route{
+
+        if (!mf_process_maxfwd_header("10")) {
+                sl_send_reply("483","Too Many Hops");
+                exit;
+        }
+
+        t_check_trans();
+
+        if ($rU==NULL) {
+                # request with no Username in RURI
+                sl_send_reply("484","Address Incomplete");
+                exit;
+        }
+
+        # LOOKUP ROUTE TABLE WHEN ASKED BY HEADER: X-ROUTE:LOOKUP
+        if (is_method("INVITE") && $hdr(X-ROUTE)=="LOOKUP"){
+                if(!cr_route("default", "default", "$rU", "$rU", "call_id","$avp(s:route_desc)")){
+                     #xlog("ROUTING FAILED: no route found for $rU");
+                     sl_send_reply("604", "Unable to route this call");
+                     exit;
+                } else {
+                     #xlog("LOOKUP FOUND: $rd $avp(s:route_desc)");
+		     avp_pushto("$ru/username", "$avp(s:route_desc)");			       
+                     sl_send_reply("302", "$rd");
+                     exit;
+                }
+        }
+}
+```
+
+**Start Kamailio** 
+
+_/opt/kamailio/sbin/kamctl start_
+
+**Check Kamailio is running**   
+_netstat -unlp_   
+You should see something like this
+
+```xml
+udp        0      0 127.0.0.1:5062          0.0.0.0:*                           16269/kamailio
+```
+
+**Check your route table** 
+
+Seems broken in Kamailio 1.5.0, check SQL table   
+_/opt/kamailio/sbin/kamctl cr show_   
+You should see a route with PEER\_01
+
+# Configuration of FreeSWITCH
+
+**Dialplan configuration for FS**   
+_cd /opt/freeswitch/conf/dialplan_   
+_emacs default.xml_
+
+  
+Put this
+
+```xml
+<?xml version="1.0" encoding="utf-8"?>
+<!-- http://wiki.freeswitch.org/wiki/Dialplan_XML -->
+<include>
+  <context name="default">
+
+     <extension name="LOOKUP_ROUTE">
+      <condition field="destination_number" expression="(\d+)$">
+         <action application="set" data="hangup_after_bridge=true"/>
+         <action application="set" data="continue_on_fail=true"/>
+         <action application="export" data="sip_h_X-ROUTE=LOOKUP"/>
+         <action application="bridge" data="sofia/internal/${destination_number}@127.0.0.1:5062"/>
+         <action application="set" data="ROUTE_GW=${sip_redirect_contact_host_0}"/>
+         <action application="set" data="AREA=${sip_redirect_contact_user_0}"/>
+         <action application="transfer" data="${destination_number} XML ROUTING"/>
+      </condition>
+    </extension>
+
+   </context>
+
+  <context name="ROUTING">
+    
+    <extension name="PEER_01">
+      <condition field="${ROUTE_GW}" expression="PEER_01">
+	<action application="set" data="hangup_after_bridge=true"/>
+        <action application="set" data="continue_on_fail=NORMAL_TEMPORARY_FAILURE,TIMEOUT,NO_ROUTE_DESTINATION"/>
+        <action application="set" data="PEER=1.1.1.1"/>
+        <action application="bridge" data="sofia/external/${destination_number}@1.1.1.1"/>
+        <action application="set" data="PEER=2.2.2.2"/>
+        <action application="bridge" data="sofia/external/${destination_number}@2.2.2.2"/>
+        <action application="set" data="PEER=3.3.3.3"/>
+        <action application="bridge" data="sofia/external/${destination_number}@3.3.3.3"/>
+      </condition>
+    </extension>
+
+  </context>  
+
+</include>
+```
+
+In fact PEER\_01 is used as an index for a combination of peers. I do this to have a failover mechanism to a backup peer if the 1st peer is down.
+
+  
+You can load balance to different PEER combinations by using probability in carrierroute table. Ex: using 2 routes pointing to PEER\_01 and PEER\_02 with a probability of 0.5 and you will share the load between these 2 peers combination.
+
+# Test connectivity between FreeSWITCH and Kamailio
+
+**Test that FS and Kamailio are talking to each others**   
+Register an IP phone using credentials in /opt/freeswitch/conf/directory/default/1001 for example   
+to dump traffic on the loopback interface for SIP messages between FS and Kamailio   
+_ngrep -d lo -nn -W byline_
+
+  
+When your phone is registered, dial 1000   
+You should see this in the ngrep trace
+
+```xml
+U 10.10.10.254:5060 -> 127.0.0.1:5062
+INVITE sip:1000@127.0.0.1:5062 SIP/2.0.
+Via: SIP/2.0/UDP 10.10.10.254;rport;branch=z9hG4bKZjpQ3tQ8SN7gc.
+Max-Forwards: 69.
+From: "1001" <sip:1001@10.10.10.254>;tag=pZ4egZ0m43Q3c.
+To: <sip:1000@127.0.0.1:5062>.
+Call-ID: 7015d499-6c86-122c-80be-001b21009ccd.
+CSeq: 110711449 INVITE.
+Contact: <sip:mod_sofia@10.10.10.254:5060>.
+User-Agent: FreeSWITCH-mod_sofia/1.0.trunk-11592M.
+Allow: INVITE, ACK, BYE, CANCEL, OPTIONS, PRACK, MESSAGE, SUBSCRIBE, NOTIFY, REFER, UPDATE, REGISTER, INFO.
+Supported: timer, precondition, path, replaces.
+Allow-Events: talk, refer.
+Min-SE: 120.
+Content-Type: application/sdp.
+Content-Disposition: session.
+Content-Length: 333.
+X-ROUTE: LOOKUP.
+Remote-Party-ID: "1001" <sip:1001@10.10.10.254>;screen=yes;privacy=off.
+.
+v=0.
+o=FreeSWITCH 3223313286554167397 4405097820346134292 IN IP4 10.10.10.254.
+s=FreeSWITCH.
+c=IN IP4 10.10.10.254.
+t=0 0.
+m=audio 31686 RTP/AVP 9 0 8 3 101 13.
+a=rtpmap:9 G722/8000.
+a=rtpmap:0 PCMU/8000.
+a=rtpmap:8 PCMA/8000.
+a=rtpmap:3 GSM/8000.
+a=rtpmap:101 telephone-event/8000.
+a=fmtp:101 0-16.
+a=rtpmap:13 CN/8000.
+a=ptime:20.
+
+#
+U 127.0.0.1:5062 -> 10.10.10.254:5060
+SIP/2.0 302 PEER_01.
+Via: SIP/2.0/UDP 10.10.10.254;rport=5060;branch=z9hG4bKZjpQ3tQ8SN7gc.
+From: "1001" <sip:1001@10.10.10.254>;tag=pZ4egZ0m43Q3c.
+To: <sip:1000@127.0.0.1:5062>;tag=458fb4012080e656b6742c09466dabcd.1740.
+Call-ID: 7015d499-6c86-122c-80be-001b21009ccd.
+CSeq: 110711449 INVITE.
+Contact: sip:1000@PEER_01.
+Server: Kamailio (1.4.3-notls (x86_64/linux)).
+Content-Length: 0.
+.
+
+#
+U 10.10.10.254:5060 -> 127.0.0.1:5062
+ACK sip:1000@127.0.0.1:5062 SIP/2.0.
+Via: SIP/2.0/UDP 10.10.10.254;rport;branch=z9hG4bKZjpQ3tQ8SN7gc.
+Max-Forwards: 69.
+From: "1001" <sip:1001@10.10.10.254>;tag=pZ4egZ0m43Q3c.
+To: <sip:1000@127.0.0.1:5062>;tag=458fb4012080e656b6742c09466dabcd.1740.
+Call-ID: 7015d499-6c86-122c-80be-001b21009ccd.
+CSeq: 110711449 ACK.
+Content-Length: 0.
+.
+```
+
+# Optimizations
+
+**Stop FreeSWITCH**   
+_/opt/freeswitch/bin/freeswitch -stop_
+
+**Lowering FS Log Level**   
+_emacs /opt/freeswitch/conf/autoload\_configs/switch.conf.xml_
+
+```xml
+<!-- Default Global Log Level - value is one of debug,info,notice,warning,err,crit,alert -->
+<param name="loglevel" value="err"/>
+```
+
+  
+**Set Call Admission Control**   
+_emacs /opt/freeswitch/conf/autoload\_configs/switch.conf.xml_
+
+```xml
+<!--Most channels to allow at once -->
+<param name="max-sessions" value="1000"/>
+<!--Most channels to create per second -->
+<param name="sessions-per-second" value="100"/>
+```
+
+With these settings, we have defined a maximum of 500 bridged calls (2\*500 channels) and a maximum of 100 new sessions per second. You should set these parameters according to your hardware
+
+**Creation of a ramdisk for the FS database**   
+_mv /opt/freeswitch/db /opt/freeswitch/db\_old_   
+_mkdir /opt/freeswitch/db_   
+_mount -t tmpfs tmpfs /opt/freeswitch/db_
+
+**Use Proxy Media to keep FS in the RTP media path (topology hiding) but without analyzing RTP or DTMF**   
+_emacs /opt/freeswitch/conf/sip\_profiles/internal.xml_
+
+```xml
+<param name="inbound-late-negotiation" value="true"/>
+```
+
+Add directive proxy media in dialplan
+
+```xml
+<extension name="PEER_01">
+	<condition field="${sip_h_X-ROUTE}" expression="PEER_01">
+    	<action application="set" data="proxy_media=true"/>
+		<action application="set" data="hangup_after_bridge=true"/>
+        <action application="set" data="continue_on_fail=NORMAL_TEMPORARY_FAILURE,TIMEOUT,NO_ROUTE_DESTINATION"/>
+        <action application="set" data="PEER=1.1.1.1"/>
+        <action application="bridge" data="sofia/external/${destination_number}@1.1.1.1"/>
+        <action application="set" data="PEER=2.2.2.2"/>
+        <action application="bridge" data="sofia/external/${destination_number}@2.2.2.2"/>
+        <action application="set" data="PEER=3.3.3.3"/>
+        <action application="bridge" data="sofia/external/${destination_number}@3.3.3.3"/>
+	</condition>
+</extension>
+```
+
+**Disable Presence Support in SIP\_Profiles**   
+_emacs /opt/freeswitch/conf/sip\_profiles/internal.xml_
+
+```xml
+<param name="manage-presence" value="false"/>
+```
+
+_emacs /opt/freeswitch/conf/sip\_profiles/external.xml_
+
+```xml
+<param name="manage-presence" value="false"/>
+```
+
+**Check that your Network Interfaces Cards (NIC) are not sharing IRQ** 
+
+_cat /proc/interrupts_   
+ideally, your ethernet cards should be put on different IRQ, and if you have more than one CPU, you can force affinity of a NIC with a specific CPU (I will add a note later on this)
+
+# Check CPU usage
+
+**Install some useful utils for checking CPU consumptions**   
+_apt-get install sysstat_   
+You can check the load of your CPUs using   
+_mpstat -P ALL 1_
+
+```xml
+13:13:13     CPU   %user   %nice    %sys %iowait    %irq   %soft  %steal   %idle    intr/s
+13:13:14     all    0,00    0,00    0,00    0,00    0,00    0,00    0,00  100,00    162,00
+13:13:14       0    0,00    0,00    0,00    0,00    0,00    0,00    0,00  100,00    162,00
+```
+
+The %idle represents the idle percentage of the CPU, higher is better as it means that you have free CPU ressources
+
+_vmstat 1_
+
+```xml
+procs -----------memory---------- ---swap-- -----io---- -system-- ----cpu----
+ r  b   swpd   free   buff  cache   si   so    bi    bo   in   cs us sy id wa
+ 1  0     80 234312  93496 1273928    0    0     1    32   55   65  2  3 95  0
+ 0  0     80 234296  93496 1273928    0    0     0     0  106 1299  0  0 100  0
+```
+
+The last 2 columns are interesting: 
+
+id: idle, same as before for mpstat, the higher is better   
+wa: waiting IO, when this number is high it means that your CPU is waiting for IO (ex: HDD with too much access) and it will have a negative impact on performance
+
+  
+_top_   
+I think that I do not have to introduce this tool
+
+# Links to Kamailio and carrierroute
+
+* <http://www.kamailio.org/>
+* <http://www.kamailio.org/docs/modules/1.4.x/carrierroute.html>
+
+Document generated by Confluence on nov 11, 2022 04:29

@@ -1,0 +1,246 @@
+
+# Conference CDR 
+
+ Created by  Italo Rossi, last modified on 2015.11.06
+
+# About
+
+This page describes how to enable conference CDRs and his contents. 
+
+Click here to expand Table of Contents
+
+* 1 [Introduction](#introduction)
+* 2 [Configuration](#configuration)
+* 3 [Calling](#conference)
+* 4 [Locating the CDR](#locating-the-cdr)
+* 5 [Interpreting the CDR](#interpreting-the-cdr)  
+   * 5.1 [conference](#end_conference)  
+   * 5.2 [members](#conference)  
+         * 5.2.1 [join\_time](#conference)  
+         * 5.2.2 [leave\_time](#conference)  
+         * 5.2.3 [flags](#conference)  
+         * 5.2.4 [caller\_profile](#caller_profile)  
+   * 5.3 [Rejected](#conference)
+* 6 [Example parse script](#example-parse-script)
+
+# Introduction
+
+To understand how conference CDRs works and what we can do with it we'll configure a simple scenario and after making some calls we'll learn how to find the CDR file location and how to interpret his content.
+
+# Configuration
+
+In order to enable conference CDR you need to specify the cdr-log-dir in the conference profile.
+
+Add this param to the video-mcu-stereo profile that is defined in conference.conf.xml:
+
+```xml
+<param name="cdr-log-dir" value="auto"/>
+```
+
+'auto' means $PREFIX/logs/conference\_cdr/&lt;confernece\_uuid>.cdr.xml, a non-absolute path means $PREFIX/logs/&lt;value>/&lt;conference\_uuid>.cdr.xml, absolute path means &lt;value>/&lt;conference\_uuid>.cdr.xml
+
+After setting the param we need to run reloadxml:
+
+```xml
+fs_cli -x "reloadxml"
+```
+
+# Calling
+
+We'll setup a simple dialplan in order to place calls in this conference.
+
+Under dialplan/default.xml:
+
+```xml
+<!-- STEREO 48kHz conferences / Video MCU -->
+<extension name="cdquality_conferences">
+  <condition field="destination_number" expression="^(35\d{2})$">
+    <action application="answer"/>
+    <action application="conference" data="$1-${domain_name}@video-mcu-stereo"/>
+  </condition>
+</extension>
+<!-- STEREO 48kHz conferences / Video MCU / moderator plus muted -->
+<extension name="cdquality_conferences_moderated">
+  <condition field="destination_number" expression="^9(35\d{2})$">
+    <action application="answer"/>
+    <action application="conference" data="$1-${domain_name}@video-mcu-stereo++flags{moderator|mute}"/>
+  </condition>
+</extension>
+```
+
+After changing the dialplan, run again reloadxml command.
+
+Those condition enable us to dial 35 following two more digits, for example 3565, and we'll enter this conference as a normal caller without any special flags or permissions.
+
+We cal also dial 935 and two more digits, for example 93565, and we'll enter the same conference as moderator and automatically muted.
+
+Now let's make two calls, one for 3565 and the second for 93565, the users should be able to talk each other.
+
+At the end of this conference, after all the callers hangup, the conference CDR will be written to a file.
+
+# Locating the CDR
+
+Since we have 'auto' in our param cdr-log-dir our CDR file will be located at ${log\_dir}/conference\_cdr/&lt;conference\_uuid>.cdr.xml.
+
+To find out what we have in our ${log\_dir} you can issue:
+
+```xml
+root@fsdev:~# fs_cli -x "global_getvar log_dir"
+/var/log/freeswitch
+```
+
+Then we know that out CDRs are lcoated at /var/log/freeswitch/conference\_cdr, if we list the contents of this file we can confirm it:
+
+```xml
+root@dev-vm1:~# ls /var/log/freeswitch/conference_cdr/
+3aaf0382-aff3-4780-97c9-1c82be853a50.cdr.xml
+```
+
+# Interpreting the CDR
+
+The CDR is written in xml format, here is what we should see if we cat the file:
+
+```xml
+<?xml version="1.0"?>
+<cdr>
+  <conference>
+    <name>3565-187.111.255.227</name>
+    <hostname>fsdev</hostname>
+    <rate>48000</rate>
+    <interval>20</interval>
+    <start_time type="UNIX-epoch">1446778351</start_time>
+    <end_time endconference_forced="false" type="UNIX-epoch">1446778359</end_time>
+    <members>
+      <member type="caller">
+        <join_time type="UNIX-epoch">1446778351</join_time>
+        <leave_time type="UNIX-epoch">1446778359</leave_time>
+        <flags>
+          <is_moderator>true</is_moderator>
+          <end_conference>false</end_conference>
+          <was_kicked>false</was_kicked>
+          <is_ghost>false</is_ghost>
+        </flags>
+        <caller_profile>
+          <username>1008@187.111.255.227</username>
+          <dialplan>XML</dialplan>
+          <caller_id_name>Italo Rossi</caller_id_name>
+          <caller_id_number>italo@evolux.net.br</caller_id_number>
+          <callee_id_name>Outbound Call</callee_id_name>
+          <callee_id_number>93565</callee_id_number>
+          <ani>italo@evolux.net.br</ani>
+          <aniii></aniii>
+          <network_addr>177.193.104.232</network_addr>
+          <rdnis></rdnis>
+          <destination_number>93565</destination_number>
+          <uuid>8326a7bd-93e8-91b4-eddf-d1c9b16273f6</uuid>
+          <source>mod_verto</source>
+          <context>default</context>
+          <chan_name>verto.rtc/93565</chan_name>
+        </caller_profile>
+      </member>
+    </members>
+    <rejected></rejected>
+  </conference>
+</cdr>
+```
+
+## conference
+
+This section contains the configuration this conference was created with. You can see what's the conference name, machine hostname, rate, interval (ptime), when it was created, when it was ended and why.
+
+## members
+
+A list of every member that entered in the conference.
+
+### join_time
+
+UNIX Epoch of when the caller entered the conference.
+
+### leave_time
+
+UNIX Epoch of when the caller exited the conference.
+
+### flags
+
+#### is_moderator
+
+Will be true if you put the caller in the conference using moderator flag, like 3565@video-mcu-default++flags{moderator}.
+
+#### end_conference
+
+Will be true if you put the caller in the conference using endconf flag.
+
+#### was_kicked
+
+Will be true if moderator kicked the user, that's the reason the user exited the conference.
+
+#### is_ghost
+
+Will be true if you put the caller in the conference using ghost flag.
+
+### caller_profile
+
+Here you can see all the caller profile fields of this member.
+
+## Rejected
+
+A list of every rejected caller that tried to enter this conference. A caller can be rejected is the conference is locked, if the user provided a wrong pin number or if the conference room has a max number of participants already reached.
+
+# Example parse script
+
+This is an example of what kind of information you can extract from a CDR file.
+
+**cdrlog.py**
+
+```py
+#!/usr/bin/env python
+from datetime import datetime
+import sys
+import xml.etree.ElementTree as ET
+
+def main(cdr_file):
+    tree = ET.parse(cdr_file)
+    root = tree.getroot()
+    conference = root[0]
+    start_time = datetime.fromtimestamp(int(conference[4].text))
+    end_time = datetime.fromtimestamp(int(conference[5].text))
+    members = conference[6]
+    print "{} - Conference {} on {} started".format(start_time,
+                                                    conference[0].text,
+                                                    conference[1].text)
+    for member in members.iter('member'):
+        join_time = datetime.fromtimestamp(int(member[0].text))
+        leave_time = datetime.fromtimestamp(int(member[1].text))
+        flags = member[2]
+        is_moderator = flags[0].text
+        end_conference = flags[1].text
+        was_kicked = flags[2].text
+        is_ghost = flags[3].text
+        caller_profile = member[3]
+        caller_id_name = caller_profile[2].text
+        print "{} - Member {} entered conference, flags: moderator:{} endconf:{} kicked:{} ghost:{}".format(join_time, caller_id_name, is_moderator, end_conference, was_kicked, is_ghost)
+    print "{} - Conference {} on {} ended".format(end_time,
+                                                  conference[0].text,
+                                                  conference[1].text)
+
+if __name__ == "__main__":
+    main(sys.argv[1])
+```
+
+This script accepts the cdr file path as the first argument:
+
+```xml
+root@fsdev:~# python /tmp/cdrlog.py /var/log/freeswitch/conference_cdr/b9a8c9c8-16d5-402c-8f3d-c21d36384531.cdr.xml
+```
+
+And should output something like:
+
+```xml
+2015-11-05 23:45:43 - Conference 3565-187.111.255.227 on fsdev started
+2015-11-05 23:45:43 - Member Italo Rossi entered conference, flags: moderator:true endconf:false kicked:false ghost:false
+2015-11-05 23:46:30 - Conference 3565-187.111.255.227 on fsdev ended
+```
+
+You can adapt this script and calculate for how long a caller stayed in the conference, and which was the reason the caller exited. Those kind of informations can be inserted into a database of your choice.
+
+Document generated by Confluence on nov 11, 2022 04:27

@@ -1,0 +1,120 @@
+
+# Proxy Media 
+
+ Created by  Artur Lins Barros Oliveira, last modified by  Ryan Harris on 2018.02.02
+
+# About
+
+Proxy Media mode puts FreeSWITCH in a "transparent proxy mode" for the RTP streams. The RTP streams still pass through FreeSWITCH (unlike [bypass media mode](../Codecs-and-Media/Bypass-Media-Overview/index.mdx#faq)) by using a static all-purpose codec that cannot be decoded. As a consequence any attempts to play a file or record the call will result in a an immediate hangup of the call. Its main use was initially to make T.38-passthrough possible because by ignoring the codecs FreeSWITCH could switch to T.38 mode without actual support for T38\. FreeSWITCH now supports T.38 and T.38 passthrough properly so this feature is less useful. The other consequence of this feature is that all reads on the RTP stream are blocking and there is no async RTP possible so audio problems can arise if you are not connected to a reliable RTP endpoint on the other side of the stream.
+
+Click here to expand Table of Contents
+
+* 1 [Common misconceptions (READ THIS)](#common-misconceptions-read-this)
+* 2 [Why you almost certainly don't want to use it](#why-you-almost-certainly-dont-want-to-use-it)
+* 3 [Why you might want to use it](#why-you-might-want-to-use-it)
+* 4 [How to enable it](#how-to-enable-it)
+* 5 [Important note](#important-note)
+* 6 [FAQs](#faqs)  
+   * 6.1 [I get "Codec PROXY PASS-THROUGH encoder error" message](#i-get-codec-proxy-pass-through-encoder-error-message)  
+   * 6.2 [Proxy media doesn't work](#proxy-media-doesnt-work)  
+   * 6.3 [Proxy media does not work with ZRTP trusted MITM](#proxy-media-does-not-work-with-zrtp-trusted-mitm)
+* 7 [See Also](#see-also)
+
+## Common misconceptions (READ THIS)
+
+Many people seem to think that proxy\_media is the opposite of [bypass\_media](../Codecs-and-Media/Bypass-Media-Overview/index.mdx#faq) and is therefore required to proxy media through FS. This is not true. FreeSWITCH has 3 media handling modes:
+
+* Default: media flows through FS, full processing options
+
+```xml
+- RTP proxied by FreeSWITCH
+- FreeSWITCH controls codec negotiation
+- If endpoints agree on same codec, no transcoding is performed
+- All features enabled - recording, DTMF interception, etc, etc
+```
+
+ * Proxy: media flows through FS, no media processing options
+
+```xml
+- RTP proxied by FreeSWITCH (c= modified, that's it)
+- FreeSWITCH has no control or even understanding of other SDP parameters (pass through)
+- Endpoints *MUST* agree on same codec because FreeSWITCH can't help them
+- Virtually no features available
+```
+
+* Bypass: media flows around FS directly between endpoints, no media processing options
+
+```xml
+- RTP *NOT* proxied by FreeSWITCH
+- FreeSWITCH has no control over anything SDP related - it's completely pass through from one leg to next (including c=)
+- Endpoints must agree on same codec because FreeSWITCH doesn't even see the media or SDP
+- Virtually no features available
+```
+
+Usually if you want to send media through FS so the endpoints don't talk to each other directly (topology hiding) you want the Default mode which accomplishes this but still gives you all the media processing abilities.
+
+## Why you almost certainly don't want to use it
+
+* Anything that requires reading or modifying media will NOT work in Proxy Media mode. This includes:  
+   * Transcoding  
+   * Handling of inband DTMF (converting in either direction)  
+   * Conference, record, intercept, IVR etc  
+   * Pretty much any feature you can think of that involves media  
+   * Bridging between endpoints that don't use RTP for media (e.g. TDM, Skype)  
+   * It is no longer required for T38, as that is supported by [mod\_spandsp](../Modules/mod_spandsp_6587021.mdx#--).
+
+Pretty much the only feature that will still work is bridge.
+
+## Why you might want to use it
+
+* Allows FreeSWITCH to handle codecs that it does not officially support (e.g. G.729 without licensed codecs for FreeSWITCH)
+* You wish to develop an [OSTN compliant](https://guardianproject.info/wiki/OSTN%5FCompliance%5FSpecification) soft switch that allows the media stream to flow through a proxy unaltered, which ensures [ZRTP](../Codecs-and-Media/ZRTP_7143709.mdx) handshake data will persist.
+
+## How to enable it
+
+Set proxy\_media=true before the bridge.
+
+```xml
+<action application="set" data="proxy_media=true"/>
+```
+
+Alternatively, configure the SIP profile to use proxy media by default:
+
+```xml
+<param name="inbound-proxy-media" value="true"/>
+```
+
+(see example in conf/sip\_profiles/internal.xml)
+
+## Important note
+
+You can't "proxy\_media" two outbound legs.
+
+This means that if you originate a call through some API ('originate', for example), this will NOT work.
+
+In fact, the 1st leg will answer before the 2nd leg is called.
+
+The 1st one will share the SDP with FreeSWITCH but will not be able to re-share with the 2nd one.
+
+## FAQs
+
+### I get "Codec PROXY PASS-THROUGH encoder error" message
+
+Enable [late negotiation](../Codecs-and-Media/Codec-Negotiation_2883752.mdx#late-negotiation-requires-param).
+
+If you're trying to do anything that processes media, don't use proxy\_media.
+
+### Proxy media doesn't work
+
+Enable [late negotiation](../Codecs-and-Media/Codec-Negotiation_2883752.mdx#late-negotiation-requires-param).
+
+### Proxy media does not work with ZRTP trusted MITM
+
+ZRTP call between 2 csipsimple UAs with Trusted mitm works. But when proxy-media is enabled the UAs ignore the zrtp-hash. In that case you should enable [inbound-zrtp-passtrhu](../Codecs-and-Media/ZRTP_7143709.mdx#zrtp-passthru)
+
+## See Also
+
+* [Codecs](../Codecs-and-Media/index.mdx#about)
+* [Codec Negotiation](../Codecs-and-Media/Codec-Negotiation_2883752.mdx#about)
+
+Document generated by Confluence on nov 11, 2022 04:24

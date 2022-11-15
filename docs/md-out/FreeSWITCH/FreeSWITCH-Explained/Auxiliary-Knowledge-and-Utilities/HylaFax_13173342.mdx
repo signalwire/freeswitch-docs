@@ -1,0 +1,354 @@
+
+# HylaFax 
+
+ Created by  Jhonny Michel Costa de Araújo, last modified by  Attila Gulyas on 2019.12.15
+
+# About
+
+Hylafax is "The world's most advanced open source fax server".
+
+  
+Click here to expand Table of Contents
+
+* 1 [Download](#download)
+* 2 [Dependencies](#dependencies)
+* 3 [Installation](#installation)
+* 4 [mod\_spandsp](#mod_spandsp)
+* 5 [Configuration](#configuration)
+* 6 [Stop/ Start Hylafax](#stop-start-hylafax)
+* 7 [Minicom testing for CallerID](#minicom-testing-for-callerid)
+* 8 [Incoming](#incoming)  
+   * 8.1 [Dialplan](#dialplan)  
+   * 8.2 [ESL](#esl)  
+   * 8.3 [File name based on UUID](#file-name-based-on-uuid)
+* 9 [Outgoing](#outgoing)
+* 10 [Logs](#logs)
+* 11 [Modem devices permissions issue](#modem-devices-permissions-issue)
+
+# Download
+
+<http://www.hylafax.org/content/Download#Source%5FCode>
+
+# Dependencies
+
+```bash
+apt-get update
+apt-get install libtiff4-dev
+```
+
+# Installation
+
+```bash
+cd hylafax-version
+./configure (uses default values)
+make
+make install (must be root or equivalent)
+```
+
+# mod_spandsp
+
+The recommended way to integrate HylaFax with FreeSWITCH is to use emulated soft modem via mod\_spandsp. Edit conf/autoload\_configs/spandsp.conf.xml to include the following
+
+```xml
+<modem-settings> 
+  <param name="total-modems" value="30"/> 
+</modem-settings>
+```
+
+  
+After reloading mod\_spandsp on fs\_cli
+
+```bash
+ fs> reload mod_spandsp
+```
+
+  
+You will see new soft modems being created with relevant pointers to modem devices.
+
+```bash
+ # ls -l /dev/FS*
+ lrwxrwxrwx 1 root root 10 2012-05-31 18:31 /dev/FS0 -> /dev/pts/4
+ lrwxrwxrwx 1 root root 10 2012-05-31 18:31 /dev/FS1 -> /dev/pts/5
+ lrwxrwxrwx 1 root root 11 2012-05-31 18:31 /dev/FS10 -> /dev/pts/14
+ lrwxrwxrwx 1 root root 11 2012-05-31 18:31 /dev/FS11 -> /dev/pts/15
+ lrwxrwxrwx 1 root root 11 2012-05-31 18:31 /dev/FS12 -> /dev/pts/16
+ lrwxrwxrwx 1 root root 11 2012-05-31 18:31 /dev/FS13 -> /dev/pts/17
+ lrwxrwxrwx 1 root root 11 2012-05-31 18:31 /dev/FS14 -> /dev/pts/18
+ lrwxrwxrwx 1 root root 11 2012-05-31 18:31 /dev/FS15 -> /dev/pts/19
+ lrwxrwxrwx 1 root root 11 2012-05-31 18:31 /dev/FS16 -> /dev/pts/20
+ lrwxrwxrwx 1 root root 11 2012-05-31 18:31 /dev/FS17 -> /dev/pts/21
+ lrwxrwxrwx 1 root root 11 2012-05-31 18:31 /dev/FS18 -> /dev/pts/22
+ lrwxrwxrwx 1 root root 11 2012-05-31 18:31 /dev/FS19 -> /dev/pts/23
+ lrwxrwxrwx 1 root root 10 2012-05-31 18:31 /dev/FS2 -> /dev/pts/6
+ lrwxrwxrwx 1 root root 11 2012-05-31 18:31 /dev/FS20 -> /dev/pts/24
+ lrwxrwxrwx 1 root root 11 2012-05-31 18:31 /dev/FS21 -> /dev/pts/25
+ lrwxrwxrwx 1 root root 11 2012-05-31 18:31 /dev/FS22 -> /dev/pts/26
+ lrwxrwxrwx 1 root root 11 2012-05-31 18:31 /dev/FS23 -> /dev/pts/27
+ lrwxrwxrwx 1 root root 11 2012-05-31 18:31 /dev/FS24 -> /dev/pts/28
+ lrwxrwxrwx 1 root root 11 2012-05-31 18:31 /dev/FS25 -> /dev/pts/29
+ lrwxrwxrwx 1 root root 11 2012-05-31 18:31 /dev/FS26 -> /dev/pts/30
+ lrwxrwxrwx 1 root root 11 2012-05-31 18:31 /dev/FS27 -> /dev/pts/31
+ lrwxrwxrwx 1 root root 11 2012-05-31 18:31 /dev/FS28 -> /dev/pts/32
+ lrwxrwxrwx 1 root root 11 2012-05-31 18:31 /dev/FS29 -> /dev/pts/33
+ lrwxrwxrwx 1 root root 10 2012-05-31 18:31 /dev/FS3 -> /dev/pts/7
+ lrwxrwxrwx 1 root root 10 2012-05-31 18:31 /dev/FS4 -> /dev/pts/8
+ lrwxrwxrwx 1 root root 10 2012-05-31 18:31 /dev/FS5 -> /dev/pts/9
+ lrwxrwxrwx 1 root root 11 2012-05-31 18:31 /dev/FS6 -> /dev/pts/10
+ lrwxrwxrwx 1 root root 11 2012-05-31 18:31 /dev/FS7 -> /dev/pts/11
+ lrwxrwxrwx 1 root root 11 2012-05-31 18:31 /dev/FS8 -> /dev/pts/12
+ lrwxrwxrwx 1 root root 11 2012-05-31 18:31 /dev/FS9 -> /dev/pts/13
+```
+
+  
+To test if the newly created soft modems are okay and respond to AT commands, you can find their support class by using cu command.
+
+```bash
+ # apt-get install cu
+ # cu -l FS0
+ Connected
+ at+fclass=?
+ 0,1,1.0
+ OK
+```
+
+# Configuration
+
+```bash
+ faxsetup (with default settings)
+ faxaddmodem FS0
+ faxaddmodem FS1
+ .
+ .
+ .
+ faxaddmodem FS29
+```
+
+  
+Edit /etc/rc.local to start hfaxd, faxq and faxgetty at boot
+
+```bash
+ # Starting the HylaFAX hfaxd and faxq Daemons at Boot.
+ /usr/local/sbin/hylafax start
+ # Starting faxgetty for incoming Fax
+ m0:2345:respawn:/usr/local/sbin/faxgetty FS0
+ m1:2345:respawn:/usr/local/sbin/faxgetty FS1
+ m2:2345:respawn:/usr/local/sbin/faxgetty FS2
+ m3:2345:respawn:/usr/local/sbin/faxgetty FS3
+ m4:2345:respawn:/usr/local/sbin/faxgetty FS4
+ m5:2345:respawn:/usr/local/sbin/faxgetty FS5
+ m6:2345:respawn:/usr/local/sbin/faxgetty FS6
+ m7:2345:respawn:/usr/local/sbin/faxgetty FS7
+ m8:2345:respawn:/usr/local/sbin/faxgetty FS8
+ m9:2345:respawn:/usr/local/sbin/faxgetty FS9
+ m10:2345:respawn:/usr/local/sbin/faxgetty FS10
+ m11:2345:respawn:/usr/local/sbin/faxgetty FS11
+ m12:2345:respawn:/usr/local/sbin/faxgetty FS12
+ m13:2345:respawn:/usr/local/sbin/faxgetty FS13
+ m14:2345:respawn:/usr/local/sbin/faxgetty FS14
+ m15:2345:respawn:/usr/local/sbin/faxgetty FS15
+ m16:2345:respawn:/usr/local/sbin/faxgetty FS16
+ m17:2345:respawn:/usr/local/sbin/faxgetty FS17
+ m18:2345:respawn:/usr/local/sbin/faxgetty FS18
+ m19:2345:respawn:/usr/local/sbin/faxgetty FS19
+ m20:2345:respawn:/usr/local/sbin/faxgetty FS20
+ m21:2345:respawn:/usr/local/sbin/faxgetty FS21
+ m22:2345:respawn:/usr/local/sbin/faxgetty FS22
+ m23:2345:respawn:/usr/local/sbin/faxgetty FS23
+ m24:2345:respawn:/usr/local/sbin/faxgetty FS24
+ m25:2345:respawn:/usr/local/sbin/faxgetty FS25
+ m26:2345:respawn:/usr/local/sbin/faxgetty FS26
+ m27:2345:respawn:/usr/local/sbin/faxgetty FS27
+ m28:2345:respawn:/usr/local/sbin/faxgetty FS28
+ m29:2345:respawn:/usr/local/sbin/faxgetty FS29
+```
+
+  
+The directories are located in
+
+```bash
+ /var/spool/hylafax
+```
+
+Configuration files for individual soft modems created by mod\_spandsp are in /var/spool/hylafax/etc/config.FS\*
+
+# Stop/ Start Hylafax
+
+To start/stop hfaxd, the HylaFax Daemon and faxq, the HylaFax queue manager.
+
+```bash
+ /etc/init.d/hylafax {stop|start|restart}
+```
+
+# Minicom testing for CallerID
+
+Use minicom on the tty (instead of faxgetty). And then do the following:
+
+```xml
+ ATZ
+ AT+VCID=1
+ ATI
+ ATI3
+```
+
+And then send a call to that modem. Check what the CallerID display says.
+
+# Incoming
+
+For incoming Fax sessions, the call should be bridged to modem/x/y where x is the slot and y is the dialed number. Use a to get the next available slot and number.
+
+## Dialplan
+
+Edit the dialplan conf/dialplan/default.xml to include the following snippet or similar commands over ESL.
+
+```xml
+ <extension name="fax_receive">
+   <condition field="destination_number" expression="^(.*)$">
+     <action application="answer" />
+     <action application="playback" data="silence_stream://2000"/>
+     <action application="bridge" data="modem/a/a"/>
+     <action application="hangup"/>
+   </condition>
+ </extension>
+```
+
+## ESL
+
+```py
+#!/usr/bin/env python
+ 
+ import SocketServer
+ from ESL import *
+ 
+ class ESLRequestHandler(SocketServer.BaseRequestHandler ):
+     def setup(self):
+         print self.client_address, 'connected!'
+ 
+         fd = self.request.fileno()
+         print fd
+ 
+         con = ESLconnection(fd)
+         print "Connected: " 
+         print  con.connected()
+         if con.connected():
+ 
+             info = con.getInfo()
+ 
+             uuid = info.getHeader("unique-id")
+             print uuid
+             con.execute("answer", "", uuid)
+             con.executeAsync("bridge", "modem/1/a/a", uuid)
+ 
+ 
+ #server host is a tuple ('host', port)
+ server = SocketServer.ThreadingTCPServer(('localhost', 8888), ESLRequestHandler)
+ server.serve_forever()
+```
+
+## File name based on UUID
+
+Bridge call to modem/1/a/uuid, where uuid is a variable with value equal to the uuid of the call
+
+Edit /var/spool/hylafax/etc/config.FS0, config.FS1 etc to include the following
+
+```xml
+RingsBeforeAnswer: 2  (you probably already have this configured, but check)
+ModemResetCmds:  AT+VCID=1
+CallIDPattern: "NMBR="
+CallIDPattern: "NDID="
+```
+
+  
+Restart faxgetty. Then in your bin/faxrcvd $CALLID1 will refer to the CallerID, and $CALLID2 will refer to the DID. Edit bin/faxrcvd to include the following
+
+```xml
+ DID=$CALLID1
+ UUID=`echo $CALLID2 | cut -d "/" -f 2-`
+ NEWFILE=$UUID
+ mv -f $FILE $NEWFILE
+```
+
+# Outgoing
+
+Use sendfax for putting your outgoing Faxes in the queue.
+
+```xml
+sendfax -n -vv -d <destination_number> <filename.ps>
+```
+
+  
+Edit the dialplan to include a bridge to the called number.
+
+```xml
+ <extension name="fax_transmit">
+   <condition field="destination_number" expression="^(.*)$">
+     <action application="bridge" data="freetdm/1/a/$1"/>
+     <action application="hangup"/>
+   </condition>
+ </extension>
+```
+
+# Logs
+
+The log files with detailed message transaction between modem and hylafax are in directory /var/spool/hylafax/log
+
+The transfer status of each received or sent fax is stored in /var/spool/hylafax/etc/xferfaxlog in tab separated format with the following parameters
+
+```xml
+ date - The date and time of the transaction in the format MM/DD/YY HH:MM , where MM is the numeric month, DD the numeric day, YY the last two digits of the year, and HH:MM is the time in 24-hour format.
+ commid - The communication identifier for the call.
+ modem - The device identifier for the modem that was used to do the send or receive.
+ jobid - The job number for outbound calls.
+ jobtag - The client-specified job tag for outbound calls.
+ fax.tif - The associated recvq fax TIFF file for the event.
+ sender - The sender/receiver’s electronic mailing address (facsimile receptions are always attributed to the ‘‘fax’’ user).
+ dest-number - The phone number dialed for outgoing calls.
+ TSI - The Transmitter Subscriber Identification string (as received) for incoming calls.
+ CSI - The Caller Subscriber Identification string of the remote machine (as reported) for outgoing calls.
+ local-number - The local phone number on which the data was received.
+ params - The negotiated facsimile session parameters used for transferring data encoded as described below.
+ #pages - The total number of pages transferred.
+ jobtime - The duration of the session; in the format HH:MM:SS . This time includes setup overhead and any time spent cleaning up after a call.
+ conntime - The time spent on the phone; in the format HH:MM:SS . This should be the time used by the Telco/PTT (see https://freeswitch.org/confluence/display/FREESWITCH/Glossary#Glossary-Telco) to calculate usage charges.
+ reason - A string that indicates if any problem occurred during the session.
+ CIDName - The received CIDName value for the session.
+ CIDNumber - The received CIDNumber value for the session.
+ owner - The login name of the job owner.
+ dcs - The T.30 DCS string that was used in the facsimile communication.
+```
+
+# Modem devices permissions issue
+
+If running FS as a non-root user, mod\_spandsp will fail when trying to create the /dev/FS devices (the /dev/pts are a non issue). The solution for this is to edit conf/autoload\_configs/spandsp.conf.xml to include the undocumented "directory" parameter:
+
+```xml
+<modem-settings>
+  <param name="total-modems" value="30"/>
+  <param name="directory" value="/dev/FS"/>
+</modem-settings>
+```
+
+  
+Then modify the init.d script of FS to include the creation of /dev/FS and its correct permission and ownership settings.
+
+In the SET section
+
+```xml
+ FS_USER=freeswitch
+ FS_GROUP=freeswitch
+ FS_DEVDIR=/dev/FS
+```
+
+  
+inside do\_start()
+
+```xml
+ # Create /dev/FS for mod_spandsp soft modems
+ if [ $FS_DEVDIR ] ; then
+    mkdir $FS_DEVDIR
+    chown $FS_USER:$FS_GROUP $FS_DEVDIR
+    chmod -R 0775 $FS_DEVDIR
+ fi
+```
+  
+  
+Document generated by Confluence on nov 11, 2022 04:29

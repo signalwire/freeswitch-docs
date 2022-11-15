@@ -1,0 +1,173 @@
+
+# Example: directory.py 
+
+ Created by  Pat Beirne, last modified on 2015.10.07
+
+# About
+
+This is an old example
+
+**NOTE** All the text below was last edited in 2008, it is therefore likely out-of-date, inaccurate and in dire need of a refresh
+
+Click here to expand Table of Contents
+
+NOTE: There appears to be an issue with mod\_python on FreeSWITCH ( or with this .py file ) since segfaults occur when used.
+
+**directory.py**
+
+```py
+import sys, time, sqlite3
+from freeswitch import *
+
+digitpath = "/usr/local/freeswitch/sounds/en/us/callie/digits/8000/"
+custom_sounds_path = "/usr/local/freeswitch/sounds/custom/"
+
+def checkforgreeting(extension):
+    conn = sqlite3.connect("/usr/local/freeswitch/db/voicemail_default.db")
+    c = conn.cursor()
+    c.execute("select name_path from voicemail_prefs where username=?", (extension,) )
+    # retrieve recorded_name path
+    row=c.fetchone()
+    console_log("alert", "row: %s\n" % (str(row)))
+    c.close()
+    if row[0]:
+        return row
+    else:
+        return False
+       
+def handler(uuid):
+
+    alphabet = "abcdefghijklmnopqrstuvwxyz"
+    numbers = "22233344455566677778889999"
+    
+    code_to_name = {}
+    code = ""
+    
+    names = { 
+        "Allen, Larry": 1000,
+        "Monroe, Beckey": 1001,
+        }
+    
+    lnames = {}
+    
+    for name in names:
+        lnames[name.lower()] = names[name]
+    
+    names = lnames
+    
+    def sayname(fullname):
+        console_log("alert", "Now saying: " + fullname + "\n")
+        # flip first and last... remove comma
+        split_fullname = fullname.split(',')
+        fname_lname = split_fullname[1].lstrip() + " " + split_fullname[0]
+        # take the chars of a name and say each one
+        session.execute("phrase", "spell," + fname_lname);
+    
+    
+    # preprocessing before evaluating arg input
+    # build codes from names dict
+    for name in names:
+        name3char = name[0:3]
+        # empty out the code var
+        code = ""
+        for char in name3char:
+            code = code + numbers[alphabet.index(char)]
+        # code is the 3 digits code generated from the first 3 chars of the last name
+        if not code in code_to_name:
+            code_to_name[code] = [ name ]
+        else:
+            code_to_name[code].append(name)
+
+    session = PySession(uuid)
+    session.answer()
+    session.execute( "sleep", "2000" )
+    digits_keyed = session.playAndGetDigits(3,
+                                            3,
+                                            10,
+                                            5000,
+                                            "*#",
+                                            custom_sounds_path + "dir-intro.wav",
+                                            "",
+                                            "");
+    # evaluate input
+    # we want 3 digits
+    console_log("alert", "digits_keyed: %s\n" % ( str(digits_keyed) ))
+    if len(digits_keyed) == 3:
+        # it must be in the code db generated from last names earlier
+        if digits_keyed in code_to_name:
+            console_log("alert", "Yes: %s\n" % (str(code_to_name[digits_keyed])))
+            if len(code_to_name[digits_keyed]) == 1:
+                # only one extension matches
+                console_log("alert", "Extension found: %s\n" % ( str(names[code_to_name[digits_keyed][0]])))
+                # transfer to the extension
+                extension = str(names[code_to_name[digits_keyed][0]])
+                recorded_name = checkforgreeting(extension)
+                if recorded_name:
+                    console_log("alert", "Saying recorded name\n")
+                    session.streamFile( str(recorded_name[0]) )
+                else:
+                    sayname(code_to_name[digits_keyed][0])
+                session.execute("phrase", "spell," + extension);
+                session.execute( "sleep", "1000" )
+                # give option of if correct to press 1 otherwise * and start over
+                digits_keyed = session.playAndGetDigits(1,
+                                                        1,
+                                                        3,
+                                                        2000,
+                                                        "#",
+                                                        custom_sounds_path + "dir-instr.wav",
+                                                        "",
+                                                        "1|\*");
+                console_log("alert", "digits_keys: %s\n" % ( digits_keyed ))
+                if digits_keyed == "1":
+                    session.transfer( extension, "XML", "default")
+                else:
+                    if digits_keyed == "*":
+                        session.streamFile( custom_sounds_path + "dir-nomatch.wav" )
+                        handler(uuid)
+                        # session.transfer( "777", "XML", "default")
+                        # session.hangup("1")
+
+            else:
+                # we matched more than one name
+                for item in code_to_name[digits_keyed]:
+                    console_log("alert", "Found more than one extension: %s\n" % ( str(names[item])))
+                    # say each one and give option of if not that one to continue
+                    console_log("alert", "item: %s\n" % (item))
+                    extension = str(names[item])
+                    recorded_name = checkforgreeting(extension)
+                    if recorded_name:
+                        session.streamFile( str(recorded_name[0]) )
+                    else:
+                        sayname(item)
+                    session.execute("phrase", "spell," + extension);
+                    session.execute( "sleep", "1000" )
+                    # give option of if correct to press 1 otherwise * and start over
+                    digits_keyed = session.playAndGetDigits(1,
+                                                            1,
+                                                            3,
+                                                            2000,
+                                                            "#",
+                                                            custom_sounds_path + "dir-instr.wav",
+                                                            "",
+                                                            "1|\*");
+                    console_log("alert", "digits_keys: %s\n" % ( digits_keyed ))
+                    if digits_keyed == "1":
+                        session.transfer( extension, "XML", "default")
+                        # session.hangup("1")
+                session.streamFile( custom_sounds_path + "dir-nomore.wav" )
+                handler(uuid)
+                # session.transfer("777", "XML", "default")
+                # session.hangup("1")
+        else:
+            # no valid extension found so transfer back
+            session.streamFile( custom_sounds_path + "dir-nomatch.wav" )
+            handler(uuid)
+            # session.transfer("777", "XML", "default")
+            # session.hangup("1")
+
+    session.hangup("1")
+```
+
+  
+Document generated by Confluence on nov 11, 2022 04:27

@@ -1,0 +1,138 @@
+
+# mod_dptools: play_and_detect_speech 
+
+ Created by  Jonatas Oliveira, last modified by  livem Chan on 2019.02.19
+
+# About
+
+Play while doing speech recognition. Result is stored in the \[\[Variable\_detect\_speech\_result | [detect\_speech\_result](../../../Channel-Variables-Catalog/detect_speech_result_16352994.mdx#detect_speech_result)\]\] channel variable.
+
+Click here to expand Table of Contents
+
+* 1 [Usage](#-freeswitch--mod_dptools-play_and_detect_speech-)  
+   * 1.1 [Parameters](#-freeswitch--mod_dptools-play_and_detect_speech-)  
+   * 1.2 [Channel Variables](#-freeswitch--mod_dptools-play_and_detect_speech-)
+* 2 [Examples](#-freeswitch--mod_dptools-play_and_detect_speech-)  
+   * 2.1 [TouchTone Digit Detection](#touchtone-digit-detection)  
+   * 2.2 [TTS in XML Dialplan](#-freeswitch--mod_dptools-play_and_detect_speech-)  
+   * 2.3 [UNIMRCP](#-freeswitch--mod_dptools-play_and_detect_speech-)  
+   * 2.4 [Lua](#-freeswitch--mod_dptools-play_and_detect_speech-)
+* 3 [See Also](#-freeswitch--mod_dptools-play_and_detect_speech-)
+
+# Usage
+
+```xml
+<file> detect:<engine>[:<mrcp_profile>] {param1=val1,param2=val2}<grammar>
+```
+
+## Parameters
+
+* file : file to play. See [mod\_dptools: playback](./6586776.mdx#0-about) for details.
+* engine : speech recognition module. e.g. unimrcp
+* mrcp_profile : which mrcp profile client you used(optional), what defined in the directory mrcp_profiles.
+* {param1=val1} : optional speech recognition parameters. This is specific to the speech recognition module used.
+* grammar : **ASR grammar** may be inline:, builtin:, session:, a URL, a filename, etc.
+
+## Channel Variables
+
+* [detect\_speech\_result](../../../Channel-Variables-Catalog/detect_speech_result_16352994.mdx#detect_speech_result) — FreeSWITCH sets this variable to the reason that terminated the playback or TTS. Returns "`DIGIT: x`" where x = the Touch Tone digit that terminated the playback or TTS sequence.
+* play\_and\_detect\_speech\_close\_asr — Set this variable to true to close the speech recognition port upon completion. This returns the port license to the available pool instead of holding it for the duration of the call.
+* playback\_terminator\_used — FreeSWITCH sets this variable to the Touch Tone digit that terminated playback or TTS. Must be a digit specified to playback\_terminators. Returns "x" where x = the Touch Tone digit that terminated the playback or TTS sequence.
+* playback\_terminators — Set this variable to the string of Touch Tone digits that will end playback or TTS. If this variable is not set, then Touch Tone digits will be ignored by this app, only speech will detected.
+
+# Examples
+
+## TouchTone Digit Detection
+
+If the caller presses '2' during the playback of a prompt file or a say TTS command, the result will be returned in detect\_speech\_result as "`DIGIT: 2`" and in playback\_terminator\_used as "2".
+
+## TTS in XML Dialplan
+
+This example demonstrates using TTS and speech recognition with [mod\_unimrcp](../mod_unimrcp_6586728.mdx#tts).
+
+**TTS dialplan**
+
+```xml
+<extension name="play_and_detect_speech example">
+  <condition field="destination_number" expression="^(1888)$">
+    <action application="set" data="tts_engine=unimrcp"/>
+    <action application="set" data="tts_voice=donna"/>
+    <action application="play_and_detect_speech" data="say:please say yes or no. please say no or yes. please say something! detect:unimrcp {start-input-timers=false,no-input-timeout=5000,recognition-timeout=5000}builtin:grammar/boolean?language=en-US;y=1;n=2"/> 
+    <action application="log" data="CRIT ${detect_speech_result}"/>
+  </condition>
+</extension>
+```
+
+## UNIMRCP
+
+This example demonstrates playing a wav file and speech recognition with [mod\_unimrcp](../mod_unimrcp_6586728.mdx#tts).
+
+**Note: There is no space between wav and detect. As of 25 Apr 2012, any amount of whitespace is allowed between the wav file and "detect:".**
+
+**TTS play .wav dialplan**
+
+```xml
+<extension name="play_and_detect_speech example">
+  <condition field="destination_number" expression="^(1888)$">
+    <action application="set" data="tts_engine=unimrcp"/>
+    <action application="set" data="tts_voice=donna"/>
+    <action application="play_and_detect_speech" data="ivr/say_yes_or_no.wavdetect:unimrcp {start-input-timers=false,no-input-timeout=5000,recognition-timeout=5000}builtin:grammar/boolean?language=en-US;y=1;n=2"/> 
+    <action application="log" data="CRIT ${detect_speech_result}"/>
+  </condition>
+</extension>
+```
+
+## Lua
+
+This example Lua script uses [mod\_unimrcp](../mod_unimrcp_6586728.mdx#tts) and Lumenvox
+
+```xml
+session:answer()
+session:sleep(1000)
+
+-- MRCP ASR and TTS - module picks grammar name
+session:execute("play_and_detect_speech","say:unimrcp:Chris:What is your phone number? detect:unimrcp {start-input-timers=false,define-grammar=true,no-input-timeout=5000}builtin:grammar/phone")
+local xml = session:getVariable('detect_speech_result')
+if xml ~= nil then
+        freeswitch.consoleLog("INFO", xml .."\n")
+else
+        freeswitch.consoleLog("INFO", "No result!\n")
+end
+
+-- MRCP ASR and TTS - define the grammar name
+session:execute("play_and_detect_speech","say:unimrcp:Chris:What is your phone number? detect:unimrcp {name=12345,start-input-timers=false,define-grammar=true,no-input-timeout=5000}builtin:grammar/phone")
+local xml = session:getVariable('detect_speech_result')
+if xml ~= nil then
+        freeswitch.consoleLog("INFO", xml .."\n")
+else
+        freeswitch.consoleLog("INFO", "No result!\n")
+end
+
+-- Repeat, using cached grammar on session (without DEFINE-GRAMMAR).  ASR sessions are re-used and
+-- params are sticky so name must be cleared and define-grammar must be set back to false.
+session:execute("play_and_detect_speech","say:unimrcp:Chris:What is your phone number? detect:unimrcp {name=,start-input-timers=false,no-input-timeout=5000,define-grammar=false}session:12345")
+local xml = session:getVariable('detect_speech_result')
+if xml ~= nil then
+        freeswitch.consoleLog("INFO", xml .."\n")
+else
+        freeswitch.consoleLog("INFO", "No result!\n")
+end
+
+session:hangup()
+```
+
+# See Also
+
+* [Dialplan](../../Dialplan/index.mdx#0-about)
+* [mod\_dptools](../mod_dptools_1970333.mdx#-c)
+* [mod\_dptools: detect\_speech](./6586756.mdx#about)
+* [mod\_unimrcp](../mod_unimrcp_6586728.mdx#tts)
+
+## Comments:
+
+| Why did not app **play\_and\_detect\_speech** trigger **DETECTED\_SPEECH** event like app **detect\_speech ?** ![](/images/icons/contenttypes/comment_16.png) Posted by livem at gen 31, 2019 00:37                                                                                                                                                                                                                                 |
+| ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| I checked the FS code(FreeSWITCH Version 1.10.2-dev+git\~20191205T195504Z\~b93eea73ef\~64bit (git b93eea7 2019-12-05 19:55:04Z 64bit))and I believe the above description for playback\_terminators is incorrect: it doesn't just stop playback in case of reception of DTMF but it actually also terminates the speech detection operation. ![](/images/icons/contenttypes/comment_16.png) Posted by takeshi at mar 18, 2021 01:43 |
+| I do not use this, but I guess it stops everything after it receives any response, whether DTMF or speech detection. Then it continues further dialplan processing that might include playing another prompt and detecting speech or DTMF. That is how I read it. I guess this is expected behavior? ![](/images/icons/contenttypes/comment_16.png) Posted by boteman at mar 23, 2021 12:22                                         |
+
+Document generated by Confluence on nov 11, 2022 04:27

@@ -1,0 +1,100 @@
+
+# Provider Freephoneline (Canada) 
+
+ Created by  Mario G, last modified by  John Boteler on 2015.01.16
+
+Last update 15 December 2013
+
+Click to expand Table of Contents
+
+* 1 [freephoneline.ca powered by Fongo](#freephonelinecahttpfreephonelineca-powered-by-fongo)
+* 2 [SIP Gateway Settings](#sip-gateway-settings)
+* 3 [Dialplan Setup](#-freeswitch--provider-freephoneline-canada-)
+* 4 [Sending and Receiving Faxes](#sending-and-receiving-faxes)
+
+## [freephoneline.ca](http://freephoneline.ca) powered by Fongo
+
+* \[[freephoneline.ca](http://freephoneline.ca/)\], aka: Bud Phone, Kokanee Phone, ZPhone
+* Free phone line for outgoing and incomming in many \[[cities](http://www.freephoneline.ca/cityListing)\] across Canada.
+* $50 + HST one time fee to unlock and receive the SIP profile login information.
+* Sending and receiving Fax does work see \[[details](http://wiki.freeswitch.org/wiki/Provider%5FConfiguration:%5Ffreephoneline.ca#Sending%5Fand%5FReceiving%5FFaxes)\].
+
+## SIP Gateway Settings
+
+Create a **conf/sip\_profiles/[voip.freephoneline.ca](http://voip.freephoneline.ca).xml** and populate it as below using your SIP login settings:
+
+```xml
+<include>
+  <gateway name="voip.freephoneline.ca">
+  <param name="username" value="<YOUR-USER-NAME"/>
+  <param name="password" value="<YOUR-PASSWORD-NAME"/> 
+  <!-- which transport to use for register -->
+  <param name="register-transport" value="udp"/>
+  </gateway>
+</include> 
+```
+
+## Dialplan Setup
+
+For incoming calls from your freephone DID create a **conf/dialplan/public/03\_inbound\_ANY\_did.xml** dialplan file and populate it as follows.
+
+```xml
+<include>
+  <extension name="public_did">
+    <!--
+	Freephone line is missing support for SIP DTMF phone signaling hence we auto detect for this
+    and activate inband detection as needed; not having this means FS will not detect your keypresses
+    in your custom IVR, voicemail, etc.
+    -->
+    <condition field="${switch_r_sdp}" expression="a=rtpmap:(\d+)\stelephone-event/8000" break="never">
+	   <action application="set" data="rtp_payload_number=$1"/>
+	   <anti-action application="start_dtmf"/>
+	   <anti-action application="log" data="WARNING Incoming DID can not do SIP INFO/RFC2833 DTMF tones."/>
+    </condition>
+    <!-- Replace "expression" with your DID or leave to trigger on 1-xxx-xxx-xxxx or xxx-xxx-xxxx numbers -->
+    <condition field="destination_number" expression="^(1{0,1}\d{10})$">
+      <action application="log" data="INFO matched incoming DID destination_number: ${destination_number}"/>
+      <anti-action application="log" data="WARNING not matched incoming DID destination_number: ${destination_number}"/>
+      <action application="transfer" data="1000 XML default"/>
+      <!--
+      If you have an IVR setup replace above line with something like below line:
+      <action application="transfer" data="IVR_danols XML default"/>
+      -->
+    </condition>
+  </extension>
+</include> 
+```
+
+Setup your outgoing dialplan by creating **conf/dialplan/default/01\_outbound\_america\_digit\_dialing.xml** file and populating it as follows; don't forget to change the effective caller id and if you expand on the below pattern matching then update this page:
+
+**NOTE:** Make sure your **conf/dialplan/default/[01\_example.com](http://01%5Fexample.com).xml** file is disabled or deleted otherwise it will conflict.
+
+```xml
+<!-- 
+  freephoneline suggests following linksys dialing patters: 
+  (911|[2-9]xxxxxxxxx|1xxxxxxxxxx|011xxxxxxxxxxxx.|98*|[6-7]x*xxxxxxxxxxx.)
+-->
+<extension name="America Calling">
+	<!-- pattern 1xxxxxxxxxx -->
+    <condition field="destination_number" expression="^1{0,1}(\d{10})$">
+        <action application="set" data="effective_caller_id_number=0000000000"/>
+        <action application="bridge" data="sofia/gateway/voip.freephoneline.ca/$1"/>
+    </condition>
+</extension> 
+```
+
+## Sending and Receiving Faxes
+
+It appears when searching the web that people have had success, and it is possible to send faxes, after trail and error below is what worked for me:
+
+* IMPORTANT: add '&lt;action application="set" data="t38\_passthru=true"/>' to your ougoing plan - without this I was not able to get realiable sending.  
+   * see: <http://lists.freeswitch.org/pipermail/freeswitch-users/2011-March/069834.html>
+* In your VOIP box switch SIP protocol to UDP  
+   * If you are having UDP issues but TCP works and you are behind NAT/Firewall try enabling 'Handle VIA rport' and 'Handle VIA received' options in your SIP box (spa3012 VOIP box)
+* Try changing Line 1 > Network Jitter Level: to 'very high' or 'extremely high' (spa3012 VOIP box)
+* Also I was getting better luck sending when I swtiched the 'FAX Passthru Method:' to ReINVITE
+
+Sending long 10+ min graphic intensive faxes worked without a hitch. Directly receiving faxes was not tested as one can simply get another Freephoneline only to receive faxes. This is accomplished by using the fax to email built in service. To setup up login into Freephoneline's admin and in the VM setting setup email forwarding.
+
+  
+Document generated by Confluence on nov 11, 2022 04:28

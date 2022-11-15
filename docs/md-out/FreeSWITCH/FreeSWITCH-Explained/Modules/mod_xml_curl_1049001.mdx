@@ -1,0 +1,1001 @@
+
+# mod_xml_curl 
+
+ Created by  John Boteler, last modified by  Henning Heedfeld on 2022.06.24
+
+# About
+
+There is also some leaking into [https://freeswitch.org/confluence/display/FREESWITCH/Channel+Variables](../Dialplan/Channel-Variables_16352493.mdx#about) , at some point that URL should also be updated. (original wiki note)
+
+_mod\_xml\_curl_ can be used to dynamically control the behaviour of FreeSWITCH.
+
+This module is called when FreeSWITCH needs to fetch configuration that would normally be read from the static XML configuration files. Here are some typical use cases;
+
+* Running multiple FreeSWITCH instances without having to maintain multiple server configurations
+* Centralized configuration management without resorting to hacky shell scripts
+* Dynamically populating configuration from a web application connected to a database
+* Providing an easy way to automate configuration deployment of FreeSWITCH (for example, a hosted VoIP platform)
+
+This module will give a seasoned developer the core tool he needs to get the job done, but this is only 1% of the work.
+
+It works just like any other typical API, it will send your web application a POST request, and you would reply with a chunk of XML.
+
+It will fetch any configuration that would have otherwise been loaded via the [FreeSWITCH Configuration File](../Client-and-Developer-Interfaces/Freeswitch-GUI/index.mdx#about).
+
+If it receives a valid response from your web application, then it will load the configuration just like it would if you had put it into the [FreeSWITCH Configuration File](../Bit-Bucket/For-Consideration/FreeSWITCH.xml_13173070.mdx#default-configuration-file). If it receives an invalid or 404 _not found_ response, then it will attempt to look for the file on disk instead.
+
+However, you may notice that some fields repeat data in other fields, or that the structure is a bit confusing.
+
+Let me tell you now, the module is not perfect, and in some cases you will have to figure it out with trial and error because not everything is documented yet.
+
+## 
+
+Click to expand Table of Contents
+
+* 1 [Click to expand Table of Contents](#xml-usage)
+* 2 [Considerations](#considerations-)
+* 3 [Installation](#-installation-)
+* 4 [Configuration](#-configuration-)  
+   * 4.1 [&lt;binding> options](#-binding-options-)
+* 5 [API tips and tricks](#-api-tips-and-tricks-)  
+   * 5.1 [Pre-processor directives and variables](#-pre-processor-directives-and-variables-)
+* 6 [API Request Fields](#-api-request-fields-)  
+   * 6.1 [Event variables](#event-variables)  
+   * 6.2 [Channel variables](#channel-variables)  
+   * 6.3 [Section: configuration](#-section-configuration-)  
+   * 6.4 [Section: directory](#-section-directory-)  
+   * 6.5 [Section: Dialplan](#-section-dialplan-)
+* 7 [XML Usage](#xml-usage)  
+   * 7.1 [Section: dialplan](#-section-dialplan-)  
+   * 7.2 [Section: configuration](#-section-configuration-)  
+   * 7.3 [Section: directory](#-section-directory-)  
+   * 7.4 [Section: not found](#-section-not-found-)  
+   * 7.5 [post\_load configuration](#-post_load-configuration-)
+* 8 [Caching](#caching)
+* 9 [Alternative ways of storing static configurations](#-alternative-ways-of-storing-static-configurations-)
+* 10 [Client implementations](#-client-implementations-)  
+   * 10.1 [PHP](#php)  
+   * 10.2 [Other languages](#other-languages)  
+   * 10.3 [Lua](#xml-usage)
+
+  
+## Considerations 
+
+There are some important things you need to consider before using _mod\_xml\_curl_.
+
+* Ask yourself why you need to use dynamically generated configuration files, and what you can't achieve without it.
+* Will you serve the configuration from files on disk, or will you build them using a database schema?
+* Will you generate the output using an XML library, or a templating language?
+* How will you parse the requests, will you write a proper API parsing library?
+* What hosting stack will you use to expose the web application to your FreeSWITCH instances?
+* How will you prevent it from being abused by unauthorized users?
+
+These are just a few of the questions you should be asking yourself. If you are not, then _mod\_xml\_curl_ probably isn't for you!
+
+You should also have a reasonable grasp on writing low latency web applications, as the performance of your web application will directly impact the performance of FreeSWITCH.
+
+##  Installation 
+
+Edit modules.conf in your FreeSWITCH source directory, ensure the following line is uncommented, then recompile and install.
+
+xml_int/mod_xml_curl
+
+Then edit your [Modules XML Configuration File](./XML-Modules-Configuration_13173211.mdx#xml-modules-configuration) inside your FreeSWITCH configuration directory, and place the following at the top of the file;
+
+**./freeswitch/conf/autoload\_configs/modules.conf.xml**
+
+```xml
+<!-- Loggers (I'd load these first) --> 
+<load module="mod_console"/> 
+<load module="mod_logfile"/>
+<load module="mod_xml_curl"/>
+```
+
+It is important that these goes at the top, otherwise things might not get loaded in the correct order. Also don't get _modules.conf_ and _modules.conf.xml_ mixed up, they both serve very different purposes!
+
+##  Configuration 
+
+The module is split into 4 different bindings (otherwise referred to as 'sections'), which are;
+
+* configuration - configuration items, for example [mod\_sofia](https://confluence.freeswitch.org/display/FREESWITCH/Sofia "Sofia")
+* directory - [user directory](https://confluence.freeswitch.org/display/FREESWITCH/XML+User+Directory "XML User Directory Guide") (user authentication)
+* dialplan - [Dialplan](https://confluence.freeswitch.org/display/FREESWITCH/Dialplan "Dialplan") items (call routing)
+* phrases - phrases for the SAY api ([Speech Phrase Management](https://wiki.freeswitch.org/wiki/Speech%5FPhrase%5FManagement "Speech Phrase Management"))
+
+You can point a binding at as many different gateways as you like, and you can specify multiple bindings to keep the configuration tidy.
+
+Here is a typical example of how you might configure this module;
+
+**./freeswitch/conf/autoload\_configs/xml\_curl.conf.xml**
+
+```xml
+ 
+<configuration name="xml_curl.conf" description="cURL XML Gateway">
+  <bindings> 
+    <!-- Ask example1.com for a dialplan config, if we get a valid response then don't continue onto example2.com. However if we don't get a valid response, then continue onto example2.com --> 
+    <binding name="dialplan">
+      <param name="gateway-url" value="http://example1.com:80/fsapi" bindings="dialplan"/> 
+    </binding>
+
+    <!-- This will only get called if example1.com returns an invalid or not found response. If this gateway also fails to return a valid configuration, then FreeSWITCH will look for the static configuration file on disk -->
+    <binding name="dialplan backup"> 
+      <param name="gateway-url" value="http://example2.com:80/fsapi" bindings="dialplan"/>
+    </binding> 
+ 
+    <!-- Ask example1.com for a directory config, if not found then revert to disk --> 
+    <binding name="directory"> 
+      <param name="gateway-url" value="http://example1:80/fsapi" bindings="directory"/> 
+    </binding> 
+ 
+    <!-- Ask example1.com for a configuration config, if not found then revert to disk --> 
+    <binding name="configuration"> 
+      <param name="gateway-url" value="http://example1:80/fsapi" bindings="configuration"/> 
+    </binding> 
+ 
+    <!-- Ask example1.com for a phrases config, if not found then revert to disk --> 
+    <binding name="phrases">
+      <param name="gateway-url" value="http://example1:80/fsapi" bindings="phrases"/> 
+    </binding> 
+  </bindings> 
+</configuration>
+ 
+```
+
+  
+If you wanted to keep things compact/tidy, you can also use the following approach:
+
+**./freeswitch/conf/autoload\_configs/xml\_curl.conf.xml**
+
+```xml
+<configuration name="xml_curl.conf" description="cURL XML Gateway">
+  <bindings>
+    <!-- Attempt to load dialplan/configuration/directory/phrases config from
+         this gateway. If invalid or not found, then continue onto the next gateway -->
+    <binding name="all configs">
+      <param name="gateway-url" value="http://example1.com:80/fsapi" bindings="dialplan|configuration|directory|phrases"/>
+    </binding>
+
+    <!-- Attempt to load dialplan/configuration/directory/phrases only if example1.com
+         sends back an invalid or not found response. If this also returns an invalid or
+         not found then revert to disk
+     -->
+    <binding name="all configs backup">
+      <param name="gateway-url" value="http://example2.com:80/fsapi" bindings="dialplan|configuration|directory|phrases"/>
+    </binding>
+  </bindings>
+</configuration>
+```
+
+  
+You may also provide some extra parameters, such as authentication scheme and login credentials. Here is an example;
+
+**./freeswitch/conf/autoload\_configs/xml\_curl.conf.xml**
+
+```xml
+<configuration name="xml_curl.conf" description="cURL XML Gateway">
+  <bindings>
+    <!-- Attempt to load all configs from example1.com on port 7111, using
+         an authentication username and password.
+    -->
+    <binding name="all configs">
+      <param name="gateway-url" value="http://example1.com:7111/fsapi" bindings="dialplan|configuration|directory|phrases"/>
+
+      <!-- Optional. The username and password to use to access the webserver. 
+           Only required if authentication is required on the webserver
+      -->
+      <param name="gateway-credentials" value="muser:mypass"/>
+
+      <!-- Optional. Either basic or digest. Only basic is used by default, omitting this 
+           parameter while using digest on the web server will cause all requests 
+           to be rejected with HTTP 401 Unauthorized
+      -->
+      <param name="auth-scheme" value="basic"/>
+
+    </binding>
+  </bindings>
+</configuration>
+```
+
+The 'name' parameters shown in the above examples can be anything you want.
+
+###  &lt;binding> options 
+
+| **Name**              | **Description**                                                                                                                    | **Example**                        |
+| --------------------- | ---------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------- |
+| gateway-url           | URL for binding                                                                                                                    | <http://myhost/xml%5Fcurl.php>     |
+| gateway-credentials   | Username/Password for URL                                                                                                          | [user:pass](http://userpass)       |
+| auth-scheme           | which auhtentification scheme to use. Supported values are: basic, digest, NTLM, GSS-NEGOTIATE or "any" for automatic detection    | basic                              |
+| method                | Whether to use GET or POST.                                                                                                        | GET                                |
+| timeout               | HTTP request timeout                                                                                                               | 20                                 |
+| enable-cacert-check   | Whether to check server's SSL certificate against CA certificates (recommended for HTTPS)                                          | true                               |
+| enable-ssl-verifyhost | Whether to check server's SSL certificate matches the hostname of the URL (recommended for HTTPS)                                  | true                               |
+| ssl-cacert-file       | Path to CA certificate(s) file. _**Note**_  this appears to be required as the module doesn't automatically search for system CAs. | /etc/ssl/certs/ca-certificates.crt |
+| ssl-cert-path         | Path to client certificate                                                                                                         | /etc/ssl/certs/fs\_client.crt      |
+| ssl-key-path          | Path to client private key                                                                                                         | /etc/ssl/private/fs\_client.key    |
+| ssl-key-password      | Password for client private key                                                                                                    | mysecret                           |
+| ssl-version           | Which version of SSL/TLS to use. Support values are "SSLv3" or "TLSv1"                                                             | TLSv1                              |
+| disable-100-continue  | Disable 100 Continue in HTTP Expect header, for servers which dislike this option.                                                 | true                               |
+| cookie-file           | Path to file for storing cookies                                                                                                   | /var/run/freeswitch/fs.cookies     |
+| use-dynamic-url       | _Undocumented_                                                                                                                     | _Undocumented_                     |
+| enable-post-var       | _Undocumented_                                                                                                                     | _Undocumented_                     |
+| bind-local            | Name of network interface to use for HTTP requests, which can affect the source address/routing on multihomed servers.             | eth1                               |
+
+##  API tips and tricks 
+
+You can use the following freeswitch command to help with debugging your configuration. It will return a filename with the resulting XML for each xml\_curl query.
+
+xml_curl debug_on
+
+If you get an error like the following, then that means you're really serving up some big-time configs. No worries, just edit mod\_xml\_curl.c and adjust XML\_CURL\_MAX\_BYTES as needed.
+
+mod_xml_curl.c:121 Oversized file detected [1056100 bytes]
+
+If you want to include a local file from disk, you would use the following approach (TODO: needs confirmation);
+
+&lt;param name="dialplan" value="XML,XML:/path/to/custom/dialplan.xml"/>
+
+A point to note here, is to use timeout param in xml\_curl config to prevent sofia profile from becoming unresponsive to REGISTER requests. Full explanation of this issue can be found [here](http://blog.godson.in/2011/06/pitfalls-to-avoid-while-using.html)
+
+###  Pre-processor directives and variables 
+
+Note: Right now, this section is based more on my evaluation of the FreeSWITCH source code than on actually using the mechanism. I'm putting it here now while it is fresh in my mind because I believe it to be accurate.
+
+When mod\_xml\_curl retrieves an XML document, it saves that document to a temporary file, and then tells FreeSWITCH™ to process that file like it would process any other XML configuration file. This means that any X-PRE-PROCESS tags you place in your dynamic configuration will be processed before handing the resulting XML to the main configuration parser, just like your conf/\* files.
+
+Some care must be taken when setting variables using X-PRE-PROCESS tags. Setting a variable using set in a X-PRE-PROCESS tag sets a "core global" variable. In all XML configuration these variables are referenced by the form $${varname}, and are actually treated as preprocessor variables. That is, the same parser pass that processes X-PRE-PROCESS tags also substitutes these variables for their value at that very instant in time, and the resulting xml document is passed to the main configuration parser, and that is the configuration that is used. Simply put, if you do something like this somewhat forced example:
+
+...
+&lt;X-PRE-PROCESS cmd="set" data="global_codec_prefs=PCMU"/>
+...
+&lt;param name="codec-prefs" value="$${global_codec_prefs}"/>
+...
+&lt;X-PRE-PROCESS cmd="set" data="global_codec_prefs=PCMA"/>
+...
+&lt;param name="codec-prefs" value="$${global_codec_prefs}"/>
+...
+
+Just pretend that is happening across two different SIP profiles so that it seems somewhat plausible. The first reference to $${global\_codec\_prefs} will expand to mu-law, and the second one (and all subsequent references in time) to $${global\_codec\_prefs} will expand to a-law. The first setting is unchanged.
+
+This point deserves some discussion because it's important to know that, as truly global variables, values of variables set in conf/vars.xml or in any X-PRE-PROCESS tag are accessible to the XML you generate dynamically, which makes it OK to reference $${local\_ip\_v4} from your generated XML and the Right thing will happen. It's also possible to overwrite variables that were previously set in vars.xml or any X-PRE-PROCESS tag using your generated XML. Doing this, however will have absolutely no effect on any previously parsed XML that used that variable. Also, executing a reloadxml will cause the original vars.xml to be re-parsed, thus overwriting your overwrite. If this sounds confusing that is because you can probably create some confusing and difficult to track bugs in your configuration by doing this.
+
+Having said all of this, we can distill the information down to the simple caveat that, while it is safe and good to reference static variables in your dynamic configuration, it is probably not safe to try to overwrite them. Treat them with the respect you'd treat any global variable and you should be fine.
+
+  
+##  API Request Fields 
+
+This gives an explanation of what individual request fields means.
+
+### Event variables
+
+For a better explanation on event variables, see [Event Fields](https://wiki.freeswitch.org/wiki/Event%5FList#Event%5Ffields "Event List")
+
+### Channel variables
+
+For a better explanation on channel variables, see [Channel Variables](https://wiki.freeswitch.org/wiki/Channel%5FVariables#Info%5FApplication%5FVariable%5FNames%5F.28variable%5Fxxxx.29 "Channel Variables")
+
+**section**
+
+The target section of the request.
+
+This can be one of the following;
+
+* directory
+* dialplan
+* configuration
+
+###  Section: configuration 
+
+Below is a list of all the variables expected within a directory section request.
+
+#### Applicable common fields
+
+_TODO: Needs example_
+
+#### Non-applicable common fields
+
+_TODO: Needs example_
+
+#### Applicable context fields
+
+_TODO: Needs example_
+
+###  Section: directory 
+
+Below is a list of all the variables expected within a directory section request.
+
+#### Applicable common fields
+
+* **sip\_contact\_user**
+* **sip\_contact\_host**
+* **sip\_auth\_username**
+* **sip\_auth\_response**
+* **sip\_auth\_qop**
+* **sip\_auth\_nonce**
+* **sip\_auth\_nc**
+* **sip\_auth\_cnonce**
+* **sip\_auth\_method**
+* **sip\_profile**
+* **sip\_to\_user**
+* **sip\_to\_host**
+* **sip\_to\_port**
+* **sip\_user\_agent**
+
+#### Non-applicable common fields
+
+* **hostname** (use FreeSWITCH-Hostname instead)
+* **sip\_from\_host** (use domain instead)
+* **sip\_request\_host** (use domain instead)
+* **sip\_to\_host** (use domain instead)
+* **sip\_auth\_realm** (use domain instead)
+* **key\_value** (use domain instead)
+* **sip\_auth\_uri** (unclean, debugging only)
+* **key\_name** (useless here)
+* **key** (useless here)
+* **tag\_name** (useless here)
+
+#### Applicable context fields
+
+**purpose**
+
+Once you start implementing things with XML cURL, you will find that several requests are fired on several different places on the code, specially with directory. The purpose field will tell you which one it is requesting so that you know what to reply. Given that the modules are the ones responsible for giving context to the information on the directory, the list of options will depend on the module. On the next section, you will find examples and explanations for each one of the modules and their requests.
+
+#####  mod_sofia 
+
+* gateways
+
+All sofia profiles that have parse=true on their domain definitions will query the directory for their gateway definitions. Every time we issue a rescan on a profile or the profile is loading, we will receive one of these requests. Sometimes this request even gets sent on FreeSWITCH boot and to avoid this behavior when you only want it to send such a request purely when client sends a register then comment out the lines in the profile which goes under domains section if your not going to use under multi tenant mode.
+
+hostname : FS-CUBO
+section : directory
+tag_name : 
+key_name : 
+key_value : 
+Event-Name : REQUEST_PARAMS
+Core-UUID : 5ff05ea9-98ae-4469-82a8-595766d9b41e
+FreeSWITCH-Hostname : FS-CUBO
+FreeSWITCH-Switchname : FS-CUBO
+FreeSWITCH-IPv4 : 192.168.204.3
+FreeSWITCH-IPv6 : ::1
+Event-Date-Local : 2012-11-13 12:33:11
+Event-Date-GMT : Tue, 13 Nov 2012 15:33:11 GMT
+Event-Date-Timestamp : 1352820791632159
+Event-Calling-File : sofia.c
+Event-Calling-Function : launch_sofia_worker_thread
+Event-Calling-Line-Number : 2332
+Event-Sequence : 26
+purpose : gateways
+profile : internal
+
+* network-list
+
+Even though we classify this as being for mod\_sofia, it really is a request made by the core. Every time the core is loading ACLs, you will get a request like the following:
+
+hostname : FS-CUBO
+section : directory
+tag_name : domain
+key_name : name
+key_value : 192.168.204.3
+Event-Name : GENERAL
+Core-UUID : 6f2c3a2c-ab56-44d1-ad53-f763a430b1b3
+FreeSWITCH-Hostname : FS-CUBO
+FreeSWITCH-Switchname : FS-CUBO
+FreeSWITCH-IPv4 : 192.168.204.3
+FreeSWITCH-IPv6 : ::1
+Event-Date-Local : 2012-11-13 12:24:57
+Event-Date-GMT : Tue, 13 Nov 2012 15:24:57 GMT
+Event-Date-Timestamp : 1352820297648064
+Event-Calling-File : switch_core.c
+Event-Calling-Function : switch_load_network_lists
+Event-Calling-Line-Number : 1202
+Event-Sequence : 475
+domain : 192.168.204.3
+purpose : network-list
+
+* publish-vm
+
+**action**
+
+The action being performed on this directory request.
+
+Valid options are;
+
+* sip\_auth (Used by mod\_sofia to perform authentication checks)
+* message-count (Used by mod\_voicemail to check if messages are waiting - needs response example)
+* reverse-auth-lookup (???)
+
+**user**
+
+_TODO: Find out how/where this value is extracted_
+
+Username of the authenticating user, this should always be present for every directory request.
+
+**ip**
+
+_TODO: Find out how/where this value is extracted_
+
+IP address of authenticating user
+
+**domain**
+
+_TODO: Find out how/where this value is extracted_
+
+Target domain/realm of authenticating user, this should always be present for every directory request.
+
+###  Section: Dialplan 
+
+Below is a list of all the variables expected within a dialplan section request.
+
+#### Applicable common fields
+
+_TODO: Explanation needed_
+
+#### Non-applicable common fields
+
+_TODO: Explanation needed_
+
+#### Applicable context fields
+
+_TODO: Explanation needed_
+
+#### Sample xml_dialplan POST
+
+Sample of what mod\_xml\_curl posts to the web server on a request for dialplan. Caller is 800 and callee is 9999, keys and values seperated by ::::
+
+Espandi fonte 
+
+```xml
+variable_sip_via_rport :::: 2048
+variable_sip_from_uri :::: 800@192.168.0.9
+variable_user_context :::: default
+Caller-Network-Addr :::: 192.168.0.19
+variable_mailbox :::: 800
+variable_sip_contact_port :::: 2048
+Caller-Screen-Bit :::: yes
+variable_sip_via_port :::: 2048
+Caller-Caller-ID-Name :::: Work
+Call-Direction :::: inbound
+variable_accountcode :::: 800
+variable_sip_to_uri :::: 9999@192.168.0.9
+variable_user_name :::: 800
+variable_sip_auth_username :::: 800
+variable_sip_mailbox :::: 800
+variable_sip_req_host :::: 192.168.0.9
+variable_sip_to_params :::: user=phone
+variable_sofia_profile_name :::: internal
+variable_effective_caller_id_number :::: 800
+variable_sip_authorized :::: true
+Channel-State-Number :::: 2
+variable_sip_contact_uri :::: 800@192.168.0.19:2048
+variable_domain_name :::: 192.168.0.9
+key_name :::: 
+Caller-Dialplan :::: XML
+variable_presence_id :::: 800@192.168.0.9
+variable_sip_contact_params :::: line=05edf9r6
+variable_record_stereo :::: true
+Unique-ID :::: 388b125c-58ff-11dd-9892-8f5d58364073
+Caller-Caller-ID-Number :::: 800
+Caller-Source :::: mod_sofia
+Caller-Channel-Name :::: sofia/internal/800@192.168.0.9
+variable_sip_via_host :::: 192.168.0.19
+variable_sip_auth_realm :::: 192.168.0.9
+variable_sip_h_P-Key-Flags :::: resolution="31x13", keys="4"
+Caller-Username :::: 800
+variable_channel_name :::: sofia/internal/800@192.168.0.9
+Caller-Privacy-Hide-Number :::: no
+variable_sip_from_host :::: 192.168.0.9
+Channel-Write-Codec-Rate :::: 8000
+variable_sip_to_user :::: 9999
+variable_remote_media_port :::: 59788
+Channel-Write-Codec-Name :::: PCMU
+variable_sip_received_port :::: 2048
+variable_sip_req_user :::: 9999
+Channel-Name :::: sofia/internal/800@192.168.0.9
+Caller-Destination-Number :::: 9999
+variable_sip_crypto_mandatory :::: true
+Channel-Read-Codec-Rate :::: 8000
+Caller-Unique-ID :::: 388b125c-58ff-11dd-9892-8f5d58364073
+variable_sip_user_agent :::: snom360/7.1.33
+Caller-Profile-Index :::: 1
+Channel-State :::: CS_ROUTING
+variable_sip_from_user_stripped :::: 800
+variable_sip_to_host :::: 192.168.0.9
+section :::: dialplan
+hostname :::: frog
+Channel-Read-Codec-Name :::: PCMU
+variable_sip_call_id :::: 3c2a39c538e1-f6k7b52a7dnm
+variable_write_rate :::: 8000
+variable_sip_contact_user :::: 800
+variable_sofia_profile_domain_name :::: 192.168.0.9
+Caller-Channel-Answered-Time :::: 0
+variable_sip_secure_media :::: true
+Answer-State :::: ringing
+Caller-Privacy-Hide-Name :::: no
+key_value :::: 
+variable_remote_media_ip :::: 192.168.0.19
+Caller-Channel-Hangup-Time :::: 0
+variable_write_codec :::: PCMU
+Caller-Context :::: default
+variable_max_forwards :::: 70
+variable_read_codec :::: PCMU
+variable_sip_has_crypto :::: AES_CM_128_HMAC_SHA1_32
+variable_read_rate :::: 8000
+variable_sip_received_ip :::: 192.168.0.19
+Caller-Channel-Transfer-Time :::: 0
+variable_sip_req_params :::: user=phone
+variable_sip_req_uri :::: 9999@192.168.0.9
+variable_sip_from_user :::: 800
+Caller-Channel-Created-Time :::: 1216848907951512
+variable_endpoint_disposition :::: RECEIVED
+variable_switch_r_sdp :::: v=0
+o=root 1097507980 1097507980 IN IP4 192.168.0.19
+s=call
+c=IN IP4 192.168.0.19
+t=0 0
+m=audio 59788 RTP/SAVP 0 8 9 2 3 18 4 101
+a=rtpmap:0 pcmu/8000
+a=rtpmap:8 pcma/8000
+a=rtpmap:9 g722/8000
+a=rtpmap:2 g726-32/8000
+a=rtpmap:3 gsm/8000
+a=rtpmap:18 g729/8000
+a=rtpmap:4 g723/8000
+a=rtpmap:101 telephone-event/8000
+a=fmtp:101 0-16
+a=crypto:1 AES_CM_128_HMAC_SHA1_32 inline:tcj5d1Iw3KFcIIKiwWRtlz7uI7JUwLWbcT9u6FDx
+a=ptime:20
+m=audio 59788 RTP/AVP 0 8 9 2 3 18 4 101
+a=rtpmap:0 pcmu/8000
+a=rtpmap:8 pcma/8000
+a=rtpmap:9 g722/8000
+a=rtpmap:2 g726-32/8000
+a=rtpmap:3 gsm/8000
+a=rtpmap:18 g729/8000
+a=rtpmap:4 g723/8000
+a=rtpmap:101 telephone-event/8000
+a=fmtp:101 0-16
+a=ptime:20
+
+tag_name :::: 
+variable_sip_contact_host :::: 192.168.0.19
+variable_sip_nat_detected :::: true
+variable_sip_from_tag :::: zah0wfkmg9
+variable_effective_caller_id_name :::: hads
+```
+
+  
+## XML Usage
+
+###  Section: dialplan 
+
+This is used to send back configuration files relating to dialplans. This will be triggered every time there is a call.
+
+#### Example
+
+REQUEST:
+
+```xml
+section=dialplan&tag_name=&key_name=&key_value=&context=default&destination_number=556
+&caller_id_name=FreeSwitch&caller_id_number=5555551212&network_addr=&ani=&aniii=&rdnis=
+&source=mod_portaudio&chan_name=PortAudio/556&uuid=b7f0b117-351f-9448-b60a-18ff91cbe183
+&endpoint_disposition=ANSWER
+```
+
+  
+RESPONSE:
+
+```xml
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<document type="freeswitch/xml">
+  <section name="dialplan" description="RE Dial Plan For FreeSwitch">
+    <context name="default">
+      <extension name="test9">
+        <condition field="destination_number" expression="^83789$">
+          <action application="bridge" data="iax/guest@conference.freeswitch.org/888"/>
+        </condition>
+      </extension>
+    </context>
+  </section>
+</document>
+```
+
+  
+###  Section: configuration 
+
+This is used to send back configuration files such as sofia.conf.
+
+Request variables are;
+
+* key\_value (This is the filename of the configuration being requested, for example sofia.conf - note it does not have the trailing _.xml_ extension)
+* key\_name (Seems to always contain the string _name_)
+* section (This will always contain the string _configuration_, as this is how you detect what section is being requested)
+* tag\_name (Seems to be the same as _section_)
+
+#### Example
+
+An example request query string would be;
+
+```xml
+key_value=sofia.conf&key_name=name&section=configuration&tag_name=configuration
+```
+
+  
+The response should look identical to what the file would have looked like on disk, with the exception that you need to wrap it in a _&lt;document>_, as shown in the following example;
+
+```xml
+<document type="freeswitch/xml">
+  <section name="configuration">
+
+    <!--The content of the tag SECTION is identical to what you find in the default config files.-->
+
+    <configuration name="SECTIONNAME.conf" description="SECTIONDESCRIPTION">
+      <settings>
+         <!--ADD your parameters here-->
+      </settings>
+    </configuration>
+
+  </section>
+</document>
+```
+
+  
+###  Section: directory 
+
+You must ensure that the "accept-blind-reg" parameter is set to "false" in [sofia.conf.xml](https://wiki.freeswitch.org/wiki/Sofia%5FConfiguration%5FFiles#Settings "Sofia Configuration Files"), otherwise your web application will not get called.
+
+This will be called every time there is an authentication request, and also under other circumstances (see below)
+
+This particular section will also be called from different contexts, and as such you may not need to return the full configuration each time. In fact, responding with as little as necessary is advisable, in order to avoid CPU spikes related to processing large XML documents, which then could lead to adverse voice quality. You can determine what information needs to be returned by analysing the 'purpose' field.
+
+#### Example: default
+
+You will also receive requests where purpose is blank, and these are where you would send back user information, say during an authorization.
+
+REQUEST:
+
+[hostname] => testmachine
+[section] => directory
+[tag_name] => domain
+[key_name] => name
+[key_value] => domain1.awesomevoipdomain.faketld
+[Event-Name] => REQUEST_PARAMS
+[Core-UUID] => c5c8cbf4-60c3-45a2-b110-933da620cfd2
+[FreeSWITCH-Hostname] => 25515_1_36308_177178
+[FreeSWITCH-IPv4] => 192.168.1.10
+[FreeSWITCH-IPv6] => ::1
+[Event-Date-Local] => 2009-10-27 00:47:10
+[Event-Date-GMT] => Tue, 27 Oct 2009 07:47:10 GMT
+[Event-Date-Timestamp] => 1256629630733916
+[Event-Calling-File] => sofia_reg.c
+[Event-Calling-Function] => sofia_reg_parse_auth
+[Event-Calling-Line-Number] => 1671
+[action] => sip_auth
+[sip_profile] => internal
+[sip_user_agent] => PolycomSoundPointIP-SPIP_320-UA/3.1.0.0084
+[sip_auth_username] => 1004
+[sip_auth_realm] => domain1.awesomevoipdomain.faketld
+[sip_auth_nonce] => 533c5264-12cb-4f8b-bcdb-5ecabe5e540f
+[sip_auth_uri] => sip:domain1.awesomevoipdomain.faketld:5060
+[sip_contact_user] => 1004
+[sip_contact_host] => 192.168.1.100
+[sip_to_user] => 1004
+[sip_to_host] => domain1.awesomevoipdomain.faketld
+[sip_from_user] => 1004
+[sip_from_host] => domain1.awesomevoipdomain.faketld
+[sip_request_host] => domain1.awesomevoipdomain.faketld
+[sip_request_port] => 5060
+[sip_auth_qop] => auth
+[sip_auth_cnonce] => hSVnPb32nA/OtkY
+[sip_auth_nc] => 00000001
+[sip_auth_response] => 6e4e611d7593d52e02451b70900071d8
+[sip_auth_method] => REGISTER
+[key] => id
+[user] => 1004
+[domain] => domain1.awesomevoipdomain.faketld
+[ip] => 192.168.1.100
+
+RESPONSE:
+
+```xml
+<document type="freeswitch/xml">
+  <section name="directory">
+    <domain name="domain1.awesomevoipdomain.faketld">
+      <params>
+        <param name="dial-string" value="{presence_id=${dialed_user}@${dialed_domain}}${sofia_contact(${dialed_user}@${dialed_domain})}"/>
+      </params>
+      <groups>
+        <group name="default">
+         <users>
+          <user id="1004">
+            <params>
+              <param name="password" value="some_password"/>
+            </params>
+          </user>
+         </users>
+        </group>
+      </groups>
+    </domain>
+  </section>
+</document>
+```
+
+  
+If you don't want to communicate passwords in plain text over your network, you can use the \`a1-hash\` param instead. Its value should be an md5sum containing \`[user:domain:password](http://userdomainpassword)\`.
+
+For example, if you have a user 1002 on domain 127.0.0.1 with password 1234, you can generate the proper hash by:
+
+echo -n 1002:127.0.0.1:1234 | md5sum
+
+The proper param tag for this example is:
+
+&lt;param name="a1-hash" value="50046ba744759aa83e045ba0b996e7a9"/>
+
+  
+#### Example: purpose=gateways
+
+REQUEST:
+
+[hostname] => testmachine
+[section] => directory
+[tag_name] => 
+[key_name] => 
+[key_value] => 
+[Event-Name] => REQUEST_PARAMS
+[Core-UUID] => c5c8cbf4-60c3-45a2-b110-933da620cfd2
+[FreeSWITCH-Hostname] => testmachine
+[FreeSWITCH-IPv4] => 192.168.1.10
+[FreeSWITCH-IPv6] => ::1
+[Event-Date-Local] => 2009-10-27 00:52:52
+[Event-Date-GMT] => Tue, 27 Oct 2009 07:52:52 GMT
+[Event-Date-Timestamp] => 1256629972839876
+[Event-Calling-File] => sofia.c
+[Event-Calling-Function] => config_sofia
+[Event-Calling-Line-Number] => 3056
+[purpose] => gateways
+[profile] => internal
+
+RESPONSE:
+
+```xml
+<document type="freeswitch/xml">
+  <section name="directory">	
+    <domain name="domain1.awesomevoipdomain.faketld">
+      <params>
+        <param name="dial-string" value="{presence_id=${dialed_user}@${dialed_domain}}${sofia_contact(${dialed_user}@${dialed_domain})}"/>
+      </params>
+      <variables>
+        <variable name="example_var" value="example_value_1"/>
+      </variables>
+      <user id="default" />
+    </domain>
+    <domain name="domain2.awesomevoipdomain.faketld">
+      <params>
+        <param name="dial-string" value="{presence_id=${dialed_user}@${dialed_domain}}${sofia_contact(${dialed_user}@${dialed_domain})}"/>
+      </params>
+      <variables>
+        <variable name="example_var" value="example_value_2"/>
+      </variables>
+      <user id="default" />
+    </domain>
+  </section>
+</document>
+```
+
+  
+#### Example: purpose=network-list
+
+REQUEST:
+
+[hostname] => black
+[section] => directory
+[tag_name] => domain
+[key_name] => name
+[key_value] => 192.168.0.2
+[domain] => 192.168.0.2
+[purpose] => network-list
+
+RESPONSE:
+
+_TODO: Example needed_
+
+  
+#### Example: action=message-count
+
+[mod\_voicemail](https://wiki.freeswitch.org/wiki/Mod%5Fvoicemail "Mod voicemail") occasionally needs to look up a user's id.
+
+The request example is below and can be responded to in the same way as an authorization request for simplicity.
+
+REQUEST:
+
+[hostname] => testmachine
+[section] => directory
+[tag_name] => domain
+[key_name] => name
+[key_value] => domain1.awesomevoipdomain.faketld
+[Event-Name] => GENERAL
+[Core-UUID] => c5c8cbf4-60c3-45a2-b110-933da620cfd2
+[FreeSWITCH-Hostname] => testmachine
+[FreeSWITCH-IPv4] => 192.168.1.10
+[FreeSWITCH-IPv6] => ::1
+[Event-Date-Local] => 2009-10-27 00:47:40
+[Event-Date-GMT] => Tue, 27 Oct 2009 07:47:40 GMT
+[Event-Date-Timestamp] => 1256629660158410
+[Event-Calling-File] => mod_voicemail.c
+[Event-Calling-Function] => resolve_id
+[Event-Calling-Line-Number] => 1278
+[action] => message-count
+[key] => id
+[user] => 1004
+[domain] => domain1.awesomevoipdomain.faketld
+
+#### Example: action=reverse-auth-lookup
+
+Here is an example of when an endpoint requests reverse authentication for a request, using reverse-auth-lookup;
+
+REQUEST:
+
+ ["url"]=> "freeswitch/directory"
+ ["section"]=> "directory"
+ ["key_value"]=> "default"
+ ["Event-Name"]=> "REQUEST_PARAMS"
+ ["Action"]=> "reverse-auth-lookup"
+ ["key"]=> "id"
+ ["user"]=> "walker"
+ ["domain"]=> "domain-name"
+
+RESPONSE:
+
+```xml
+<document type="freeswitch/xml">
+  <section name="directory">
+    <domain name="domain-name">
+      <user id="walker">
+        <params>
+           <param name="reverse-auth-user" value="walker" />
+           <param name="reverse-auth-pass" value="321foo123" />
+        </params>
+      </user>
+    </domain>
+  </section>
+</document>
+```
+
+  
+This tells FreeSWITCH™ what credentials to use for the challenge.
+
+  
+###  Section: not found 
+
+If your web application receives a request and you don't wish to serve a config, then you should respond with 200 status code and the following "not found" result.
+
+```xml
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<document type="freeswitch/xml">
+  <section name="result">
+    <result status="not found" />
+  </section>
+</document>
+```
+
+  
+If you return an empty response instead of the not found, you may see the following error;
+
+[ERR] switch_xml.c:1534 switch_xml_locate() Error[[error near line 1]: root tag missing]
+
+  
+###  post_load configuration 
+
+Due to the way FreeSWITCH loads modules and configuration, there are occasions where it will request a configuration in the format of 'post\_load'
+
+One of these is _post\_load\_switch.conf_, FreeSWITCH will still attempt to request the normal file name (switch.conf) but will silently ignore the content, therefore you need to ensure that you serve the same content from both (ensuring that _name_ attribute in _&lt;configuration>_ reflects the requested file name).
+
+For example, a request for switch.conf would look like this;
+
+```xml
+<document type="freeswitch/xml">
+  <section name="configuration">
+    <configuration name="switch.conf" description="Core Configuration">
+      <param name="sessions-per-second" value="3000"/>
+    </configuration>
+  </section>
+</document>
+```
+
+  
+And a request for post\_load\_switch.conf would look like this;
+
+```xml
+<document type="freeswitch/xml">
+  <section name="configuration">
+    <configuration name="post_load_switch.conf" description="Core Configuration">
+      <param name="sessions-per-second" value="3000"/>
+    </configuration>
+  </section>
+</document>
+```
+
+  
+The other example of this is _post\_load\_modules.conf_, because _modules.conf_ has to be initially loaded from disk for the module to be available in the first place.
+
+## Caching
+
+If you want to reduce the amount of HTTP requests FreeSWITCH needs to make to your web server you can supply the cacheable="true" attribute which will allow FreeSWITCH to manage a memory table with the information. You will still see HTTP requests being made but should definitely notice a decrease with this attribute set.
+
+Here is an example of using this feature;
+
+```xml
+<?xml version="1.0"?>
+<document type="freeswitch/xml">
+  <section name="directory">
+    <domain name="domain-name">
+      <user id="1002" cacheable="true">
+        <params>
+          <param name="dial-string" value="{sip_invite_domain=${domain_name},presence_id=${dialed_user}@${dialed_domain}}${sofia_contact(${dialed_user}@${dialed_domain})}"/>
+          <param name="a1-hash" value="50046ba744759aa83e045ba0b996e7a9"/>
+        </params>
+        <variables>
+          <variable name="domain" value="domain-name"/>
+          <variable name="user_id" value="1002"/>
+        </variables>
+      </user>
+    </domain>
+  </section>
+</document>
+```
+
+  
+If you then make a change to the directory you should run the xml\_flush\_cache command to clear, some examples:
+
+# This clears items for user 1001
+xml_flush_cache id 1002 domain-name
+
+# This clears all items
+xml_flush_cache 
+
+You may also wish to enable an expiry on the cache entries by setting the cacheable attribute to a numeirc value which would be the number of milliseconds, see <http://jira.freeswitch.org/browse/FS-4871>
+
+      &lt;user id="1002" cacheable="60000">
+
+will cache the result for 60 seconds (60000 milliseconds)
+
+##  Alternative ways of storing static configurations 
+
+For installations with heavy usage this module can cause delays in call handling.
+
+For example;
+
+If the the desired intent merely is to centrally store and/or share a common static dialplan with multiple FreeSWITCH installations an alternative to mod\_xml\_curl would be to create and use a git repository, or automatically retrieving an XML document stored on the webserver by using the exec command within an X-PRE-PROCESS. Within your dialplan add:
+
+&lt;X-PRE-PROCESS cmd="exec" data="wget -qO - http://www.example.com/dialplan.xml" />
+(Important: Note the ' - '.  This instructs wget to output the retrieved document to stdout.)
+
+This method will include the dialplan stored on the server at the location where the X-PRE-PROCESS exists, the dialplan will only be fetched from the webserver on start-up and upon reloadxml.
+
+##  Client implementations 
+
+### PHP
+
+* [fs\_curl](https://github.com/intralanman/fs%5Fcurl) \- by Raymond (intralanman), last updated 2021
+* [FreeSWITCH-mod\_xml-with-PHP](https://github.com/avimar/FreeSWITCH-mod%5Fxml-with-PHP) \- by avimar, last updated 2010.
+* [PHP example](https://wiki.freeswitch.org/wiki/Mod%5Fxml%5Fcurl%5FPHP%5Fexample "Mod xml curl PHP example")
+
+### Other languages
+
+* [Perl/CGI example](https://wiki.freeswitch.org/wiki/Mod%5Fxml%5Fcurl%5FCGI%5Fexample "Mod xml curl CGI example") \- (by James Jones &lt;james \_at\_ virtualrealmsoftware.com>)
+* [Python/CGI example](https://wiki.freeswitch.org/wiki/Mod%5Fxml%5Fcurl%5FPython%5Fexample "Mod xml curl Python example") \- (by Mike Fedyk &lt;mfedyk \_at\_ mikefedyk.com>)
+* [C# example](https://wiki.freeswitch.org/wiki/Mod%5Fxml%5Fcurl%5FC%5Fsharp%5Fexample "Mod xml curl C sharp example")
+* [Ruby dialplan example](https://wiki.freeswitch.org/wiki/Mod%5Fxml%5Fcurl%5FRuby%5Fdialplan%5Fexample "Mod xml curl Ruby dialplan example") \- very simple database ([MySQL](http://www.mysql.com/)) driven [Dialplan](https://wiki.freeswitch.org/wiki/Dialplan "Dialplan") XML routing. (Jonathan Towne &lt;jontow \_at\_ zenbsd.net>)
+* [Ruby directory example](https://wiki.freeswitch.org/wiki/Mod%5Fxml%5Fcurl%5FRuby%5Fdirectory%5Fexample "Mod xml curl Ruby directory example") \- very simple database ([PostgreSQL](http://www.postgresql.org/)) driven [User Directory](https://wiki.freeswitch.org/wiki/XML%5FUser%5FDirectory%5FGuide "XML User Directory Guide"). (Jonathan Towne &lt;jontow \_at\_ zenbsd.net>)
+* [C++ Directory Example](https://wiki.freeswitch.org/wiki/Mod%5Fxml%5Fcurl%5FC%2B%2B%5FExample) \- Reads from a database and serves the directory to Xml\_Curl over HTTP.
+* [Ramaze Example](https://freeswitch.org/confluence/pages/viewpage.action?pageId=9634333) \- TinyQueue dynamic group dials. (By the rubyists &lt;admins \_at\_ rubyists.com>)
+
+### Lua
+
+Lua can be called directly without a web server. See: [Serving Configuration with Lua](./mod-lua/Serving-Configuration-with-Lua_3965134.mdx#xml)
+
+  
+## Comments:
+
+| This module is fantastic!But currently, i failed to set custom request headers in mod\_xml\_curl gateway configuration. If you do not mind, please kindly let me know if there is any possibility to do so. Thank you very much. ![](/images/icons/contenttypes/comment_16.png) Posted by chhatrachhorm at apr 08, 2018 13:31 |
+| ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+
+Document generated by Confluence on nov 11, 2022 04:27

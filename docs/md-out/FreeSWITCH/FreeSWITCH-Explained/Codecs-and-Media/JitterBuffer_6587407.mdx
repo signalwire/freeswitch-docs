@@ -1,0 +1,222 @@
+
+# JitterBuffer 
+
+ Created by  Italo Rossi, last modified by  John Boteler on 2021.08.27
+
+# About
+
+The jitter buffer is implemented in the Sort Transportable Framed Utterances (STFU) library. The jitter buffer is not enabled by default.
+
+Click here to expand Table of Contents
+
+* 1 [Interesting Information](#interesting-information)
+* 2 [Activation instructions](#activation-instructions)  
+   * 2.1 [Dialplan app](#dialplan-app)  
+   * 2.2 [Sofia profile param](#sofia-profile-param)  
+   * 2.3 [Channel Variable](#channel-variable)  
+   * 2.4 [jitterbuffer\_msec](#jitterbuffer_msec)
+* 3 [Other usage](#jitterbuffer_msec)  
+   * 3.1 [rtp\_jitter\_buffer\_plc](#jitterbuffer_msec)  
+   * 3.2 [rtp\_jitter\_buffer\_during\_bridge](#jitterbuffer_msec)  
+   * 3.3 [Pause](#jitterbuffer_msec)  
+   * 3.4 [Resume](#jitterbuffer_msec)  
+   * 3.5 [Debug](#jitterbuffer_msec)  
+   * 3.6 [Lookahead](#jitterbuffer_msec)
+
+As of FreeSWITCH™ version 1.6 all variables relating to media have been normalized to begin with the string "rtp\_"
+
+If you see variables beginning with sip\_ that clearly deal with media streams, you are reading outdated documentation. Please let the docs team know by opening a JIRA ticket or leave a comment at the bottom of the affected page. Thanks.
+
+  
+# Interesting Information
+
+  
+The following information came from Anthony Minessale in a freeswitch-users [thread](http://lists.freeswitch.org/pipermail/freeswitch-users/2012-August/086987.html):
+
+If the jitterbuffer is already on, calling it again will just resize it, so setting it to the same is redundant, but harmless.
+
+If you are surprised by why the jitterbuffer is paused during bridge:
+
+If both sides of a bridge are RTP and both sides have a jitter buffer, it's fairly useless. In fact if anything, it can worsen call quality.
+
+You should only run jitter buffers at points of termination change of protocol. Examples, if FS was hosting a conference or IVR and you are bridging the call to a phone for instance, you don't want to use a jitter buffer because you want to preserve the original timestamps so that your phone can use its own jitter buffer.
+
+For special applications where you are using FS jitterbuffer in front of something else that does not have one or some other special circumstance you can use the setting that Chris mentioned to leave it running.
+
+# Activation instructions
+
+The jitter buffer can be activated via channel variable, dialplan app, or sofia param.
+
+The jitter buffer has three params that control its behavior: length, max length, and max drift. Length is the initial size of the jitter buffer in milliseconds. Max length is the upper bound for how big the jitter buffer can grow. Max drift controls how much delay the jitter buffer will tolerate before dropping frames to make up ground.
+
+## Dialplan app
+
+Enable 60 ms jitter buffer:
+
+```xml
+<action application="jitterbuffer" data="60"/>
+```
+
+Enable 60 ms jitter buffer with 200ms max length and 20 ms max drift:
+
+```xml
+<action application="jitterbuffer" data="60:200:20"/>
+```
+
+## Sofia profile param
+
+This param is the initial size of the jitter buffer in milliseconds. The max length and max drift values can't be set with this param.
+
+```xml
+<param name="auto-jitterbuffer-msec" value="60"/>
+```
+
+The parameter uses -hyphens- while the variable uses \_underscore\_
+
+## Channel Variable
+
+[jitterbuffer\_msec](../../Channel-Variables-Catalog/jitterbuffer_msec_16353845.mdx#jitterbuffer_msec)
+
+## jitterbuffer_msec
+
+string
+
+Channel variable. Activates the jitter buffer. The jitter buffer has three params: length, max length, and max drift.
+
+**Usage**
+
+jitterbuffer\_msec=buffer length:maximum buffer length:maximum drift
+
+The three arguments specify the size of the jitter buffer either in units of milliseconds when only numerals are used or in the count of packets when the suffix 'p' is appended to the number.
+
+buffer length – beginning length of jitter buffer
+
+max length – maximum size to which the jitter buffer is allowed to grow
+
+max drift – maximum delay the jitter buffer will tolerate before dropping frames to make up ground
+
+**Examples**
+
+**Numeric time example**
+
+```xml
+<action application="set" data="jitterbuffer_msec=60:200:20"/>
+<action application="answer"/>
+```
+
+**Packet count example**
+
+```xml
+<action application="set" data="jitterbuffer_msec=2p:25p:4p"/>
+<action application="answer"/>
+```
+
+Or to set it only on the subsequent outbound (Leg B) call: the [export](../Modules/mod_dptools_1970333.mdx#-c) dialplan app sets a variable on both the current channel and on any channels it creates, while the 'nolocal:' directive disables setting it on the current (Leg A) channel and only sets it on the subsequent outbound channels.
+
+**Leg B only with nolocal:**
+
+```xml
+<action application="export" data="nolocal:jitterbuffer_msec=60"/>
+<action application="bridge" data="sofia/default/888@conference.freeswitch.org"/>
+```
+
+You can also activate the Jitter Buffer in the bridge as follows:
+
+**jb in bridge app**
+
+```xml
+<action application="bridge" data="{jitterbuffer_msec=60}sofia/gateway/$1@gateway.com"/>
+```
+
+This will add a jitter buffer to packets flowing from a remote gateway towards a local freeswitch user. The network would look like this:
+
+(local sip user) -----> FreeSWITCH -----> (remote gateway)
+
+Where the link between FreeSWITCH and the remote gateway has jitter, and say the local SIP user has no jitter buffering on their IP-phone. This will help the voice quality for the incoming audio.
+
+# Other usage
+
+## [rtp_jitter_buffer_plc](../../Channel-Variables-Catalog/sip_jitter_buffer_plc_16353926.mdx#sip_jitter_buffer_plc)
+
+Enables/disables packet loss concealment ([PLC](../Modules/mod-dptools/6586541.mdx#about)) when using the jitter buffer. PLC is enabled by default when the jitter buffer is enabled. Set this variable before enabling the jitter buffer for it to have an effect.
+
+Usage:
+
+```xml
+<action application="set" data="rtp_jitter_buffer_plc=true"/>
+```
+
+or to disable PLC:
+
+```xml
+<action application="set" data="rtp_jitter_buffer_plc=false"/>
+```
+
+## [rtp_jitter_buffer_during_bridge](../../Channel-Variables-Catalog/rtp_jitter_buffer_during_bridge_16352745.mdx#rtp_jitter_buffer_during_bridge)
+
+Enables/disables the jitter buffer during bridge.
+
+Usage:
+
+```xml
+<action application="set" data="rtp_jitter_buffer_during_bridge=true"/>
+```
+
+or,
+
+```xml
+<action application="set" data="rtp_jitter_buffer_during_bridge=false"/>
+```
+
+To enable jitter buffer on only the B-leg of the call, issue commands based on these examples in this sequence:
+
+&lt;action application="export" data="rtp_jitter_buffer_during_bridge=true"/>
+
+&lt;action application="export" data="nolocal:jitterbuffer_msec=60:120"/>
+
+  
+## Pause
+
+The jitter buffer can be paused mid-call
+
+```xml
+<action application="jitterbuffer" data="pause"/>
+```
+
+## Resume
+
+The jitter buffer can be resumed mid-call
+
+```xml
+<action application="jitterbuffer" data="resume"/>
+```
+
+## Debug
+
+Jitter buffer debugging can be enabled/disabled.
+
+```xml
+<action application="jitterbuffer" data="debug:${uuid}"/>
+<action application="jitterbuffer" data="debug:off"/>
+```
+
+  
+## Lookahead
+
+If using the Opus codec (popular with WebRTC) and the far end is sending F.E.C. (Forward Error Correction) information, you can enable a look-ahead jitter buffer in the codec configuration:
+
+**autoload\_configs/opus.conf.xml**
+
+```xml
+<param name="use-jb-lookahead" value="1"/> 
+```
+
+On FreeSWITCH version 1.6 and later this greatly improves the audio performance even with heavy packet loss.
+
+  
+## Comments:
+
+| to enable jitterbuffer on one leg of the call, usually between FS and remote gateway, the only way to make it not pause during bridge is to do it the below way, i tried the way by mentioned on this page without using rtp jitter buffer during dridge but it doesnt work and always pauses, key here is to export both of the below and then only it will not pause and enable on one leg of the call &lt;action application="export" data="rtp\_jitter\_buffer\_during\_bridge=true"/> &lt;action application="export" data="nolocal:jitterbuffer\_msec=60:120"/> ![](/images/icons/contenttypes/comment_16.png) Posted by xbipin at nov 03, 2015 05:41 |
+| ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+
+Document generated by Confluence on nov 11, 2022 04:24

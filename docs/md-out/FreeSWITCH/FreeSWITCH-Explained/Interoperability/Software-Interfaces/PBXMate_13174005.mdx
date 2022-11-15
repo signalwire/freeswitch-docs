@@ -1,0 +1,728 @@
+
+# PBXMate 
+
+ Created by  Pedro Henrique Peixoto, last modified on 2017.01.13
+
+# About
+
+This article is a case study about integrating FreeSWITCH with PBXMate
+
+Click here to expand Table of Contents
+
+* 1 [General Information](#general-information)  
+   * 1.1 [Solution Architecture](#solution-architecture)  
+   * 1.2 [Prerequisites](#prerequisites)
+* 2 [Configuration](#configuration)  
+   * 2.1 [Configuring DNS](#configuring-dns-)  
+   * 2.2 [Configuring FreeSWITCH](#configuring-freeswitch)  
+         * 2.2.1 [Create a profile «pbxmate»](#create-a-profile-pbxmate)  
+         * 2.2.2 [Create a directory «pbxmate»](#create-a-directory-pbxmate)  
+         * 2.2.3 [Create a plan for routing calls «pbxmate»](#create-a-plan-for-routing-calls-pbxmate)  
+   * 2.3 [Configuring PBXMate](#configuring-pbxmate)  
+   * 2.4 [Final configuration of FreeSWITCH](#final-configuration-of-freeswitch)
+* 3 [Recommendations](#recommendations)
+* 4 [Testing](#testing)  
+   * 4.1 [Testing DNS](#testing-dns)  
+         * 4.1.1 [Testing DNS on a Windows host](#testing-dns-on-a-windows-host)  
+         * 4.1.2 [Testing DNS on a Linux host](#testing-dns-on-a-linux-host)  
+   * 4.2 [Preliminary testing FreeSWITCH](#preliminary-testing-freeswitch)  
+         * 4.2.1 [Testing the PBXMate Profile](#testing-the-pbxmate-profile)  
+         * 4.2.2 [Testing the Directory](#testing-the-directory)  
+         * 4.2.3 [Testing the Numbering Plan](#testing-the-numbering-plan)  
+   * 4.3 [Testing the PBXMate](#testing-the-pbxmate)  
+         * 4.3.1 [Testing PBXMate Registration](#testing-pbxmate-registration)  
+         * 4.3.2 [Testing a call via the PBXMate](#testing-a-call-via-the-pbxmate)  
+   * 4.4 [Final testing FreeSWITCH](#final-testing-freeswitch)
+
+# General Information
+
+The [PBXMate](http://www.solicall.com/products.html#PBXMate) software product from [SoliCall](http://www.solicall.com/) is designed to improve voice quality by canceling echo, canceling noise and monitoring quality indicators. This article describes, in details, one option to integrating the PBXMate with FreeSWITCH in which both products are installed on the same Linux machine and a DNS is being used.
+
+## Solution Architecture
+
+The following two figures show the flow for both SIP messages and RTP messages.
+
+Figure 1 was missing from legacy FreeSWITCH wiki
+
+Figure 1\. Flow of SIP signaling.
+
+![Figure 2. Flow of RTP data.](/attachments/13174005/13173925.png "Figure 2. Flow of RTP data.")
+
+Figure 2\. Flow of RTP data.
+
+## Prerequisites
+
+For the purpose of this integration the prerequisites are:
+
+1. DNS server.
+2. FreeSWITCH must have configured default gateway.
+3. PBXMate installed on the same machine as the FreeSWITCH.
+4. For testing, a SIP client that allows modifying the port number of the SIP server.
+
+# Configuration
+
+## Configuring DNS 
+
+To allow handling on port other than 5060 it is necessary to use the following DNS SRV records:
+
+1. \_sip.\_udp.pbxmate IN SRV 1 10 5062 pbxmate
+2. pbxmate IN A 78.46.120.13
+
+5062 is the port number on which the the PBXMate was configured to listen. After the entries have been edited, you can [test it](#testing-dns).
+
+## Configuring FreeSWITCH
+
+### Create a profile «pbxmate»
+
+Since the PBXMate includes functions to handle RTP traffic, this function is not required from the FreeSWITCH.
+
+1. Running «cd conf/sip\_profiles/» go to the folder of SIP profiles;
+2. Running «cp internal.xml pbxmate.xml» copy the profile «internal» to the profile «pbxmate»;
+3. Edit the newly created profile file;
+4. Change the profile name – &lt;profile name=«pbxmate»>;
+5. Remove the line &lt;X-PRE-PROCESS cmd=«include» data=«internal/\*.xml»/>;
+6. Set the port value on which FreeSWITCH listens without handling RTP traffic – &lt;param name=«sip-port» value=«15060»/>;
+7. By removing comment symbols from &lt;param name=«inbound-bypass-media» value=«true»/> line, permitting bypass RTP traffic by FreeSWITCH;
+8. Fixing the registration of SIP clients in the domain «pbxmate.network-engineer.ru» – &lt;param name=«force-register-domain» value=«pbxmate.network-engineer.ru»/>;
+9. Do the same with the element «force-subscription-domain» – &lt;param name=«force-subscription-domain» value=« pbxmate.network-engineer.ru »/>;
+10. Do the same with the element «force-register-db-domain» – &lt;param name=«force-register-db-domain» value=« pbxmate.network-engineer.ru »/>.
+
+After making the above changes in the newly created profile you can [test it](http://freeswitch.org#fs%5Fprofile%5Ftesting).
+
+### Create a directory «pbxmate»
+
+In order to ensure processing of calls coming from the pbxmate, we need to create files that describe the SIP clients.
+
+1. Go to the folder «conf/directory/» – cd conf/directory/;
+2. Create an empty file describing directory – touch pbxmate.xml;
+3. In the new file add the following content
+
+```xml
+<include>
+  <!--the domain or ip (the right hand side of the @ in the addr-->
+  <domain name="pbxmate.network-engineer.ru">
+
+    <params>
+      <param name="dial-string" value="{presence_id=${dialed_user}@${dialed_domain}}${sofia_contact(${dialed_user}@${dialed_domain})}"/>
+    </params>
+
+    <variables>
+      <variable name="default_gateway" value="$${default_provider}"/>
+    </variables>
+
+    <groups>
+      <group name="default">
+        <users>
+          <X-PRE-PROCESS cmd="include" data="pbxmate/*.xml"/>
+        </users>
+      </group>
+    </groups>
+
+  </domain>
+</include>
+```
+
+1. Create a directory «pbxmate», in which the files will be stored - mkdir pbxmate;
+2. Create a file describing the first SIP account with the following content
+
+```xml
+<include>
+  <user id="SoliCallPBXTrunk">
+    <params>
+      <param name="password" value="$${default_password}"/>
+
+    </params>
+    <variables>
+      <variable name="user_context" value="pbxmate"/>
+    </variables>
+
+  </user>
+</include>
+```
+
+1. Create a file describing the second SIP account with the following content
+
+```xml
+<include>
+  <user id="SoliCallPair0">
+    <params>
+
+      <param name="password" value="$${default_password}"/>
+    </params>
+    <variables>
+      <variable name="user_context" value="pbxmate"/>
+
+    </variables>
+  </user>
+</include>
+```
+
+1. Create a file describing the third SIP account with the following content
+
+```xml
+<include>
+  <user id="SoliCallPair1">
+
+    <params>
+      <param name="password" value="$${default_password}"/>
+    </params>
+    <variables>
+
+      <variable name="user_context" value="pbxmate"/>
+    </variables>
+  </user>
+</include>
+```
+
+For all three SIP accounts the password must be the same. Afterwards you can [test it](http://freeswitch.org#fs%5Fdirectory%5Ftesting).
+
+### Create a plan for routing calls «pbxmate»
+
+Now we need to ensure the routing of outgoing calls.
+
+1. Go to folder «conf/dialplan/» – cd conf/dialplan/
+2. Create a file describing the plan set – touch pbxmate.xml
+3. Add to the new file the following content
+
+```xml
+<include>
+  <context name="pbxmate">
+
+    <extension name="unloop">
+
+      <condition field="${unroll_loops}" expression="^true$"/>
+      <condition field="${sip_looped_call}" expression="^true$">
+        <action application="deflect" data="${destination_number}"/>
+
+      </condition>
+    </extension>
+
+    <extension name="default">
+      <condition field="destination_number" expression="^\+(\d*)$">
+
+        <action application="bridge" data="sofia/gateway/${default_gateway}/00$1"/>
+      </condition>
+    </extension>
+
+  </context>
+
+</include>
+```
+
+After configuring the dial plan you can [test it](http://freeswitch.org#fs%5Fdialplan%5Ftesting).
+
+## Configuring PBXMate
+
+Set the following parameters in the configuration file «solicall/bin/pbxmate.conf»:
+
+1. SipProxyIP must contain the IP addresses on which the FreeSWITCH server listening, for example SipProxyIP = 78.46.120.13;
+2. SipProxyPort must contain the port on which FreeSWITCH server listens for the profile «pbxmate», for example SipProxyPort = 15060;
+3. SipProxyDomain must contain the DNS domain name set up to work PBXMate, for example SipProxyDomain = pbxmate.network-engineer.ru;
+4. SipUAIP must contain the IP addresses on which PBXMate listens, for example SipUAIP = 78.46.120.13;
+5. SipUAPort must contain the port on which the PBXMate listens. Given that ports 5060 and 5061 are being used by FreeSWITCH, we recommend to use the port 5062 for the PBXMate. In this case, the configuration line will look SipUAPort = 5062;
+6. Secret should contain a password assigned to users in the directory FreeSWITCH, for example Secret = 1234.
+
+Once the configuration parameters of the PBXMate have been set, you can [test PBXMate registration](http://freeswitch.org#pbxmate%5Fregistration) and [test a call via the PBXMate](http://freeswitch.org#pbxmate%5Fcalling).
+
+## Final configuration of FreeSWITCH
+
+To ensure the routing of outgoing calls we need to create a file describing gateway PBXMate. To do this, do the following:
+
+1. Navigate to the directory by default – «conf/directory/default»;
+2. Create a file describing the gateway pbxmate.network-engineer.ru – touch pbxmate.network-engineer.ru.xml;
+3. To the new file add the following content
+
+```xml
+<include>
+  <user id="pbxmate.network-engineer.ru">
+    <gateways>
+      <gateway name="pbxmate.network-engineer.ru">
+
+        <param name="username" value="someuser"/>
+        <param name="password" value="1234"/>
+        <param name="register" value="false"/>
+
+        <param name="context" value="public"/>
+      </gateway>
+    </gateways>
+    <params>
+
+      <param name="password" value="$${default_provider_password}"/>
+    </params>
+  </user>
+</include>
+```
+
+1. Add a new outgoing calls direction to the file «conf/dialplan/default.xml». This direction can be added, for example, after describing the direction of «Local\_Extension»
+
+```xml
+<extension name="by_pbxmate">
+  <condition field="destination_number" expression="^(\+\d*)$">
+
+    <action application="set" data="effective_caller_id_number=${outbound_caller_id_number}"/>
+    <action application="set" data="effective_caller_id_name=${outbound_caller_id_name}"/>
+    <action application="bridge" data="sofia/gateway/pbxmate.network-engineer.ru/$1"/>
+
+  </condition>
+</extension>
+```
+
+Following revisions to the plan [do final testing](http://freeswitch.org#final%5Ftesting).
+
+# Recommendations
+
+PBXMate does not authenticate SIP calls, therefore it is recommended to use a firewall to prohibit access to the PBXMate by any host other than FreeSWITCH.
+
+# Testing
+
+## Testing DNS
+
+### Testing DNS on a Windows host
+
+In order to verify that the correct DNS entries, we execute the command «nslookup-type = all \_sip.\_udp.pbxmate.network-engineer.ru»
+
+We should get the output below.
+
+```xml
+nslookup -type=all _sip._udp.pbxmate.network-engineer.ru
+Server:  yota.ru
+Address:  94.25.208.74
+
+Non-authoritative answer:
+_sip._udp.pbxmate.network-engineer.ru   SRV service location:
+          priority       = 1
+          weight         = 10
+          port           = 5062
+          svr hostname   = pbxmate.network-engineer.ru
+
+network-engineer.ru     nameserver = dns1.naunet.ru
+network-engineer.ru     nameserver = dns2.naunet.ru
+pbxmate.network-engineer.ru     internet address = 78.46.120.13
+```
+
+Where the field «port» must have a value port number on which the PBXMate listens, and the field «internet address» should contain the IP address on which the PBXMate listens.
+
+### Testing DNS on a Linux host
+
+In order to verify that the correct DNS entries, we execute the command «nslookup-type = SRV \_sip.\_udp.pbxmate.network-engineer.ru» We should get the output below
+
+```xml
+nslookup -type=SRV _sip._udp.pbxmate.network-engineer.ru
+Server:         213.133.99.99
+Address:        213.133.99.99#53
+
+Non-authoritative answer:
+_sip._udp.pbxmate.network-engineer.ru   service = 1 10 5062 pbxmate.network-engineer.ru.
+
+Authoritative answers can be found from:
+```
+
+## Preliminary testing FreeSWITCH
+
+### Testing the PBXMate Profile
+
+Restart FreeSWITCH server. On the FreeSWITCH console write «sofia status». You should see the profile «pbxmate»,
+
+```xml
+freeswitch@internal> sofia status
+                     Name          Type                                       Data      State
+=================================================================================================
+                  pbxmate       profile           sip:mod_sofia@78.46.120.13:15060      RUNNING (0)
+                 internal       profile            sip:mod_sofia@78.46.120.13:5060      RUNNING (0)
+                 external       profile            sip:mod_sofia@78.46.120.13:5080      RUNNING (0)
+external::korusconsulting.ru    gateway                     sip:korus@84.204.44.57      NOREG
+external::sip.siptraffic.com    gateway      sip:personal_phone@sip.siptraffic.com      NOREG
+            internal-ipv6       profile                   sip:mod_sofia@[::1]:5060      RUNNING (0)
+      network-engineer.ru         alias                                   internal      ALIASED
+=================================================================================================
+4 profiles 1 alias
+```
+
+The command «sofia status profile pbxmate» will test the configuration of the pbxmate profile. In the profile configuration option «NOMEDIA» must be set to «true», as can be seen below.
+
+```xml
+freeswitch@internal> sofia status profile pbxmate
+=================================================================================================
+Name                    pbxmate
+Domain Name             N/A
+Auto-NAT                false
+DBName                  sofia_reg_pbxmate
+Pres Hosts
+Dialplan                XML
+Context                 public
+Challenge Realm         auto_from
+RTP-IP                  78.46.120.13
+SIP-IP                  78.46.120.13
+URL                     sip:mod_sofia@78.46.120.13:15060
+BIND-URL                sip:mod_sofia@78.46.120.13:15060
+HOLD-MUSIC              local_stream://moh
+OUTBOUND-PROXY          N/A
+CODECS IN               G7221@32000h,G7221@16000h,G722,PCMU,PCMA,G729,GSM,iLBC@30i
+CODECS OUT              G7221@32000h,G7221@16000h,G722,PCMU,PCMA,G729,GSM,iLBC@30i
+TEL-EVENT               101
+DTMF-MODE               rfc2833
+CNG                     13
+SESSION-TO              0
+MAX-DIALOG              0
+NOMEDIA                 true
+LATE-NEG                false
+PROXY-MEDIA             false
+AGGRESSIVENAT           false
+STUN-ENABLED            true
+STUN-AUTO-DISABLE       false
+CALLS-IN                0
+FAILED-CALLS-IN         0
+CALLS-OUT               0
+FAILED-CALLS-OUT        0
+
+Registrations:
+=================================================================================================
+=================================================================================================
+```
+
+### Testing the Directory
+
+Note: For these testing we used SIP client X-Lite 3.0\. In the FreeSWITCH console execute reloadxml.
+
+```xml
+freeswitch@internal> reloadxml
++OK [Success]
+
+freeswitch@internal> 2010-06-20 11:13:39.246147 [INFO] mod_enum.c:808 ENUM Reloaded
+2010-06-20 11:13:39.246147 [INFO] switch_time.c:915 Timezone reloaded 530 definitions
+```
+
+Following are the settings of the SIP client:
+
+1. Display Name: SoliCallPBXTrunk;
+2. User Name: SoliCallPBXTrunk;
+3. Password: 1234;
+4. Authorization user name: SoliCallPBXTrunk;
+5. Domain: pbxmate.network-engineer.ru;
+6. Set the check mark «Register with domain and receive incoming calls»;
+7. In the proxy field set the value of IP addresses on which FreeSWITCH is listening followed by a colon and the port number that has been configured for the pbxmate profile.
+
+Sample Screen SIP client below.
+
+![Example SIP client settings for testing PBXMate registration](/attachments/13174005/13173988.png "Example SIP client settings for testing PBXMate registration")
+
+Figure 3\. Example SIP client settings for testing PBXMate registration.
+
+Save the configuration and verify that the SIP client registered on FreeSWITCH. After successful registration, a SIP client will look like
+
+![SIP client after successfully registration on the FreeSWITCH](/attachments/13174005/13173995.png "SIP client after successfully registration on the FreeSWITCH")
+
+Figure 4\. SIP client after successfully registraion on the FreeSWITCH.
+
+On the FreeSWITCH console you test registration by running «sofia status profile pbxmate». The «Registrations» section should contain information about the user with the number SoliCallPBXTrunk.
+
+```xml
+Registrations:
+=================================================================================================
+Call-ID:        MWVhNzM2YmJjM2FiNDM2MGY3NWQ1ZDg2MTdiMzIyNDc.
+User:           SoliCallPBXTrunk@pbxmate.network-engineer.ru
+Contact:        "SoliCallPBXTrunk" <sip:SoliCallPBXTrunk@188.162.112.168:41750;rinstance=a579e27a4c7c209c>
+Agent:          X-Lite release 1104o stamp 56125
+Status:         Registered(UDP)(unknown) EXP(2010-06-20 15:52:16)
+Host:           static.13.120.46.78.clients.your-server.de
+IP:             188.162.112.168
+Port:           41750
+Auth-User:      SoliCallPBXTrunk
+Auth-Realm:     pbxmate.network-engineer.ru
+MWI-Account:    SoliCallPBXTrunk@pbxmate.network-engineer.ru
+
+=================================================================================================
+```
+
+You can repeat this test for both SoliCallPair0 and SoliCallPair1.
+
+### Testing the Numbering Plan
+
+In the FreeSWITCH console execute reloadxml.
+
+```xml
+freeswitch@internal> reloadxml
++OK [Success]
+
+2010-06-20 12:24:23.855174 [INFO] mod_enum.c:808 ENUM Reloaded
+freeswitch@internal> 2010-06-20 12:24:23.855174 [INFO] switch_time.c:915 Timezone reloaded 530 definitions
+```
+
+Try to have a SIP client dial to your cell phone or landline phone. Below is an example of a call log in the console of FreeSWITCH.
+
+```xml
+freeswitch@internal> 2010-06-20 12:35:46.083836 [DEBUG] sofia.c:5847 IP 188.162.112.168 Rejected by acl "domains". Falling back to Digest auth.
+2010-06-20 12:35:46.343841 [DEBUG] sofia.c:5847 IP 188.162.112.168 Rejected by acl "domains". Falling back to Digest auth.
+2010-06-20 12:35:46.355779 [NOTICE] switch_channel.c:669 New Channel sofia/pbxmate/1000@pbxmate.network-engineer.ru [95c70764-7c57-11df-b17e-2f2351c508ed]
+2010-06-20 12:35:46.355779 [DEBUG] switch_core_state_machine.c:314 (sofia/pbxmate/1000@pbxmate.network-engineer.ru) Running State Change CS_NEW
+2010-06-20 12:35:46.355779 [DEBUG] switch_core_state_machine.c:320 (sofia/pbxmate/1000@pbxmate.network-engineer.ru) State NEW
+2010-06-20 12:35:46.363761 [DEBUG] sofia.c:4153 Channel sofia/pbxmate/1000@pbxmate.network-engineer.ru entering state [received][100]
+2010-06-20 12:35:46.363761 [DEBUG] sofia.c:4164 Remote SDP:
+v=0
+o=- 5 2 IN IP4 10.137.237.252
+s=CounterPath X-Lite 3.0
+c=IN IP4 10.137.237.252
+t=0 0
+m=audio 18052 RTP/AVP 98 101
+a=rtpmap:98 iLBC/8000
+a=rtpmap:101 telephone-event/8000
+a=fmtp:101 0-15
+a=alt:1 3 : Qb8UsVNK H1/lbD0n 10.137.237.252 18052
+a=alt:2 2 : TOh2q/qP 7MbjINUQ 192.168.150.1 18052
+a=alt:3 1 : NrBBhzXi GZft3o/L 192.168.177.1 18052
+
+2010-06-20 12:35:46.363761 [DEBUG] sofia.c:4273 (sofia/pbxmate/1000@pbxmate.network-engineer.ru) State Change CS_NEW -> CS_INIT
+2010-06-20 12:35:46.363761 [DEBUG] switch_core_session.c:1021 Send signal sofia/pbxmate/1000@pbxmate.network-engineer.ru [BREAK]
+2010-06-20 12:35:46.367750 [DEBUG] switch_core_state_machine.c:314 (sofia/pbxmate/1000@pbxmate.network-engineer.ru) Running State Change CS_INIT
+2010-06-20 12:35:46.367750 [DEBUG] switch_core_state_machine.c:338 (sofia/pbxmate/1000@pbxmate.network-engineer.ru) State INIT
+2010-06-20 12:35:46.367750 [DEBUG] mod_sofia.c:83 sofia/pbxmate/1000@pbxmate.network-engineer.ru SOFIA INIT
+2010-06-20 12:35:46.367750 [DEBUG] mod_sofia.c:117 (sofia/pbxmate/1000@pbxmate.network-engineer.ru) State Change CS_INIT -> CS_ROUTING
+2010-06-20 12:35:46.367750 [DEBUG] switch_core_session.c:1021 Send signal sofia/pbxmate/1000@pbxmate.network-engineer.ru [BREAK]
+2010-06-20 12:35:46.367750 [DEBUG] switch_core_state_machine.c:338 (sofia/pbxmate/1000@pbxmate.network-engineer.ru) State INIT going to sleep
+2010-06-20 12:35:46.367750 [DEBUG] switch_core_state_machine.c:314 (sofia/pbxmate/1000@pbxmate.network-engineer.ru) Running State Change CS_ROUTING
+2010-06-20 12:35:46.367750 [DEBUG] switch_core_state_machine.c:341 (sofia/pbxmate/1000@pbxmate.network-engineer.ru) State ROUTING
+2010-06-20 12:35:46.367750 [DEBUG] mod_sofia.c:140 sofia/pbxmate/1000@pbxmate.network-engineer.ru SOFIA ROUTING
+2010-06-20 12:35:46.367750 [DEBUG] switch_core_state_machine.c:77 sofia/pbxmate/1000@pbxmate.network-engineer.ru Standard ROUTING
+2010-06-20 12:35:46.367750 [INFO] mod_dialplan_xml.c:418 Processing 1000->+78123242457 in context pbxmate
+Dialplan: sofia/pbxmate/1000@pbxmate.network-engineer.ru parsing [pbxmate->unloop] continue=false
+Dialplan: sofia/pbxmate/1000@pbxmate.network-engineer.ru Regex (PASS) [unloop] ${unroll_loops}(true) =~ /^true$/ break=on-false
+Dialplan: sofia/pbxmate/1000@pbxmate.network-engineer.ru Regex (FAIL) [unloop] ${sip_looped_call}() =~ /^true$/ break=on-false
+Dialplan: sofia/pbxmate/1000@pbxmate.network-engineer.ru parsing [pbxmate->default] continue=false
+Dialplan: sofia/pbxmate/1000@pbxmate.network-engineer.ru Regex (PASS) [default] destination_number(+78123242457) =~ /^\+(\d*)$/ break=on-false
+Dialplan: sofia/pbxmate/1000@pbxmate.network-engineer.ru Action bridge(sofia/gateway/${default_gateway}/0078123242457)
+2010-06-20 12:35:46.367750 [DEBUG] switch_core_state_machine.c:119 (sofia/pbxmate/1000@pbxmate.network-engineer.ru) State Change CS_ROUTING -> CS_EXECUTE
+2010-06-20 12:35:46.367750 [DEBUG] switch_core_session.c:1021 Send signal sofia/pbxmate/1000@pbxmate.network-engineer.ru [BREAK]
+2010-06-20 12:35:46.367750 [DEBUG] switch_core_state_machine.c:341 (sofia/pbxmate/1000@pbxmate.network-engineer.ru) State ROUTING going to sleep
+2010-06-20 12:35:46.367750 [DEBUG] switch_core_state_machine.c:314 (sofia/pbxmate/1000@pbxmate.network-engineer.ru) Running State Change CS_EXECUTE
+2010-06-20 12:35:46.367750 [DEBUG] switch_core_state_machine.c:348 (sofia/pbxmate/1000@pbxmate.network-engineer.ru) State EXECUTE
+2010-06-20 12:35:46.367750 [DEBUG] mod_sofia.c:226 sofia/pbxmate/1000@pbxmate.network-engineer.ru SOFIA EXECUTE
+2010-06-20 12:35:46.367750 [DEBUG] switch_core_state_machine.c:157 sofia/pbxmate/1000@pbxmate.network-engineer.ru Standard EXECUTE
+EXECUTE sofia/pbxmate/1000@pbxmate.network-engineer.ru bridge(sofia/gateway/sip.siptraffic.com/0078123242457)
+2010-06-20 12:35:46.367750 [NOTICE] switch_channel.c:669 New Channel sofia/external/0078123242457 [95c8be4c-7c57-11df-b17f-2f2351c508ed]
+2010-06-20 12:35:46.367750 [DEBUG] mod_sofia.c:3384 (sofia/external/0078123242457) State Change CS_NEW -> CS_INIT
+2010-06-20 12:35:46.367750 [DEBUG] switch_core_session.c:1021 Send signal sofia/external/0078123242457 [BREAK]
+2010-06-20 12:35:46.367750 [DEBUG] switch_core_state_machine.c:314 (sofia/external/0078123242457) Running State Change CS_INIT
+2010-06-20 12:35:46.367750 [DEBUG] switch_core_state_machine.c:338 (sofia/external/0078123242457) State INIT
+2010-06-20 12:35:46.367750 [DEBUG] mod_sofia.c:83 sofia/external/0078123242457 SOFIA INIT
+2010-06-20 12:35:46.367750 [DEBUG] mod_sofia.c:117 (sofia/external/0078123242457) State Change CS_INIT -> CS_ROUTING
+2010-06-20 12:35:46.367750 [DEBUG] switch_core_session.c:1021 Send signal sofia/external/0078123242457 [BREAK]
+2010-06-20 12:35:46.367750 [DEBUG] sofia.c:4153 Channel sofia/external/0078123242457 entering state [calling][0]
+2010-06-20 12:35:46.367750 [DEBUG] switch_core_state_machine.c:338 (sofia/external/0078123242457) State INIT going to sleep
+2010-06-20 12:35:46.367750 [DEBUG] switch_core_state_machine.c:314 (sofia/external/0078123242457) Running State Change CS_ROUTING
+2010-06-20 12:35:46.367750 [DEBUG] switch_core_state_machine.c:341 (sofia/external/0078123242457) State ROUTING
+2010-06-20 12:35:46.367750 [DEBUG] mod_sofia.c:140 sofia/external/0078123242457 SOFIA ROUTING
+2010-06-20 12:35:46.367750 [DEBUG] switch_ivr_originate.c:66 (sofia/external/0078123242457) State Change CS_ROUTING -> CS_CONSUME_MEDIA
+2010-06-20 12:35:46.367750 [DEBUG] switch_core_session.c:1021 Send signal sofia/external/0078123242457 [BREAK]
+2010-06-20 12:35:46.367750 [DEBUG] switch_core_state_machine.c:341 (sofia/external/0078123242457) State ROUTING going to sleep
+2010-06-20 12:35:46.367750 [DEBUG] switch_core_state_machine.c:314 (sofia/external/0078123242457) Running State Change CS_CONSUME_MEDIA
+2010-06-20 12:35:46.367750 [DEBUG] switch_core_state_machine.c:360 (sofia/external/0078123242457) State CONSUME_MEDIA
+2010-06-20 12:35:46.367750 [DEBUG] switch_core_state_machine.c:360 (sofia/external/0078123242457) State CONSUME_MEDIA going to sleep
+2010-06-20 12:35:46.375751 [DEBUG] sofia.c:4153 Channel sofia/external/0078123242457 entering state [calling][0]
+2010-06-20 12:35:46.401113 [INFO] sofia.c:662 Update Callee ID to "0078123242457" <0078123242457>
+
+2010-06-20 12:35:46.401113 [DEBUG] sofia.c:4153 Channel sofia/external/0078123242457 entering state [proceeding][183]
+2010-06-20 12:35:46.401113 [DEBUG] sofia.c:4164 Remote SDP:
+v=0
+o=CARRIER 1277030146 1277030146 IN IP4 194.221.62.69
+s=SIP Call
+c=IN IP4 194.221.62.69
+t=0 0
+m=audio 58222 RTP/AVP 98 101
+a=rtpmap:98 iLBC/8000
+a=fmtp:98 mode=30
+a=rtpmap:101 telephone-event/8000
+a=ptime:30
+
+2010-06-20 12:35:46.401113 [NOTICE] sofia.c:4232 Pre-Answer sofia/external/0078123242457!
+2010-06-20 12:35:46.401113 [DEBUG] switch_channel.c:2211 Send signal sofia/pbxmate/1000@pbxmate.network-engineer.ru [BREAK]
+2010-06-20 12:35:46.411751 [INFO] sofia.c:4245 Sending early media
+2010-06-20 12:35:46.411751 [NOTICE] mod_sofia.c:1907 Pre-Answer sofia/pbxmate/1000@pbxmate.network-engineer.ru!
+2010-06-20 12:35:46.411751 [DEBUG] switch_core_session.c:702 Send signal sofia/external/0078123242457 [BREAK]
+2010-06-20 12:35:46.411751 [DEBUG] switch_core_session.c:641 Send signal sofia/pbxmate/1000@pbxmate.network-engineer.ru [BREAK]
+2010-06-20 12:35:46.411751 [DEBUG] sofia.c:4148 Channel sofia/pbxmate/1000@pbxmate.network-engineer.ru skipping state [early][183]
+2010-06-20 12:35:46.419871 [DEBUG] switch_core_session.c:702 Send signal sofia/external/0078123242457 [BREAK]
+2010-06-20 12:35:46.419871 [DEBUG] switch_core_session.c:641 Send signal sofia/pbxmate/1000@pbxmate.network-engineer.ru [BREAK]
+2010-06-20 12:35:46.419871 [DEBUG] switch_ivr_originate.c:3148 Originate Resulted in Success: [sofia/external/0078123242457]
+2010-06-20 12:35:46.427746 [DEBUG] switch_ivr_bridge.c:1016 (sofia/pbxmate/1000@pbxmate.network-engineer.ru) State Change CS_EXECUTE -> CS_HIBERNATE
+2010-06-20 12:35:46.427746 [DEBUG] switch_core_session.c:1021 Send signal sofia/pbxmate/1000@pbxmate.network-engineer.ru [BREAK]
+2010-06-20 12:35:46.427746 [DEBUG] switch_ivr_bridge.c:1017 (sofia/external/0078123242457) State Change CS_CONSUME_MEDIA -> CS_HIBERNATE
+2010-06-20 12:35:46.427746 [DEBUG] switch_core_session.c:1021 Send signal sofia/external/0078123242457 [BREAK]
+2010-06-20 12:35:46.427746 [DEBUG] switch_core_session.c:702 Send signal sofia/external/0078123242457 [BREAK]
+2010-06-20 12:35:46.427746 [DEBUG] switch_core_session.c:702 Send signal sofia/pbxmate/1000@pbxmate.network-engineer.ru [BREAK]
+2010-06-20 12:35:46.427746 [DEBUG] switch_core_state_machine.c:348 (sofia/pbxmate/1000@pbxmate.network-engineer.ru) State EXECUTE going to sleep
+2010-06-20 12:35:46.427746 [DEBUG] switch_core_state_machine.c:314 (sofia/pbxmate/1000@pbxmate.network-engineer.ru) Running State Change CS_HIBERNATE
+2010-06-20 12:35:46.427746 [DEBUG] switch_core_state_machine.c:363 (sofia/pbxmate/1000@pbxmate.network-engineer.ru) State HIBERNATE
+2010-06-20 12:35:46.427746 [DEBUG] mod_sofia.c:207 sofia/pbxmate/1000@pbxmate.network-engineer.ru SOFIA HIBERNATE
+2010-06-20 12:35:46.427746 [DEBUG] switch_core_session.c:641 Send signal sofia/pbxmate/1000@pbxmate.network-engineer.ru [BREAK]
+2010-06-20 12:35:46.427746 [DEBUG] switch_core_state_machine.c:220 sofia/pbxmate/1000@pbxmate.network-engineer.ru Standard HIBERNATE
+2010-06-20 12:35:46.427746 [DEBUG] switch_core_state_machine.c:363 (sofia/pbxmate/1000@pbxmate.network-engineer.ru) State HIBERNATE going to sleep
+2010-06-20 12:35:46.427746 [DEBUG] switch_core_state_machine.c:314 (sofia/external/0078123242457) Running State Change CS_HIBERNATE
+2010-06-20 12:35:46.427746 [DEBUG] switch_core_state_machine.c:363 (sofia/external/0078123242457) State HIBERNATE
+2010-06-20 12:35:46.427746 [DEBUG] mod_sofia.c:207 sofia/external/0078123242457 SOFIA HIBERNATE
+2010-06-20 12:35:46.427746 [DEBUG] switch_core_session.c:641 Send signal sofia/external/0078123242457 [BREAK]
+2010-06-20 12:35:46.427746 [DEBUG] switch_core_state_machine.c:220 sofia/external/0078123242457 Standard HIBERNATE
+2010-06-20 12:35:46.427746 [DEBUG] switch_core_state_machine.c:363 (sofia/external/0078123242457) State HIBERNATE going to sleep
+2010-06-20 12:35:49.923968 [DEBUG] sofia.c:4153 Channel sofia/external/0078123242457 entering state [completing][200]
+2010-06-20 12:35:49.923968 [DEBUG] sofia.c:4164 Remote SDP:
+v=0
+o=CARRIER 1277030150 1277030150 IN IP4 194.221.62.69
+s=SIP Call
+c=IN IP4 194.221.62.69
+t=0 0
+m=audio 58222 RTP/AVP 98 101
+a=rtpmap:98 iLBC/8000
+a=fmtp:98 mode=30
+a=rtpmap:101 telephone-event/8000
+a=ptime:30
+
+2010-06-20 12:35:49.923968 [DEBUG] sofia.c:4153 Channel sofia/external/0078123242457 entering state [ready][200]
+2010-06-20 12:35:49.923968 [DEBUG] switch_channel.c:2324 Send signal sofia/pbxmate/1000@pbxmate.network-engineer.ru [BREAK]
+2010-06-20 12:35:49.923968 [NOTICE] sofia.c:4677 Channel [sofia/external/0078123242457] has been answered
+2010-06-20 12:35:49.939984 [DEBUG] switch_core_session.c:702 Send signal sofia/external/0078123242457 [BREAK]
+2010-06-20 12:35:49.939984 [DEBUG] sofia.c:4153 Channel sofia/pbxmate/1000@pbxmate.network-engineer.ru entering state [completed][200]
+2010-06-20 12:35:49.939984 [DEBUG] switch_core_session.c:641 Send signal sofia/pbxmate/1000@pbxmate.network-engineer.ru [BREAK]
+2010-06-20 12:35:49.939984 [NOTICE] sofia.c:4682 Channel [sofia/pbxmate/1000@pbxmate.network-engineer.ru] has been answered
+2010-06-20 12:35:50.200000 [DEBUG] sofia.c:4153 Channel sofia/pbxmate/1000@pbxmate.network-engineer.ru entering state [ready][200]
+2010-06-20 12:35:56.312388 [NOTICE] sofia.c:481 Hangup sofia/pbxmate/1000@pbxmate.network-engineer.ru [CS_HIBERNATE] [NORMAL_CLEARING]
+2010-06-20 12:35:56.312388 [DEBUG] switch_channel.c:2102 Send signal sofia/pbxmate/1000@pbxmate.network-engineer.ru [KILL]
+2010-06-20 12:35:56.312388 [DEBUG] switch_core_session.c:1021 Send signal sofia/pbxmate/1000@pbxmate.network-engineer.ru [BREAK]
+2010-06-20 12:35:56.312388 [DEBUG] switch_core_state_machine.c:314 (sofia/pbxmate/1000@pbxmate.network-engineer.ru) Running State Change CS_HANGUP
+2010-06-20 12:35:56.312388 [DEBUG] switch_core_state_machine.c:499 (sofia/pbxmate/1000@pbxmate.network-engineer.ru) State HANGUP
+2010-06-20 12:35:56.312388 [DEBUG] mod_sofia.c:408 sofia/pbxmate/1000@pbxmate.network-engineer.ru Overriding SIP cause 480 with 200 from the other leg
+2010-06-20 12:35:56.312388 [DEBUG] mod_sofia.c:414 Channel sofia/pbxmate/1000@pbxmate.network-engineer.ru hanging up, cause: NORMAL_CLEARING
+2010-06-20 12:35:56.336371 [NOTICE] switch_ivr_bridge.c:932 Hangup sofia/external/0078123242457 [CS_HIBERNATE] [NORMAL_CLEARING]
+2010-06-20 12:35:56.336371 [DEBUG] switch_channel.c:2102 Send signal sofia/external/0078123242457 [KILL]
+2010-06-20 12:35:56.336371 [DEBUG] switch_core_session.c:1021 Send signal sofia/external/0078123242457 [BREAK]
+2010-06-20 12:35:56.336371 [DEBUG] switch_core_state_machine.c:46 sofia/pbxmate/1000@pbxmate.network-engineer.ru Standard HANGUP, cause: NORMAL_CLEARING
+2010-06-20 12:35:56.336371 [DEBUG] switch_core_state_machine.c:499 (sofia/pbxmate/1000@pbxmate.network-engineer.ru) State HANGUP going to sleep
+2010-06-20 12:35:56.336371 [DEBUG] switch_core_state_machine.c:333 (sofia/pbxmate/1000@pbxmate.network-engineer.ru) State Change CS_HANGUP -> CS_REPORTING
+2010-06-20 12:35:56.336371 [DEBUG] switch_core_session.c:1021 Send signal sofia/pbxmate/1000@pbxmate.network-engineer.ru [BREAK]
+2010-06-20 12:35:56.336371 [DEBUG] switch_core_state_machine.c:314 (sofia/pbxmate/1000@pbxmate.network-engineer.ru) Running State Change CS_REPORTING
+2010-06-20 12:35:56.336371 [DEBUG] switch_core_state_machine.c:590 (sofia/pbxmate/1000@pbxmate.network-engineer.ru) State REPORTING
+2010-06-20 12:35:56.336371 [DEBUG] switch_core_state_machine.c:53 sofia/pbxmate/1000@pbxmate.network-engineer.ru Standard REPORTING, cause: NORMAL_CLEARING
+2010-06-20 12:35:56.336371 [DEBUG] switch_core_state_machine.c:590 (sofia/pbxmate/1000@pbxmate.network-engineer.ru) State REPORTING going to sleep
+2010-06-20 12:35:56.336371 [DEBUG] switch_core_state_machine.c:327 (sofia/pbxmate/1000@pbxmate.network-engineer.ru) State Change CS_REPORTING -> CS_DESTROY
+2010-06-20 12:35:56.336371 [DEBUG] switch_core_session.c:1021 Send signal sofia/pbxmate/1000@pbxmate.network-engineer.ru [BREAK]
+2010-06-20 12:35:56.336371 [DEBUG] switch_core_session.c:1164 Session 7 (sofia/pbxmate/1000@pbxmate.network-engineer.ru) Locked, Waiting on external entities
+2010-06-20 12:35:56.336371 [NOTICE] switch_core_session.c:1182 Session 7 (sofia/pbxmate/1000@pbxmate.network-engineer.ru) Ended
+2010-06-20 12:35:56.336371 [NOTICE] switch_core_session.c:1184 Close Channel sofia/pbxmate/1000@pbxmate.network-engineer.ru [CS_DESTROY]
+2010-06-20 12:35:56.336371 [DEBUG] switch_core_state_machine.c:428 (sofia/pbxmate/1000@pbxmate.network-engineer.ru) Running State Change CS_DESTROY
+2010-06-20 12:35:56.336371 [DEBUG] switch_core_state_machine.c:439 (sofia/pbxmate/1000@pbxmate.network-engineer.ru) State DESTROY
+2010-06-20 12:35:56.336371 [DEBUG] mod_sofia.c:341 sofia/pbxmate/1000@pbxmate.network-engineer.ru SOFIA DESTROY
+2010-06-20 12:35:56.336371 [DEBUG] switch_core_state_machine.c:60 sofia/pbxmate/1000@pbxmate.network-engineer.ru Standard DESTROY
+2010-06-20 12:35:56.336371 [DEBUG] switch_core_state_machine.c:439 (sofia/pbxmate/1000@pbxmate.network-engineer.ru) State DESTROY going to sleep
+2010-06-20 12:35:56.336371 [DEBUG] switch_core_state_machine.c:314 (sofia/external/0078123242457) Running State Change CS_HANGUP
+2010-06-20 12:35:56.336371 [DEBUG] switch_core_state_machine.c:499 (sofia/external/0078123242457) State HANGUP
+2010-06-20 12:35:56.336371 [DEBUG] mod_sofia.c:408 sofia/external/0078123242457 Overriding SIP cause 480 with 200 from the other leg
+2010-06-20 12:35:56.336371 [DEBUG] mod_sofia.c:414 Channel sofia/external/0078123242457 hanging up, cause: NORMAL_CLEARING
+2010-06-20 12:35:56.336371 [DEBUG] mod_sofia.c:457 Sending BYE to sofia/external/0078123242457
+2010-06-20 12:35:56.336371 [DEBUG] switch_core_state_machine.c:46 sofia/external/0078123242457 Standard HANGUP, cause: NORMAL_CLEARING
+2010-06-20 12:35:56.336371 [DEBUG] switch_core_state_machine.c:499 (sofia/external/0078123242457) State HANGUP going to sleep
+2010-06-20 12:35:56.336371 [DEBUG] switch_core_state_machine.c:333 (sofia/external/0078123242457) State Change CS_HANGUP -> CS_REPORTING
+2010-06-20 12:35:56.336371 [DEBUG] switch_core_session.c:1021 Send signal sofia/external/0078123242457 [BREAK]
+2010-06-20 12:35:56.336371 [DEBUG] switch_core_state_machine.c:314 (sofia/external/0078123242457) Running State Change CS_REPORTING
+2010-06-20 12:35:56.340506 [DEBUG] switch_core_state_machine.c:590 (sofia/external/0078123242457) State REPORTING
+2010-06-20 12:35:56.340506 [DEBUG] switch_core_state_machine.c:53 sofia/external/0078123242457 Standard REPORTING, cause: NORMAL_CLEARING
+2010-06-20 12:35:56.340506 [DEBUG] switch_core_state_machine.c:590 (sofia/external/0078123242457) State REPORTING going to sleep
+2010-06-20 12:35:56.340506 [DEBUG] switch_core_state_machine.c:327 (sofia/external/0078123242457) State Change CS_REPORTING -> CS_DESTROY
+2010-06-20 12:35:56.340506 [DEBUG] switch_core_session.c:1021 Send signal sofia/external/0078123242457 [BREAK]
+2010-06-20 12:35:56.340506 [DEBUG] switch_core_session.c:1164 Session 8 (sofia/external/0078123242457) Locked, Waiting on external entities
+2010-06-20 12:35:56.340506 [NOTICE] switch_core_session.c:1182 Session 8 (sofia/external/0078123242457) Ended
+2010-06-20 12:35:56.340506 [NOTICE] switch_core_session.c:1184 Close Channel sofia/external/0078123242457 [CS_DESTROY]
+2010-06-20 12:35:56.340506 [DEBUG] switch_core_state_machine.c:428 (sofia/external/0078123242457) Running State Change CS_DESTROY
+2010-06-20 12:35:56.340506 [DEBUG] switch_core_state_machine.c:439 (sofia/external/0078123242457) State DESTROY
+2010-06-20 12:35:56.340506 [DEBUG] mod_sofia.c:341 sofia/external/0078123242457 SOFIA DESTROY
+2010-06-20 12:35:56.340506 [DEBUG] switch_core_state_machine.c:60 sofia/external/0078123242457 Standard DESTROY
+2010-06-20 12:35:56.340506 [DEBUG] switch_core_state_machine.c:439 (sofia/external/0078123242457) State DESTROY going to sleep
+```
+
+## Testing the PBXMate
+
+### Testing PBXMate Registration
+
+First restart the PBXMate. This can be done either via the solicall\_cli (shown below) or the solicall\_gui
+
+```xml
+[root@static bin]# ./solicall_cli
+->stop
+->start
+```
+
+After that, on the FreeSWITCH console execute «sofia status profile pbxmate» and check availability of SoliCallPBXTrunk and SoliCallPair0, sample registration records can be seen below:
+
+```xml
+Registrations:
+=================================================================================================
+Call-ID:        EC4B23BFDDC31BD9A61338889ACE57SoliCallPBXTrunk@78.46.120.13
+User:           SoliCallPBXTrunk@pbxmate.network-engineer.ru
+Contact:        "SoliCallPBXTrunk" <sip:SoliCallPBXTrunk@78.46.120.13:5062>
+
+Agent:          SoliCall PBXMate
+Status:         Registered(UDP)(unknown) EXP(2010-06-20 15:59:29)
+Host:           static.13.120.46.78.clients.your-server.de
+IP:             78.46.120.13
+Port:           5062
+Auth-User:      SoliCallPBXTrunk
+Auth-Realm:     pbxmate.network-engineer.ru
+MWI-Account:    SoliCallPBXTrunk@pbxmate.network-engineer.ru
+
+Call-ID:        9554AB865FDFE23331C484236535F1A86SoliCallPair0@78.46.120.13
+User:           SoliCallPair0@pbxmate.network-engineer.ru
+Contact:        "SoliCallPair0" <sip:SoliCallPair0@78.46.120.13:5062>
+Agent:          SoliCall PBXMate
+Status:         Registered(UDP)(unknown) EXP(2010-06-20 15:59:29)
+Host:           static.13.120.46.78.clients.your-server.de
+IP:             78.46.120.13
+Port:           5062
+Auth-User:      SoliCallPair0
+Auth-Realm:     pbxmate.network-engineer.ru
+MWI-Account:    SoliCallPair0@pbxmate.network-engineer.ru
+
+=================================================================================================
+```
+
+### Testing a call via the PBXMate
+
+Test a call to mobile or landline phones. This requires a SIP client X-lite settings uncheck «Register with domain and receive incoming calls» for the option «Send outbound via» select «Proxy» and enter the IP address and port on which the PBXMate listens. Since there is no registration the content of the user fields do not matter.
+
+![Example SIP client settings to perform testing of PBXMate](/attachments/13174005/13174019.png "Example SIP client settings to perform testing of PBXMate")
+
+Figure 5\. Example SIP client settings to perform testing of PBXMate.
+
+Also do not forget that the SIP client must be configured to use the codec G711.
+
+To make sure that FreeSWITCH receives a call from PBXMate you need to see the following text in the call log:
+
+```xml
+freeswitch@internal> 2010-06-20 14:24:42.656235 [DEBUG] sofia.c:5847 IP 78.46.120.13 Rejected by acl "domains". Falling back to Digest auth.
+2010-06-20 14:24:42.668237 [DEBUG] sofia.c:5847 IP 78.46.120.13 Rejected by acl "domains". Falling back to Digest auth.
+2010-06-20 14:24:42.668237 [NOTICE] switch_channel.c:669 New Channel sofia/pbxmate/SoliCallPair0@pbxmate.network-engineer.ru [cd7f18ea-7c66-11df-b1b8-2f2351c508ed]
+2010-06-20 14:24:42.668237 [DEBUG] switch_core_state_machine.c:314 (sofia/pbxmate/SoliCallPair0@pbxmate.network-engineer.ru) Running State Change CS_NEW
+2010-06-20 14:24:42.668237 [DEBUG] switch_core_state_machine.c:320 (sofia/pbxmate/SoliCallPair0@pbxmate.network-engineer.ru) State NEW
+2010-06-20 14:24:42.676236 [DEBUG] sofia.c:4153 Channel sofia/pbxmate/SoliCallPair0@pbxmate.network-engineer.ru entering state [received][100]
+2010-06-20 14:24:42.676236 [DEBUG] sofia.c:4164 Remote SDP:
+v=0
+o=- 131129255 1 IN IP4 78.46.120.13
+s=-
+c=IN IP4 78.46.120.13
+t=0 0
+m=audio 4002 RTP/AVP 8 101
+a=rtpmap:8 pcma/8000
+a=rtpmap:101 telephone-event/8000
+a=fmtp:101 0-15
+```
+
+The call must be executed on behalf of user «SoliCallPair0@pbxmate.network-engineer.ru» and in the SDP description should specify the IP address on which the PBXmate listens. In the example above is the string «c = IN IP4 78.46.120.13″.
+
+## Final testing FreeSWITCH
+
+Register with the details of user default directory and execute the call to mobile or landline phone. The challenge is to be successful.
+
+## Attachments:
+
+![](/images/icons/bullet_blue.gif) [Solicall-figure-2.png](/attachments/13174005/13173925.png) (image/png)  
+![](/images/icons/bullet_blue.gif) [Solicall-figure-3.png](/attachments/13174005/13173988.png) (image/png)  
+![](/images/icons/bullet_blue.gif) [Solicall-figure-4.png](/attachments/13174005/13173995.png) (image/png)  
+![](/images/icons/bullet_blue.gif) [Solicall-figure-5.png](/attachments/13174005/13174019.png) (image/png)  
+
+Document generated by Confluence on nov 11, 2022 04:28

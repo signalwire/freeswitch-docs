@@ -1,0 +1,127 @@
+
+# Variables 
+
+ Created by  Duvid Rottenberg, last modified by  Attila Gulyas on 2020.06.01
+
+---
+
+Table of Contents (click to expand)
+
+* [0\. About](#0-about)
+* [1\. Referring to Variables](#1-referring-to-variables)  
+   * [1.1 Difference between $ and $$ prefixes](#11-difference-between--and--prefixes)
+* [2\. Show variables](#2-show-variables)  
+   * [2.1 Use eval from mod\_commands](#0-about)  
+   * [2.2 Use global\_getvar from mod\_commands for global variables](#3-global-variables)  
+   * [2.3 Use uuid\_getvar from mod\_commands for channel variables](#4-channel-variables)  
+   * [3\. Global Variables](#3-global-variables)
+* [4\. Channel Variables](#4-channel-variables)
+* [5\. System Defined Variables](#5-system-defined-variables)
+
+---
+
+## 0\. About
+
+A variable gives a name to a piece of information, so instead of using something like 192.168.1.1 you can create a variable named [local\_ip\_v4](../../../Channel-Variables-Catalog/local_ip_v4_16353556.mdx#local_ip_v4). From this point on, whenever you need to refer to this IP address, use **`${local_ip_v4}`** instead of typing the actual IP address. Variable values are stored in memory on your server, and when you retrieve the variable, FreeSWITCH pulls the current value from memory.
+
+There are several benefits to using variables:
+
+* **Manage changes** \- _If a value changes, it only has to be changed at one place_.  
+For example, by using a variable to define an IP address, you only specify the actual IP address once, then wherever you need the IP address, you use the variable.
+* **Readability** \- _Provides context to configuration values_.  
+By giving a name to a specific value, it's much easier to understand the configuration. For example, if you would see a number 1000 in the configuration file it's not obvious what that number means: Is it an extension? Is it a timeout period? You wouldn't know. You would have to spend valuable time trying to get context from the surrounding text. By using a variable with a meaningful name you can avoid the guesswork.
+* **Passing Data**  
+Since FreeSWITCH is built on a modular architecture, variables provide a convenient way of sharing data between different modules.
+* **Configuration**  
+The FreeSWITCH core and many modules have predefined variables that are used as configuration settings. These usually have a default value which can be overridden. The behavior of FreeSWITCH can be controlled by changing the value of one of the predefined variables.
+
+See the list of variables in the [Channel Variables Catalog](../../../Channel-Variables-Catalog/index.mdx#comments), at [Global Variables](./Global-Variables_13173994.mdx#about), [Variables Master List](../../Dialplan/Variables-Master-List_16352570.mdx#id), and probably a bunch other obscure places (e.g., [Some Variables](../../Dialplan/Variables-Archive/some-variable/Some-Variables_16352547.mdx#some_variable), [FS Channel Variables](../../Dialplan/Variables-Archive/--Channel-Variables/FS-Channel-Variables_13173384.mdx#about--), [Switch core variables](../../Dialplan/-Variables-(work-in-progress)/Switch-core-variables_7766279.mdx#about), [CDR and accounting variables](../../Dialplan/-Variables-(work-in-progress)/CDR-and-accounting-variables_7766283.mdx#--), [\_\_DTMF Variables](../../Dialplan/Variables-Archive/x__DTMF-Variables_16352562.mdx#about), and the [FreeSWITCH source code](https://github.com/signalwire/freeswitch)).
+
+## 1\. Referring to Variables
+
+Variables can be referred to using the dollar syntax :
+
+```text
+${variable_name}
+```
+
+ Wherever you use this syntax the FreeSWITCH engine will replace it with the current value of the variable.
+
+* For **[global variables](./Global-Variables_13173994.mdx#about)** the value will be the same for all [channels](../../Dialplan/Channel-States_7144639.mdx#0-about) (i.e., calls).
+* **[Channel variables](../../Dialplan/Channel-Variables_16352493.mdx#about)** are only available in the context of a channel, and will evaluate to the value for the current channel.  
+For example, in the [dialplan](../../Dialplan/index.mdx#0-about), you can create rules based on the [destination\_number](../../../Channel-Variables-Catalog/destination_number_16353647.mdx#destination_number) channel variable. As the dialplan is evaluated for a channel, it will retrieve the dialed number for this particular channel.
+
+### 1.1 Difference between `$` and `$$` prefixes
+
+The difference between variable names prefixed with a single $ or a double $$ **only has significance in** [**configuration files**](../../Configuration/index.mdx#about):
+
+* The `$$` (or double $) syntax is only for **[global variables](./Global-Variables_13173994.mdx#about)**.  
+    
+`$${variable_name}` will be completely removed by the **[pre-processor](../Understanding-the-Configuration-Files_15696295.mdx)**, and replaced with the value of the variable. If there is no matching global variable it will just remain blank. Because this is done by the **[pre-processor](../Understanding-the-Configuration-Files_15696295.mdx)**, it is evaluated only when the configuration file is loaded into memory (either at startup or when reloading).
+* The $ (or single $) syntax is not affected by the **pre-processor**, instead it's evaluated at runtime.  
+    
+For example, if you use it in the [dialplan](../../Dialplan/index.mdx#0-about), it will be evaluated from scratch for every call. Therefore, if you change the value of a global variable, the $ syntax will reflect the new value.
+
+---
+
+Another difference (outside the configuration files) is that
+
+* the $ syntax can be used to retrieve both global variable and [channel variables](../../Dialplan/Channel-Variables_16352493.mdx#about), while
+* the $$ syntax is only for global variables.
+
+To add to the confusion, **the distinction only applies to the _configuration files_**. In scripts, CLI, API calls, etc., there is no difference between the $ and $$ syntax; both can be used to retrieve global and channel variables, and are by definition evaluated at runtime.
+
+## 2\. Show variables
+
+### 2.1 Use `eval` from [mod_commands](../../Modules/mod_commands_1966741.mdx#--) 
+
+For **[global variables](./Global-Variables_13173994.mdx#about)**, use the following in [fs\_cli](../../Client-and-Developer-Interfaces/1048948.mdx#or):
+
+```text
+freeswitch@lofa> eval ${variable_name}
+```
+
+Or from the terminal of your operating system:
+
+```text
+$ fs_cli -x '${variable_name}'
+```
+
+Single or double quotes?
+
+If you do use the terminal, make sure to use the right quotes. In Bash for example, it is recommended to use single quotes as they cause everything in between the quotes to be interpreted literally; otherwise Bash will try to evaluate a local variable because the $ character has a special meaning there, and the double quotes will allow it to evaluate these variables first.
+
+  
+**`eval`** can be used for **[channel variables](../../Dialplan/Channel-Variables_16352493.mdx#about)** too, but as these variables are only set during a call session, **`eval`** will require the UUID of the desired session, or else it will return `-ERR no reply`. See full description at [mod\_commands](../../Modules/mod_commands_1966741.mdx#--).
+
+### 2.2 Use `global_getvar` from [mod_commands](../../Modules/mod_commands_1966741.mdx#--) for [global variables](./Global-Variables_13173994.mdx#about)
+
+```text
+freeswitch@lofa> global_getvar variable_name
+```
+
+### 2.3 Use `uuid_getvar` from [mod_commands](../../Modules/mod_commands_1966741.mdx#--) for [channel variables](../../Dialplan/Channel-Variables_16352493.mdx#about)
+
+```text
+freeswitch@lofa> uuid_getvar <uuid> variable_name
+```
+
+### 3\. Global Variables
+
+As their name implies, global variables are available to the entire FreeSWITCH system, and their values are the same for all channels. It's intended to be used for variables that don't change often.
+
+Global variables can be created/modified in the configuration using the [set](../Understanding-the-Configuration-Files_15696295.mdx#-freeswitch--understanding-the-configuration-files-) pre-processor command (see [Understanding the Configuration Files](../Understanding-the-Configuration-Files_15696295.mdx)). You can also set a global variable using the [global\_setvar ](../../Modules/mod_commands_1966741.mdx#global_setvar)API command (see [mod\_commands](../../Modules/mod_commands_1966741.mdx#--)).
+
+The FreeSWITCH core as well as individual modules have many predefined variables, some of which are set in [vars.xml](../../Configuration/Configuring-FreeSWITCH/vars.xml_7144079.mdx#about) in the [default configuration](../../Configuration/Default-Configuration_6587388.mdx#mod_vp8), others have a default value assigned by the FreeSWITCH core.
+
+See the [Global Variables](./Global-Variables_13173994.mdx#about) page for a full list of predefined global variables (but the [Channel Variables Catalog](../../../Channel-Variables-Catalog/index.mdx#comments) also lists them).
+
+## 4\. Channel Variables
+
+[Channel variables](../../Dialplan/Channel-Variables_16352493.mdx#about) are variables that are specific to a single channel (or a single call, to put it another way) such as [caller\_id\_number](../../../Channel-Variables-Catalog/caller_id_number_16352836.mdx#caller_id_number), etc. You can create a channel variable with the [set ](../../Modules/mod-dptools/6586661.mdx#about)pre-processor directive (see [Understanding the Configuration Files](../Understanding-the-Configuration-Files_15696295.mdx)). Because channel variables are specific to a channel, they are only available in the context of a channel such as in the [dialplan](../../Dialplan/index.mdx#0-about), or in scripts running as part of a [dialplan](../../Dialplan/index.mdx#0-about).
+
+## 5\. System Defined Variables
+
+In addition to variables you create using the [set ](../../Modules/mod-dptools/6586661.mdx#about)pre-processor directive, there are hundreds of variables that are created by the FreeSWITCH core and by the many modules that are loaded. A full list of variables is documented on the [Variables Master List](../../Dialplan/Variables-Master-List_16352570.mdx#id).
+
+Document generated by Confluence on nov 11, 2022 04:24

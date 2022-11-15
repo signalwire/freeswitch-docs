@@ -1,0 +1,299 @@
+
+# mod_bridgecall 
+
+ Created by  Artur Lins Barros Oliveira, last modified by  Ryan Harris on 2018.02.07
+
+# About
+
+Provides the ability to bridge two endpoints. Generally used to route an incoming call to one or more endpoints.   
+Multiple endpoints can be dialed simultaneously or sequentially using the comma and pipe delimiters, respectively. See below.
+
+Click here to expand Table of Contents
+
+* 1 [Usage](#usage)
+* 2 [Example](#example)  
+   * 2.1 [From the Dialplan](#from-the-dialplan)
+* 3 [Options](#options)
+* 4 [Calling multiple destinations](#calling-multiple-destinations)
+* 5 [Implementing Failover](#implementing-failover)
+* 6 [Special channels](#special-channels)  
+   * 6.1 [error](#error)  
+   * 6.2 [gateway](#gateway)  
+   * 6.3 [group](#group)  
+   * 6.4 [loopback](#loopback)  
+   * 6.5 [user](#user)
+
+## Usage
+
+Endpoint examples include:
+
+```xml
+user/1000
+lcr/18005558355
+sofia/external/18005558355@sip.tollfreegateway.com
+```
+
+Simple endpoint:
+
+```xml
+bridge <target_endpoint>
+```
+
+Multiple endpoints simultaneously -- no limit to concurrency, first one to answer wins
+
+```xml
+bridge <target_endpoint>[,<target_endpoint>]
+```
+
+Multiple endpoints sequential -- no limit to failover number
+
+```xml
+bridge <target_endpoint>[|<target_endpoint>]
+```
+
+Setting Variables for the B-leg simple example:
+
+```xml
+bridge [variable_scope=endpoint-1]<target_endpoint>,[variable_scope=endpoint-2]<target_endpoint>
+```
+
+Setting Variables for the B-leg thread-global:
+
+```xml
+bridge {variable_scope=thread_global}[variable_scope=endpoint-1]<target_endpoint>[,[variable_scope=endpoint-2]<target_endpoint>][|[variable_scope=endpoint-3]<target_endpoint>]
+```
+
+Setting Variables for the B-leg with [enterprise originate](https://wiki.freeswitch.org/wiki/Mod%5Fbridgecall#Calling%5Fmultiple%5Fdestinations) for multiple threads:
+
+```xml
+bridge <variable_scope=super-global>{variable_scope=thread1}[variable_scope=leg1a]<target_endpoint>[,[variable_scope=leg1b]<target_endpoint>][|<target_endpoint>]
+:_:{variable_scope=thread2}[variable_scope=leg2a]<target_endpoint>[,[variable_scope=leg2b]<target_endpoint>][|<target_endpoint>]
+```
+
+## Example
+
+### From the Dialplan
+
+Bridge an incoming call to an external SIP address or termination provider.
+
+```xml
+<action application="bridge" data="sofia/internal/9998881111@sip.yourprovider.com"/>
+```
+
+Bridge the incoming call to extension 100 and 101\. The '%' is used instead of the @ to indicate that the endpoints are registered locally. Separate multiple endpoints with a comma. The ${sip\_profile} variable is defined in freeswitch.xml.
+
+```xml
+<action application="bridge" data="sofia/internal/100%${sip_profile},sofia/internal/101%${sip_profile}"/>
+```
+
+To dial to multiple contacts, all at once:
+
+```xml
+<action application="bridge" data="sofia/internal/1010@sip.yourprovider.com,sofia/sip/1011@sip.yourprovider.com"/>
+```
+
+One at a time:
+
+```xml
+<action application="bridge" data="sofia/internal/1010@sip.yourprovider.com|sofia/sip/1011@sip.yourprovider.com"/>
+```
+
+Extra parameters: If you need to pass extra parameter; for instance, you are dipping to get LRN, you can do as follows:
+
+```xml
+<action application="bridge" data="sip:12135551212;rn=12135550000;npdi=yes@1.2.3.4:5060>
+```
+
+or
+
+```xml
+<action application="export" data="nolocal:sip_invite_tel_params=rn=12135550000;npdi=yes"/>
+<action application="export" data="nolocal:sip_invite_params=user=phone"/>
+```
+
+or
+
+```xml
+<action application="bridge" data="{sip_invite_tel_params=rn=12135550000;npdi=yes,sip_invite_params=user=phone}sofia/gateway/gateway_name/12135551212"/>
+```
+
+will result in:
+
+```xml
+INVITE sip:12135551212;rn=12135550000;npdi=yes@1.2.3.4;user=phone SIP/2.0
+```
+
+However, you will also get 12135551212;rn=12135550000;npdi=yes in the To: parameter. Thus, to get rid of that you can use (^) as follows:
+
+```xml
+<action application="bridge" data="sip:12135551212;rn=12135550000;npdi=yes@1.2.3.4:5060^12135551212>
+```
+
+## Options
+
+You can set different options to modify the behavior of the call. Be sure to set the option before executing the application. Here are some examples:
+
+#### Timeout
+
+The maximum number of seconds to wait for an answer state from a remote endpoint.
+
+```xml
+ <action application="set" data="call_timeout=20"/>
+```
+
+#### No Media Mode
+
+No media mode is an SDP Passthrough feature that permits two endpoints that can see each other (no funky NAT's) to connect their media sessions directly while FreeSWITCH maintains control of the SIP signaling. This is useful if you have two end-points that need to use a codec that is currently not supported in FreeSWITCH (video) or if you are using FreeSWITCH in a high performance walled garden network and want to minimize the RTP handling FreeSWITCH is doing to maximize call traffic.
+
+Before executing the bridge action you must set the "bypass\_media" flag to true.
+
+```xml
+<action application="set" data="bypass_media=true"/>
+```
+
+  
+bypass\_media must **only** be set on the A leg of a call, for example:
+
+```xml
+originate {bypass_media=true}sofia/default/1000@host1 &bridge(sofia/default/1001@host2)
+```
+
+* See also: [Bypass Media Overview](../../Codecs-and-Media/Bypass-Media-Overview/index.mdx#faq)
+* See also: bypass\_media in Channel Variables to change media handling by FreeSWITCH.
+
+#### Setting Outgoing CallerID
+
+If you are using FreeSWITCH as a PBX you may want to control the outgoing CallerID that is sent to the PSTN or your SIP provider. Your SIP Provider will most likely require you use a specific CallerID number (or a userid instead). The following example sets them before executing the bridge action. See more [caller ID information](../../Interoperability/Caller-ID-Privacy_6587537.mdx#about).
+
+```xml
+<action application="set" data="effective_caller_id_name=John Freeswitch"/>
+<action application="set" data="effective_caller_id_number=1234567"/>
+```
+
+#### Sending Ringback
+
+You may want to simulate ringback to your internal users while you dial a provider, or you may need to force a ringback back upstream when you are dialing multiple extensions and cannot determine what call treatment you will need to provide yet. In order to accomplish this, you need to set a chanvar before going to the bridge application.
+
+```xml
+<action application="set" data="ringback=${us-ring}"/>
+```
+
+Note that you can use another ring than ${us-ring}, but it would have to be defined in your configuration (typically in vars.xml).
+
+## Calling multiple destinations
+
+By using commas to separate the addresses, bridge will dial them simultaneously. Using pipes, it'll dial one at a time. Use :\_: to separate multiple destinations to be dialled in a multi-threaded manner (this is referred to as "Enterprise Origination") - this gives more flexibility (and avoids the "Only calling the first element in the list in this mode" warning)
+
+If you need to set different channel variables for each destination, you may prefix the destinations with \[\] and the variables inside the brackets. Example:
+
+```xml
+<action application="bridge" data="[origination_caller_id_number=1234]sofia/<profile>/<extension>,[origination_caller_id_number=55555]sofia/<profile>/<extension>"/>
+```
+
+Note: by default when bridging, the first endpoint to _provide media_ (as opposed to actually answering) will win, and the other endpoints will stop ringing. For internal endpoints, this usually doesn't matter. However, in the case of cell phone providers, any custom music that plays for the caller while ringing counts as media. In some cases, the ringing sound itself is media. If your bridge command includes a cell phone number and your internal endpoints stop ringing as soon as the cell phone starts, you will need to enable the 'ignore\_early\_media' option:
+
+```xml
+<action application="set" data="ignore_early_media=true" />
+```
+
+## Implementing Failover
+
+Failover for your outbound gateway is easy to implement at bridge time using the | separator:
+
+```xml
+<action application="bridge" data="sofia/gateway/primary/dialstring|sofia/gateway/secondary/dialstring"/>
+```
+
+Using the ping parameter on the gateway will allow FreeSWITCH to determine a gateway has failed which allows the bridge to go to the secondary immediately rather than waiting for a timeout.
+
+## Special channels
+
+### error
+
+You can bridge the call to the error channel in order to specify a [hangup cause](../../Troubleshooting-Debugging/Hangup-Cause-Code-Table_3964945.mdx#about).
+
+```xml
+<action application="bridge" data="error/user_busy" />
+```
+
+### gateway
+
+When dialing using the gateway channel, it will use the authentication details if challenged.
+
+For example:
+
+```xml
+<action application="bridge" data="sofia/gateway/mygatewayname/555123456" />
+```
+
+### group
+
+Will dynamically create a dial string to reach all endpoints in group by using 'group\_call' function For example:
+
+```xml
+<action application="bridge" data="group/support@${domain_name}"/>
+```
+
+Same as:
+
+```xml
+<action application="bridge" data="${group_call(support@${domain_name})}"/>
+```
+
+### loopback
+
+Loopback creates a pseudo-endpoint that starts a new pass through the specified dialplan, but can cause unusable CDR entries as a result. Do not use unless there is no other option, but expect to spend time troubleshooting it.
+
+Example:
+
+```xml
+<action application="bridge" data="loopback/1000" />
+```
+
+This example searches the inherited dialplan for extension 1000 in the inherited context.
+
+WARNING! Loopback is evil and should only be used as a last resort, when no other approach is possible.
+
+For more info look at [Loopback](../../Dialplan/Loopback-Endpoint_6587541.mdx#about)
+
+### user
+
+Since FreeSWITCH has a user directory, you can save how to reach every user in the user's directory entry by saving it in its "dial-string" parameter. When dialing using the user channel, it will lookup the [dial-string](http://wiki.freeswitch.org/wiki/XML%5FUser%5FDirectory%5FGuide#Dial%5FString) and dial it instead. For example:
+
+```xml
+<action application="bridge" data="user/bob@domain" />
+```
+
+Could be expanded into:
+
+```xml
+<action application="bridge" data="sofia/sip/100%${sip_profile},sofia/sip/101%${sip_profile}"/>
+```
+
+Note: if the user has no dial-string, the domain's is used instead.
+
+If you want to route to many user channels, you will have to seperate them by :\_: as opposed to the comma "," to have an originate for each user:
+
+```xml
+ <action application="bridge" data="user/bob@domain:_:user/alice@domain"/>
+```
+
+Note again: You have to be careful with whitespace here generally. For some reason, FS will see user \[bob@domain \] and NOT \[bob@domain\] which will make it not find the user, if you try to be fancy like for example this:
+
+```xml
+  <action application="bridge" data="
+     user/bob@domain :_:
+     user/alice@domain
+  "/>
+```
+
+This XML is broken! FreeSWITCH will complain about unknown users:
+
+```xml
+[bob@domain ] and [alice@domain       ]
+```
+
+So be careful.
+
+  
+Document generated by Confluence on nov 11, 2022 04:29

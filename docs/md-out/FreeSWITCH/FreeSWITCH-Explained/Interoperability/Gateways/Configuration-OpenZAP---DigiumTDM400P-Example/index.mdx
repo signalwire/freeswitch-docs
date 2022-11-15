@@ -1,0 +1,137 @@
+
+# Configuration OpenZAP - DigiumTDM400P Example 
+
+ Created by  Lucas Castro, last modified by  Késsia Castro on 2017.01.13
+
+# About
+
+Instructions on using the [Digium TDM400P](http://www.digium.com/en/products/telephony-cards/analog/4-port) 4-port analog card in FreeSWITCH™.
+
+OpenZAP has been superseded by FreeTDM. OpenZAP development is stalled and no new features will be developed. Use [FreeTDM archived](https://freeswitch.org/confluence/pages/viewpage.action?pageId=7766119) instead.
+
+Click here to expand Table of Contents
+
+* 1 [Hardware Configuration](#-freeswitch--configuration-openzap---digiumtdm400p-example-)
+* 2 [Zaptel Driver Installation](#zaptel-driver-installation)
+* 3 [Setup](#-freeswitch--configuration-openzap---digiumtdm400p-example-)  
+   * 3.1 [Dialplan Configuration](#-freeswitch--configuration-openzap---digiumtdm400p-example-)
+
+# Hardware Configuration
+
+Affix the 2 FXS cards (green) on channels 1 and 3, and the 2 FXO cards (red) on channels 2 and 4, respectively, on the Digium TDM400P card.
+
+In this example channel 1 is the port at the top of the card, with channel 4 being next to the PCI connector at the bottom. The card for channel 1 is next to the telephone connectors, and the card for channel 4 is on the other side.
+
+That is:
+
+| channels | usage               | type / zaptel.cfg | signalling / openzap.cfg |
+| -------- | ------------------- | ----------------- | ------------------------ |
+| 2 and 4  | telephone line      | FXO               | FXS                      |
+| 1 and 3  | telephone extension | FXS               | FXO                      |
+
+Turn off your machine and insert the Digium TDM400P card with 2 FXS / 2 FXO into your machine.
+
+Ensure a hard-drive power cable is properly inserted into the end of the card.
+
+# Zaptel Driver Installation
+
+The FXO/FXS card should be installed first to verify the Zaptel installation. Verify Internet connectivity.
+
+Download the latest zaptel-1.4.x.tar.gz from reliable sources. Untar the source tarball, compile, and install.
+
+**Build Zaptel driver**
+
+```bash
+tar -zxvf zaptel-1.4.x.tar.gz
+cd zaptel-1.4.x
+./configure
+make
+make install
+make config
+```
+
+Ensure the proper zaptel.conf is in the /etc directory. Correctly configure the country zone in zaptel.conf. FXO and FXS are reversed in /etc/zaptel.conf but are normal everywhere else.
+
+**/etc/zaptel.conf**
+
+```xml
+loadzone=in
+defaultzone=in
+fxsks=4
+fxoks=1
+fxsks=2
+fxoks=3 
+```
+
+Add the wctdm and zaptel modules now.
+
+```xml
+modprobe wctdm
+modprobe zaptel
+```
+
+Now verify the installation with the ztcfg command
+
+```xml
+ztcfg -vv
+
+Zaptel Version: 1.4.2
+Echo Canceller: MG2
+Configuration
+======================
+Channel map:
+Channel 01: FXO Kewlstart (Default) (Slaves: 01)
+Channel 03: FXO Kewlstart (Default) (Slaves: 03)
+Channel 02: FXS Kewlstart (Default) (Slaves: 02)
+Channel 04: FXS Kewlstart (Default) (Slaves: 04)
+2 channels configured.
+
+```
+
+# Setup
+
+1\. Once you are done with installing zaptel drivers and fixed the FXS/FXO card in your machine, the green LEDs (Digium TDM400P card in this case) on your card will start glowing. (Good omen for you)
+
+2\. When you compile the Freeswitch code, make sure you have included the openzap module by uncommenting the following line in ${Freeswitch\_src)/modules.conf
+
+../../libs/openzap/mod\_openzap
+
+3\. After successful compilation, you manually have to copy the openzap.conf.xml file into /usr/local/freeswitch/conf/autoload\_configs/ as it will not be copied there automatically. For example, you can use the sample openzap.conf.xml for Digium TDM400P at [Openzap.conf.xml Examples](./Openzap-Configuration-Examples_7766117.mdx#about)
+
+4\. At the time of running FreeSWITCH from /usr/local/freeswitch/bin/, make sure again that &lt;load module ="mod\_openzap"/> is included in /usr/local/freeswitch/conf/autoload\_configs/modules.conf.xml
+
+5.Make sure you see the Openzap FXS and FXO configuration messages on your console when you run Freeswitch. For example,
+
+2008-05-01 18:10:32 [INFO] zap_zt.c:170 zt_open_range() configuring device /dev/zap/channel channel 1 as OpenZAP  device 1:1 fd:33
+2008-05-01 18:10:32 [INFO] zap_zt.c:170 zt_open_range() configuring device /dev/zap/channel channel 2 as OpenZAP  device 2:1 fd:34
+2008-05-01 18:10:32 [INFO] zap_zt.c:170 zt_open_range() configuring device /dev/zap/channel channel 3 as OpenZAP  device 1:2 fd:35
+2008-05-01 18:10:32 [INFO] zap_zt.c:170 zt_open_range() configuring device /dev/zap/channel channel 4 as OpenZAP device 2:2 fd:36
+2008-05-01 18:10:32 [INFO] zap_io.c:1978 load_config() Configured 4 channel(s)
+2008-05-01 18:10:32 [CONSOLE] switch_loadable_module.c:749 switch_loadable_module_load_file() Successfully Loaded [mod_openzap]
+2008-05-01 18:10:32 [NOTICE] switch_loadable_module.c:139 switch_loadable_module_process() Adding Endpoint 'openzap'
+2008-05-01 18:10:32 [NOTICE] switch_loadable_module.c:245 switch_loadable_module_process() Adding API Function 'oz'
+
+6\. Now you can take a ride on your Ozzzzzzz... zip zap zoom ;)
+
+## Dialplan Configuration
+
+1\. To bridge an inbound call to your FXS that is configured on channel 1, for an UA registered as 507@proxy.com configure as below
+
+&lt;extension name="incoming-fxs-channel-1">
+  &lt;condition field="destination_number" expression="^(507)$">
+    &lt;action application="bridge" data="openzap/1/1"/>
+  &lt;/condition>
+&lt;/extension>
+
+2\. To bridge an outbound call onto your FXO card that is configured on channel 4, for any 10-digit destination configure as below
+
+```xml
+<extension name="outgoing-fxo-channel-4">
+ <condition field="destination_number" expression="^([0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9])$"> 
+  <action application="set" data="dialed_ext=$1"/> 
+  <action application="bridge" data="openzap/2/2/${dialed_ext}"/> 
+ </condition> 
+</extension>
+```
+
+Document generated by Confluence on nov 11, 2022 04:28

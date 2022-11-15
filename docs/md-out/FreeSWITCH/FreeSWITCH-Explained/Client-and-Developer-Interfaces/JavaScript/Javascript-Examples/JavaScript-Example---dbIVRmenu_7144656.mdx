@@ -1,0 +1,203 @@
+
+# JavaScript Example - dbIVRmenu 
+
+ Created by  John Boteler, last modified on 2015.04.10
+
+# About
+
+by Paul Davis (pist @ #freeswitch)This application uses CoreDB module to create & populate an SQLite database for a simple IVR menu. This will work with the default dialplan! It is only meant to be an example of the power and ease of using FreeSwitch. This example includes work ripped off from other JavaScript apps created by anthm. I hope this helps you in starting to use JavaScript in FreeSWITCH™.
+
+Click here to expand Table of Contents
+
+* 1 [Create Database](#create-database)
+* 2 [IVR Script](#ivr-script)
+
+# Create Database
+
+If you change your dialplan, then you must modify the database.
+
+This app works on FS rev 3488.
+
+To install: copy this file to `<freeswitch dir>/scripts/dbivrmenu_dbcreate.js`
+
+To execute on the console: `jsrun dbivrmenu_dbcreate.js`
+
+**database creation example**
+
+```js
+/** 
+ dbivrmenu_dbcreate.js - Database creation script for dbivrmenu.js
+ JavaScript Application for FreeSwitch::mod_v8
+ by Paul Davis (pist @ #freeswitch)
+ 
+ This application is only meant to be an example of the power and ease of using FreeSwitch.
+ This file includes work ripped off from other JavaScript apps created by anthm @ #freeswitch.
+ I hope this helps you in starting to use FreeSwitch & JS.
+ 
+ Note: This application uses CoreDB module to create & populate a sqlite database.
+         This will work with the default dialplan! 
+         **change your dialplan == modify the database**
+         This app works on FS rev 3488.
+ 
+ Install:  copy this file to your <freeswitch dir>/scripts/
+             execute on console: jsrun dbivrmenu_dbcreate.js
+ 
+ Disclaimer: Use at your own risk.  No implied warranties or help if/when stuff blows up.
+ **/
+ 
+ use("CoreDB");
+ 
+ function mycb(hash)
+ {
+     console_log("notice", "Adding Menu Option=[" + hash["option"] + "] Route=[" + hash["route"] + "] to the DB\n");
+ }
+ 
+ 
+ var db = new CoreDB("dbivrmenudemo");
+ var sql;
+ var menu_options = new Array();
+ var line = "==============================\n";
+ 
+ /** 3 menu options and an extension for each option **/
+ menu_options["1"] = 1000;
+ menu_options["2"] = 1234;
+ menu_options["3"] = 888;  // you have to uncomment the section for extension 888 for this to work
+ 
+ /** You could add more fields here to extend this app **/
+ db.exec("create table menu_options (option varchar(10), route varchar(120));");
+ 
+ for (var i in menu_options) {
+     sql = "insert into menu_options values('" + i + "', " + menu_options[i] + ");";
+     db.exec(sql);
+ }
+ 
+ /** Let's see what's in the database, shall we? **/
+ sql = "select * from menu_options;";
+ 
+ console_log("notice", line);
+ console_log("notice", "Adding Menu Options to Datab:\n");
+ db.exec(sql, "mycb");
+ console_log("notice", line);
+```
+
+# IVR Script
+
+This application requires a database. It uses CoreDB module to access a SQLite database.
+
+Use dbivrmenu\_dbcreate.js, above, to have FS create the database for you.
+
+This requires the default dialplan to work properly.
+
+Sofia-SIP should be working properly before trying to use this app.
+
+You will have to create the sound files or REM out those statements.
+
+This application simply transfers the call to another extension.
+
+This app works on FS rev 3488.
+
+To install: copy this file to &lt;freeswitch dir>/scripts/dbivrmenu.js
+
+Add the following section to your default dialplan around the extension 1000 section.
+
+**Extension 1200**
+
+```xml
+<extension name="1200">
+  <condition field="destination_number" expression="^1200$">
+    <action application="javascript" data="dbivrmenu.js"/>
+  </condition>
+</extension>
+```
+
+Dial 1200 from your sip phone and voila! Ofcourse you can match for inbound DID/DNIS, and run this app. 
+
+Disclaimer: Use at your own risk. No implied warranties or help if/when stuff blows up.
+
+**db IVR example**
+
+```js
+/** dbivrmenu.js - Simple IVR Menu using a database.
+JavaScript Application for FreeSwitch::mod_v8
+by Paul Davis (pist @ #freeswitch)
+**/
+
+use("CoreDB");
+var db = new CoreDB("dbivrmenudemo");
+var sql;
+var dtmf = new Object();
+var replay = 1;
+function mycb (session, type, data, arg) {
+    if (type == "dtmf") {
+        arg.digits += data.digit;
+        if (arg.digits.length >= 1) {
+            return false;
+        }
+    }
+}
+function get_route(digits)
+{
+    sql = "select * from menu_options where option = '" + digits +"';";
+    var line = "====================================\n";
+    console_log("notice", "Menu Option Entered: " + digits +" \n");
+    console_log("notice", line);
+    
+    db.prepare(sql);
+    while(db.next()) {
+       hash = db.fetch();
+        
+        if (hash["option"] == digits) {
+            console_log("notice", "Found Menu Option=[" + hash["option"] + "] Route=[" + hash["route"] + "]\n");
+            return hash["route"];
+        } else { 
+            console_log("notice", "Menu Option NOT Found!\n");
+            return false; }
+    }
+}
+/** Let's answer our call **/
+session.answer();
+/** Play our Main Menu prompt sound file.  You could use TTS here as well.  **/
+console_log("notice", "Playing dbivrmenu Main Menu sound file . . .\n");
+session.streamFile("/var/sounds/dbivrmenu_main.wav", "");    
+while(session.ready()) {
+    dtmf.digits = "";
+    console_log("notice", "collecting dtmf digits . . .\n");
+    
+   if (dtmf.digits.length < 1) {
+        session.collectInput(mycb, dtmf, 5000);
+    } 
+    
+    /** when we timeout from above, we check replay value and play appropriate prompts **/
+    if ((!dtmf.digits) && (replay < 4)) {
+        console_log("notice", "Replay # " + replay + "\n");
+        session.streamFile("/var/sounds/invalidoption.wav", "");
+        session.streamFile("/var/sounds/dbivrmenu_main.wav", "");
+        replay++;  // increment our replay value; we don't want to replay our prompts too many times!
+        } else if (replay >= 4) { 
+            /** Caller does not understand the prompts or your DB data is wrong; either way we've had enough, let's push'em off the line **/
+            session.streamFile("/var/sounds/havingtrouble.wav", "");
+            session.hangup();
+            }
+    
+    
+    if(dtmf.digits) {
+        console_log("notice", "Got Some Digits . . .\n");
+        
+        route = get_route(dtmf.digits);
+        if (!route) {
+            console_log("notice", "Invalid Option . . .\n");
+            session.streamFile("/var/sounds/invalidpin.wav", "");
+            session.streamFile("/var/sounds/dbivrmenu_main.wav", "");
+        } else {
+           console_log("notice", "Found Valid Option . . .\n");
+            session.streamFile("/var/sounds/plswait.wav", "");
+            
+            /** initiate the transfer application and send to the extension in route; again, you could extend this **/
+            session.execute("transfer", route);
+        }
+    }
+    
+}
+```
+
+Document generated by Confluence on nov 11, 2022 04:27

@@ -1,0 +1,584 @@
+
+# Advanced SBC with mod_lcr and mod_easyroute 
+
+ Created by  Aline Cristine Freire de Araújo, last modified by  Alex Sibyakin on 2018.07.18
+
+# About
+
+by [Meftah Tayeb](https://freeswitch.org/confluence/display/~delphiworld)
+
+Below you'll find a step by step guide for installing FreeSWITCH™ as a SBC. The LCR engine is provided by mod\_lcr. The DID routing is done by mod\_easyroute
+
+This is all still development work and needs testing.
+
+Click here to expand Table of Contents
+
+* 1 [Installation](#-freeswitch--advanced-sbc-with-mod_lcr-and-mod_easyroute-)  
+   * 1.1 [Install Debian stable netinstall](#install-debian-stable-netinstall)  
+         * 1.1.1 [Upgrade debian distribution](#upgrade-debian-distribution)  
+         * 1.1.2 [Install SSH Server for remote administration](#-freeswitch--advanced-sbc-with-mod_lcr-and-mod_easyroute-)  
+         * 1.1.3 [This will add MySQL enter a password etc.](#-freeswitch--advanced-sbc-with-mod_lcr-and-mod_easyroute-)  
+         * 1.1.4 [Install FreeSWITCH dependencies](#-freeswitch--advanced-sbc-with-mod_lcr-and-mod_easyroute-)  
+         * 1.1.5 [Restart server](#-freeswitch--advanced-sbc-with-mod_lcr-and-mod_easyroute-)  
+         * 1.1.6 [Install utils for compilation](#-freeswitch--advanced-sbc-with-mod_lcr-and-mod_easyroute-)  
+         * 1.1.7 [Edit modules.conf depending on your needs but you must enable mod\_easyroute and mod\_lcr modules. I recommend disabling mod\_voicemail and mod\_conferencing this is an SBC not a softswitch.](#-freeswitch--advanced-sbc-with-mod_lcr-and-mod_easyroute-)  
+         * 1.1.8 [Upgrade to latest git](#-freeswitch--advanced-sbc-with-mod_lcr-and-mod_easyroute-)  
+         * 1.1.9 [Edit sip\_profiles to use our outside IP](#edit-sip_profiles-to-use-our-outside-ip)  
+         * 1.1.10 [Optimizations before launching FreeSwitch](#optimizations-before-launching-freeswitch)  
+         * 1.1.11 [Start FreeSWITCH verify it works before we go too far.](#start-freeswitch-verify-it-works-before-we-go-too-far)  
+         * 1.1.12 [To connect to FreeSWITCH via fs\_cli Command Line](#to-connect-to-freeswitch-via-fs_cli-command-line)  
+         * 1.1.13 [To Check if FS is running](#-freeswitch--advanced-sbc-with-mod_lcr-and-mod_easyroute-)  
+         * 1.1.14 [Tell FreeSWITCH to actually use MOD\_Easyroute & MOD\_LCR module when running. Add the modules to modules.conf.xml in /usr/local/freeswitch/conf/autoload\_configs.](#tell-freeswitch-to-actually-use-mod_easyroute--mod_lcr-module-when-running-add-the-modules-to-modulesconfxml-in-usrlocalfreeswitchconfautoload_configs)  
+         * 1.1.15 [Now we need to enable odbc. This is for a mysql database.](#now-we-need-to-enable-odbc-this-is-for-a-mysql-database)  
+         * 1.1.16 [This is where you configure your various odbc drivers. On Debian systems the file was in /etc/odbcinst.ini](#easyrouteconfxml)  
+         * 1.1.17 [](#-freeswitch--advanced-sbc-with-mod_lcr-and-mod_easyroute-)  
+         * 1.1.18 [easyroute.conf.xml](#-freeswitch--advanced-sbc-with-mod_lcr-and-mod_easyroute-)  
+         * 1.1.19 [lcr.conf.xml & switch.conf.xml & db.conf.xml](#lcrconfxml--switchconfxml--dbconfxml)  
+         * 1.1.20 [That should have populated the database table with the NPA data.](#-freeswitch--advanced-sbc-with-mod_lcr-and-mod_easyroute-)  
+         * 1.1.21 [Testing our database connections](#-freeswitch--advanced-sbc-with-mod_lcr-and-mod_easyroute-)  
+         * 1.1.22 [If this comes back our databases are working.](#if-this-comes-back-our-databases-are-working)  
+         * 1.1.23 [Each SIP Trunk endpoint will need an extension in the dialplan Providers will need an easyroute extension & Customers will need a LCR extension.](#each-sip-trunk-endpoint-will-need-an-extension-in-the-dialplan-providers-will-need-an-easyroute-extension--customers-will-need-a-lcr-extension)  
+         * 1.1.24 [Then we check that we are not over the limit for this trunk](#-freeswitch--advanced-sbc-with-mod_lcr-and-mod_easyroute-)  
+         * 1.1.25 [This is a customer that sends me traffic and I route based on IP then LCR database lookup.](#this-is-a-customer-that-sends-me-traffic-and-i-route-based-on-ip-then-lcr-database-lookup)
+* 2 [Related](#-freeswitch--advanced-sbc-with-mod_lcr-and-mod_easyroute-)
+
+# Installation
+
+## Install Debian stable netinstall
+
+<https://www.debian.org/releases/jessie/debian-installer/>
+
+### Upgrade debian distribution
+
+```xml
+  apt-get update
+
+  apt-get dist-upgrade
+
+
+```
+
+###    
+**Install SSH Server for remote administration**
+
+```xml
+  apt-get install ssh
+```
+
+###    
+**This will add MySQL enter a password etc.**
+
+```xml
+  apt-get install gcc bison flex make openssl libmysqlclient15-dev libradiusclient-ng2 libradiusclient-ng-dev mysql-server libxmlrpc-c3-dev
+```
+
+###    
+**Install FreeSWITCH dependencies**
+
+```xml
+  apt-get install subversion subversion-tools automake1.9 gcc-4.1 autoconf make wget libtool g++ libncurses5 libncurses5-dev
+```
+
+```xml
+ apt-get install debhelper automake1.9 autoconf libtool unixodbc-dev libasound2-dev libcurl4-openssl-dev libssl-dev libogg-dev
+   libvorbis-dev libperl-dev libgdbm-dev libdb-dev libgnutls-dev libspandsp-dev libtiff4-dev
+```
+
+```xml
+ apt-get install screen bridge-utils libmysql++-dev libconfuse-dev libpcre3-dev curl libcurl4-gnutls-dev
+
+```
+
+```xml
+  apt-get install libxml2-dev libmemcache-dev
+```
+
+### **Restart server**
+
+```xml
+  reboot
+```
+
+###    
+**Install utils for compilation**
+
+```xml
+  apt-get install build-essential
+```
+
+Download FreeSWITCH latest trunk and put them in /usr/src/freewitch
+
+```xml
+cd /usr/src/
+
+wget -O - https://files.freeswitch.org/repo/deb/debian/freeswitch_archive_g0.pub | apt-key add -
+echo "deb http://files.freeswitch.org/repo/deb/debian-unstable/ jessie main" >> /etc/apt/sources.list.d/freeswitch.list
+apt-get update
+apt-get install -y --force-yes freeswitch-video-deps-most
+
+
+git config --global pull.rebase true
+git clone https://freeswitch.org/stash/scm/fs/freeswitch.git /usr/src/freeswitch
+
+cd /usr/src/freeswitch
+./bootstrap.sh 
+```
+
+###    
+**Edit modules.conf depending on your needs but you must enable mod\_easyroute and mod\_lcr modules.** **I recommend disabling mod\_voicemail and mod\_conferencing this is an SBC not a softswitch.**
+
+Enable mod\_easyroute & mod\_lcr in trunk/modules.conf by uncommenting the lines.
+
+```xml
+#applications/mod_easyroute 
+#applications/mod_lcr 
+```
+
+```xml
+ ./configure -prefix=/usr/local/freeswitch --enable-core-odbc-support 
+  make 
+  make install 
+  make sounds-install 
+  make moh-install 
+```
+
+###    
+**Upgrade to latest git**
+
+```xml
+ cd /usr/src/freeswitch
+ make current 
+```
+
+and that's it you get the latest git in /usr/src/freeswitch
+
+### **Edit sip_profiles to use our outside IP**
+
+cd /usr/local/freeswitch/conf/sip\_profiles
+
+edit external.xml and replace $${local\_ip\_v4} and $${external\_rtp\_ip} your external IP. You will use external profiles for all endpoints. We will need to add security later. I also recommend you swap the internal port 5060 with the default port 5080\. Most providers use 5060.
+
+### **Optimizations before launching FreeSwitch**
+
+```xml
+  ulimit -c unlimited
+  ulimit -d unlimited
+  ulimit -f unlimited
+  ulimit -i unlimited
+  ulimit -n 999999
+  ulimit -q unlimited
+  ulimit -u unlimited
+  ulimit -v unlimited
+  ulimit -x unlimited
+  ulimit -s 240
+  ulimit -l unlimited
+  ulimit -a
+```
+
+### **Start FreeSWITCH verify it works before we go too far.**
+
+```xml
+ cd /usr/local/freeswitch/bin/
+  ./freeswitch -hp 
+```
+
+\-hp stands for high priority
+
+You may see errors about ODBC not loaded
+
+### **To connect to FreeSWITCH via fs_cli Command Line**
+
+```xml
+  cd /usr/local/freeswitch/bin/
+  ./fs_cli 
+```
+
+with this tool you'll be able to get a console connection to FS the log level has not been changed so it could be very verbose to disable log, type /nolog in console
+
+### **To Check if FS is running**
+
+ ```xml
+  netstat -unlp 
+```
+
+### **Tell FreeSWITCH to actually use MOD_Easyroute & MOD_LCR module when running.** **Add the modules to modules.conf.xml in /usr/local/freeswitch/conf/autoload_configs.**
+
+```xml
+  <load module="mod_easyroute"/>
+  <load module="mod_lcr"/>
+```
+
+  
+Also disable any unused codecs, mod\_voicemail and mod\_conferencing
+
+### **Now we need to enable odbc. This is for a mysql database.**
+
+```xml
+  apt-get install unixodbc
+  apt-get install libmyodbc
+```
+
+**Configuring ODBC**
+
+```xml
+Basic odbcinst.ini:
+```
+
+###    
+**This is where you configure your various odbc drivers. On Debian systems the file was in /etc/odbcinst.ini**
+
+```xml
+   [MySQL]
+  Description     = MySQL driver
+  Driver          = /usr/lib/odbc/libmyodbc.so
+  Setup           = /usr/lib/odbc/libodbcmyS.so
+  CPTimeout       =
+  CPReuse         =
+  FileUsage       = 1
+```
+
+  
+Note: you may have to change the path to the .so files depending on where they are installed. Default location for Debian: /usr/lib/odbc/
+
+Basic odbc.ini:
+
+**This is where you configure your datasources. Your configs will reference \[MySQL-free\] since this is an ODBC connection.** **On Debian systems the file was in /etc/odbc.ini\`\`\`** 
+
+```xml
+   [MySQL-free] <--note free is a database we will create -->
+   Description     =      MySQL ODBC Database
+   TraceFile       =      stderr
+   Driver          =      MySQL
+   SERVER          =      localhost
+   USER            =      root
+   PASSWORD        =      password
+   DATABASE        =      free  <-- Your DSN -- >     
+```
+
+### 
+
+### **easyroute.conf.xml**
+
+This file is in /usr/local/freeswitch/conf/autoload\_configs **The easyroute.conf.xml file will need to be configured with the settings for your database:**
+
+```xml
+   <param name="db-username" value="root"/>
+   <param name="db-password" value="password"/>
+   <param name="db-dsn" value="MySQL-free"/>
+   <param name="default-techprofile" value="sofia/default"/>
+   <param name="default-gateway" value="192.168.66.6"/>
+```
+
+  
+NOTE: The default technology profile and default gateway will be returned if the db lookup fails.
+
+### **lcr.conf.xml & switch.conf.xml & db.conf.xml**
+
+These files are in /usr/local/freeswitch/conf/autoload\_configs They will need to be configured with the settings for your database:
+
+```xml
+  <param name="odbc-dsn" value="MySQL-free:root:password"/>
+```
+
+  
+Create MySQL database
+
+```xml
+    mysql --user=root --password=password
+    create database free;
+```
+
+  
+Okay now we need to create the tables - check the latest code first. There should be .sql files in the trunk but they normally are Postgresql or need tweaked.
+
+```xml
+ /*!40101 SET @OLD_CHARACTER_SET_CLIENT=@@CHARACTER_SET_CLIENT */;
+   /*!40101 SET @OLD_CHARACTER_SET_RESULTS=@@CHARACTER_SET_RESULTS */;
+   /*!40101 SET @OLD_COLLATION_CONNECTION=@@COLLATION_CONNECTION */;
+   /*!40101 SET NAMES utf8 */;
+   /*!40103 SET @OLD_TIME_ZONE=@@TIME_ZONE */;
+   /*!40103 SET TIME_ZONE='+00:00' */;
+   /*!40014 SET @OLD_UNIQUE_CHECKS=@@UNIQUE_CHECKS, UNIQUE_CHECKS=0 */;
+   /*!40014 SET @OLD_FOREIGN_KEY_CHECKS=@@FOREIGN_KEY_CHECKS, FOREIGN_KEY_CHECKS=0 */;
+   /*!40101 SET @OLD_SQL_MODE=@@SQL_MODE, SQL_MODE='NO_AUTO_VALUE_ON_ZERO' */;
+   /*!40111 SET @OLD_SQL_NOTES=@@SQL_NOTES, SQL_NOTES=0 */;
+
+  DROP TABLE IF EXISTS `gateways`;
+  CREATE TABLE `gateways` (
+ `gateway_id` int(10) unsigned NOT NULL auto_increment,
+ `gateway_ip` varchar(16) NOT NULL,
+ `group` varchar(15) NOT NULL,
+ `limit` int(10) unsigned NOT NULL,
+ `techprofile` varchar(128) NOT NULL,
+  PRIMARY KEY  (`gateway_id`),
+  KEY `gateway_ip` (`gateway_ip`,`group`)
+  ) ENGINE=MyISAM AUTO_INCREMENT=2 DEFAULT CHARSET=utf8 COMMENT='Gateways Table';
+  LOCK TABLES `gateways` WRITE;
+
+  /*!40000 ALTER TABLE `gateways` DISABLE KEYS */;
+  INSERT INTO `gateways` VALUES (1,'192.168.99.1','mustang',50,'sofia/default');
+
+  /*!40000 ALTER TABLE `gateways` ENABLE KEYS */;
+  UNLOCK TABLES;
+ 
+  DROP TABLE IF EXISTS `numbers`;
+  CREATE TABLE `numbers` (
+ `number_id` int(10) unsigned NOT NULL auto_increment,
+ `gateway_id` int(10) unsigned NOT NULL,
+ `number` varchar(16) NOT NULL,
+ `acctcode` varchar(16) NOT NULL,
+ `translated` varchar(16) NOT NULL,
+  PRIMARY KEY  (`number_id`),
+  UNIQUE KEY `number` (`number`),
+  KEY `gateway_id` (`gateway_id`)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8 COMMENT='Numbers Table';
+  LOCK TABLES `numbers` WRITE;
+
+  /*!40000 ALTER TABLE `numbers` DISABLE KEYS */;
+  INSERT INTO `numbers` VALUES (1,1,'19018577141','999999', '9018577141'),(2,1,'19995551212','666666', '9995551212');
+
+  /*!40000 ALTER TABLE `numbers` ENABLE KEYS */;
+  UNLOCK TABLES;
+
+  DROP TABLE IF EXISTS `lcr`;
+  CREATE TABLE `lcr` (
+  `id` int(11) NOT NULL auto_increment,
+  `digits` varchar(15) default NULL,
+  `rate` float(11,5) unsigned NOT NULL,
+  `intrastate_rate` float(11, 5) unsigned NOT NULL,
+  `intralata_rate` float(11, 5) unsigned NOT NULL,
+  `carrier_id` int(11) NOT NULL,
+  `lead_strip` int(11) NOT NULL,
+  `trail_strip` int(11) NOT NULL,
+  `prefix` varchar(16) NOT NULL,
+  `suffix` varchar(16) NOT NULL,
+  `lcr_profile` varchar(32) default NULL,
+  `date_start` datetime NOT NULL DEFAULT '1970-01-01',
+  `date_end` datetime NOT NULL DEFAULT '2030-12-31',
+  `quality` float(10,6) NOT NULL,
+  `reliability` float(10,6) NOT NULL,
+  `cid` varchar(32) NOT NULL DEFAULT ,
+  `enabled` boolean NOT NULL DEFAULT '1',
+   PRIMARY KEY  (`id`),
+   KEY `carrier_id` (`carrier_id`),
+   KEY `digits` (`digits`),
+   KEY `lcr_profile` (`lcr_profile`),
+   KEY `rate` (`rate`),
+   KEY `digits_profile_cid_rate` USING BTREE (`digits`,`rate`),
+   CONSTRAINT `carrier_id` FOREIGN KEY (`carrier_id`) REFERENCES `carriers` (`id`) ON DELETE CASCADE ON UPDATE CASCADE
+   ) ENGINE=InnoDB AUTO_INCREMENT=8 DEFAULT CHARSET=latin1;
+
+   DROP TABLE IF EXISTS `carriers`;
+   CREATE TABLE `carriers` (
+  `id` int(11) NOT NULL auto_increment,
+  `carrier_name` varchar(255) default NULL,
+  `enabled` boolean NOT NULL DEFAULT '1',
+   PRIMARY KEY  (`id`)
+   ) ENGINE=InnoDB AUTO_INCREMENT=13 DEFAULT CHARSET=latin1;
+
+   DROP TABLE IF EXISTS `npa_nxx_company_ocn`;
+   CREATE TABLE npa_nxx_company_ocn (
+   npa smallint NOT NULL,
+   nxx smallint NOT NULL,
+   company_type text,
+   ocn text,
+   company_name text,
+   lata integer,
+   ratecenter text,
+   state text
+   );
+   CREATE UNIQUE INDEX npanxx_idx USING BTREE ON npa_nxx_company_ocn (npa, nxx);
+
+   DROP TABLE IF EXISTS `carrier_gateway`;
+   CREATE TABLE `carrier_gateway` (
+  `id` int(11) NOT NULL auto_increment,
+  `carrier_id` int(11) default NULL,
+  `prefix` varchar(255) NOT NULL,
+  `suffix` varchar(255) NOT NULL,
+  `codec` varchar(255) NOT NULL,
+  `enabled` boolean NOT NULL DEFAULT '1',
+  PRIMARY KEY  (`id`),
+  KEY `carrier_id` (`carrier_id`)
+  ) ENGINE=InnoDB AUTO_INCREMENT=17 DEFAULT CHARSET=latin1;
+
+  /*!40103 SET TIME_ZONE=@OLD_TIME_ZONE */;
+  /*!40101 SET SQL_MODE=@OLD_SQL_MODE */;
+  /*!40014 SET FOREIGN_KEY_CHECKS=@OLD_FOREIGN_KEY_CHECKS */;
+  /*!40014 SET UNIQUE_CHECKS=@OLD_UNIQUE_CHECKS */;
+  /*!40101 SET CHARACTER_SET_CLIENT=@OLD_CHARACTER_SET_CLIENT */;
+  /*!40101 SET CHARACTER_SET_RESULTS=@OLD_CHARACTER_SET_RESULTS */;
+  /*!40101 SET COLLATION_CONNECTION=@OLD_COLLATION_CONNECTION */;
+  /*!40111 SET SQL_NOTES=@OLD_SQL_NOTES */;
+```
+
+**Create some table data**
+
+**Now we have tables. You will want to populate the npa\_nxx\_company\_ocn table**
+
+<http://files.freeswitch.org/npa-nxx-companytype-ocn.csv>
+
+**download this via ftp to you server. Enter into MySQL**
+
+```xml
+  mysql --user=root --password=password 
+  connect free;
+  load data local infile 'npa-nxx-companytype-ocn.csv' into table npa_nxx_company_ocn
+  fields terminated by ','
+  enclosed by '"'
+  lines terminated by '\n';
+```
+
+###    
+**That should have populated the database table with the NPA data.**
+
+**Sample data for lcr**
+
+```xml
+  -- insert two carriers
+  INSERT INTO carriers (id, carrier_name, enabled) VALUES (1, 'carrier1', 1);
+  INSERT INTO carriers (id, carrier_name, enabled) VALUES (2, 'carrier2', 1);
+
+  -- insert some gateway info
+  INSERT INTO carrier_gateway (id, carrier_id, prefix, suffix) VALUES (1, 1, 'sofia/gateway/carrier1/', );
+  INSERT INTO carrier_gateway (id, carrier_id, prefix, suffix) VALUES (2, 2, 'sofia/external/', '@proxy.carrier2.net:5060');
+
+  -- insert some lcr data
+  INSERT INTO lcr (id, digits, rate, carrier_id, lead_strip, trail_strip, prefix, suffix, date_start, date_end, quality, reliability)
+  VALUES (1, '1', 0.15, 1, 0, 0, , , current_timestamp - interval 1 year, current_timestamp + interval 1 year , 0, 0);
+  INSERT INTO lcr (id, digits, rate, carrier_id, lead_strip, trail_strip, prefix, suffix, date_start, date_end, quality, reliability)
+  VALUES (2, '1', 0.12, 2, 1, 0, '0', , current_timestamp - interval 1 year, current_timestamp + interval 1 year , 0, 0);
+  INSERT INTO lcr (id, digits, rate, carrier_id, lead_strip, trail_strip, prefix, suffix, date_start, date_end, quality, reliability)
+  VALUES (3, '1234', 0.05, 1, 0, 0, , , current_timestamp - interval 1 year, current_timestamp + interval 1 year , 0, 0);
+  INSERT INTO lcr (id, digits, rate, carrier_id, lead_strip, trail_strip, prefix, suffix, date_start, date_end, quality, reliability)
+  VALUES (4, '1234', 0.02, 2, 1, 0, '0', , current_timestamp - interval 1 year, current_timestamp + interval 1 year , 0, 0);
+```
+
+###    
+**Testing our database connections**
+
+From the freeswitch command line issue something similar to:
+
+```xml
+ lcr 12145551111
+```
+
+  
+Which would respond with something like:
+
+```xml
+   API CALL [lcr(12145551111)] output:
+  | Digit Match | Carrier  | Rate     | Dialstring                         |
+  | 1214        | carrier1 | 0.01000  | sofia/gateway/carrier1/12145551111 |
+  | 1           | carrier2 | 0.01440  | sofia/gateway/carrier2/12145551111 
+```
+
+From the freeswitch command line issue something similar to:
+
+```xml
+  easyroute 19018577141
+```
+
+```xml
+  Number          Limit           Group           AcctCode        Dialstring
+  19018577141     50              mustang         999999          sofia/default/9018577141@192.168.99.1
+```
+
+### **If this comes back our databases are working.**
+
+Okay now we need to use this data to route traffic. I don’t know if this is the best way to do this but hey we are all learning. I route my traffic based on the sending IP. This is also a means of security. If the sending IP isn’t in the dialplan it won’t route in theory.
+
+### **Each SIP Trunk endpoint will need an extension in the dialplan** **Providers will need an easyroute extension & Customers will need a LCR extension.**
+
+This is a provider that sends me traffic and I route based on IP then DID database lookup. I have also added ringback and audio error if out of trunks just like a wireline carrier..
+
+ ```xml
+   <extension name="verizon">
+       <condition field="network_addr" expression="^216\.185\.35\.25$" break="on-false"/>
+       <condition field="destination_number" expression="^1?(\d{10})$" break="on-true">
+               <action application="set" data="instant_ringback=true"/>
+               <action application="set" data="ringback=%(2000,4000,440.0,480.0)"/>
+               <action application="easyroute" data="$1"/>
+               <action application="limit" data="db easyroute ${easy_group} ${easy_limit} LE-$1"/>
+               <action application="bridge" data="${easy_dialstring}"/>
+    </condition>
+   </extension>
+```
+
+###    
+**Then we check that we are not over the limit for this trunk**
+
+```xml
+   <extension name="easyroute_limit_exceeded">
+       <condition field="destination_number" expression="^LE-(\d{10})$" break="on-true">
+              <action application="answer" />
+              <action application="playback" data="/usr/local/freeswitch/sounds/en/us/callie/misc/8000/circuitsbusy.wav"/>
+              <action application="respond" data="503 Out of Channels"/>
+       </condition>
+   </extension>
+```
+
+### **This is a customer that sends me traffic and I route based on IP then LCR database lookup.**
+
+```xml
+   <extension name="Customer_Outbound to PSTN 11 Digits">
+       <condition field="network_addr" expression="^192\.168\.1\.1$"/>
+       <condition field="destination_number" expression="^(1[2-9][0-9]{2}[2-9]{7})$">
+     <action application="lcr" data="$1"/>
+     <action application="bridge" data="${lcr_auto_route}"/>
+   </condition>
+   </extension>
+```
+
+  
+**Optimizations** Stop FreeSWITCH /usr/local/freeswitch/bin/freeswitch -stop
+
+Lowering FS Log Level vi /usr/local/freeswitch/conf/autoload\_configs/switch.conf.xml
+
+```xml
+   <param name="loglevel" value="err"/>
+```
+
+  
+Set Call Admission Control vi /usr/local/freeswitch/conf/autoload\_configs/switch.conf.xml
+
+```xml
+ <param name="max-sessions" value="1000"/>
+ <param name="sessions-per-second" value="100"/>
+```
+
+  
+With these settings, we have defined a maximum of 500 bridged calls (2\*500 channels) and a maximum of 100 new sessions per second. You should set these parameters according to your hardware
+
+Creation of a ramdisk for the FS database
+
+```xml
+   mv /usr/local/freeswitch/db /usr/local/freeswitch/db_old 
+   mkdir /usr/local/freeswitch/db 
+   mount -t tmpfs tmpfs /usr/local/freeswitch/db 
+```
+
+  
+Use Proxy Media to keep FS in the RTP media path (topology hiding) but without analyzing RTP or DTMF vi /usr/local/freeswitch/conf/sip\_profiles/external.xml
+
+```xml
+   <param name="inbound-late-negotiation" value="true"/>
+```
+
+  
+Disable Presence Support in SIP\_Profiles vi /usr/local/freeswitch/conf/sip\_profiles/internal.xml
+
+```xml
+  <param name="manage-presence" value="false"/>
+```
+
+Okay at this point we have the general setup complete. You will need to add gateways and clean up the dialplan and add cdrs into the mix.. If you need help let me know I'm happy to help. This setup is the basic way most ITSP use SBCs. I need help with some things so If we want to start an SBC group I would be happy to help.
+
+**I’m really open to help on making a web interface for all this and making it more efficient.** **I pulled a lot of data from other posts please help move this along** **Thanks to all the Devel Teams' great work**
+
+Right now I use phpmyadmin to manage the SBC database.
+
+# Related
+
+Can I know you? I am Tayeb (aka DelphiWorld)
+
+Document generated by Confluence on nov 11, 2022 04:28

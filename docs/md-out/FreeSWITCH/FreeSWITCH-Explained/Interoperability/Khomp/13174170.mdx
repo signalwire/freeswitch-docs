@@ -1,0 +1,164 @@
+
+# Khomp/Contexts 
+
+ Created by  Italo Monteiro on 2017.01.13
+
+Click here to expand Table of Contents
+
+* 1 [Contexts for E1 channels](#contexts-for-e1-channels)
+* 2 [Contexts of FXS/FXO/GSM channels](#contexts-of-fxsfxogsm-channels)
+* 3 [Priority settings on the FXS branches](#priority-settings-on-the-fxs-branches)
+* 4 [Contexts for SMS messages (GSM only)](#contexts-for-sms-messages-gsm-only)
+* 5 [Contexts for Khomp\_PR channels (KPR)](#contexts-for-khomp_pr-channels-kpr)
+* 6 [Groups contexts](#groups-contexts)
+
+## Contexts for E1 channels
+
+For E1 boards, inbound contexts are predefined as option **context-digital** with default value as following:
+
+```xml
+<param name="context-digital" value="khomp-DD-LL"/>
+```
+
+This standard defines the context that links will be redirected in accordance with the number of the board and number of the link: **DD** is the device number (two digits), and **LL** is the number of the link (also with two digits).
+
+However, it is possible to configure other inbound contexts, with different formats. There is format **CCC**, which means the channel number on the card (three digits), and **SSSS**, which represents the serial board number (with four digits).
+
+Examples for configuration entries (**khomp.conf.xml**):
+
+```xml
+<!-- Serial board number and sequential link (ex: khomp-01-00) -->
+<param name="context-digital" value="khomp-DD-LL"/>
+
+<!-- Serial board number and sequential link (ex: khomp-3049-00) -->
+<param name="context-digital" value="khomp-SSSS-LL"/>
+
+<!-- Sequential board number and the channel (ex: khomp-00-001) -->
+<param name="context-digital" value="khomp-DD-CCC"/>
+
+<!-- Receive all calls in one context (khomp-digital) -->
+<param name="context-digital" value="khomp-digital"/>
+```
+
+Follows an example the context usage inside the dialplan:
+
+```xml
+<!--
+The present context in 'extensions.conf' will handle calls
+that come from the link 0 (first link) of the board 0.
+-->
+<context name="khomp-00-00">
+             .
+             .
+             .
+</context>
+```
+
+Another example, using the same format:
+
+```xml
+<!-- 
+The present context in 'extensions.conf' will handle calls
+that come from the link 1 (second link) of the board 0.
+-->
+<context name="khomp-00-01>
+             .
+             .
+             .
+</context>
+```
+
+A complete example, with a few simple actions:
+
+```xml
+<context name="khomp-00-00">
+    <extension name="exemplo_1">
+        <condition field="destination_number" expression="^1234$">
+            <action application="bridge" data="Khomp/b0L1/2345"/>
+        </condition>
+    </extension>
+    <extension name="exemplo_2">
+        <condition field="destination_number" expression="^23(\d{2})$">
+            <action application="bridge" data="sofia/${use_profile}/11$1@${sip_from_host}"/>
+        </condition>
+    </extension>
+</context>
+
+<context name="khomp-00-01">
+    <extension name="exemplo_3">
+        <condition field="destination_number" expression="^1111$">
+            <action application="bridge" data="Khomp/b0L0/2345"/>
+        </condition>
+    </extension>
+</context>
+```
+
+This dialplan defines that:
+
+1. The incoming calls on the link **0** of the board **0** will have the following handling:  
+   * Calls to the extension 1234 for will be redirected to the second link on the first board (b0L1), calling number **2345**;  
+   * Calls to any four digit number starting with**23** will be redirected to SIP phones numbered **11** plus the last two digits of the number dialed.
+2. The incoming calls on the link **1** of the board **0** for the number **1111** will be redirected to the first link of the first board (b0L0) calling number **2345**.
+
+## Contexts of FXS/FXO/GSM channels
+
+Just as in the context of E1 cards, inbound links are forwarded to the Endpoint FreeSwitch.
+
+The context is pre-defined as follows, according to the file **khomp.conf.xml**:
+
+```xml
+<param name="context-gsm" value="khomp-DD-CC"/> ;placas GSM
+
+<param name="context-fxs" value="khomp-DD-CC"/> ; placas FXS
+
+<param name="context-fxo" value="khomp-DD-CC"/> ; placas FXO
+```
+
+For these options, **DD** is the device number (two digits), and **CC** is the channel number (also two digits). There is also the **SSSS** format, which represents the serial number board.
+
+In the **KGSM** board, incoming calls are **always** redirected to the **"s"** extension, since the GSM protocol does not identify the target number, only the originator - if not omitted.
+
+## Priority settings on the FXS branches
+
+On calls originated from an FXS branch, the Endpoint searches for a valid extension (digits sent) after the DTMF **#** or after the _timeout_ (option **fxs-digit-timeout**). That search is done in the context defined in section **&lt;fxs-options>**, or if no context configured, the search is done in context defined in **context-fxs**. 
+
+## Contexts for SMS messages (GSM only)
+
+SMS messages are received by the Khomp _Endpoint_ and forwarded to FreeSWITCH as a normal connection but no audio, which has some variables set with information received in the message - for more information on these variables, see the documentation of the variables of the _Endpoint_. This context can also be modified in the same way as the above contexts.
+
+The default value for this option follows (**khomp.conf.xml**):
+
+```xml
+<param name="context-gsm-sms" value="khomp-sms-DD-CC"/> 
+```
+
+Where **DD** is the device number (two digits), and **CC** is the channel number (also with two digits). For example:
+
+```xml
+<context name="khomp-sms-00-01">
+    <extension name="sms">
+        <condition field="destination_number" expression="^s$">
+            <action application="log" data="DEBUG KSmsType=${KSmsType}"/>
+            <action application="log" data="DEBUG KSmsBody=${KSmsBody}"/>
+        </condition>
+    </extension>
+</context>
+```
+
+## Contexts for Khomp_PR channels (KPR)
+
+For these cards, inbound links have a pre-defined context, as shown below:
+
+```xml
+<param name="context-pr" value="khomp-DD-CC"/> 
+```
+
+In this case, **DD** is the device number (two digits), and**CC** is the channel number (also two digits). The name and format of this context can also be changed through the "context-pr" in the configuration file. 
+
+## Groups contexts
+
+The section **groups**, in the configuration file **khomp.conf.xml**, can be used to define specific settings for certain groups of channels.
+
+This section is detailed in the section **Endpoint Configuration**.
+
+Document generated by Confluence on nov 11, 2022 04:28

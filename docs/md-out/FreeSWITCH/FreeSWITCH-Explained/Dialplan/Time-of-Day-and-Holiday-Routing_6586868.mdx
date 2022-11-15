@@ -1,0 +1,329 @@
+
+# Time of Day and Holiday Routing 
+
+ Created by  Belaid Areski, last modified by  Ryan Harris on 2018.02.10
+
+# About
+
+Time of day routing allows calls to be sent to different extensions based upon the time of day, day of week and in some cases, holidays. As of SVN revision 14385, FreeSWITCH supports a number of matchable variables for time and date elements. These are discussed in the Dialplan XML wiki page. The new matching variables obviate the need for using the strftime API. (You may still use strftime if you so choose or if you have a specific need that only strftime meets.)
+
+  
+Click here to expand Table of Contents
+
+* 1 [Variables](#holiday-routing)  
+   * 1.1 [Wrap-Around](#holiday-routing)  
+   * 1.2 [Blocks](#holiday-routing)
+* 2 [Time Zone Manipulation](#time-zone-manipulation)  
+   * 2.1 [timezone](#holiday-routing)  
+   * 2.2 [tod\_tz\_offset](#tod_tz_offset)
+* 3 [Usage](#holiday-routing)
+* 4 [Examples](#holiday-routing)  
+   * 4.1 [Office Hours](#holiday-routing)  
+   * 4.2 [Holiday Routing](#holiday-routing)  
+         * 4.2.1 [Memorial Day](#holiday-routing)
+
+# Variables
+
+| Attribute                                    | Acceptable Values                                    | Description                                                                                 |
+| -------------------------------------------- | ---------------------------------------------------- | ------------------------------------------------------------------------------------------- |
+| year                                         | 0 \- 9999                                            | calendar year                                                                               |
+| yday                                         | 1 \- 366                                             | day of year                                                                                 |
+| mon                                          | 1 \- 12                                              | month (Jan = 1, etc.)                                                                       |
+| mday                                         | 1 \- 31                                              | day of month                                                                                |
+| week                                         | 1 \- 53                                              | week of year                                                                                |
+| mweek                                        | 1 \- 6                                               | week of month                                                                               |
+| wday                                         | 1 \- 7                                               | day of week, numeric (sun = 1, mon = 2, etc.)                                               |
+| sunmontuewedthufrisat                        | day of week                                          |                                                                                             |
+| hour                                         | 0 \- 23                                              | hour                                                                                        |
+| minute                                       | 0 \- 59                                              | minute (of the hour)                                                                        |
+| minute-of-day                                | 1-1440                                               | minute of the day (midnight = 1, 1am = 60, noon = 720, etc)                                 |
+| time-of-day                                  | hh:mm-hh:mm                                          | time rangeExample: 08:00-17:00                                                              |
+| hh:mm:ss-hh:mm:ss                            | time range, with seconds                             |                                                                                             |
+| date-time                                    | YYYY-MM-DD hh:mm**\~**YYYY-MM-DD hh:mm               | date time range, note the \~ delimiterExample: 2010-10-01 00:00:01**\~**2010-10-15 23:59:59 |
+| YYYY-MM-DD hh:mm:ss**\~**YYYY-MM-DD hh:mm:ss | date time range, with seconds, note the \~ delimiter |                                                                                             |
+
+These can be combined in the same condition, e.g:
+
+```xml
+<condition wday="6" hour="8-12"> 
+```
+
+## Wrap-Around
+
+Time and date variables support wrap-around to span the changing of the days, months, or years:
+
+```xml
+<condition mon="10-2"> <!-- from October of year 1 to February of year 2 -->
+```
+
+```xml
+<condition time-of-day="17:00:00-07:00:00"> <!-- from 5PM of day 1 to 7AM of day 2 -->
+```
+
+![(attenzione)](/images/icons/emoticons/warning.svg) If you use wrap-around then the from and to date/time need to be one value lower so `5:00:00-5:00:00` will read as 0 and needs to be `5:00:00-4:59:59` which would then read as 5AM from today to 4:59AM tomorrow.
+
+## Blocks
+
+Comma–separated values allow discrete blocks of time to be specified:
+
+```xml
+<condition time-of-day="08:00-12:00,13:00-17:00"> <!-- from 8AM to 12AM and 1PM to 5PM -->
+```
+
+```xml
+<condition date-time="2015-03-01 00:00:00~2015-03-01 23:59:59,2015-06-05 00:00:00~2015-07-01 23:59:59"> <!-- day 2015-03-01 and range from 2015-06-05 to 2015-07-01 -->
+```
+
+![(attenzione)](/images/icons/emoticons/warning.svg) the tilde `~` character is used to delimit the starting date time and the ending date time
+
+# Time Zone Manipulation
+
+By default, time–based routing uses the local time kept by FreeSWITCH. If you want to use a different time zone, you have 2 options (as of 2012-11-01 in master, see [FS-4741](https://freeswitch.org/jira/browse/FS-4741?src=confmacro)  \-[Autentica](https://freeswitch.org/confluence/plugins/servlet/applinks/oauth/login-dance/authorize?applicationLinkID=c4b15fa3-ad57-3c05-af05-8c167cb92266) per visualizzare i dettagli del problema ).
+
+## timezone
+
+string Sets the timezone for this particular call. Can be used, e.g., to set the timezone for a caller who is checking his/her voicemail. The value is expressed in Linux timezone format (ex. America/New\_York -- see `/usr/share/zoneinfo/zone.tab` for the standard list of Linux timezones).
+
+![(attenzione)](/images/icons/emoticons/warning.svg) this variable must actually be set before the comparison, so either set it inline, transfer, or set it in the user directory.
+
+See also: [Time of Day and Holiday Routing](Time-of-Day-and-Holiday-Routing_6586868.mdx#about).
+
+**Usage**
+
+You can set the time zone globally for Freeswitch in `/conf/vars.xml`
+
+```xml
+<X-PRE-PROCESS cmd="set" data="timezone=America/Toronto"/>
+```
+
+Specify the timezone in the dialplan:
+
+```xml
+<action application="set" data="timezone=Asia/Seoul"/>
+```
+
+```xml
+<action application="set" data="timezone=GMT0"/>
+```
+
+```xml
+<action application="set" data="timezone=America/New_York"/>
+```
+
+In the directory:
+
+```xml
+<param name="timezone" value="America/New_York"/>
+```
+
+## tod_tz_offset
+
+integer Sets the GMT offset to be used on this call for [time of day](Time-of-Day-and-Holiday-Routing_6586868.mdx#about) conditions.
+
+![(attenzione)](/images/icons/emoticons/warning.svg) this variable must actually be set before the comparison, so either set it inline, transfer, or set it in the user directory.
+
+**Usage**
+
+To set the offset global in `conf/vars.xml`:
+
+```xml
+<X-PRE-PROCESS cmd="set" data="tod_tz_offset=5"/>
+```
+
+```xml
+<action application="set" data="tod_tz_offset=5"/>
+```
+
+# Usage
+
+The examples presented here can be added to the conf/dialplan/default.xml file or you can create a new file in conf/dialplan/default/ to be included in the default dialplan (see the bottom of the vanilla default dialplan).
+
+Provision an internal extension # for Sales to route calls dialed for 2002.
+
+**conf/dialplan**
+
+```xml
+   <extension name="RS-Sales-x2002">
+     <condition field="destination_number" expression="^2002$">
+       <action application="transfer" data="RS-Sales"/>
+     </condition>
+   </extension>
+```
+
+Setup variables prior to transferring to call handler for sales. This sets the variables so that they will be available to the condition test during the next pass through the dialplan initiated by the transfer app.
+
+**conf/dialplan**
+
+```xml
+   <extension name="RS-Sales" continue="true">
+     <condition field="destination_number" expression="^RS-Sales$"/>
+     <condition wday="2-6"/>
+     <condition minute-of-day="540-1020">
+       <action application="set" data="RS-Sales_open=true"/>
+       <action application="transfer" data="xfer-to-sales"/>
+
+       <anti-action application="set" data="RS-Sales_open=false"/>
+       <anti-action application="transfer" data="xfer-to-sales"/>
+     </condition>
+   </extension>
+```
+
+Handle Sales Call
+
+If Sales is open then route to extension first, then vMail; else send call directly to vMail. In this example, Sales have their own mailbox (#2001) - the configuration of that box forwards all vMail to email and does not store a local copy.
+
+**conf/dialplan**
+
+```xml
+   <extension name="xfer-to-sales">
+     <condition field="destination_number" expression="^xfer-to-sales$"/>
+     <condition field="${RS-Sales_open}" expression="^true$">
+       <action application="bridge" data="user/1001@${domain_name}"/>
+       <action application="answer"/>
+       <action application="sleep" data="2000"/>
+       <action application="voicemail" data="default ${domain_name} 2001"/>
+
+       <anti-action application="voicemail" data="default ${domain_name} 2001"/>
+     </condition>
+   </extension>
+```
+
+VoiceMail Config (in conf/directory/default/2001.xml)
+
+**Voicemail config**
+
+```xml
+ <user id="2001" number-alias="2001">
+   <params>
+     <param name="password" value="2001"/>
+     <param name="vm-password" value="2001"/>
+     <param name="vm-email-all-messages" value="true"/>
+     <param name="vm-notify-email-all-messages" value="true"/>
+     <param name="vm-attach-file" value="true"/>
+     <param name="vm-mailto" value="sales@foo.com"/>
+     <param name="vm-notify-mailto" value="chris@foo.com"/>
+     <param name="vm-keep-local-after-email" value="false"/>
+   </params>
+   <variables>
+     <variable name="toll_allow" value="domestic,international,local"/>
+     <variable name="accountcode" value="2001"/>
+     <variable name="user_context" value="default"/>
+     <variable name="effective_caller_id_name" value="sales"/>
+     <variable name="effective_caller_id_number" value="2001"/>
+     <variable name="outbound_caller_id_name" value="$${outbound_caller_name}"/>
+     <variable name="outbound_caller_id_number" value="$${outbound_caller_id}"/>
+     <variable name="callgroup" value="fga"/>
+   </variables>
+ </user>
+```
+
+# Examples
+
+## Office Hours
+
+Example for office open 09:00-16:00
+
+Has inbound DID routed to extension 5001\. Because the office\_status variable is set with the inline attribute, the variable takes effect immediately with no need to transfer to another extension definition. The following dialplan extension will always be executed and continue after matching.
+
+**Time and day evaluation**
+
+```xml
+ <extension name="Time of day, day of week setup" continue="true">
+   <condition wday="2-6" minute-of-day="540-960" break="never">
+      <action application="set" data="office_status=open" inline="true"/>
+      <anti-action application="set" data="office_status=closed" inline="true"/>
+   </condition>
+ </extension>
+```
+
+This extension will be evaluated if 5001 is the destination number and will build a final destination consisting of 5001\_open or 5001\_closed.
+
+**Ext. 5001**
+
+```xml
+ <extension name="tod route, x5001">
+   <condition field="destination_number" expression="^(5001)$">
+       <action application="execute_extension" data="5001_${office_status}"/>
+    </condition>
+ </extension>
+```
+
+Now the call is handled.
+
+**Open/closed call handler**
+
+```xml
+ <extension name="office is open">
+   <condition field="destination_number" expression="^(5001_open)$">
+       <action application="set" data="domain_name=$${domain}"/>
+       <action application="answer"/>
+       <action application="playback" data="/usr/local/freeswitch/recordings/welcome_message.wav"/>
+       <action application="set" data="hangup_after_bridge=true"/>
+       <action application="set" data="continue_on_fail=NORMAL_TEMPORARY_FAILURE,USER_BUSY,NO_ANSWER,TIMEOUT,NO_ROUTE_DESTINATION"/>
+       <action application="set" data="ringback=local_stream://moh"/>
+       <action application="set" data="transfer_ringback=local_stream://moh"/>
+       <action application="pre_answer"/>
+       <action application="bridge" data="{ignore_early_media=true,origination_caller_id_number=XXXXXXXX}sofia/gateway/<gateway name>/XXXXXXXX,sofia/gateway/<gateway name>/XXXXXXXX"/>
+   </condition>
+ </extension>
+
+ <extension name="office is closed">
+  <condition field="destination_number" expression="^(5001_closed)$">
+     <action application="answer"/>
+     <action application="sleep" data="1000"/>
+     <action application="playback" data="/usr/local/freeswitch/recordings/9-16.wav"/>
+     <action application="sleep" data="500"/>
+     <action application="hangup" data="NORMAL_CLEARING"/>
+  </condition>
+ </extension>
+```
+
+## Holiday Routing
+
+Similar to time of day routing, holiday routing can be used to route calls when your office is closed due to various company or national holidays.
+
+Often these holidays fall on consistent dates and you can use the mday and mon attributes to detect them. Here is Christmas for example:
+
+**Fixed date**
+
+```xml
+ <!-- Christmas day -->
+ <condition mday="25" mon="12">
+```
+
+However, some holidays don't fall on consistent dates and are instead something like 'the third Monday in February'. You can use the mweek (week of month) condition parameter (added in r15723) to help with this:
+
+**Third Monday**
+
+```xml
+ <!-- president's day is the 3rd Monday in February -->
+ <condition wday="2" mweek="3" mon="2">
+```
+
+Sometimes, again, a holiday is specified as something like the 'last Monday in October' and you have to do something like this:
+
+```xml
+ <condition wday="2" mon="10" mday="25-31">
+```
+
+This works because the last Monday in October is guaranteed to fall in the last 7 days of the month (the 25th to the 31st) and this condition doesn't pass unless everything evaluates to true.
+
+Using these three patterns you can match almost any holiday date, however, there are complicated ones like Easter and Inauguration Day that are more complicated and would require some custom coding to detect.
+
+### Memorial Day
+
+**Memorial Day**
+
+```xml
+ <extension name="2012_memorial_day_weekend_routing">
+   <condition date-time="2012-05-25 17:00:01~2012-05-29 08:00:00"/>
+   <condition field="destination_number" expression="^1(2135551212)$">
+     <action application="bridge" data="sofia/external/18185551212@1.2.3.4"/>
+   </condition>
+ </extension>
+```
+
+There are more examples in the default dialplan that cover all US federal holidays except for inauguration day.
+
+  
+Document generated by Confluence on nov 11, 2022 04:27

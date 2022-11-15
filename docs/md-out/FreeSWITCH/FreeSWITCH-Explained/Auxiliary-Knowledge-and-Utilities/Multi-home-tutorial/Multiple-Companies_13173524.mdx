@@ -1,0 +1,257 @@
+
+# Multiple Companies 
+
+ Created by  Késsia Castro, last modified by  John Boteler on 2018.03.30
+
+# About
+
+**Note**: _There is also some useful information on the [Multi-tenant](../../Examples/Multi-tenant_13173521.mdx#about) page, which needs merging._
+
+This is HOWTO to make one FreeSWITCH server act as a multi-tenant system for two or more companies, each with its own domain/users and independent [dialplans](../../Dialplan/index.mdx#0-about).
+
+Basically, we want to have one FS server provide phone services to several separate companies, as if we are a VoIP provider. Let's start with two companies and give both companies the same two users (1000 for company-a and 1000 for company-b). These companies should be completely independent of each other, their identically-numbered extensions should not overlap or have anything to do with each other, and each company (and all of it's users/extensions) should have independent dialplans.
+
+Click here to expand Table of Contents
+
+* 1 [Enabling Multiple Domains](#enabling-multiple-domains)  
+   * 1.1 [Update 2011-12-23](#update-2011-12-23)
+* 2 [Creating the Files and Directories](#creating-the-files-and-directories)  
+   * 2.1 [Adding Users to the Directories](#adding-users-to-the-directories)
+* 3 [Setting Up the SIP Profile](#setting-up-the-sip-profile)
+* 4 [Creating a Dialplan for Each Domain](#creating-a-dialplan-for-each-domain)  
+   * 4.1 [Usage](#usage)
+* 5 [Gotchas](#gotchas)
+* 6 [See also](#see-also)
+
+# Enabling Multiple Domains
+
+This is from the SIP Profiles section of [Multi-tenant](../../Examples/Multi-tenant_13173521.mdx#about):
+
+Edit `conf/sip_profiles/internal.xml` to comment the params "force-register-domain" and "force-register-db-domain":
+
+```xml
+ <!--
+        These are enabled to make the default config work better out of the box.
+        If you need more than ONE domain you **MUST DISABLE** these options.
+
+    -->
+    <!--all inbound reg will look in this domain for the users -->
+    <param name="force-register-domain" value="$${domain}"/>
+    <!--all inbound reg will stored in the db using this domain -->
+    <param name="force-register-db-domain" value="$${domain}"/>
+```
+
+## Update 2011-12-23
+
+File conf/sip\_profiles/internal.xml should have its newest option, "force-subscription-domain" (present as of FS git date 2011-12-23), also commented out. Current correct setting:
+
+```xml
+    <!--all inbound reg will look in this domain for the users -->
+    <!--<param name="force-register-domain" value="$${domain}"/>-->
+    <!--force the domain in subscriptions to this value -->
+    <!--<param name="force-subscription-domain" value="$${domain}"/>-->
+    <!--all inbound reg will stored in the db using this domain -->
+    <!--<param name="force-register-db-domain" value="$${domain}"/>-->
+```
+
+# Creating the Files and Directories
+
+Assuming FreeSWITCH is installed in `/usr/local/freeswitch/`, cd there and create the files and directories:
+
+```xml
+$ cp conf/directory/default.xml conf/directory/company-a.org.xml
+$ cp conf/directory/default.xml conf/directory/company-b.org.xml
+$ cp -a conf/directory/default conf/directory/company-a.org
+$ cp -a conf/directory/default conf/directory/company-b.org
+```
+
+`/usr/local/freeswitch/conf/directory`  now should look like this:
+
+```xml
+$ ls -l
+
+total 24
+drwxr-xr-x 3 diego diego 4096 2009-09-23 04:30 company-a.org
+-rw-r--r-- 1 diego diego 2656 2009-09-29 22:21 company-a.org.xml
+drwxr-xr-x 3 diego diego 4096 2009-09-23 04:30 company-b.org
+-rw-r--r-- 1 diego diego 2656 2009-09-29 22:21 company-b.org.xml
+drwxr-xr-x 3 diego diego 4096 2009-09-23 04:30 default
+-rw-r--r-- 1 diego diego 2656 2009-09-23 04:30 default.xml
+$
+```
+
+Let's edit the files now:
+
+**conf/directory/company-a.org.xml**
+
+```xml
+ <include>
+  <!--the domain or ip (the right hand side of the @ in the addr-->
+  <domain name="company-a.org">
+    <params>
+      <param name="dial-string" value="{presence_id=${dialed_user}@${dialed_domain}}${sofia_contact(${dialed_user}@${dialed_domain})}"/>
+    </params>
+
+    <variables>
+      <variable name="record_stereo" value="true"/>
+      <variable name="default_gateway" value="$${default_provider}"/>
+      <variable name="default_areacode" value="$${default_areacode}"/>
+      <variable name="transfer_fallback_extension" value="operator"/>
+      <variable name="user_context" value="company-a.org"/>
+    </variables>
+
+    <groups>
+      <group name="company-a.org">
+        <users>
+          <X-PRE-PROCESS cmd="include" data="company-a.org/*.xml"/>
+        </users>
+      </group>
+
+    </groups>
+
+  </domain>
+</include>
+```
+
+Notice the lines into which "company-a.org" has been inserted. Do the same for company-b below, and extend to however many other companies are to be hosted on this FreeSWITCH server.
+
+**conf/directory/company-b.org.xml**
+
+```xml
+<include>
+  <!--the domain or ip (the right hand side of the @ in the addr-->
+  <domain name="company-b.org">
+    <params>
+      <param name="dial-string" value="{presence_id=${dialed_user}@${dialed_domain}}${sofia_contact(${dialed_user}@${dialed_domain})}"/>
+    </params>
+
+    <variables>
+      <variable name="record_stereo" value="true"/>
+      <variable name="default_gateway" value="$${default_provider}"/>
+      <variable name="default_areacode" value="$${default_areacode}"/>
+      <variable name="transfer_fallback_extension" value="operator"/>
+      <variable name="user_context" value="company-b.org"/>
+    </variables>
+
+    <groups>
+      <group name="company-b.org">
+        <users>
+          <X-PRE-PROCESS cmd="include" data="company-b.org/*.xml"/>
+        </users>
+      </group>
+
+    </groups>
+
+  </domain>
+</include>
+```
+
+## Adding Users to the Directories
+
+Now let's create the users in the newly created directories: For example, add two users, one in `conf/directory/company-a.org` and another one in `conf/directory/company-b.org`, something like this:
+
+**conf/directory/company-a.org/1000.xml**
+
+```xml
+<include>
+  <user id="1000">
+    <params>
+      <param name="password" value="$${default_password}"/>
+      <param name="vm-password" value="1000"/>
+    </params>
+    <variables>
+      <variable name="toll_allow" value="domestic,international,local"/>
+      <variable name="accountcode" value="1000"/>
+      <!--<variable name="user_context" value="default"/>-->
+      <variable name="effective_caller_id_name" value="Extension 1000"/>
+      <variable name="effective_caller_id_number" value="1000"/>
+      <variable name="outbound_caller_id_name" value="$${outbound_caller_name}"/>
+      <variable name="outbound_caller_id_number" value="$${outbound_caller_id}"/>
+      <variable name="callgroup" value="techsupport"/>
+    </variables>
+  </user>
+</include>
+```
+
+**conf/directory/company-b.org/1000.xml**
+
+```xml
+<include>
+  <user id="1000">
+    <params>
+      <param name="password" value="$${default_password}"/>
+      <param name="vm-password" value="1000"/>
+    </params>
+    <variables>
+      <variable name="toll_allow" value="domestic,international,local"/>
+      <variable name="accountcode" value="1000"/>
+      <!--<variable name="user_context" value="default"/>-->
+      <variable name="effective_caller_id_name" value="Extension 1000"/>
+      <variable name="effective_caller_id_number" value="1000"/>
+      <variable name="outbound_caller_id_name" value="$${outbound_caller_name}"/>
+      <variable name="outbound_caller_id_number" value="$${outbound_caller_id}"/>
+      <variable name="callgroup" value="techsupport"/>
+    </variables>
+  </user>
+</include>
+```
+
+* **NOTE:** Delete or comment-out the `user_context` option line inside all the extension (user) `*.xml` files and instead put that option line inside the master XML file for each domain (i.e., the `conf/directory/company-a.org.xml` file and also the `conf/directory/company-b.org.xml`file), as doing so will save time by obviating specification of `user_context` inside every extension (user) file subsequently created under `conf/directory/company-a.org/` or `conf/directory/company-b.org/`.
+
+# Setting Up the SIP Profile
+
+Comment `force-register-domain` and `force-register-db-domain`from the profile, it should look like this:
+
+**conf/sip\_profiles/internal.xml**
+
+```xml
+<!--<param name="force-register-domain" value="$${domain}"/>-->
+<!--<param name="force-register-db-domain" value="$${domain}"/>-->
+<!--<param name="force-subscription-domain" value="$${domain}"/>-->
+```
+
+# Creating a Dialplan for Each Domain
+
+You could copy `conf/dialplan/default.xml` to `conf/dialplan/company-a.org.xml` and `conf/dialplan/company-b.org.xml` and edit the context on each to match the context from the users/directories.
+
+**conf/dialplan/company-a.org.xml**
+
+```xml
+<include>
+  <context name="company-a.org">
+    <!-- your extensions here -->
+  </context>
+</include>
+```
+
+**conf/dialplan/company-b.org.xml**
+
+```xml
+<include>
+  <context name="company-b.org">
+    <!-- your extensions here -->
+  </context>
+</include>
+```
+
+## Usage
+
+Now if the 1000@company-a.org user tries to dial a extension, it should look into the company-a.org context/dialplan and if 1000@company-b.org tries to dial it should look into the company-b.org context/dialplan. Bow to the power of FreeSWITCH!
+
+# Gotchas
+
+As I painfully found and noted \[[(old wiki) here](http://wiki.freeswitch.org/wiki/User:MichaelBrenden)\] I just relearned the same thing, painfully, a different way. The domain established in vars.xml must not be the same as any of the tenant's domains you're hosting; otherwise, that tenant's domain will not work while all the others will. Yes, maddening.
+
+`<X-PRE-PROCESS cmd="set" data="domain=boxen.mydom.net"/> `present in vars.xml file must be different from all other tenant's domains!
+
+# See also
+
+* [Multi-tenant](../../Examples/Multi-tenant_13173521.mdx#about)
+* [Music on hold](../../Configuration/Music-on-Hold_6587503.mdx#about)
+
+## Comments:
+
+| if you are using this, please be care and DO NOT put the address or domains you are using in the acl.conf.xml or you ACL any where. this makes it to your endpoints dont really auth, and thereby causing the user\_context to not be honored, and instead dumping them into the context defined inside of the sofia profile that the devices register against ![](/images/icons/contenttypes/comment_16.png) Posted by akp at apr 29, 2020 14:41 |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+
+Document generated by Confluence on nov 11, 2022 04:29

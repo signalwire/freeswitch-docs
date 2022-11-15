@@ -1,0 +1,272 @@
+
+# mod_perl examples by Mitch Capper 
+
+ Created by  Stanislav Sinyagin, last modified by  John Boteler on 2016.04.27
+
+# About
+
+Control FreeSWITCH, intercept a session with Perl scripts.These examples rely on [mod\_perl](../Modules/mod_perl_1048930.mdx#about) scripting, initially published by Mitch Capper.
+
+Click here to expand Table of Contents
+
+* 1 [](#-freeswitch--mod_perl-examples-by-mitch-capper-)
+* 2 [Console IVR Example](#console-ivr-example)
+* 3 [Live Session Intercept IVR Example](#live-session-intercept-ivr-example)
+
+#   
+
+# Console IVR Example
+
+Espandi fonte 
+
+```perl
+use strict;
+our $session;
+
+# A simple IVR system that is meant to allow you to dial into your own system, authenticate with a pin, and then perform various actions
+# Shows writing to the console log, getting/setting variables, listening for DTMF tones (passive and active)
+
+# Notes:
+#	This doesn't use the IVR module
+#	It uses pre-fabbed audio messages no speaking (just for easyness), everywere I have test.wav you would want to replace with whatever wav's you want to use.  I have a comment after each test.wav explaining what it would say.
+#	It relies on the rest of my dialplan to actually carry out some of the actions/bridging.  So once it sets things up it just uses return 1 to go on to the rest of the dialplan.
+#	It doesn't use mod_loopback to execute the rest of my dialplan, as my dialplan is actually carried out by perl I can simply set the various variables and when my perl dialplan executes it will import them.  If you are using the XML dialplan you will most likely want to use mod_loopback to feed the return back into the dialplan.
+
+
+my $PLAY_TIMES = 5; #How many times to play the intro message before returning
+my $PASS_KEY = "1234"; #Pass key to get into the system
+my $MY_ACCT = "1000"; #Default account to take over once in
+
+sub fprint($) #Dump string to the console
+{
+	my ($msg) = @_;
+	freeswitch::consoleLog("CRIT",$msg . "\n");
+}
+my %VARS;
+{ ####The idea of these functions is to allow for easy pull in of variables and then automatically export any ones that have been changed when UPDATEV.  It will ensure you don't write to any non-imported variables, but as we are using a hash we cannot prevent invalid reads.  If you are really concerned about this then you could use a specific read function which first checks to make sure its defined in CLEAN_VARS before returning.
+	my %CLEAN_VARS;
+	sub GETV #takes one or more variables names to import in
+	{
+		my @arr = @_;
+		foreach my $var (@arr)
+		{
+			$VARS{$var} = $session->getVariable($var);
+			$CLEAN_VARS{$var} = $VARS{$var};
+			$CLEAN_VARS{$var}="" if (! defined $CLEAN_VARS{$var});
+		}
+	}
+	sub SETV($$) #Generally not called directly, but will set the variable to the value requested right away.
+	{
+		my ($var,$value) = @_;
+		$session->setVariable($var,$value);
+		$VARS{$var} = $value;
+		$CLEAN_VARS{$var} = $value;
+	}
+	sub ADDV(@) #If we don't care about a variables value, but wan't to override it this will add it to the hash so that when we write to it, we don't consider it a typo
+	{
+		my @arr = @_;
+		foreach my $var(@arr)
+		{
+			$CLEAN_VARS{$var}="123zzzzzZnzZZzz"; #something definately won't match
+			$VARS{$var} = "";
+		}
+	}
+	sub UPDATEV() #Updates any changed variables
+	{
+		foreach my $var (keys %VARS)
+		{
+			die "Warning a variable of: $var was not found in CLEAN_VARS, did you forget to GET/ADD it first?" if (! defined $CLEAN_VARS{$var}); #make sure tehre were no typos
+			SETV($var, $VARS{$var}) if ($VARS{$var} ne $CLEAN_VARS{$var});
+		}
+	}
+}
+
+my $press_so_far = "";
+sub got_press
+{
+	my ($session,$type,$data) = @_;
+	return if (length($press_so_far) > 30); #don't allow a string > 30 to be queued up
+	$press_so_far .= $data->{digit};
+	return;
+}
+sub set_user($) #this function takes over as if we sip_authed as that user.
+{
+	my ($user_id) = @_;
+	$session->execute("set_user",$user_id. '@' . $VARS{domain});
+	$MY_ACCT = $user_id;
+	$VARS{sip_authorized}="true";
+	$VARS{caller_id_number} = $user_id;
+}
+$session->answer();
+$session->setInputCallback('got_press',""); #listen for key presses in the background
+my $x;
+GETV(qw/destination_number effective_caller_id_name effective_caller_id_number caller_id_number hangup_after_bridge sip_authorized app_rights domain/);
+if ( $VARS{sip_authorized} ne "true" || $VARS{caller_id_number} ne $MY_ACCT) #if we are not authorized or we are not the auto_allowed user then lets forece them to authenticate
+{
+	for ($x = 0; $x < $PLAY_TIMES && $press_so_far ne $PASS_KEY && $session->ready(); $x++)
+	{
+		$session->streamFile("/root/test.wav"); #Please enter the pin number
+	}
+	return 1 if ($press_so_far ne $PASS_KEY);
+	$press_so_far="";
+}
+#Dial Number
+#Check Voicemail
+#Set Caller ID
+#Privacy Dial
+#Become Another User
+#Join Freeswitch Conference
+set_user($MY_ACCT); #Once authed we should tak over the default user account
+$VARS{hangup_after_bridge} = "true";
+
+###Functions the user can choose, they return 1 if they expect the ivr to exit out after running
+sub dial_number()
+{
+	my $num_dial = $session->playAndGetDigits(4,20,999,10000,'#',"/root/test.wav","/root/test.wav",'^[0-9]+$'); #enter phone number to dial followed by pound sign
+	return 1 if (! $session->ready());
+	$VARS{destination_number} = $num_dial;
+	UPDATEV();
+	return 1;
+}
+sub check_voicemail()
+{
+	$VARS{destination_number} = $MY_ACCT;
+	UPDATEV();
+	return 1;
+}
+sub enable_privacy()
+{
+	$VARS{effective_caller_id_name} = "0000000000";
+	$VARS{effective_caller_id_number} = "0000000000";
+	$session->execute("privacy","yes");
+	$session->streamFile("/root/test.wav"); #Privacy Mode Enabled
+	return 0;
+}
+sub assume_user()
+{
+	my $user_id = $session->playAndGetDigits(4,4,999,10000,'#',"/root/test.wav","/root/test.wav",'^[0-9]+$'); #enter the 4 digit user you want to spoof
+	return 1 if (! $session->ready());
+	set_user($user_id);
+	$session->streamFile("/root/test.wav"); #You are now that user
+	return 0;
+}
+sub join_freeswitch_conference()
+{
+	$VARS{destination_number} = "888";
+	$session->streamFile("/root/test.wav"); #Joining Conference
+	UPDATEV();
+	return 1;
+}
+sub set_caller_id()
+{
+	my $num_spoof = $session->playAndGetDigits(4,20,999,10000,'#',"/root/test.wav","/root/test.wav",'^[0-9]+$'); #enter phone number for the caller id followed by the pound sign
+	return 1 if (! $session->ready());
+	$VARS{effective_caller_id_name} = $num_spoof;
+	$VARS{effective_caller_id_number} = $num_spoof;
+	$session->streamFile("/root/test.wav"); #Caller ID Set
+	return 0;
+}
+my %OPTIONS = ( 1=>\&dial_number,2=>\&check_voicemail,3=>\&assume_user,4=>\&set_caller_id,5=>\&enable_privacy,6=>\&join_freeswitch_conference );
+while($session->ready())
+{
+	my $opt = $session->playAndGetDigits(1,1,999,10000,'#',"/root/test.wav","/root/test.wav",'^[0-6]$'); #ivr munu,incorrect press
+	return 1 if (! $session->ready());
+	if ($OPTIONS{$opt})
+	{
+		return 1 if ($OPTIONS{$opt}->()); #if it returns 1 we should leave the ivr
+	}
+
+}
+1;
+```
+
+# Live Session Intercept IVR Example
+
+This is a simple script to show how you can get the list of current sessions, present them to the user, and let them choose one to take over. This is part of one of my larger dial plans but it should be fairly obvious about how to integrate it into your own. Originally we used this with cepstral which allows you to announce caller ID names and such too, but this is a simpler version which doesn't require it. Each call is actually made up of two sessions, so we use some logic to try and skip the session we don't care about. This does assume 4 digit extensions always calling a non sip address or non sip address calling a 4 digit extension. Integrate this with Console IVR Example to provide an easy way to dial in on a cell phone and take over an active session for example.
+
+Espandi fonte 
+
+```perl
+ my $press_so_far = "";
+sub got_press
+{
+	my ($session,$type,$data) = @_;
+	return if (length($press_so_far) > 30); #don't allow a string > 30 to be queued up
+	$press_so_far .= $data->{digit};
+	return;
+}
+$session->setInputCallback('got_press'); #listen for key presses in the background used on streamFile playing.
+sub pick_intercept_session(){
+	my $api = new freeswitch::API();
+	my $chans = $api->executeString("show channels");
+	my @lines = split(/\n/,$chans);
+	#remove first line and last two lines
+	shift(@lines);
+	pop(@lines);
+	pop(@lines);
+	my $cnt = 0;
+	my %calls;
+	foreach my $line(@lines){
+		chomp($line);
+		my ($uuid,$direction,$created,$trash,$name,$state,$cid_name,$cid_num,$trash,$dest,$trash) = split(/,/,$line,11);
+		next if ($direction eq "inbound" && $cid_num =~ /^[0-9]{4}$/); #skip inbound sessions of 4 digit extensions source as this is the caller on an outbound call
+		next if ($direction eq "outbound" && $dest =~ /^sip:/); #skip outbound sessions that have sip: in it as these are the destination on an inbound call
+		$calls{$cnt}{uuid} = $uuid;
+		$cid_name =~ s/^\+//;
+		$cid_num =~ s/^\+//;
+		$cid_name =~ s/^1//;
+		$cid_num =~ s/^1//;
+		$dest =~ s/^1//;
+		$cid_name = "" if ($cid_name eq $cid_num);
+		$calls{$cnt}{cid_name} = $cid_name;
+		$calls{$cnt}{cid_num} = $cid_num;
+		$calls{$cnt}{dest} = $dest;
+		$cnt++;
+	}
+	$session->streamFile("/usr/local/freeswitch/sounds/ivr_total_of.wav"); #There are a total of 
+	my $total_calls= keys(%calls);
+	say_digits($total_calls);
+	$session->streamFile("/usr/local/freeswitch/sounds/ivr_active_calls.wav"); #active calls please choose which to take over from below
+	sleep(0.5);
+	my $press;
+	foreach my $num (sort keys %calls){
+		$press_so_far = $session->playAndGetDigits(0,1,1,1,"#","/usr/local/freeswitch/sounds/ivr_call_from.wav","",""); #Call from
+		say_digits($calls{$num}{cid_num});
+		if ($press_so_far ne ""){
+			$session->execute("intercept",$calls{$press_so_far}{uuid});
+			return 1;
+		}
+		$press_so_far = $session->playAndGetDigits(0,1,1,1,"#","/usr/local/freeswitch/sounds/ivr_calling.wav","",""); #Calling
+		say_digits($calls{$num}{dest});
+		if ($press_so_far ne ""){
+			$session->execute("intercept",$calls{$press_so_far}{uuid});
+			return 1;
+		}
+		$press_so_far = $session->playAndGetDigits(0,1,1,1,"#","/usr/local/freeswitch/sounds/ivr_hit_number.wav","",""); # hit number
+		say_digits($num);
+		if ($press_so_far ne ""){
+			$session->execute("intercept",$calls{$press_so_far}{uuid});
+			return 1;
+		}
+	}
+	$press_so_far = $session->playAndGetDigits(0,1,1,1,"#","/usr/local/freeswitch/sounds/ivr_waiting_entry.wav","",""); # That is all the calls waiting for your choice
+	if ($press_so_far ne ""){
+		$session->execute("intercept",$calls{$press_so_far}{uuid});
+		return 1;
+	}
+}
+sub say_digits($) #easier to control speak digits
+{
+	my ($str) = @_;
+	return if ($press_so_far ne "");
+	$str =~ s/[^0-9]//gs;#get us just numbers
+	for (my $x = 0; $x < length($str);$x++)
+ 	{
+		my $num = substr($str,$x,1);
+		$session->streamFile("/usr/local/freeswitch/sounds/fast_$num.wav");
+		return if ($press_so_far ne "");
+	}
+}
+```
+
+Document generated by Confluence on nov 11, 2022 04:28

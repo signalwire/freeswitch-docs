@@ -1,0 +1,236 @@
+
+# mod_dptools: tone_detect 
+
+ Created by  Italo Rossi, last modified on 2014.11.14
+
+# About
+
+About text.
+
+Click here to expand Table of Contents
+
+* 1 [Usage](#tone_detect_hits)
+* 2 [Notes:](#tone_detect_hits)
+* 3 [Once tone\_detect is triggered, it won't be triggered again ''unless'' you have specified the "hits" argument in which case it will only get triggered once the "hits" count has been reached](#once-tone_detect-is-triggered-it-wont-be-triggered-again-unless-you-have-specified-the-hits-argument-in-which-case-it-will-only-get-triggered-once-the-hits-count-has-been-reached)
+* 4 [Variables](#tone_detect_hits)  
+   * 4.1 [execute\_on\_tone\_detect](#execute_on_tone_detect)  
+   * 4.2 [tone\_detect\_hits](#tone_detect_hits)
+* 5 [Comments](#tone_detect_hits)
+* 6 [Samples](#tone_detect_hits)  
+   * 6.1 [Detect the fax tone and receive a fax with mod\_spandsp.](#detect-the-fax-tone-and-receive-a-fax-with-mod_spandsp)  
+   * 6.2 [Detect the fax tone and receive a fax with socket2me.](#detect-the-fax-tone-and-receive-a-fax-with-socket2me)  
+   * 6.3 [Detect an inband busy signal and send a real busy message.](#detect-an-inband-busy-signal-and-send-a-real-busy-message)  
+   * 6.4 [Detect some SIT tones:](#detect-some-sit-tones)  
+   * 6.5 [Detect 3 consecutive busy tones any time during a call and hangup when detected.](#detect-3-consecutive-busy-tones-any-time-during-a-call-and-hangup-when-detected)  
+   * 6.6 [How to use tone\_detect and originate for automatic test calls to detect missing or corrupt audio.](#how-to-use-tone_detect-and-originate-for-automatic-test-calls-to-detect-missing-or-corrupt-audio)
+* 7 [See Also](#tone_detect_hits)
+
+# Usage
+
+If you are trying to detect fax tones, using [mod\_spandsp spandsp\_start\_fax\_detect](../mod_spandsp_6587021.mdx#--) is recommended.
+
+Updated, preferred behavior:
+
+```xml
+<action application="set" data="execute_on_tone_detect=set my_tone=true"/>
+<action application="set" data="tone_detect_hits=2"/>
+<action application="set" data="execute_on_media=tone_detect mytone 820 w +30000"/>
+<action application="bridge" data="sofia/gateway/foo/123456789"/>
+```
+
+This method will execute the application immediately. If you actually like to run the app async on the media stream specify this:
+
+```xml
+<action application="set" data="execute_on_tone_detect=set::mytone=true"/>
+```
+
+Older, still working behavior:
+
+```xml
+<action application="tone_detect" data="<key> <freqs> <flags> <timeout> <app> <data> <hits>">
+```
+
+| Field   | Description                                                                                                                                                                                       | Examples                                           |
+| ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------- |
+| key     | Name of the tone (user defined)                                                                                                                                                                   | busy, fax, mytone                                  |
+| freqs   | Frequencies to "listen" for                                                                                                                                                                       | 425 - 480,620                                      |
+| flags   | Which direction to sniff the tones in (r = read (default), w = write)                                                                                                                             | r                                                  |
+| timeout | Window of time to listen for the tones in (0 = forever, +&lt;milliseconds> = milliseconds relative to the time tone\_detect is called (now), \= time in "epoch" (ie. seconds since January 1, 1970)) | +2000 (2 seconds) or 1227132612 (absolute example) |
+| app     | Optional. Application to call when the tone detect conditions are met                                                                                                                             | transfer, hangup                                   |
+| appdata | Optional. Argument to the application specified above                                                                                                                                             | '1000 XML default' , 'normal\_clearing'            |
+| hits    | Number of hits needed before calling app/appdata (useful to avoid false positives)                                                                                                                |                                                    |
+
+# Notes:
+
+* # Once tone_detect is triggered, it won't be triggered again ''unless'' you have specified the "hits" argument in which case it will only get triggered once the "hits" count has been reached
+* Only "key" and "frequencies" are required (the rest are optional)
+* If you want to catch the DETECTED\_TONE event with the channel-uuid use something like this:
+
+```xml
+<action application="tone_detect" data="fax 1100 r +8000 '''set fax=true''' 2">
+```
+
+# Variables
+
+## execute_on_tone_detect
+
+Specifies the application and arguments to be executed when the tone\_detect application gets a positive detection. This represents the new, preferred behavior for using tone\_detect. However, the older method will still work.
+
+```xml
+<action application="set" data="execute_on_tone_detect=found_my_tone=true"/>
+<action application="set" data="tone_detect_hits=2"/>
+<action application="set" data="execute_on_media=tone_detect mytone 820 w +30000"/>
+```
+
+## tone_detect_hits
+
+Specifies the number of "hits" that the tone\_detect app needs to see before considering a positive detection. This represents the new, preferred behavior for using tone\_detect. However, the older method will still work.
+
+```xml
+<action application="set" data="execute_on_tone_detect=found_my_tone=true"/>
+<action application="set" data="tone_detect_hits=2"/>
+<action application="set" data="execute_on_media=tone_detect mytone 820 w +30000"/>
+```
+
+# Comments
+
+Some of the advanced knowledge about tone\_detect is actually found in this nice little IRC exchange with anthm and MikeJ.
+
+```xml
+<MikeJ> <action application="tone_detect" data="test 350,440 r +100 hangup 'normal_clearing' 1"/>
+<MikeJ> test is name, freqs, +100 is timeout I think..
+<MikeJ> anthm?
+<trixter_> test I assume is the name of the tone, what is r+100? and is hangup normal_clearing the action to do once you get it?
+<anthm> <key> <freqs> [<flags> <timeout> <app> <data>]
+<anthm> flags r and w
+<anthm> for which way you want to sniff
+<trixter_> ok.. 
+<anthm> everything after freqs is optional
+<anthm> default is "r'
+<MikeJ> timeout in secs ? and allways need the + ?
+<anthm> with + is relative to now
+<anthm> w/o is absolute
+<MikeJ> and if you dont specify app.. you just get event, right/
+<MikeJ> ?
+<anthm> right
+<anthm> once it's tripped it wont anymore
+<anthm> but you can reset it with just key
+<anthm> if you call one with only key name and it already exists it will reactivate it
+<MikeJ> just app.. or api too?
+<anthm> key is arbitrary and just what you get in the event
+<anthm> app and api are identical but api needs uuid too as first arg and all the other are shifted 1 to the right
+<anthm> it won't let you decide that
+<anthm> =D
+<anthm> once you use it at all it adds 1
+<anthm> and if you call it again it just adds more to the same 1
+```
+
+# Samples
+
+## Detect the fax tone and receive a fax with mod_spandsp.
+
+```xml
+<extension name="5555555">
+  <condition field="destination_number" expression="^(5555555)$"/>
+    <action application="tone_detect" data="fax 1100 r +5000 transfer 'fax XML default' 1"/>
+    <action application="answer"/>
+    <action application="sleep" data="1000"/>
+    <action application="ivr" data="main"/>
+    <action application="hangup"/>
+  </condition>
+</extension>
+<extension name="fax">
+  <condition field="destination_number" expression="^fax$">
+    <action application="answer" />
+    <action application="playback" data="silence_stream://2000"/>
+    <action application="rxfax" data="/usr/local/freeswitch/fax/${caller_id_number}-${strftime(%Y-%m-%d-%H-%M-%S)}.tiff"/>
+    <action application="hangup"/>
+  </condition>
+</extension>
+```
+
+## Detect the fax tone and receive a fax with socket2me.
+
+```xml
+<extension name="5555555">
+  <condition field="destination_number" expression="^(5555555)$"/>
+    <action application="tone_detect" data="fax 1100 r +5000 transfer 'fax XML default' 1"/>
+    <action application="answer"/>
+    <action application="sleep" data="1000"/>
+    <action application="ivr" data="main"/>
+    <action application="hangup"/>
+  </condition>
+</extension>
+
+<extension name="fax">
+  <condition field="destination_number" expression="^fax$">
+    <action application="answer"/>
+    <action application="sleep" data="1000"/>
+    <action application="set" data="fax_file_name=/usr/local/freeswitch/fax/${caller_id_number}-${strftime(%Y-%m-%d-%H-%M-%S)}.tiff"/>
+    <!--"send" or "recv"-->
+    <action application="set" data="fax_mode=recv"/>
+    <action application="socket" data="127.0.0.1:8084 async"/>
+    <action application="hangup"/>
+  </condition>
+</extension>
+```
+
+## Detect an inband busy signal and send a real busy message.
+
+```xml
+<action application="tone_detect" data="busy 480,620 w +15000 hangup 34"/>
+```
+
+## Detect some SIT tones:
+
+```xml
+<action application="tone_detect" data="sit-high-1 985.2 w +15000 hangup 41"/>
+<action application="tone_detect" data="sit-low-1 913.8 w +15000 hangup 41"/>
+<action application="tone_detect" data="sit-high-2 1428.5 w +15000 hangup 41"/>
+<action application="tone_detect" data="sit-low-2 1370.6 w +15000 hangup 41"/>
+```
+
+## Detect 3 consecutive busy tones any time during a call and hangup when detected.
+
+```xml
+<action application="tone_detect" data="busy 425 r 0 hangup 'normal_clearing' 3"/>
+```
+
+## How to use tone_detect and originate for automatic test calls to detect missing or corrupt audio.
+
+On B side of the call simply answer the call and do echo loopback. The A side of the call like below. Control is done by external script that does "originate", "show calls", "uuid\_kill" and "uuid\_dump". You can even make your script collect tcpdump for you based on IP:port from "uuid\_dump".
+
+```xml
+<!-- Use originate to start a test call here -->
+<extension name="test_tone_init">
+  <condition field="destination_number" expression="^test_tone_init$">
+    <action application="set" data="pass_counter=0"/>
+    <action application="transfer" data="test_tone"/>
+  </condition>
+</extension>
+<!-- 
+This extension will be executed 10 times. If 10 cycles were Ok, it means no issue reproduced. Test call ends.
+If test tone is not detected for consequtive number of hits, it means a bad call. Dailplan execution goes to the last two instructions and stays there forever. 
+This allows external script to detect bad call based on "show calls" and do uuid_dump for such call(s) 
+-->
+<extension name="test_tone">
+  <condition field="destination_number" expression="^test_tone$"/>
+  <condition field="${pass_counter}" expression="^[0-9]$">
+    <action application="set" data="pass_counter=${expr(${pass_counter}+1)}"/>
+    <action application="tone_detect" data="tone_1 1004 r 0 transfer 'test_tone' 28"/>
+    <action application="playback" data="tone_stream://%(18000,0,1004);loops=1"/>
+    <!-- this is only triggered if tone_detect failed in one of the previous loops -->
+    <action application="stop_tone_detect"/>
+    <!-- sit here and do playback forever -->
+    <action application="playback" data="tone_stream://%(18000,0,1004);loops=-1"/>
+  </condition>
+</extension>
+```
+
+# See Also
+
+[stop\_tone\_detect](./6586992.mdx#about)
+
+[mod\_spandsp Call Progress](../mod_spandsp_6587021.mdx#--)
+
+Document generated by Confluence on nov 11, 2022 04:27

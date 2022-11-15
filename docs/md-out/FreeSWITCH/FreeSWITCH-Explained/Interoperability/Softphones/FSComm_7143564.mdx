@@ -1,0 +1,187 @@
+
+# FSComm 
+
+ Created by  John Boteler, last modified by  Christopher Rienzo on 2020.10.02
+
+# About
+
+FSComm is a FreeSWITCH™ based communicator. It is developed using libfreeswitch and does not require FreeSWITCH™ running, because the core runs dedicated to FSComm inside the same process. All you need to do is open it and start making calls.
+
+References to "I" or "me" are to the author, Mitch Capper.
+
+Click here to expand Table of Contents
+
+* 1 [Design](#design)
+* 2 [User Interface](#user-interface)
+* 3 [Installation](#installation-)  
+   * 3.1 [Requirements](#-requirements-)  
+   * 3.2 [MacOSX](#-macosx-)  
+   * 3.3 [Linux](#-linux-)  
+   * 3.4 [Windows](#-windows-)
+* 4 [Using FSComm](#-using-fscomm-)  
+   * 4.1 [Configuration](#-configuration-)
+* 5 [Trouble shooting and debugging](#-trouble-shooting-and-debugging-)  
+   * 5.1 [Known Bugs](#known-bugs)  
+   * 5.2 [To Do List](#to-do-list)
+* 6 [Support](#support-)
+* 7 [See Also](#-see-also-)
+
+# Design
+
+FSComm is based on libfreeswitch, which means that FSComm fully embeds the FreeSWITCH™ core and all its modules within the same application.
+
+FSHost is responsible for dealing with the FreeSWITCH™ core and all its modules, including PortAudio, responsible for providing audio through the audio card installed on your computer. This design, enables FSComm to be extended as FreeSWITCH™ gets extended by other loadable modules, independently of their nature. As new audio/video codecs are added, FSComm will natively inherit the addition. Modules planned to be supported on the first release are all endpoint modules (hence the Communicator on the name, not just Softphone), all codec modules and PortAudio.
+
+  
+FreeSWITCH™ is often extended by third party applications through its CTI port called Event Socket Consumer. The same concept can apply to FSComm. Using FreeSWITCH™'s event subsystem, a third party application can control the softphone locally or remotely depending on its configuration providing great flexibility and language independence on call control. This is the first unique feature of the Communicator not found anywhere else on the market.
+
+  
+For FSComm to work properly and let the user interact with its settings, it needs a configuration module. This configuration module is provided by the QSettings module on FSComm and it dynamically transforms the Operating System's native configuration storage system into the proprietary XML format expected by the FreeSWITCH™ core as well as for other non-FreeSWITCH™ related configurations. FSComm's configuration will also be extended using an API that will dynamically load modules that extend the configuration fetching mechanism. The methods from where we can fetch configuration are unlimited as well as their formats.
+
+  
+Last, but not least, FSComm's needs an User Interface that is at the same time easy to use and extensible. This is achieved using an API for dynamically loadable modules that can add functionality to the User Interface. The combination of these plugins can produce very powerful voice applications with unlimited integration possibilities not only with other FreeSWITCH™ servers but any other protocol supported by FSComm + FreeSWITCH™.
+
+![](/attachments/7143564/7471112.jpg)
+
+# User Interface
+
+![](/attachments/7143564/7471111.png)  
+
+  
+# Installation 
+
+##  Requirements 
+
+FSComm is based on the [Qt Framework](http://qt.nokia.com/) version 4.6 but it might work on other versions of the Qt Framework (testing needed). FSComm is based on libfreeswitch, so FreeSWITCH™ needs to be compiled and installed. The source for FSComm is located on the fscomm FreeSWITCH™'s [Github repository](https://github.com/signalwire/freeswitch). Uncomment the line:
+
+endpoints/mod_portaudio
+
+in modules.conf before building FreeSWITCH™.
+
+##  MacOSX 
+
+Compile and install FreeSWITCH™. Install latest Qt framework (link above). If you have [MacPorts](http://www.macports.org/), you can install qt4-mac and qt4-mac-devel.  
+For those running traditional Leopard/Snow Leopard just use [this one](http://get.qt.nokia.com/qt/source/qt-mac-cocoa-opensource-4.6.0.dmg) and you should be good.
+
+cd ${GITROOT}/fscomm
+qmake -spec macx-g++
+make
+
+If everything goes OK, you will find the FSComm.app on the current directory.
+
+##  Linux 
+
+cd ${GITROOT}/fscomm
+qmake
+make
+
+If everything goes OK, you will find the fscomm binary on the current directory.
+
+**Note: Qt 4.5.2 also works but need to comment out the version check at the top of FSComm.pro before building.**
+
+You can copy the binary ${GITROOT}/fscomm/fscomm to whereever you want, e.g.
+
+cp fscomm /usr/local/bin/fscomm
+
+##  Windows 
+
+Note: an old (Feb 2010) pre-built binary for Windows maintained by tusc is available here: <http://files.freeswitch.org/windows%5Finstaller/FSComm.exe>
+
+The Windows support is very experimental at this time. Only tested with 32 bit builds (don't know if x64 is supported yet)
+
+1. Download and build freeswitch
+2. Manually install <http://get.qt.nokia.com/qt/source/qt-win-opensource-4.6.0-vs2008.exe> (180mb, needs 950mb hdd space)
+3. Set the environment variable QTDIR in the environment variables. (This can be set from the Computer/Properties/Advanced system settings/Environment Variables/User Variables settings screen.)  
+QTDIR=c:\\qt\\4.6.0 (or wherever you installed it.)
+4. Then restart VS.
+5. If it's not already done: Add the project to the solution and give FSComm a dependancy: FreeSwitchCoreLib
+6. Build FSComm
+7. These dlls/dependencies must be available to the FSComm.exe They can be copied from freeswitch to the release/debug directory:  
+   * FreeSwitch.dll  
+   * libapr.dll  
+   * libaprutil.dll  
+   * libteletone.dll  
+   * pthreadVC2.dll  
+   * libspandsp.dll  
+   * libeay32.dll  
+   * ssleay32.dll
+8. These dlls/dependencies must be available to the FSComm.exe They can be copied from c:\\qt\\4.6.0\\bin to the release/debug directory:  
+   * QtCore4.dll  
+   * QtCored4.dll  
+   * QtGuid4.dll  
+   * QtXml4.dll  
+   * QtXmld4.dll
+9. The FSComm\\debug\\mod (or release\\mod) directory must also be manually populated with the needed mods. They can simply be copied from FreeSwitch\\debug\\mod or release\\mod  
+   * mod\_sofia  
+   * mod\_portaudio  
+   * Others as needed (e.g. for other codecs)
+
+#  Using FSComm 
+
+##  Configuration 
+
+FSComm's configuration is based on XML templates. After the first execution, you will notice that inside the user's home directory, a folder named \~/.fscomm has been created with the following directory structure:
+
+${HOME}/.fscomm/conf - configuration statically provided
+${HOME}/.fscomm/db - core databases
+${HOME}/.fscomm/htdocs - core htdocs for some modules
+${HOME}/.fscomm/log - logs and CDRs
+${HOME}/.fscomm/run - the process pid
+${HOME}/.fscomm/scripts - used by the core
+${HOME}/.fscomm/sounds - sounds used by FSComm
+${HOME}/.fscomm/templates - templates used by FSComm to provide configuration dynamically
+
+FSComm will respect all configs you make manually, except for &lt;include> tags, so try to keep everything on freeswitch.xml. I also took the caution to make the configs, when saved to files, in a human-readable manner with indentation.
+
+If you want to debug your config, you can always look at the logs located on the log directory.
+
+For some reason, the \~/.fscomm/conf/freeswitch.xml will have file mode 444 which is why fscomm will not be able to write to it. So any configuration you do in fscomm will not be saved and fscomm will occasionally freeze while trying (FIXME)
+
+To cope with this, you have to set permissions to mode 644:
+
+chmod 644 ~/.fscomm/conf/freeswitch.xml
+
+#  Trouble shooting and debugging 
+
+You can use fs\_cli as in normal freeswitch
+
+/usr/local/freeswitch/bin/fs_cli
+
+If you also run a normal freeswitch instance on your computer like me, change the event socket bind port to avoid conflict (i.e. 8022) in /usr/local/freeswitch/conf/autoload\_configs/event\_socket.conf.xml or \~/.fscomm/templates/event\_socket.conf.xml, then you can connect using fs\_cli
+
+fs_cli -P 8022
+sofia status
+pa
+pa devlist
+etc etc...
+
+## Known Bugs
+
+* Accounts persist and get registered after deletion
+* Sound device configuration gets lost, i.e. isn't stored / overwritten?
+
+## To Do List
+
+* Adress book using mod\_ldap
+* Checkbox in accounts list to enable / disable accounts with better overview
+* Abandon seperate Call window and use pulldown menu instead which would hold the call history, too, rework layout
+* Call history (perhaps using mod\_ldap, too) for received, missed and taken calls
+* Direct calls on pstn thru locally connected hardware using FreeTDM, i.e. without any VOIP in the way
+* Configuration thru BlueBox Web Interface
+
+# Support 
+
+There is an irc-channel on [irc.freenode.net](http://irc.freenode.net) #fscomm. At this time, it's not very crowded unfortunately.
+
+#  See Also 
+
+* [Libfreeswitch](https://wiki.freeswitch.org/wiki/Libfreeswitch "Libfreeswitch")
+
+  
+## Attachments:
+
+![](/images/icons/bullet_blue.gif) [FSComm\_Main\_window.png](/attachments/7143564/7471110.png) (image/png)  
+![](/images/icons/bullet_blue.gif) [FScomm\_acct\_config.png](/attachments/7143564/7471111.png) (image/png)  
+![](/images/icons/bullet_blue.gif) [FSComm\_Block\_diagram.jpg](/attachments/7143564/7471112.jpg) (image/jpeg)  
+
+Document generated by Confluence on nov 11, 2022 04:28

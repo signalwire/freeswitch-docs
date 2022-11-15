@@ -1,0 +1,133 @@
+
+# mod_fsk 
+
+ Created by  Luan Fonseca de Farias, last modified on 2014.12.12
+
+# About
+
+This module is used to send and receive information via [Frequency-shift keying](http://en.wikipedia.org/wiki/Frequency-shift%5Fkeying). This can be used to send and receive Caller ID.
+
+Click here to expand Table of Contents
+
+* 1 [Installing](#installing)
+* 2 [Usage](#usage)  
+   * 2.1 [fsk\_send](#fsk_send)  
+   * 2.2 [fsk\_recv](#fsk_recv)  
+   * 2.3 [fsk\_simplify](#fsk_simplify)  
+   * 2.4 [fsk\_display](#fsk_display)  
+   * 2.5 [FreeSWITCH Peering](#freeswitch-peering)
+
+# Installing
+
+Edit modules.conf and add the following line:
+
+```xml
+applications/mod_fsk
+```
+
+Then:
+
+```xml
+make mod_fsk
+make mod_fsk-install 
+```
+
+Tell FreeSWITCH to load the module by adding the line below to modules.conf.xml in /usr/local/freeswitch/conf/autoload\_configs:
+
+```xml
+<load module="mod_fsk"/>
+```
+
+# Usage
+
+## fsk_send
+
+Undocumented.
+
+## fsk_recv
+
+This registers a mediabug that detects FSK.
+
+```xml
+<action application="fsk_recv"/>
+```
+
+Several variables may be set when FSK is detected:
+
+```xml
+fsk_datetime
+fsk_phone_name
+fsk_phone_num
+```
+
+It is also possible to send name=value pairs, which are placed in variables with the fsk\_ prefix:
+
+```xml
+fsk_${name}
+```
+
+It is also possible to execute an application when FSK is received:
+
+```xml
+<action application="set" data="execute_on_fsk=..."/>
+```
+
+## fsk_simplify
+
+This can be used to simplify the call path, similar to uuid\_simplify. It is used with execute\_on\_fsk:
+
+```xml
+<action application="fsk_recv"/>
+<action application="set" data="execute_on_fsk=fsk_simplify"/>
+```
+
+It will update the display with the ${fsk\_phone\_name} and ${fsk\_phone\_num} variables, which were set when FSK was detected.
+
+## fsk_display
+
+This can be used to update the display with Caller ID information. It is used with execute\_on\_fsk:
+
+```xml
+<action application="fsk_recv"/>
+<action application="set" data="execute_on_fsk=fsk_display"/>
+```
+
+It will update the display with the ${fsk\_phone\_name} and ${fsk\_phone\_num} variables, which were set when FSK was detected.
+
+## FreeSWITCH Peering
+
+Using fsk, two FreeSWITCH machines can talk to each other and drop the call via PSTN and set up a direct peer connection. Via anthm.
+
+**This is currently in beta!!**
+
+On the called box, in the dialplan that answers/bridges the incoming call:
+
+```xml
+<action application="set" data="execute_on_fsk=fsk_simplify"/>
+<action application="bind_meta_app" data="D b a fsk_recv::w"/>
+```
+
+On the calling box, in the dialplan that bridges the outgoing call:
+
+```xml
+<action application="set" data="fsk_uri=i+${uuid}@$${domain}"/>
+<action application="set" data="bridge_pre_execute_aleg_app=fsk_send"/>
+<action application="set" data="bridge_pre_execute_aleg_data=*D"/>
+```
+
+The calling box also needs this extension:
+
+```xml
+<extension name="108">
+<condition field="destination_number" expression="^i\+(.*)$">
+  <action application="answer"/>
+  <action application="intercept" data="-bleg $1"/>
+</condition>
+```
+
+## Comments:
+
+| For FreeSWITCH Peering:The 108 extension needs to have the closing &lt;/extension>. Additionally, the outgoing call part seems to be inaccurate. The \*D and fsk appear to be sent to the calling party not the called. It is also sent before my cell phone answers (in the case of calling my cell phone).It might also be good if instead of just blindly dialing, an unused SIT tone is sent on answer by all FS boxes setup to allow the upgrade, something short, something that won't be detected as an error by various phone systems. A modified bong-ring where the tones are different, maybe. Then calling systems can listen for this very short tone and then send the \*D and fsk data. This might also fix the problem where bridge\_pre\_execute\_aleg\_app sends it too early and execute\_on\_answer doesn't work as expected. ![](/images/icons/contenttypes/comment_16.png) Posted by tadams at ago 17, 2015 20:14 |
+| ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+
+Document generated by Confluence on nov 11, 2022 04:27

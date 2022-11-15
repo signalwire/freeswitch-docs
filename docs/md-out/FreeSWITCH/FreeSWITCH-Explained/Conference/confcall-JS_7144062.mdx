@@ -1,0 +1,168 @@
+
+# confcall JS 
+
+ Created by  John Boteler, last modified on 2015.03.13
+
+# About
+
+Early JavaScript example for FreeSwitch using mod\_spidermonkey with mod\_spidermonkey\_odbc. by [Ken Rice](https://freeswitch.org/confluence/display/~krice) (SwK @ #freeswitch) This application is only meant to be an example of the power and ease of using FreeSWITCH. This file includes work ripped off from other JavaScript apps created by anthm @ #freeswitch and pist @ #freeswitch. I hope this helps you in starting to use FreeSwitch & JS with ODBC.
+
+mod\_spidermonkey has been superseded by mod\_v8 as a JavaScript API.
+
+# Code
+
+```xml
+/** 
+confroom.js - Simple IVR Menu using a database.
+JavaScript Application for FreeSwitch::mod_spidermonkeyi with mod_spidermonkey_odbc.
+by Ken Rice (SwK @ #freeswitch)
+
+This application is only meant to be an example of the power and ease of using FreeSwitch.
+This file includes work ripped off from other JavaScript apps created by anthm @ #freeswitch
+and pist @ #freeswitch.
+I hope this helps you in starting to use FreeSwitch & JS with ODBC.
+
+Install:  copy this file to your <freeswitch dir>/scripts/
+
+Add the following section to your freeswitch.xml around the extension 1000 section.
+
+	--------
+      <extension name="1200">
+        <condition field="destination_number" expression="^1200$">
+          <action application="javascript" data="confroom.js"/>
+        </condition>
+      </extension> 
+	--------
+
+Dial 1200 from your sip phone and voila!  Ofcourse you can match for inbound DID/DNIS, and run this app.
+		
+Disclaimer: Use at your own risk.  No implied warranties or help if/when stuff blows up.
+
+Here's the mySQL table structure 
+
+CREATE TABLE `conferences` (
+  `cuid` int(11) NOT NULL auto_increment,
+  `pin` varchar(6) NOT NULL default '',
+  `confname` varchar(30) default NULL,
+  PRIMARY KEY  (`cuid`),
+  UNIQUE KEY `pin` (`pin`)
+);
+
+Note: this does not include infor on setting up the DNS on your system for unixODBC or other. should be fairly
+easy using google.
+
+**/
+
+use("ODBC");
+
+
+var DSN = "conferences";
+var DB_USER = "confuser";
+var DB_PASS = "31337p4$$w0rd";
+
+var line = "====================================\n";
+
+var db = new ODBC(DSN, DB_USER, DB_PASS);
+db.connect();
+
+var sql;
+var dtmf = new Object();
+var replay = 1;
+
+function mycb (session, type, data, arg) {
+
+	if (type == "dtmf") {
+		arg.digits += data.digit;
+		if (arg.digits.length >= 1) {
+			return false;
+		}
+	}
+}
+
+function get_route(digits)
+{
+	sql = "select count(*) as count from conferences where pin = \"" + digits +"\";";
+
+	var line = "====================================\n";
+
+	console_log("notice", "Menu Option Entered: " + digits +" \n sql statment [" + sql + "]\n");
+	console_log("notice", line);
+
+	db.exec(sql);
+	
+	while(db.nextRow()) {
+   		var row = db.getData();
+		if (row["count"] >= 1) {
+			console_log("notice", "Found Conf Pin=[" + digits + "]\n");
+			return digits;
+		} else { 
+			console_log("notice", "Conf Pin NOT Found!\n");
+			return false;
+		 }
+		console_log("notice", line);
+	}
+}
+
+/** Let's answer our call **/
+session.answer();
+
+/** Play our Main Menu prompt sound file.  You could use TTS here as well.  **/
+console_log("notice", "Playing dbivrmenu Main Menu sound file . . .\n");
+session.flushDigits();
+session.streamFile("/soundfiles/conf-getconfno.wav", "");	
+
+while(session.ready()) {
+	dtmf.digits = "";
+	console_log("notice", "collecting dtmf digits . . .\n");
+    
+	while (dtmf.digits.length < 6 && session.ready()) {
+		session.collectInput(mycb, dtmf, 5000);
+	} 
+	
+	/** when we timeout from above, we check replay value and play appropriate prompts **/
+	if ((!dtmf.digits) && (replay < 4)) {
+		console_log("notice", "Replay # " + replay + "\n");
+		session.flushDigits();
+		session.streamFile("/soundfiles/conf-invalidpin.wav", "");
+		session.streamFile("/soundfiles/conf-getconfno.wav", "");
+		replay++;  // increment our replay value; we don't want to replay our prompts too many times!
+	} else if (replay >= 4) { 
+		/** Caller does not understand the prompts or your DB data is wrong; either way we've had enough, let's push'em off the line **/
+		session.streamFile("/soundfiles/we-dont-have-tech-support.wav", "");
+		session.hangup();
+	}
+	
+	
+	if(dtmf.digits) {
+    	console_log("notice", "Got Some Digits . . .\n");
+		
+		route = get_route(dtmf.digits);
+		if (!route) {
+   	 	console_log("notice", "Invalid Option . . .\n");
+			session.streamFile("/soundfiles/conf-invalidpin.wav", "");
+			session.streamFile("/soundfiles/conf-getconfno.wav", "");
+		} else {
+		   	console_log("notice", "Found Valid Option . . .\n");
+			session.streamFile("/soundfiles/pls-wait-connect-call.wav", "");
+			
+			/** initiate the transfer application and send to the extension in route; again, you could extend this **/
+
+			var confroom = route + "@default";
+
+			console_log("notice", "ConfRoom: [" + confroom  +"]\n");
+			console_log("notice", line);
+
+			session.flushDigits();
+
+			session.execute("conference", route + "@default");
+
+			session.streamFile("/soundfiles/conf-getconfno.wav", "");	
+			dtmf.digits = "";
+
+		}
+	}
+}
+
+```
+
+Document generated by Confluence on nov 11, 2022 04:27

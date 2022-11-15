@@ -1,0 +1,176 @@
+
+# SipTheeSkype Skype Adapter 
+
+ Created by  Mario G, last modified by  John Boteler on 2017.01.03
+
+* 1 [Interconnectivity Architecture](#interconnectivity-architecture)  
+   * 1.1 [Applicable interconnectivity settings](#applicable-interconnectivity-settings)  
+   * 1.2 [Limitations](#siptheeskypecfg-settings)  
+   * 1.3 [Prerequisites](#prerequisites--)
+* 2 [Example implementation](#example-implementation)  
+   * 2.1 [Outline](#siptheeskypecfg-settings)  
+   * 2.2 [SipTheeSkype Configuration](#siptheeskype-configuration)  
+         * 2.2.1 [siptheeskype.cfg settings](#siptheeskypecfg-settings)  
+         * 2.2.2 [SipToSkypeAuth.props settings](#siptoskypeauthprops-settings)  
+         * 2.2.3 [SkypeToSipAuth.props settings](#skypetosipauthprops-settings)  
+   * 2.3 [Usage](#-freeswitch--siptheeskype-skype-adapter-)
+* 3 [Limitations](#siptheeskypecfg-settings)
+* 4 [Known issues](#known-issues)
+* 5 [References](#references)
+
+This project is likely deprecated. The last update for the SipToSIS home page was in 2009.
+
+  
+## Interconnectivity Architecture
+
+SipTheeSkype interconnects with FreeSWITCH as an add-on adapter to Skype client. The adapter acts as a single-line client User-agent to FreeSWITCH that can send and receive calls just like any other UA. SipTheeSkype also allow for some basic switching capabilities in both directions. It can distribute calls coming from FreeSWITCH to different Skype contacts based on the Caller-ID field and can also send incoming Skype calls to different URI's based on the incoming Skype contact ID. It also has a very basic IVR mechanism allowing to dial through the SkypeOut / SpeedDials services.
+
+### Applicable interconnectivity settings
+
+* **Signaling:** SIP/UDP or SIP/TCP
+* **Codecs:** G.711μ,G.711a,iLBC,GSM
+* **DTMF:** RFC2833, Info and analogue (in-band).
+
+### Limitations
+
+* Supports only one simultaneous call per instance
+
+### Prerequisites  
+
+* SipTheeSkype has to run on the same machine as the Skype client
+* Windows requires Skype client version 3 and above
+* Java runtime version 1.5 and above
+* Any OS that Skype2Java (Skype's Java API) works: Windows, Linux, OSX
+
+## Example implementation
+
+### Outline
+
+This implementation example is based on the existing out-of-the-box FreeSWITCH XML configuration with relevant additions. In this example, the _italic_ settings should be customized to your deployment:
+
+* Freeswitch machine: _192.168.0.100_
+* Skype machine: _192.168.0.200_
+* _skypeuser1_ \- Preconfigured Skype contact in the client
+* _skypeuser2_ \- Preconfigured Skype contact in the client
+* _skypeuser3_ \- Preconfigured Skype contact in the client
+* Extension _7770_ – A number designated to general Skype outgoing calls with PIN code _1234_
+* Extension _7771_ – An extension map to _skypeuser1_
+* Extension _7772_ – An extension map to _skypeuser2_
+* Extension _7773_ – An extension map to _skypeuser3_
+* The SipTheeSkype SIP port is mapped to UDP port _5077_ for no reason at all
+* Incoming calls coming from these three contacts will be directed respectively to extension _1001_, _1002_.
+* For demonstration purposes, all calls coming from _skypeuser3_ are rejected.
+* All other incoming calls will be directed to extension _9664_ (MoH).
+
+### SipTheeSkype Configuration
+
+#### siptheeskype.cfg settings
+
+siptoskypeauthfile=SipToSkypeAuth.props
+skypetosipauthfile=SkypeToSipAuth.props
+skype_connect=yes
+skype_audiooutport=64432
+skype_audioinport=64433
+skype_audiooutgain=1
+skype_audioingain=1.5
+enableSkypeDtmfDetector=no
+autoShutdownMinutes=0
+pintimeout=8
+pinretrylimit=3
+destinationtimeout=12
+destinationretrylimit=3
+pinFile=clips/enterPin.au
+destinationFile=clips/enterDest.wav
+dialingFile=clips/dialing.wav
+invalidPinFile=clips/invalidPin.wav
+invalidDestFile=clips/invalidDest.wav
+handleEarlyMedia=yes
+sendSkypeIM=no
+host_port=5077
+transport_protocols=udp
+ua_jar=ua.jar
+contact_url=sip:skype@192.168.1.200:5077
+from_url="SipTheeSkype" &lt;sip:skype@192.168.1.100:5060>
+username=skype
+realm=192.168.1.100
+passwd=1234
+keepalive_time=45000
+audio=yes
+audio_port=63200
+audio_avp=0
+audio_codec=PCMU
+audio_sample_rate=8000  
+audio_sample_size=1
+audio_frame_size=320
+dtmf2833payloadtype=101
+do_register=yes
+
+#### SipToSkypeAuth.props settings
+
+```xml
+7770,*,*,pin:1234
+#Prompt for pin authorization, then prompt for destination (use Skype's speeddials or skypeout for skype destinations)
+7771,*,*,skypeuser1
+#Incoming sip caller with callerid of 7771 from any IP will dial the skypeuser1
+7772,*,*,skypeuser2
+7773,*,*,skypeuser3
+```
+
+#### SkypeToSipAuth.props settings
+
+```xml
+<include>
+  <user id="skype" ip="192.168.1.200">
+    <variables>
+      <variable name="user_context" value="default"/>
+      <variable name="process_cdr" value="true"/>
+    </variables>
+  </user>
+</include>
+```
+
+Set up the Dial Plan extensions handling (i.e. /conf/dialplan/default.xml):
+
+```xml
+    <extension name="skype">
+      <condition field="destination_number" expression="^(777[0-3])$">
+	<action application="set" data="effective_caller_id_number=$1"/>
+	<action application="bridge" data="user/skype@$${domain}"/>
+      </condition>
+    </extension>
+```
+
+### Usage
+
+* Dialing from extension 1001 to 7770 - Being prompt for PIN, entering 1234 and then making a SkypeOut / SpeedDials call
+* Dialing from extension 1001 to 7771 - Make a call to Skype contact skypeuser1
+* Dialing from extension 1001 to 7772 - Make a call to Skype contact skypeuser2
+* Dialing from extension 1001 to 7773 - Make a call to Skype contact skypeuser3
+* Accepting incoming call from Skype contact _skypeuser1_ \- Call will be transfered to FreeSWITCH extension 1001
+* Accepting incoming call from Skype contact _skypeuser2_ \- Call will be transfered to FreeSWITCH extension 1002
+* Accepting incoming call from Skype contact _skypeuser3_ \- Call will be denied
+* Accepting incoming call from any other Skype contact - Call with be transfered to FreeSWITCH extension 9664 (MoH)
+
+## Limitations
+
+Testing was done on:
+
+* FreeSWITCH version 1.0.0 build 8691
+* SipTheeSkype version V2 2008/06/28
+
+Wasn't tested:
+
+* SIP/TCP
+* DTMF INFO and analogue
+
+## Known issues
+
+* **Authentication** \- It appears as the SipTheeSkype SIP authentication mechanism is not compatible with the FreeSWITCH one therefore authenticated registration doesn't seem to work.
+
+Worked when I tried it.
+
+## References
+
+[SipTheeSkype SIP to Skype Gateway home page](http://www.mhspot.com/siptheeskype.html)
+
+Document generated by Confluence on nov 11, 2022 04:28

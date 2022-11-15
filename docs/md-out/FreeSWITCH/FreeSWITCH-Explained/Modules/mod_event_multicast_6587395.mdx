@@ -1,0 +1,337 @@
+
+# mod_event_multicast 
+
+ Created by  Luan Fonseca de Farias, last modified on 2014.12.12
+
+# About
+
+mod\_event\_multicast sends FreeSWITCH events from the machine via multicast to a configurable address/port combination.  
+Other hosts can be configured to listen for these events and parse them, potentially also triggering events to happen on those  
+hosts.  
+  
+You get access to all of the same events that you would get with [mod\_event\_socket](./mod_event_socket_1048924.mdx#11-acl) and "event plain ALL".  
+**This can be both a blessing and a curse.** Please take care to audit the events, as they'll be sent everywhere that the  
+router of your subnet and the adjoining routers are configured to send multicast packets. You may wish to explicitly  
+plan for this and use a [VLAN](http://en.wikipedia.org/wiki/Vlan) or similar precaution to protect yourself from information leaking to places it need not go.
+
+Click here to expand Table of Contents
+
+* 1 [TODO](#-freeswitch--mod_event_multicast-)
+* 2 [Replicating Sofia Registrations](#replicating-sofia-registrations)  
+   * 2.1 [Configuration](#multicast-configuration-file)
+* 3 [Examples](#examples)
+* 4 [Other Custom Events](#other-custom-events)
+* 5 [Event Encryption](#event-encryption)
+* 6 [Troubleshooting](#troubleshooting)  
+   * 6.1 [Couldn't register subclass](#couldnt-register-subclass)  
+   * 6.2 [Bind Error](#bind-error)  
+   * 6.3 [Failed to find start of magic string](#failed-to-find-start-of-magic-string)  
+   * 6.4 [Cannot use pre shared key encryption without OpenSSL support](#cannot-use-pre-shared-key-encryption-without-openssl-support)
+* 7 [Using multicast in networked FSs](#using-multicast-in-networked-fss)  
+   * 7.1 [Introduction](#introduction)  
+   * 7.2 [Multicast configuration file](#multicast-configuration-file)  
+   * 7.3 [Lua configuration file](#multicast-configuration-file)  
+   * 7.4 [Lua scripts](#lua-scripts)
+
+# TODO
+
+Some TODOs for this module that I ([Vagabond](https://wiki.freeswitch.org/wiki/User:Vagabond "User:Vagabond")) am interested in adding:
+
+* Config file reloading (so you can change the events being multicasted, mainly) - **Sorta done**
+* Use pre shared key encryption to encrypt the packets for security and to allow 2 groups of FreeSWITCH machines to share the same IP/Port combination without stepping on each other - **Done, I think**
+* Use multicasted HEARTBEAT events to determine when peers go up/down and generate a custom internal event to indicate this - **Sorta Done**
+* Make the TTL on the packets configurable - **Done**
+
+# Replicating Sofia Registrations
+
+As an alternative to using ODBC and a shared database to replicate sofia registrations, you can also use mod\_event\_multicast. This lets you replicate sofia registrations without the requirement of sharing a database which may not always be available (if, for example, one of your machines is in a different location).
+
+## Configuration
+
+On each machine you want to \*broadcast\* registrations on, you'll need the following:
+
+* mod\_event\_multicast compiled and loaded
+* mod\_sofia compiled and loaded (this is default)
+* "CUSTOM sofia::register" in the "bindings" parameter of event\_multicast.conf (you can put other events here too)
+
+On each machine you just want to \*receive\*, you just need mod\_event\_multicast and mod\_sofia compiled and running.
+
+Now, once you register a phone on one machine, you should be able to see the new registration on any of the other machines listening on that multicast IP/port combo.
+
+# Examples
+
+Events are the same as on the [Event list](https://wiki.freeswitch.org/wiki/Event%5Flist "Event list") page except that all original headers are prefixed with 'Orig-' and the event is of type CUSTOM with a subtype of multicast::event. A Multicast-Sender header is also added. Here's a before-after example:
+
+Before:
+
+```xml
+Event-Subclass: sofia%3A%3Aregister
+Event-Name: CUSTOM
+Core-UUID: 662db344-5ecc-4eaa-9002-9992b7ab7c4d
+FreeSWITCH-Hostname: DEV-CS2
+FreeSWITCH-IPv4: 192.168.1.15
+FreeSWITCH-IPv6: %3A%3A1
+Event-Date-Local: 2009-06-16%2018%3A15%3A46
+Event-Date-GMT: Tue,%2016%20Jun%202009%2022%3A15%3A46%20GMT
+Event-Date-Timestamp: 1245190546126571
+Event-Calling-File: sofia_reg.c
+Event-Calling-Function: sofia_reg_handle_register
+Event-Calling-Line-Number: 1113
+Event-Subclass: sofia%3A%3Aregister
+profile-name: internal
+from-user: 1000
+from-host: 192.168.1.15
+presence-hosts: 192.168.1.15
+contact: %221000%22%20%3Csip%3A1000%40192.168.1.23%3A5060%3Bfs_nat%3Dyes%3Bfs_path%3Dsip%253A1000%2540192.168.1.23%253A5060%3E
+call-id: 002D61B2-5F3A-DD11-BF4B-00132019B750%40192.168.1.23
+rpid: unknown
+statusd: Registered(UDP-NAT)
+expires: 900
+to-user: 1000
+to-host: dev-cs2.fusedsolutions.com
+network-ip: 192.168.1.23
+network-port: 5060
+username: 1000
+realm: dev-cs2.fusedsolutions.com
+user-agent: SIPPER%20for%20PhonerLite
+```
+
+After:
+
+```xml
+Event-Name: CUSTOM
+Core-UUID: 74929b3e-57ce-11de-9be6-99a22d850f40
+FreeSWITCH-Hostname: DEV-CS1
+FreeSWITCH-IPv4: 192.168.1.17
+FreeSWITCH-IPv6: %3A%3A1
+Event-Date-Local: 2009-06-16%2018%3A15%3A10
+Event-Date-GMT: Tue,%2016%20Jun%202009%2022%3A15%3A10%20GMT
+Event-Date-Timestamp: 1245190510366825
+Event-Calling-File: mod_event_multicast.c
+Event-Calling-Function: mod_event_multicast_runtime
+Event-Calling-Line-Number: 313
+Event-Subclass: multicast%3A%3Aevent
+Multicast: yes
+Orig-Event-Name: CUSTOM
+Orig-Core-UUID: 662db344-5ecc-4eaa-9002-9992b7ab7c4d
+Orig-FreeSWITCH-Hostname: DEV-CS2
+Orig-FreeSWITCH-IPv4: 192.168.1.15
+Orig-FreeSWITCH-IPv6: %3A%3A1
+Orig-Event-Date-Local: 2009-06-16%2018%3A15%3A46
+Orig-Event-Date-GMT: Tue,%2016%20Jun%202009%2022%3A15%3A46%20GMT
+Orig-Event-Date-Timestamp: 1245190546126571
+Orig-Event-Calling-File: sofia_reg.c
+Orig-Event-Calling-Function: sofia_reg_handle_register
+Orig-Event-Calling-Line-Number: 1113
+Orig-Event-Subclass: sofia%3A%3Aregister
+Orig-profile-name: internal
+Orig-from-user: 1000
+Orig-from-host: 192.168.1.15
+Orig-presence-hosts: 192.168.1.15
+Orig-contact: %221000%22%2 %3Csip%3A1000%40192.168.1.23%3A5060%3Bfs_nat%3Dyes%3Bfs_path%3Dsip%253A1000%2540192.168.1.23%253A5060%3E
+Orig-call-id: 002D61B2-5F3A-DD11-BF4B-00132019B750%40192.168.1.23
+Orig-rpid: unknown
+Orig-statusd: Registered(UDP-NAT)
+Orig-expires: 900
+Orig-to-user: 1000
+Orig-to-host: dev-cs2.fusedsolutions.com
+Orig-network-ip: 192.168.1.23
+Orig-network-port: 5060
+Orig-username: 1000
+Orig-realm: dev-cs2.fusedsolutions.com
+Orig-user-agent: SIPPER%20for%20PhonerLite
+Orig-Multicast-Sender: DEV-CS2
+```
+
+# Other Custom Events
+
+In addition to multicast::event described above, the module now also can send events to notify of the status of other multicast peers. If you have the 'heartbeat' event in the 'bindings' parameter when a multicasted heartbeat is received you'll receive a multicast::peerup if there was no previous heartbeat from this peer or if the last heartbeat was more than 60 seconds ago. If a heartbeat from that peer is not received at least once every 60 seconds a multicast::peerdown event will be fired.
+
+# Event Encryption
+
+If you set the 'psk' parameter in the config file, and you had the openssl development headers installed when you ran ./configure, the packets generated by the module will be encrypted using the blowfish cipher in CBC (cipher block chaining) mode. Only other peers with the same pre-shared key set will be able to decrypt those packets. Events received by a peer in plaintext when it's configured for encryption will be**discarded**.
+
+The use of encryption protects you from malicious event injection as well as allows you to share a multicast/port combination without conflict (if you had some valid reason to do so).
+
+# Troubleshooting
+
+## Couldn't register subclass
+
+This probably means that mod\_sofia has already been loaded and grabbed the multicast::event subclass registration. Ensure that mod\_event\_multicast appears before mod\_sofia in your modules.conf.xml.
+
+## Bind Error
+
+This means that the module failed to bind to the multicast address to receive events from other FS instances. FreeBSD jails restrict you to one one IP, so for example this will fail there.
+
+## Failed to find start of magic string
+
+The event failed to decrypt properly or was received in plain-text when a encrypted event was expected. 
+
+## Cannot use pre shared key encryption without OpenSSL support
+
+Install the development headers for openssl and re-run ./configure or don't try to use a pre-shared key.
+
+# Using multicast in networked FSs
+
+## Introduction
+
+The example below illustrates how the multicast can be used in a networked setup. The scripting language examples are written in Lua.
+
+The topology considered is:
+
+```xml
+                       Central hub
+		          /         |         \
+        Satellite 1   Satellite 2 . . . Satellite N
+```
+
+SIP phones are connected to the satellites as well as to the central hub.
+
+Regarding BLF, we want the lamps on a “local" phone to switch on and off according to other phones busy state – and this should work even when the other phones are connected to a non-local FS.
+
+Regarding registration, we want the system to route via the hub, if the user is connected to a non-local FS. This is subject to your own design considerations. The dialplan implementing the specific routing is not included in the example.
+
+The event multicast modules is used to propagate relevant information among the networked FSs, and Lua scripts listen to the events and act. The network between the switches must support multicasting.
+
+## Multicast configuration file
+
+The configuration file for event\_multicast:
+
+```xml
+<configuration name="event_multicast.conf" description="Multicast Event">
+  <settings>
+    <param name="address" value="225.1.1.1"/>
+    <param name="port" value="4242"/>
+    <param name="bindings" value="PRESENCE_IN CUSTOM sofia::register CUSTOM multicast::event"/>
+    <!--<param name="ttl" value="1"/>-->
+  </settings>
+</configuration>
+```
+
+It includes three event types: PRESENCE\_IN, which is used to propagate the BLF information; CUSTOM sofia::register used for propagation of registrations; and CUSTOM multicast::event, used for the reception of the two types mentioned.
+
+## Lua configuration file
+
+The events are treated in scripts, in this case Lua scripts, which are started when the FS starts:
+
+```xml
+<configuration name="lua.conf" description="LUA Configuration">
+  <settings>
+    <param name="startup-script" value="startup_script_1.lua"/>
+    <param name="startup-script" value="locationlocal.lua"/>
+    <param name="startup-script" value="locationforeign.lua"/>
+  </settings>
+</configuration>
+```
+
+All three scripts listen to and act on events:
+
+startup\_script\_1.lua listens the PRESENCE\_IN events and turns BLF on the local FS on/off accordingly. The locationlocal.lua and locationforeign.lua scripts listens to register events and records in a table (db\_data table in call\_limit core database) the host ip of the FS registered to. This table is then used to lookup the host ip during the preparation of the dialstring for local calls.
+
+## Lua scripts
+
+The three scripts are shown below (not thoroughly tested):
+
+```xml
+-- file: startup_script_1.lua
+-- Keeps track of foreign presence events and turn on/off
+-- bysy lamps. Tested on Snom 320. Can easily be
+-- changed to include ringing state as well.
+con = freeswitch.EventConsumer("CUSTOM","multicast::event")
+for e in (function() return con:pop(1) end) do
+  -- freeswitch.consoleLog("notice","event\n" .. e:serialize("xml"))
+  element = nil
+  element = e:getHeader("Orig-status")
+  if element then
+    if ((element == "CS_EXECUTE") or (element == "CS_ROUTING") or (element == "CS_HANGUP")) then
+      event = freeswitch.Event("PRESENCE_IN")
+      event:addHeader("proto", "sip")
+      event:addHeader("event_type", "presence")
+      event:addHeader("alt_event_type", "dialog")
+      event:addHeader("Presence-Call-Direction", "outbound")
+      from = e:getHeader("Orig-from")
+      event:addHeader("from", from)
+      event:addHeader("login", from)
+      if (element == "CS_HANGUP") then event:addHeader("answer-state", "terminated")
+      else event:addHeader("answer-state", "confirmed") end
+      event:fire()
+      -- freeswitch.consoleLog("notice","event\n" .. e:serialize("xml"))
+    end
+  end
+end
+```
+
+```xml
+-- file: locationforeign.lua
+-- Keeps track of foreign registrations and records them 
+-- in the db_data table.
+conforeign = freeswitch.EventConsumer("CUSTOM","multicast::event")
+for e in (function() return conforeign:pop(1) end) do
+  -- freeswitch.consoleLog("notice","event:" .. e:serialize("xml") .. "\n")
+  element = nil
+  element = e:getHeader("Orig-Event-Subclass")
+  if element then
+    if (element == "sofia::register") then
+      registerstatus = e:getHeader("Orig-status")
+      if (registerstatus == "Registered(UDP)") then
+        ip = e:getHeader("Orig-FreeSWITCH-IPv4")
+        name = e:getHeader("Orig-FreeSWITCH-Hostname")
+        unitnumber = e:getHeader("Orig-from-user")
+        customerid = e:getHeader("Orig-from-host")
+        -- freeswitch.consoleLog("notice","Foreign registration: " .. registerstatus .. " ip: " .. ip .. " name: " .. name .. " unitnumber: " .. unitnumber .. " customerid: " .. customerid .. "\n")
+        varfamily = "LOCATION"
+        require "luasql.sqlite3"
+        env = luasql.sqlite3()
+        con = env:connect("/usr/local/freeswitch/db/call_limit.db")
+        deletesql = "DELETE FROM db_data WHERE hostname = '"..name.."' AND realm = '"..customerid.."' AND data_key = '"..varfamily.."_"..unitnumber.."'"
+        result = con:execute(deletesql)
+        sql="INSERT INTO db_data (hostname,realm,data_key,data) VALUES ('"..name.."','"..customerid.."','"..varfamily.."_"..unitnumber.."','"..ip.."')"
+        result = con:execute(sql)
+        -- if (result == nil) then result = '' end
+        -- freeswitch.consoleLog("notice","\n" .. "SQL statement:  " .. sql .."\n result: " .. result .. "\n");
+        con:close()
+        env:close()
+      end
+    end
+  end
+end
+```
+
+```xml
+-- file: locationlocal.lua
+-- Keeps track of local registrations and records them 
+-- in the db_data table.
+conlocal = freeswitch.EventConsumer("CUSTOM","sofia::register")
+
+for e in (function() return conlocal:pop(1) end) do
+  -- freeswitch.consoleLog("notice","event:" .. e:serialize("xml") .. "\n")
+  registerstatus = e:getHeader("status")
+  if (registerstatus == "Registered(UDP)") then
+    ip = e:getHeader("FreeSWITCH-IPv4")
+    name = e:getHeader("FreeSWITCH-Hostname")
+    unitnumber = e:getHeader("from-user")
+    customerid = e:getHeader("from-host")
+    -- freeswitch.consoleLog("notice","Local registration: " .. registerstatus .. " ip: " .. ip .. " name: " .. name .. " unitnumber: " .. unitnumber .. " customerid: " .. customerid .. "\n")
+    varfamily = "LOCATION"
+    require "luasql.sqlite3"
+    env = luasql.sqlite3()
+    con = env:connect("/usr/local/freeswitch/db/call_limit.db")
+    deletesql = "DELETE FROM db_data WHERE hostname = '"..name.."' AND realm = '"..customerid.."' AND data_key = '"..varfamily.."_"..unitnumber.."'"
+    result = con:execute(deletesql)
+    sql="INSERT INTO db_data (hostname,realm,data_key,data) VALUES ('"..name.."','"..customerid.."','"..varfamily.."_"..unitnumber.."','"..ip.."')"
+    result = con:execute(sql)
+    -- freeswitch.consoleLog("notice","\n" .. "SQL statement:  " .. sql .."\n result: " .. result .. "\n");
+    con:close()
+    env:close()
+  end
+end
+```
+
+In the modules.xml.conf, mod\_lua is the last module loaded. If other modules load after Lua has started, the system may crash.
+
+## Comments:
+
+| &lt;param name\="bindings" value\="PRESENCE\_IN CUSTOM sofia::register CUSTOM multicast::event"/>With this param "multicast\_peers" shows "No multicast peers seen".Right value:&lt;param name\="bindings" value\="RE\_SCHEDULE HEARTBEAT PRESENCE\_IN CUSTOM sofia::register CUSTOM multicast::event"/> ![](/images/icons/contenttypes/comment_16.png) Posted by denis at dic 22, 2014 07:39 |
+| -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+
+Document generated by Confluence on nov 11, 2022 04:27

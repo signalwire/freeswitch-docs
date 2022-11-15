@@ -1,0 +1,343 @@
+
+# FreeSwitch MetaSwitch HowTo 
+
+ Created by  Pat Beirne, last modified on 2015.10.26
+
+Click here to expand Table of Contents
+
+* 1 [MetaSwitch HowTo Assumptions](#metaswitch-howto-assumptions)
+* 2 [MetaSwitch Limitations](#metaswitch-limitations)
+* 3 [Using FreeSwitch downstream from a MetaSwitch (individual lines)](#using-freeswitch-downstream-from-a-metaswitch-individual-lines)  
+   * 3.1 [MetaSwitch Configuration](#metaswitch-configuration)  
+   * 3.2 [FreeSwitch Configuration](#metaswitch-configuration)  
+   * 3.3 [FreeSwitch Dialplan Examples](#freeswitch-dialplan-examples)
+* 4 [Using FreeSwitch downstream from a MetaSwitch (PBX)](#using-freeswitch-downstream-from-a-metaswitch-pbx)  
+   * 4.1 [MetaSwitch Configuration](#metaswitch-configuration)  
+   * 4.2 [FreeSwitch Configuration](#metaswitch-configuration)  
+   * 4.3 [FreeSwitch Dialplan Examples](#freeswitch-dialplan-examples)
+* 5 [Using FreeSwitch as a MetaSwitch Application Server](#using-freeswitch-as-a-metaswitch-application-server)  
+   * 5.1 [Voicemail Server](#voicemail-server)  
+   * 5.2 [Outbound App Server](#outbound-app-server)  
+   * 5.3 [Inbound App Server](#inbound-app-server)
+
+## MetaSwitch HowTo Assumptions
+
+1. This HowTo assumes that you have working and configured MetaSwitch, know the appropriate hostnames/IP's and have configuration access to said switch.
+2. This HowTo was created using MetaSwitch software version 6.1.
+3. A **Media Gateway Model** named "FreeSwitch" has been created with the following options checked (These just seem to be working for me, additional suggestions would be welcome):
+* Signaling settings  
+   * Support high-bandwidth media formats  
+         * G.711 u-law  
+         * G.711 A-law  
+   * Supported low-bandwidth media formats  
+         * G.726 32kbps  
+   * Preferred low-bandwidth media formats  
+         * G.726 32kbps  
+         * Packetization interval: 20  
+   * Fix bits (MGCP, MeGaCo, SIP)  
+         * Cannot be hub  
+         * Simple contexts  
+         * Cannot play ringback  
+         * Connections always receive  
+         * Cannot report detection of call-type discrimination tones  
+         * Requires out-of-band DTMF for all codecs  
+   * Fix bits (SIP)  
+         * Supports SDP connectivity requests  
+         * Use E164 numbers  
+         * Expects unsolicited message waiting notifications  
+         * Expects unsolicited Call List notifications  
+         * Suppress superfluous 18x responses  
+         * Include transport parameter in From header  
+         * May loop calls back to MetaSwitch  
+         * Supports receiving SIP Reason header  
+         * Route CANCELs using contact details
+
+## MetaSwitch Limitations
+
+None known.
+
+## Using FreeSwitch downstream from a MetaSwitch (individual lines)
+
+### MetaSwitch Configuration
+
+Configure a SIP line as usual. Make note of the directory number, username if not using the DN and password. If you Media Gateway Model is named as suggested above, use "Drived from SIP User Agent," otherwise select the MGM you've built for FreeSwitch. Be sure to set the correct port (default is 5080 for external SIP profiles in FreeSwitch) and set "Use DN for identification" to true.
+
+### FreeSwitch Configuration
+
+Sofia External Profile:
+
+**Sofia External Profile**
+
+```xml
+<include>
+  <gateway name="MetaSwitch">
+    <param name="debug" value="0"/>
+    <param name="username" value="username"/>
+    <param name="realm" value="MetaSwitch-IP"/>
+    <param name="password" value="password"/>
+    <param name="register" value="true"/>
+    <param name="dtmf-type" value="rfc2833"/>
+  </gateway>
+</include> 
+```
+
+(conf/sip\_profiles/external/MetaSwitch.xml)
+
+After a FreeSwitch restart or mod\_sofia reload, the FreeSwitch user should show up as registered in the MetaSwitch.
+
+### FreeSwitch Dialplan Examples
+
+* This dialplan transfers all incoming calls to extension 5000\. Be sure to replace 5555555555 with the DN assigned to the SIP user.
+
+**Dialplan Example #1**
+
+```xml
+<include>
+  <extension name="MetaSwitch_Inbound">
+    <condition field="destination_number" expression="^5555555555$">
+      <action application="set" data="domain_name=$${domain}"/>
+      <action application="transfer" data="5000 XML default"/>
+    </condition>
+  </extension>
+</include>
+```
+
+(conf/dialplan/public/01\_MetaSwitch\_Inbound.xml)
+
+* This dialplan transfers all 1+10 digit or 10 digit calls to the MetaSwitch.
+
+**Dialplan Example #2**
+
+```xml
+<include>
+  <extension name="MetaSwitch_Outbound">
+    <condition field="destination_number" expression="^(1{0,1}\d{10})$">
+      <action application="bridge" data="sofia/gateway/MetaSwitch/$1"/>
+    </condition>
+  </extension>
+</include>
+```
+
+(conf/dialplan/default/00\_MetaSwitch\_Outbound.xml)
+
+## Using FreeSwitch downstream from a MetaSwitch (PBX)
+
+### MetaSwitch Configuration
+
+* Create a "Configured SIP Binding." Be sure to set "Use DN for identification" or DID will not work properly.  
+   * Note the username and password assigned.  
+   * "Usage:" should be set to "Subscriber."  
+   * SIP domain name should be the IP of the MetaSwitch call agent.  
+   * Contact IP address should be the IP of your FreeSwitch.  
+   * Double check the port number (if FS is configured as default this should be 5080).  
+   * Set the **Media Gateway model** to the one created for FreeSwitch.
+* Create a PBX on the MetaSwitch, selecting the "Configured SIP Binding" just created.  
+   * Note the "Default number of DID digits" (the number of digits of the _called_ number that the MetaSwitch will forward to the SIP Binding).  
+   * Create any DID number ranges desired.
+
+### FreeSwitch Configuration
+
+* Sofia External Profile:
+
+**Sofia External Profile**
+
+```xml
+<include>
+  <gateway name="MetaSwitch">
+    <param name="debug" value="0"/>
+    <param name="username" value="username"/>
+    <param name="realm" value="MetaSwitch-IP"/>
+    <param name="password" value="password"/>
+    <param name="register" value="false"/>
+    <param name="dtmf-type" value="rfc2833"/>
+  </gateway>
+</include>
+```
+
+(conf/sip\_profiles/external/MetaSwitch.xml)
+
+After a FreeSwitch restart or mod\_sofia reload, the configured SIP binding in the MetaSwitch should go out of alarm.
+
+### FreeSwitch Dialplan Examples
+
+* This dialplan works on the DID spill of the incoming call, transferring them to internal extensions.  
+   * Be sure to use the correct number of digits, as set in the PBX configured on the MetaSwitch.
+
+**Dialplan Example #3**
+
+```xml
+<include>
+  <extension name="MetaSwitch_Inbound_1">
+    <condition field="destination_number" expression="^1000$">
+      <action application="set" data="domain_name=$${domain}"/>
+      <action application="transfer" data="9998 XML default"/>
+    </condition>
+  </extension>
+  <extension name="MetaSwitch_Inbound_2">
+    <condition field="destination_number" expression="^1001$">
+      <action application="set" data="domain_name=$${domain}"/>
+      <action application="transfer" data="5000 XML default"/>
+    </condition>
+  </extension>
+  <extension name="MetaSwitch_Inbound_3">
+    <condition field="destination_number" expression="^1002$">
+      <action application="set" data="domain_name=$${domain}"/>
+      <action application="transfer" data="3000 XML default"/>
+    </condition>
+  </extension>
+</include>
+```
+
+(conf/dialplan/public/01\_MetaSwitch\_Inbound.xml)
+
+* This dialplan transfers all 1+10 digit or 10 digit calls to the MetaSwitch.
+
+**Dialplan Example #4**
+
+```xml
+<include>
+  <extension name="MetaSwitch_Outbound">
+    <condition field="destination_number" expression="^(1{0,1}\d{10})$">
+      <action application="bridge" data="sofia/gateway/MetaSwitch/$1"/>
+    </condition>
+  </extension>
+</include>
+```
+
+(conf/dialplan/default/00\_MetaSwitch\_Outbound.xml)
+
+## Using FreeSwitch as a MetaSwitch Application Server
+
+### Voicemail Server
+
+#### MetaSwitch Configuration
+
+1. * Create a "Configured SIP Binding." Be sure to set "Use DN for identification" or DID will not work properly.  
+         * Note the username and password assigned.  
+         * "Usage:" should be set to "Application Server."  
+         * SIP domain name should be the IP of the MetaSwitch call agent.  
+         * Contact IP address should be the IP of your FreeSwitch.  
+         * Double check the port number (if FS is configured as default this should be 5080).  
+         * Set the **Media Gateway model** to the one created for FreeSwitch.  
+   * Create an Application Server on the MetaSwitch  
+         * Point this at the SIP Binding that was just created  
+         * Be sure to select the appropriate features for your planned usage
+
+#### FreeSwitch Configuration
+
+* Sofia External Profile:
+
+**Sofia External Profile for Voicemail**
+
+```xml
+<include>
+  <gateway name="MetaSwitch_App">
+    <param name="debug" value="0"/>
+    <param name="username" value="username"/>
+    <param name="realm" value="MetaSwitch-IP"/>
+    <param name="password" value="password"/>
+    <param name="register" value="false"/>
+    <param name="dtmf-type" value="rfc2833"/>
+  </gateway>
+</include>
+```
+
+(conf/sip\_profiles/external/MetaSwitch\_App.xml)
+
+After a FreeSwitch restart or mod\_sofia reload, the configured SIP binding in the MetaSwitch should go out of alarm.
+
+#### FreeSwitch Dialplan Examples
+
+* This dialplan has four extensions.  
+   * Check\_VM\_User
+* Check to see if a voicemail box exists for the called number and set a variable that we can check later.  
+   * MetaSwitch\_Check\_Voicemail:  
+         * If the SIP referrer is the same as the from user, the subscriber is dialing his own number. Check Voicemail and do not prompt for a password. This only works for MetaSwitch SIP subscribers.  
+   * MetaSwitch\_Leave\_Voicemail:  
+         * If the SIP referrer is equal to any of our secondary Voicemail check numbers, skip to the next extension (used if you have voicemail check numbers for each NPA/NXX, or just multiple numbers people can dial to check their voicemails). This condition can be removed if that is not the case or left with a dummy expression that will never match.  
+         * If the SIP referrer is 10 digits but didn't get matched by the first extension, then someone is leaving a voicemail.  
+   * MetaSwitch\_Check\_Voicemail\_External:  
+         * The destination number expression should be changed to the directory numbers of the Voicemail server.  
+         * Check to see if the calling number has a voicemail box, if so the user is calling from his own phone, just prompt for a password. If the calling number does not have a voicemail box, the ser is trying to access his Voicemail from a remote phone. Prompt for the mailbox number and password.
+
+```xml
+<include>
+  <extension name="Check_VM_User" continue="true">
+    <condition field="${user_lookup}" expression="^$">
+      <action application="set" data="user_lookup=done"/>
+      <action application="set" data="vm_user=${user_exists(mailbox ${username} ${sip_req_host})}"/>
+      <action application="info"/>
+      <action application="transfer" data="${destination_number} XML public"/>
+    </condition>
+  </extension>
+  <extension name="MetaSwitch_Check_Voicemail">
+    <condition field="${sip_referred_by_user}" expression="^${sip_from_user}$">
+      <action application="voicemail" data="check auth default $${domain} ${sip_referred_by_user}"/>
+    </condition>
+  </extension>
+  <extension name="MetaSwitch_Leave_Voicemail" continue="true">
+    <condition field="${sip_referred_by_user}" expression="^(any secondary vm dial in numbers)$" break="on-true"/>
+    <condition field="${sip_referred_by_user}" expression="^(\d{10})$" break="on-false">
+      <action application="voicemail" data="default $${domain} ${sip_referred_by_user}"/>
+    </condition>
+  </extension>
+  <extension name="MetaSwitch_Check_Voicemail_External">
+    <condition field="destination_number" expression="^(main and any secondary voicemail dial in numbers)$"/>
+    <condition field="${vm_user}" expression="true" break="on-true">
+      <action application="voicemail" data="check default $${domain} ${username}"/>
+    </condition>
+    <condition field="${vm_user}" expression="false">
+      <action application="voicemail" data="check default $${domain}"/>
+    </condition>
+  </extension>
+</include>
+```
+
+(conf/dialplan/default/00\_MetaSwitch\_Outbound.xml)
+
+#### MetaSwitch/FreeSwitch Message Waiting Indicator
+
+* A simple LUA script to send forward MWI notifications to the MetaSwitch, you will need to set the thee variables to match your network. This script will run indefinitely once started, sending off any waiting MWI events every two seconds. Usually set to run automatically at FS startup.
+
+**message\_waiting.lua**
+
+```js
+metaIP = "10.10.10.10";
+fsIP = "20.20.20.20";
+vmANI = "8005551212";
+
+event = freeswitch.EventConsumer("MESSAGE_WAITING");
+
+while true do
+	freeswitch.msleep(2000);
+	for e in (function() return event:pop() end) do
+		mwiNumber = e:getHeader("MWI-Message-Account");
+		messWaiting = e:getHeader("MWI-Messages-Waiting");
+		voiceMess = e:getHeader("MWI-Voice-Message");
+		if not messWaiting then
+			messWaiting = "no";
+		end
+		if not voiceMess then
+			voiceMess = "";
+		end
+		if mwiNumber then		
+			mwiNumber = string.sub(mwiNumber, string.find(mwiNumber, "%d+"));
+			eout = freeswitch.Event("NOTIFY");
+			eout.addHeader(eout, "profile", "external");
+			eout.addHeader(eout, "to-uri", "sip:".. mwiNumber .. "@" .. metaIP);
+			eout.addHeader(eout, "from-uri", "sip:" .. vmANI .. "@" .. fsIP);
+			eoutBody = "Messages-Waiting: " .. messWaiting .. "\r\n" ..
+				   "Message-Account: sip:" .. mwiNumber .."@" .. metaIP .. "\r\n" ..
+				   "Voice-Message: " .. voiceMess .. "\r\n";
+			eout.addBody(eout, eoutBody);
+			eout.fire(eout);
+		end
+	end
+end
+```
+
+### Outbound App Server
+
+### Inbound App Server
+
+Document generated by Confluence on nov 11, 2022 04:28

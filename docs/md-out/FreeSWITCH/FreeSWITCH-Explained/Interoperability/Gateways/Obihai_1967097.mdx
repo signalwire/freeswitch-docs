@@ -1,0 +1,218 @@
+
+# Obihai 
+
+ Created by  Mario G, last modified by  John Boteler on 2017.01.13
+
+See [www.obihai.com](http://www.obihai.com) for information on these units as well as manuals.
+
+Click to expand Table of Contents
+
+* 1 [Obi100](#obi100)
+* 2 [Obi110](#obi100)  
+   * 2.1 [Obi110 FreeSWITCH Configuration](#obi110-freeswitch-configuration)  
+   * 2.2 [Obi110 Configuration](#obi110-configuration)
+
+## Obi100
+
+* **Registration:**works -v1.2.1 (Build: 2196M7C9DCA28) FW or Greater, expand text below for more information
+* **Caller Id:** works
+* **Call in/out:** works
+* **Call waiting:** untested
+* **Transfer calls:** untested
+* **Park calls:** untested
+* **Video:** n/a
+
+Click here to expand Obi100 registration issues
+
+There is a bug in the Obi Firmware that prevents the no-once from changing as it should. This has been resolved, in an unreleased firmware version: 1.2.1 (Build: 2196M7C9DCA28)
+
+I'd share the firmware but it was pushed to my device, and this not being an open source product, I'm not sure how to get it \*out\*, or if it would even be legal to do so.
+
+Email [support@obihai.com](mailto:support@obihai.com). They were actually very responsive about this issue.
+
+---
+
+You might be seeing something like this:
+
+  
+Currently IPSP-A is on google voice IPSP-B connects to my FreeSWITCH server.
+
+Obi100 behind a Tomato-VPN router (port forwarding disabled \[because it didn't help\]). It's registering fine on an initial boot, but there's some weirdness.
+
+FreeSWITCH is configured with a sip registration time of 3600 (as is the obi100). FreeSWITCH status shows the registration expire time is always 120 seconds max (it doesn't do this for any other device).
+
+SipDroid stays registered and works fine behind the same router.
+
+What happens is, it registers fine initially and reregisters every 30 seconds (this is good). After some period of time, it fails registration. The FreeSwitch folks thought this might have something to do with the nonce.
+
+Trial 1: 14:54:32 registers - 14:59:05 fails Trial 2: 15:42:22 registers - 15:46:44 fails
+
+I've tried STUN and ICE as well to no avail.
+
+  
+here's a siptrace:
+
+---
+
+THIS WORKS (several times)
+
+---
+
+---
+
+recv 779 bytes from udp/[1.2.3.4]:23821 at 19:33:28.000494:
+  ------------------------------------------------------------------------
+  REGISTER sip:me.example.net:5060 SIP/2.0
+  Call-ID: 4627c6a5@192.168.77.200
+  Content-Length: 0
+  CSeq: 44463 REGISTER
+  From: &lt;sip:1000@me.example.net>;tag=SP2697b790218d6ab81
+  Max-Forwards: 70
+  To: &lt;sip:1000@me.example.net>
+  Via: SIP/2.0/UDP 192.168.77.200:5060;branch=z9hG4bK-669ca1b5;rport
+  Authorization: DIGEST algorithm=MD5,nc=00000009,qop=auth,cnonce="6497d2de2faa6631",nonce="d63ef078-685f-1e0-aba1-6feceeda3349",realm="me.example.net",response="25b400ca306771cc11c9c300a1394760",uri="sip:me.example.net:5060",username="1000"
+  User-Agent: OBIHAI/OBi100-1.2.1.2103
+  Contact: &lt;sip:1000@1.2.3.4:23821>;expires=60;+sip.instance="&lt;urn:uuid:00000000-0000-0000-0000-9cadef100711>"
+  Allow: ACK,BYE,CANCEL,INFO,INVITE,NOTIFY,OPTIONS,REFER
+  Supported: replaces
+  
+  ------------------------------------------------------------------------
+send 690 bytes to udp/[1.2.3.4]:23821 at 19:33:28.080131:
+  ------------------------------------------------------------------------
+  SIP/2.0 200 OK
+  Via: SIP/2.0/UDP 192.168.77.200:5060;branch=z9hG4bK-669ca1b5;rport=23821;received=1.2.3.4
+  From: &lt;sip:1000@me.example.net>;tag=SP2697b790218d6ab81
+  To: &lt;sip:1000@me.example.net>;tag=8cmm6aXFmjrFN
+  Call-ID: 4627c6a5@192.168.77.200
+  CSeq: 44463 REGISTER
+  Contact: &lt;sip:1000@1.2.3.4:23821>;expires=60;+sip.instance="&lt;urn:uuid:00000000-0000-0000-0000-9cadef100711>"
+  Date: Sat, 16 Apr 2011 19:33:28 GMT
+  User-Agent: FreeSWITCH-mod_sofia/1.0.head-git-e5fb456 2011-02-03 11-19-24 -0600
+  Allow: INVITE, ACK, BYE, CANCEL, OPTIONS, MESSAGE, UPDATE, INFO, REGISTER, REFER, NOTIFY, PUBLISH, SUBSCRIBE
+  Supported: timer, precondition, path, replaces
+  Content-Length: 0
+
+---
+
+THEN FAILS
+
+---
+
+------------------------------------------------------------------------
+recv 779 bytes from udp/[1.2.3.4]:23821 at 19:34:28.273775:
+  ------------------------------------------------------------------------
+  REGISTER sip:me.example.net:5060 SIP/2.0
+  Call-ID: c9ea76c4@192.168.77.200
+  Content-Length: 0
+  CSeq: 41698 REGISTER
+  From: &lt;sip:1000@me.example.net>;tag=SP2697b790218d6ab81
+  Max-Forwards: 70
+  To: &lt;sip:1000@me.example.net>
+  Via: SIP/2.0/UDP 192.168.77.200:5060;branch=z9hG4bK-635b38cd;rport
+  Authorization: DIGEST algorithm=MD5,nc=00000011,qop=auth,cnonce="6497d2de2faa6631",nonce="d63ef078-685f-11e0-aba1-6feceeda3349",realm="me.example.net",response="e5a110727324db9b9de5c272e1396a47",uri="sip:me.example.net:5060",username="1000"
+  User-Agent: OBIHAI/OBi100-1.2.1.2103
+  Contact: &lt;sip:1000@1.2.3.4:23821>;expires=60;+sip.instance="&lt;urn:uuid:00000000-0000-0000-0000-9cadef100711>"
+  Allow: ACK,BYE,CANCEL,INFO,INVITE,NOTIFY,OPTIONS,REFER
+  Supported: replaces
+  
+  ------------------------------------------------------------------------
+send 546 bytes to udp/[1.2.3.4]:23821 at 19:34:28.299104:
+  ------------------------------------------------------------------------
+  SIP/2.0 403 Forbidden
+  Via: SIP/2.0/UDP 192.168.77.200:5060;branch=z9hG4bK-635b38cd;rport=23821;received=1.2.3.4
+  From: &lt;sip:1000@me.example.net>;tag=SP2697b790218d6ab81
+  To: &lt;sip:1000@me.example.net>;tag=e3B9gD2427XZa
+  Call-ID: c9ea76c4@192.168.77.200
+  CSeq: 41698 REGISTER
+  User-Agent: FreeSWITCH-mod_sofia/1.0.head-git-e5fb456 2011-02-03 11-19-24 -0600
+  Allow: INVITE, ACK, BYE, CANCEL, OPTIONS, MESSAGE, UPDATE, INFO, REGISTER, REFER, NOTIFY, PUBLISH, SUBSCRIBE
+  Supported: timer, precondition, path, replaces
+  Content-Length: 0
+  
+  ------------------------------------------------------------------------
+2011-04-16 14:34:28.298307 [WARNING] sofia_reg.c:1205 SIP auth failure (REGISTER) on sofia profile 'internal' for [1000@me.example.net] from ip 1.2.3.4
+
+  
+---
+
+## Obi110
+
+Device has one line port and one phone port, can be configured with two ITSPs. FreeSWITCH works with the phone port as well as the line port. View the links mentioned in the dial plan below for explanations and more samples.
+
+### Obi110 FreeSWITCH Configuration
+
+Here is a sample of the user configuration, it is very basic:
+
+**Obi110 user directory**
+
+```xml
+<include>
+  <user id="7777">
+    <params>
+      <param name="password" value="some password"/>
+    </params>
+    <variables>
+      <variable name="effective_caller_id_name" value="Analog 7777"/>
+      <variable name="effective_caller_id_number" value="7777"/>
+      <variable name="outbound_caller_id_name" value="$${outbound_caller_name}"/>
+      <variable name="outbound_caller_id_number" value="$${outbound_caller_id}"/>
+    </variables>
+  </user>
+</include>
+```
+
+Here is the the dial plan for handling incoming calls:
+
+**Obi110 dialplan**
+
+```xml
+<include>
+    <!--     This MUST be included in default.xml before enum!
+     The Obi110 Line port is configured as SP(ans7777) to direct incoming
+     calls to this FS extension. Incoming calls from Obi110 are treated as a call
+     from an extension instead of a did so the DID does not work.
+     See the following URLs for more info:
+     https://www.obitalk.com/forum/index.php?topic=57.msg103#msg103
+     http://wiki.freepbx.org/pages/viewpage.action?pageId=4161594
+     http://www.toao.net/500-mangos-guide-to-configuring-an-obi100-obi110-and-obi202-ata
+     Very good: http://fredshack.com/docs/obi110.html
+     Figured out outbound using: http://tech.iprock.com/?p=3208
+     -->
+    <extension name="7777 Incoming">
+    <condition field="destination_number" expression="^ans7777$">
+      <action application="set" data="hangup_after_bridge=false"/>
+      <action application="set" data="continue_on_fail=true"/>
+      <action application="set" data="originate_continue_on_timeout=true"/>
+      <action application="set" data="ignore_early_media=true"/>
+      <action application="answer"/>
+      <!-- If line does not have caller ID then next two lines inform extension's source -->
+      <action application="set" data="effective_caller_id_number=11234567890"/>
+      <action application="set" data="effective_caller_id_name=Analog 7777"/>
+      <action application="bridge" data="{originate_timeout=25},${group_call(bria@${domain_name}+A)},${group_call(deskphone@${domain_name}+A)}"/>
+      <action application="voicemail" data="default ${domain_name} 100"/>
+      <action application="hangup"/>
+    </condition>
+  </extension>
+</include>
+```
+
+### Obi110 Configuration
+
+Note the InboundCallRoute sets the user ID that FreeSWITCH will get for an incoming call.
+
+The URI is essential for outgoing calls to work, otherwise the unit will dial its own extension (7777) instead of the correct number!
+
+ITSP Profile A -> General - Fix DigitMap on multiple screens to match your requirements. It's probably easier to let FreeSWITCH handle digit translation.  
+
+ITSP Profile A -> SIP - Set ProxyServer and ProxyServerPort, to FreeSWITCH IP address and port.
+
+![](/attachments/1967097/2162714.jpg)
+
+![](/attachments/1967097/2162715.jpg)
+
+## Attachments:
+
+![](/images/icons/bullet_blue.gif) [Obi110-SP1-service.jpg](/attachments/1967097/2162714.jpg) (image/jpeg)  
+![](/images/icons/bullet_blue.gif) [Obi110-line port.jpg](/attachments/1967097/2162715.jpg) (image/jpeg)  
+
+Document generated by Confluence on nov 11, 2022 04:28

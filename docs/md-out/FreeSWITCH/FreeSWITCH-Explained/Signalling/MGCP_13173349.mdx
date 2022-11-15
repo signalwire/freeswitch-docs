@@ -1,0 +1,115 @@
+
+# MGCP 
+
+ Created by  João Vitor on 2016.12.23
+
+# About
+
+**MGCP**, or **Media Gateway Control Protocol** is a protocol used within a distributed Voice over IP system.
+
+MGCP is defined in [RFC 3435](https://tools.ietf.org/html/rfc3435), which obsoletes an earlier definition in [RFC 2705](https://tools.ietf.org/html/rfc2705). It superseded the Simple Gateway Control Protocol (SGCP).
+
+Currently, FreeSWITCH does not implement MGCP. There does not appear to be any indication on the road map to provide MGCP support, although it would be a highly-valued feature.
+
+Click here to expand Table of Contents
+
+* 1 [Architecture](#architecture)
+* 2 [Protocol Overview](#protocol-overview)
+* 3 [Implementations](#implementations)
+* 4 [RFCs](#rfcs)
+* 5 [See also](#see-also)
+* 6 [Source](#source)
+
+## Architecture
+
+The distributed system is composed of a Call Agent (or Media Gateway Controller), at least one Media Gateway (MG) that performs the conversion of media signals between circuits and packets, and at least one Signaling gateway (SG) when connected to the PSTN.
+
+The Call Agent uses MGCP to tell the Media Gateway:
+
+* What events should be reported to the Call Agent.
+* How endpoints should be connected together.
+* What signals should be played on endpoints.
+
+MGCP also allows the Call Agent to audit the current state of endpoints on a Media Gateway.
+
+The Media Gateway uses MGCP to report events (such as off-hook, or dialed digits) to the Call Agent.
+
+(While any Signaling Gateway is usually on the same physical switch as a Media Gateway, this needn't be so. The Call Agent does not use MGCP to control the Signaling Gateway; rather, SIGTRAN protocols are used to backhaul signaling between the Signaling Gateway and Call Agent).
+
+In MGCP, every command has a transaction ID and receives a response.
+
+Typically, a Media Gateway is configured with a list of Call Agents from which it may accept programming (where that list normally comprises only one or two Call Agents). In principle, event notifications may be sent to different Call Agents for each endpoint on the gateway (as programmed by the Call Agents, by setting the NotifiedEntity parameter). In practice however, it is usually desirable that at any given moment all endpoints on a gateway should be controlled by the same Call Agent; other Call Agents are available only to provide redundancy in the event that the primary Call Agent fails, or loses contact with the Media Gateway. In the event of such a failure it is the backup Call Agent's responsibility to reprogram the MG so that the gateway comes under the control of the backup Call Agent. Care is needed in such cases; two Call Agents may know that they have lost contact with one another, but this does not guarantee that they are not both attempting to control the same gateway. The ability to audit the gateway to determine which Call Agent is currently controlling can be used to resolve such conflicts.
+
+MGCP assumes that the multiple Call Agents will maintain knowledge of device state among themselves (presumably with an unspecified protocol) or rebuild it if necessary (in the face of catastrophic failure). Its failover features take into account both planned and unplanned outages.
+
+## Protocol Overview
+
+MGCP packets are unlike what you find in many other protocols. Usually wrapped in UDP port 2427, the MGCP datagrams are formatted with white space, much like you would expect to find in TCP protocols. An MGCP packet is either a command or a response.
+
+Commands begin with a four-letter verb. Responses begin with a three number response code.
+
+There are eight (8) command verbs:
+
+```xml
+ AUEP, AUCX, CRCX, DLCX, MDCX, NTFY, RQNT, RSIP
+```
+
+Two verbs are used by a Call Agent to query (the state of) a Media Gateway:
+
+```xml
+AUEP - Audit Endpoint
+AUCX - Audit Connection
+```
+
+Three verbs are used by a Call Agent to manage an RTP connection on a Media Gateway (a Media Gateway can also send a DLCX when it needs to delete a connection for its self-management):
+
+```xml
+ CRCX - Create Connection
+ DLCX - Delete Connection
+ MDCX - Modify Connection
+```
+
+One verb is used by a Call Agent to request notification of events on the Media Gateway, and to request a Media Gateway to apply signals:
+
+```xml
+RQNT - Request for Notification
+```
+
+One verb is used by a Media Gateway to indicate to the Call Agent that it has detected an event for which the Call Agent had previously requested notification of (via the RQNT command verb):
+
+```xml
+NTFY - Notify
+```
+
+One verb is used by a Media Gateway to indicate to the Call Agent that it is in the process of restarting:
+
+```xml
+RSIP - Restart In Progress
+```
+
+ 
+## Implementations
+
+* [Vovida MGCP](http://www.vovida.org/protocols/downloads/mgcp/) (not found)
+
+## RFCs
+
+* [RFC 3435](https://tools.ietf.org/html/rfc3435) \- Media Gateway Control Protocol (MGCP) Version 1.0 (this supersedes [RFC 2705](https://tools.ietf.org/html/rfc2705))
+* [RFC 3660](https://tools.ietf.org/html/rfc3660) \- Basic Media Gateway Control Protocol (MGCP) Packages (informational)
+* [RFC 3661](https://tools.ietf.org/html/rfc3661) \- Media Gateway Control Protocol (MGCP) Return Code Usage
+* [RFC 3064](https://tools.ietf.org/html/rfc3064) \- MGCP CAS Packages
+* [RFC 3149](https://tools.ietf.org/html/rfc3149) \- MGCP Business Phone Packages
+* [RFC 3991](https://tools.ietf.org/html/rfc3991) \- Media Gateway Control Protocol (MGCP) Redirect and Reset Package
+* [RFC 3992](https://tools.ietf.org/html/rfc3992) \- Media Gateway Control Protocol (MGCP) Lockstep State Reporting Mechanism
+* [RFC 2805](https://tools.ietf.org/html/rfc2805) \- Media Gateway Control Protocol Architecture and Requirements
+
+## See also
+
+* [MGCP Information Site](http://www.packetizer.com/voip/mgcp) This site provides information related to MGCP
+* [Session Initiation Protocol](https://wiki.freeswitch.org/index.php?title=Session%5FInitiation%5FProtocol&action=edit&redlink=1 "Session Initiation Protocol (page does not exist)") ([SIP](https://wiki.freeswitch.org/wiki/SIP "SIP"))
+
+## Source
+
+The majority of this article was taken from [wikipedia](http://en.wikipedia.org/wiki/Media%5FGateway%5FControl%5FProtocol).
+
+Document generated by Confluence on nov 11, 2022 04:28

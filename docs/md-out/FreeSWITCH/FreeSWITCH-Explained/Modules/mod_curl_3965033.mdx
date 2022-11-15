@@ -1,0 +1,259 @@
+
+# mod_curl 
+
+ Created by  Belaid Areski, last modified by  Rob Thomas on 2019.08.15
+
+# About
+
+This application allows one to make a HTTP request and receive the response. Output can be plain text (headers optional) or a json object.
+
+  
+Click here to expand ToC
+
+* [Setup & Configuration](#setup--configuration)
+* [Application](#application)
+* [CLI / API](#cli--api)
+* [Lua Usage](#lua-usage)
+
+  
+# Setup & Configuration
+
+In order to use mod\_curl, you have to tell FreeSWITCH to compile in this module by editing modules.conf in /usr/src/freeswitch/trunk and uncomment:
+
+```xml
+#applications/mod_curl
+```
+
+Now go recompile FreeSWITCH.
+
+```xml
+make
+make install
+```
+
+Tell FreeSWITCH to actually use the curl module when running by adding the module to modules.conf.xml in /usr/local/freeswitch/conf/autoload\_configs:
+
+```xml
+<load module="mod_curl"/>
+```
+
+There is no separate config file for mod\_curl.
+
+Now load up FreeSWITCH! 
+
+mod\_curl provides both an API call and a dialplan application for the following:
+
+* curl - allows you to query arbitrary data from a web server
+* curl\_sendfile - allows you to transmit an arbitrary along with arbitrary additional data elements to a web server/REST and optionally receive a report back.
+
+# Application
+
+The syntax for the curl application is:
+
+```xml
+<action application="curl" data="url [headers|json] [get|head|post [url_encode_data]]"/>
+```
+
+The curl application sets the variables **curl\_response\_data** and **curl\_response\_code**. **curl\_response\_data** can also be headers/body or json if requested.
+
+```xml
+<action application="curl" data="http://www.google.com"/>
+<action application="info"/>
+<action application="curl" data="http://www.google.com headers"/>
+<action application="info"/>
+<action application="curl" data="http://www.google.com json"/>
+<action application="info"/>
+```
+
+The syntax for the curl\_sendfile is either of the following two options:
+
+```xml
+<action application="curl_sendfile" data="<url> <filename_post_name=/path/to/filename [nopost|foo1=bar1&foo2=bar2&...fooN=barN [event|none [uuid|identifier]]]"/>
+```
+
+or an example of using the channel variable method:
+
+```xml
+<action application="set" data="curl_sendfile_report=event"/>
+<action application="set" data="curl_sendfile_url=http://www.mydomain.com/test_files.php"/>
+<action application="set" data="curl_sendfile_filename_element=myFile"/>
+<action application="set" data="curl_sendfile_filename=/tmp/somefile.dmp"/>
+<action application="set" data="curl_sendfile_extrapost=foo1=bar1&foo2=bar2&testing=a%20pain%20in%20the%20rear"/>
+<action application="set" data="curl_sendfile_identifier=1234567890"/>
+<action application="curl_sendfile"/>
+```
+
+You do need to urlencode the \_url, \_filename, \_extrapost channel variables or data="" parameters. If you call the application and provide the parameters on the data="" parameter, you must specify 'nopost' if you have no additional post elements to add and wish to specify further parameters on the data line. If you specify 'uuid' for the identifier, the application will automatically use the session's uuid as the value here.
+
+# CLI / API
+
+The CLI uses the api interface. The syntax for the curl API call is:
+
+```xml
+curl url [headers|json|content-type <mime-type>|connect-timeout <seconds>|timeout <seconds>] [get|head|post|delete|put [data]]
+```
+
+From the commandline line issue:
+
+```xml
+curl http://www.google.com
+```
+
+This will return google's home page.
+
+```xml
+curl http://www.google.com/ headers
+```
+
+Will give you the headers followed by the body. And
+
+```xml
+curl http://www.google.com/ json
+```
+
+Will give you the headers and body in a structured json stream.
+
+Send POST and GET request.
+
+```xml
+curl http://www.myhost.com/?get=myGetValue
+curl http://www.myhost.com post post=myPostValue%20a%20space
+```
+
+Mix with headers or JSON.
+
+```xml
+curl http://www.myhost.com/?get=myGetValue json
+curl http://www.myhost.com headers post post=myPostValue%20a%20space
+```
+
+The syntax for the curl\_sendfile API call is:
+
+```xml
+[api/bgapi] curl_sendfile <url> <filenameParamName=filepath> [nopost|postparam1=foo&postparam2=bar... [event|stream|both|none  [identifier ]]]
+```
+
+**&lt;url> :** This is the urlencoded URL of the REST that we are sending to. It should contain the whole GET parameters that are needed, such as a specific script or application URL that will handle the processing.
+
+&lt;filenameParamName=filepath> : This is a key=value pair. The key is the name you wish to label this POST form element as. The value is the full path to the file you wish to transmit bound to this POST form element.
+
+**nopost|postparam1=foo&postparam2=bar... :** If you wish to specify an additional set of text POST form elements, you can provide a urlencoded key=value pair string that contains them. The key is the label of the POST form element, and the value is the actual value to bind. Thus to have a POST element named jabba with a value of nobotha, specify jabba=nobotha. Additional post elements must delimit the key=value pair with a &, as you would on a GET. If you wish to attach no additional post elements, simply specify nopost.
+
+**event|stream|both|none :** This parameter will determine how and where to display the output from the REST. If you specify event, it will attach the output to a custom event labeled curl\_sendfile::ack and fire it off. If you specify stream, it will output to the active stream which is whichever method was used to execute the call from. If you specify both, it will fire the custom event with the output, as well as display out to the active stream. If you specify none, then no output besides +HTTP\_STATUS\_CODE Ok or -HTTP\_STATUS\_CODE Err will be displayed.
+
+**identifier:** This parameter is simply an arbitrary identifier for your own purposes. It will only apply to the custom curl\_sendfile::ack event, and will display there in the event header as Command-Execution-Identifier . You can use this value to track the results of your commands for completion or error statuses.
+
+If you wish to provide the identifier value, you \*must\* provide the prior two optional parameters or else your command will not be parsed correctly. If you specify a reporting method that provides an event, the custom event is named curl\_sendfile::ack.
+
+# Lua Usage
+
+**Note:** it is good practice to check session:ready() before any long function calls such as a HTTP request so that your script stops running and releases its resources as soon as possible if the call is hung up.
+
+This shows how to do a GET request:
+
+```xml
+session:execute("curl", "http://www.myhost.com/?name1=value1&name2=value2")
+curl_response_code = session:getVariable("curl_response_code")
+curl_response      = session:getVariable("curl_response_data")
+```
+
+This shows how to do a POST request:
+
+```xml
+session:execute("curl", "http://www.myhost.com/ post name1=value1&name2=value2")
+curl_response_code = session:getVariable("curl_response_code")
+curl_response      = session:getVariable("curl_response_data")
+```
+
+This shows how to configure a timeout (in seconds):
+
+```xml
+session:setVariable("curl_timeout", "10")
+session:execute("curl", "http://www.myhost.com/ post name1=value1&name2=value2")
+```
+
+You can also use the API interface:
+
+```xml
+api = freeswitch.API();
+get_response = api:execute("curl", "http://www.myhost.com/?name1=value1&name2=value2")
+post_response = api:execute("curl", "http://www.myhost.com/ post name1=value1&name2=value2")
+```
+
+In all the above examples, the submitted values must be [URL encoded](http://en.wikipedia.org/wiki/Url%5Fencoding).
+
+Submit:
+
+```xml
+first  = "a short value"
+second = "a slightly longer value"
+```
+
+as:
+
+```xml
+first=a%20short%20value&second=a%20slightly%20longer%20value
+```
+
+This shows one method of encoding parameters to form a GET/POST request: (or use [CGILua's urlcode](http://keplerproject.github.com/cgilua/reference.html#urlcode))
+
+```xml
+-- Lua uriencode function
+--
+-- Can take a table, or a string of comma separated values.
+-- Examples:
+-- > print(uriencode("this=is,a=/test/,string='quotes'"))
+-- a=%2Ftest%2F&string=%27quotes%27&this=is
+-- > print(uriencode({this="is", a="/test/", string="'quotes'"}))
+-- a=%2Ftest%2F&string=%27quotes%27&this=is
+--
+function uriencode(vals)
+
+    function escape (s)
+        s = string.gsub(
+            s,
+            '([\r\n"#%%&+:;<=>?@^`{|}%\\%[%]%(%)$!~,/\'])',
+            function (c)
+                return '%'..string.format("%02X", string.byte(c));
+            end
+        );
+        s = string.gsub(s, "%s", "+");
+        return s;
+    end
+
+    function encode (t)
+        local s = "";
+        for k , v in pairs(t) do
+            s = s .. "&" .. escape(k) .. "=" .. escape(v);
+        end
+        return string.sub(s, 2);
+    end
+
+    if type(vals) == 'table' then
+        return encode(vals);
+    else
+        local t = {};
+        for k, v in  string.gmatch(vals, ",?([^=]+)=([^,]+)") do
+            t[k]=v;
+        end
+        return encode(t);
+    end
+end
+```
+
+If you want to pass basic authentication credentials then do this:
+
+```xml
+local auth_url = "http://username:password@mysecure_web_service.com"
+local response = api:execute("curl", auth_url)
+```
+
+## Comments:
+
+| How can I add http header with **curl** app or cli/api ?such as linux curl : curl -H 'header-name:value' http://www.google.com ![](/images/icons/contenttypes/comment_16.png) Posted by livem at dic 27, 2016 02:00                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Found this on the mailing list and wants to be included in the documentation. Sending POST request with JSON. <http://localhost/faxapp> content-type 'application/JSON' post {"session\_id":"9dea8e0d880ec5b0450c2a96766b87","source":"1234XXXXXXX","destination":"56475XXXXXXX"} ![](/images/icons/contenttypes/comment_16.png) Posted by aqsyounas at feb 03, 2017 15:35                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| This worked for me:freeswitch@pbx> curl <https://user:password@api.flowroute.com/v2/messages> content-type application/json post '{ "to":"5551212", "from":"5551000", "body":"You have a voicemail message." }'(Actually, it stopped sending the correct auth info when I switched to FreeSWITCH 1.6 on a new Debian machine, but that's a different story.) ![](/images/icons/contenttypes/comment_16.png) Posted by starnet at mar 28, 2017 15:41                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| I run into a couple issues when trying to combine single quotes and double quotes in the dialplan... using the previous example...Doing:&lt;action application="curl" data="<http://localhost/faxapp> content-type 'application/JSON' post {"session\_id":"9dea8e0d880ec5b0450c2a96766b87","source":"1234XXXXXXX","destination":"56475XXXXXXX"}"Failed because the double quotes are used to start/end the data variable and the key:values of the JSON, I tried escaping them but the dialplan reload still failed.To make something like that work I did the following:&lt;action application="set" data='post={"session\_id":"9dea8e0d880ec5b0450c2a96766b87","source":"1234XXXXXXX","destination":"56475XXXXXXX"}' inline="true"/> &lt;action application="curl" data="<http://localhost/faxapp> content-type 'application/json' post ${post}" inline="true"/>NOTE: On the "set", I enclosed the data= with single quotes (red), this allowed me to use the double quotes for the json. Hope it helps! ![](/images/icons/contenttypes/comment_16.png) Posted by joelsdc at apr 18, 2017 21:35 |
+
+Document generated by Confluence on nov 11, 2022 04:27

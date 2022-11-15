@@ -1,0 +1,222 @@
+
+# NAT Traversal 
+
+ Created by  John Boteler, last modified on 2022.11.09
+
+# About
+
+Some difficulties have been encountered with devices that have poor [NAT](./NAT_6587473.mdx#about) support. FreeSWITCH goes to great lengths to repair broken NAT support in phones and gateway devices.
+
+In order to aid FreeSWITCH in traversing [NAT](./NAT_6587473.mdx#about) please see the [External profile](../Configuration/Sofia-SIP-Stack/External-Profile_13173235.mdx#about) page.
+
+Some routers offer an Application Layer Gateway feature which can prevent FreeSWITCH NAT traversal from working. See the [ALG page](./ALG_3375419.mdx#about) for more information, including how to disable it.
+
+  
+Click here to expand Table of Contents
+
+* 1 [Using STUN to aid in NAT Traversal](#using-stun-to-aid-in-nat-traversal)  
+   * 1.1 [STUN servers](#stun-servers)
+* 2 [Using FreeSWITCH built-in methods to aid in NAT Traversal](#using-freeswitch-built-in-methods-to-aid-in-nat-traversal)  
+   * 2.1 [nat-options-ping](#nat-options-ping)  
+   * 2.2 [NDLB-force-rport](#ndlb-force-rport)  
+   * 2.3 [apply-nat-acl](#apply-nat-acl)  
+   * 2.4 [sip\_sticky\_contact](#-sip_sticky_contact-)  
+   * 2.5 [sip\_nat\_detected](#-sip_nat_detected-)  
+   * 2.6 [sip-force-contact](#-sip-force-contact-)  
+   * 2.7 [NDLB-connectile-dysfunction](#ndlb-connectile-dysfunction)  
+   * 2.8 [NDLB-tls-connectile-dysfunction](#-ndlb-tls-connectile-dysfunction-)  
+   * 2.9 [NDLB-connectile-dysfunction-2.0](#-ndlb-connectile-dysfunction-20-)
+* 3 [Using Phone specific features to aid in NAT Traversal](#using-phone-specific-features-to-aid-in-nat-traversal)  
+   * 3.1 [Polycom](#polycom)
+* 4 [FreeSWITCH Behind NAT](#freeswitch-behind-nat)  
+   * 4.1 [sip\_profiles](#sip_profiles)
+* 5 [Restricting Port Range](#restricting-port-range--)
+* 6 [Distilled Wisdom](#distilled-wisdom)
+* 7 [See Also](#see-also--)
+
+## Using STUN to aid in NAT Traversal
+
+[STUN](https://en.wikipedia.org/wiki/STUN) is a method to allow an end host (i.e. phone) to discover its public IP address if it is located behind a [NAT](./NAT_6587473.mdx#about) . Using this method requires a STUN server on the public internet and a client on the phone. The phone's STUN client queries the STUN server for it's own public IP and transmits the information it has received in it's connection information in the SIP packets it sends to the SIP server.
+
+Enable and configure STUN settings on your phone in order correctly to report your phone's contact information to FreeSWITCH when registering. Unfortunately, not all phones have a properly working STUN client.
+
+### STUN servers
+
+This site contains a list of public STUN servers: <https://gist.github.com/zziuni/3741933>   
+[stun.freeswitch.org](http://stun.freeswitch.org) is never guaranteed to be up and running so use it in production at your own risk. There are several open source projects to run your own STUN server, e.g. [STUNTMAN](http://www.stunprotocol.org/)
+
+## Using FreeSWITCH built-in methods to aid in NAT Traversal
+
+### nat-options-ping
+
+This parameter causes FreeSWITCH to regularly (every 20 - 40s) send an OPTIONS packet to NATed registered endpoints in order to keep the port on the clients firewall open. This is usefull if the initial REGISTER works, but subsequently the phone is no longer reachable, as the clients firewall has closed the port the REGISTER originated from.
+
+Activate this parameter in sip\_profiles/internal.xml and restart the sip profile:
+
+**sip\_profiles/internal.xml**
+
+```xml
+ <param name="nat-options-ping" value="true"/>
+```
+
+### NDLB-force-rport
+
+This parameter forces FreeSWITCH to send SIP responses to the network port from which they were received. Use with caution, as it may break things for devices that actually expect to get replies on a different port. See [Sofia Configuration Files](../Configuration/Sofia-SIP-Stack/Sofia-Configuration-Files_7144453.mdx#ndlb-force-rport)  for more details.
+
+**sip\_profiles/internal.xml**
+
+```xml
+ <param name="NDLB-force-rport" value="true/safe"/>
+```
+
+### apply-nat-acl
+
+You can add the apply-nat-acl param to your profile to force [NAT](./NAT_6587473.mdx#about) behavior when matching a certain access list
+
+&lt;param name="apply-nat-acl" value="rfc1918"/>
+
+Possible values of apply-nat-acl using access list: [ACL Notes](./3965687.mdx#-acl-)
+
+###  sip_sticky_contact 
+
+&lt;action application="set" data="sip_sticky_contact=true"/>
+
+###  sip_nat_detected 
+
+sip\_nat\_detected is set to true when [NAT](./NAT_6587473.mdx#about) is detected. Use it in your dialplan to handle NATted devices differently.
+
+&lt;condition field="${sip_nat_detected}" expression="true">
+
+###  sip-force-contact 
+
+The sip-force-contact variable can be used to activate NATHACK / TLSHACK registration, which rewrites the contact IP:port.
+
+**User Directory Example**
+
+```xml
+<user id="100" mailbox="100">
+  <params>
+    <param name="password" value="1234"/>
+    <param name="vm-password" value="4321"/>
+  </params>
+  <variables>
+    <variable name="sip-force-contact" value="NDLB-connectile-dysfunction"/>
+  </variables>
+</user> 
+```
+
+  
+### NDLB-connectile-dysfunction
+
+  
+* Rewrites contact IP and port to that of the NAT device by looking at IP address:port info from the packets reaching FreeSWITCH.
+* Forces REGISTER expiry to 30 seconds. (Unless sip-force-expires is set)
+
+This is similar to the way Asterisk tries to deal with NAT traversal.  
+  
+  
+###  NDLB-tls-connectile-dysfunction 
+
+  
+* Rewrites contact port
+
+###  NDLB-connectile-dysfunction-2.0 
+
+Needs documentation; apparently rewrites IP and port and adds the \`fs\_path\` parameter in the Contact header.
+
+* Forces REGISTER expiry to 30 seconds. (Unless sip-force-expires is set)
+
+## Using Phone specific features to aid in NAT Traversal
+
+Your phone may allow you to specify your public network information to use when registering and/or a keepalive-mechanism to keep the signalling-port open. Please check with the manufacturer of your phone for the best information.
+
+### Polycom
+
+&lt;nat nat.ip="4.2.2.2" nat.signalPort="" nat.mediaPortStart="" nat.keepalive.interval=""/>
+
+## FreeSWITCH Behind NAT
+
+With FreeSWITCH behind NAT, FreeSWITCH can only bind its ports to a local IP. However when connecting to FreeSWITCH from an external network, the external IP is needed.
+
+With the standard setup users may be able to register phones correctly, however the phones may not be reachable and you may encounter no audio or one way audio when a call is set up.
+
+This is one working example for FreeSWITCH behind NAT:
+
+**vars.xml**
+
+```xml
+<X-PRE-PROCESS cmd="set" data="bind_server_ip=my.domain.com"/>
+<X-PRE-PROCESS cmd="set" data="external_sip_ip=stun:stun.freeswitch.org"/>
+<X-PRE-PROCESS cmd="set" data="external_rtp_ip=stun:stun.freeswitch.org"/>
+<X-PRE-PROCESS cmd="set" data="add_ice_candidates=true"/>
+
+```
+
+host:[domain.example.com](http://domain.example.com) is another possible value; however this will not toggle the autonat flags.
+
+If FreeSWITCH sits behind NAT with dynamic DNS and stun doesn't work, you should write a script that determines your public IP address, makes the change, and calls reloadxml. This also holds true for the external profile. No special processing happens to determine the IP address before the variable gets passed to the external profile.
+
+host:[domain.example.com](http://domain.example.com) may be used in places "where you have two interfaces in a box and one is public–facing and one isn't, so one never has to tell the lies."
+
+### sip_profiles
+
+**internal.xml**
+
+```xml
+<param name="ext-rtp-ip" value="$${external_rtp_ip}"/> 
+```
+
+**external.xml**
+
+```xml
+<param name="ext-sip-ip" value="$${external_sip_ip}"/>
+<param name="ext-rtp-ip" value="$${external_rtp_ip}"/> 
+```
+
+Do not set ext-rtp-ip to a domain name instead of an IP or STUN entry; you will encounter a "SIP/2.0 500 Cannot Get IP Address for Media" error.
+
+By default external\_sip\_ip and external\_rtp\_ip are set in vars.xml to use the FreeSWITCH STUN server.
+
+## Restricting Port Range  
+
+Some firewall providers provide limited support for port forwarding or virtual servers or whatever they are called by the provider. To help, FreeSWITCH can limit the ports it will use for RTP streams, so you don't have to forward 16,000 ports. You will need enough to handle all media channels coming across the firewall. Keep that in mind.
+
+Specify the lower and upper bounds on port numbers in conf/autoload\_configs/switch.conf.xml as follows:
+
+**switch.conf.xml**
+
+```xml
+<param name="rtp-start-port" value="16384"/>
+<param name="rtp-end-port" value="16389"/> 
+```
+
+In the example above, you only need to forward 6 ports, so it will also only allow a maximum of 6 audio channels across that connection, and depending on networking configurations maybe not even that. Be very careful with your expectation level here.
+
+## Distilled Wisdom
+
+Archived for posterity from: \[[FS-users mailing list](http://lists.freeswitch.org/pipermail/freeswitch-users/2012-November/089739.html)\]
+
+Kristian Kielhofner &lt;kris at [kriskinc.com](http://kriskinc.com)\> Wed Nov 21 07:49:52 MSK 2012
+
+You can rewrite the SDP to anything you want but that doesn't mean you'll get media.
+
+I suggest you do some research on the two main schools for SIP NAT traversal (far end and near end). In a nutshell, far end NAT traversal is implemented by the server. This is the FreeSWITCH default. The SDPs are rewritten to the address of the FreeSWITCH server and passed to the remote endpoint. This causes the media to be relayed at the server between the endpoints. This has the advantage of being universally compatible - regardless of how dumb the endpoint(s) is/are. Disadvantages are many - increased sever load, bandwidth, latency, etc. However, with many endpoints this is the only choice.
+
+Near end NAT traversal relies on advanced technologies such as STUN, TURN, and ICE to be supported by the client (and the servers to enable them to be configured and available). TURN actually blurs the lines between these two strategies, as do various hybrid approaches using local proxies, etc. but that's for another day.
+
+Bypass media is incompatible with NAT unless you're using STUN/TURN/ICE in your clients and even then I'm not sure FreeSWITCH will completely and cleanly handle the various ICE/SIP/SDP interactions.
+
+## See Also  
+
+[Access Control List (ACL)](./General-NAT-example-scenarios_13173280.mdx#scenario-1) (Modifying NAT behavior when matching a certain access list)
+
+[General NAT example scenarios](./General-NAT-example-scenarios_13173280.mdx#scenario-1) \- real-world examples
+
+[NAT](./NAT_6587473.mdx#about) \- Network Address Translation
+
+[NAT traversal](./NAT-Traversal_3375417.mdx#about) \- user NAT traversal
+
+[sofia ext-rtp-ip settings](https://freeswitch.org/confluence/display/~boteman/sofia.conf.xml#sofia.conf.xml-Settings)
+
+  
+Document generated by Confluence on nov 11, 2022 04:24

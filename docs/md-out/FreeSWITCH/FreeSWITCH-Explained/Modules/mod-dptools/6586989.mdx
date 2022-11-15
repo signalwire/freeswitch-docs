@@ -1,0 +1,340 @@
+
+# mod_dptools: IVR Menu 
+
+ Created by  Luan Fonseca de Farias, last modified by  Emmanuel Schmidbauer2 on 2016.12.29
+
+# About
+
+The IVR Menu documentation page.
+
+Click here to expand Table of Contents
+
+* 1 [General Concept](#general-concept)
+* 2 [Usage](#usage)
+* 3 [Options](#options)
+* 4 [Playing remote audio files](#playing-remote-audio-files)  
+   * 4.1 [Using mod\_http\_cache](#using-mod_http_cache)  
+   * 4.2 [Using mod\_shout](#using-mod_shout)
+* 5 [Examples](#examples)  
+   * 5.1 [How to route the call if no DTMF is pressed](#how-to-route-the-call-if-no-dtmf-is-pressed)  
+   * 5.2 [How to run several apps with one digit](#how-to-run-several-apps-with-one-digit)  
+   * 5.3 [Another way to run several apps with one digit](#another-way-to-run-several-apps-with-one-digit)  
+   * 5.4 [Path for Sound Files](#path-for-sound-files-)
+* 6 [Variables](#variables)  
+   * 6.1 [ivr\_menu statues](#ivr_menu-statues)
+* 7 [Events](#events)
+* 8 [See Also](#see-also)
+
+# General Concept
+
+You may also want to reference this;
+
+<http://www.packtpub.com/article/freeswitch-utilizing-the-built-in-ivr-engine>
+
+The IVR Menu feature allows you to easily create IVR menus by describing them in XML. (See also [phrase macros](../mod_dptools_1970333.mdx#-c))
+
+Menus are defined in the autoload\_configs/ivr.conf.xml file configuration as below.
+
+```xml
+<configuration name="ivr.conf" description="IVR menus">
+  <menus>
+    <!-- demo IVR setup -->
+    <!-- demo IVR, Main Menu -->
+    <menu name="demo_ivr"
+          greet-long="phrase:demo_ivr_main_menu"
+          greet-short="phrase:demo_ivr_main_menu_short"
+          invalid-sound="ivr/ivr-that_was_an_invalid_entry.wav"
+          exit-sound="voicemail/vm-goodbye.wav"
+          timeout ="10000"
+	  inter-digit-timeout="2000"
+	  max-failures="3"
+	  digit-len="4">
+      <entry action="menu-exec-app" digits="1" param="bridge sofia/$${domain}/888@conference.freeswitch.org"/>
+      <entry action="menu-exec-app" digits="2" param="transfer 9996 XML default"/>    <!-- FS echo -->
+      <entry action="menu-exec-app" digits="3" param="transfer 9999 XML default"/>    <!-- MOH -->
+      <entry action="menu-sub" digits="4" param="demo_ivr_submenu"/>  <!-- demo sub menu -->
+      <entry action="menu-exec-app" digits="5" param="transfer 1234*256 enum"/>    <!-- Screaming monkeys -->
+      <entry action="menu-exec-app" digits="/^(10[01][0-9])$/" param="transfer $1 XML default"/> <!-- dial ext & x-fer -->
+      <entry action="menu-top" digits="9"/>    <!-- Repeat this menu -->
+    </menu>
+    <!-- Demo IVR, Sub Menu -->
+    <menu name="demo_ivr_submenu"
+        greet-long="phrase:demo_ivr_sub_menu"
+        greet-short="phrase:demo_ivr_sub_menu_short"
+        invalid-sound="ivr/ivr-that_was_an_invalid_entry.wav"
+        exit-sound="voicemail/vm-goodbye.wav"
+        timeout="15000"
+        max-failures="3">
+      <entry action="menu-top" digits="*"/>
+     </menu>
+  </menus>
+</configuration>
+```
+
+The IVR Menu supports prompts using the phrase macro. To speak a phrase macro preface your macro name with "phrase:". Be sure to specify the tts-engine, tts-voice, and phrase-lang parameters. See the following menu example.
+
+```xml
+<menu name="main"
+    greet-long="phrase:mainmenu_phrase_macro"
+    greet-short="phrase:short_mainmenu_phrase_macro"
+    invalid-sound="phrase:invalid_entry_macro"
+    exit-sound="phrase:goodbye_macro"
+    timeout ="10000"
+    max-failures="3"
+    tts-engine="cepstral"
+    tts-voice="david"
+    phrase_lang="en">
+        <entry action="menu-exit" digits="*"/>
+        <entry action="menu-sub" digits="2" param="menu2"/>
+            <entry action="menu-say-phrase" digits="4" param="enteraccount"/>
+        <entry action="menu-back" digits="5"/>
+        <entry action="menu-exec-app" digits="7" param="transfer 888 XML default"/>
+        <entry action="menu-sub" digits="8" param="menu8"/>
+</menu>
+```
+
+# Usage
+
+```xml
+ivr
+```
+
+Examples:
+
+```xml
+<action application="ivr" data="main"/>
+```
+
+To intercept only if the call is not bridged (available since git-58fe45a):Note it is sometime necessary to have the following before the call to the ivr application so it won't pick up in early media:
+
+```xml
+<action application="answer"/>
+```
+
+# Options
+
+Menu tag options. 
+
+* **name** \- the name of the ivr menu.
+* **greet-long** \- the menu prompt played the first time the menu is played. May be a filename (starting with \\ or /) or "say:Text to speak" for TTS, or "phrase:phrase\_macro\_name" to speak a phrase macro.  
+   * When using a "phrase:my\_phrase" you can specify the string to pass along for input pattern matching like so: "phrase:my\_phrase:options|option2".
+* **greet-short** \- the shorter version of the menu prompt played when the menu loops. May be filename, say, or phrase.
+* **invalid-sound** \- played when no entry or an invalid entry is made. May be filename, say, or phrase.
+* **exit-sound** \- played when the menu is terminated, May be filename, say, or phrase.
+* **inter-digit-timeout** \- number of milliseconds to wait for a selection.
+* **timeout** \- number of milliseconds to wait for a after playing confirm-macro to conform entered digits.
+* **confirm-macro** \-
+* **confirm-key** \- the key that tells the IVR that digit-entry is finished. Defaults to #, even if blank.  
+   * To override the # as a built-in terminator and change it to \* enter in the dialplan before you run the ivr this would disable.  
+   ```xml  
+    <action application="set" data="ivr_menu_terminator=*"/>  
+   ```
+* **confirm-attempts** \-
+* **max-failures** \- maximum wrong digits entry(ies) before ending the menu (default 3 if not specified or invalid (less than 1) values are Specified).
+* **max-timeouts** \- maximum timeout retry(ies) before ending the menu (default will use the max\_failures value or 3 if both are left blank Or invalid (less than 1) values are specified).
+* **exec-on-max-failures** \- Execute a FreeSWITCH dialplan application on maximum failures
+* **exec-on-max-timeouts** \- Execute a FreeSWITCH dialplan application on maximum timeouts
+* **tts-engine** \- name of TTS engine to speak text (ie. cepstral). (optional).
+* **tts-voice** \- name of TTS voice to use to speak text (ie. david). (Necessary if tts-engine is specified).
+* **digit-len** \- maximum number of digits to collect before searching for a matching menu entry.
+
+Each menu can support a number of actions bound to a key as follows:
+
+* **menu-exit**  \- Exit the IVR menues.
+* **menu-sub** \- Load a **sub-menu**.
+* **menu-exec-app** \- Execute a FreeSWITCH dialplan **application**.
+* **menu-play-sound** \- Play a sound file or speak text.  
+```xml  
+ <entry action="menu-play-sound" digits="3" param="say: You pressed 3"/>  
+ <entry action="menu-play-sound" digits="6" param="voicemail/vm-goodbye.wav"/>  
+```
+* **menu-back** \- Return to the calling menu level.
+* **menu-top** \- Return to the top level menu.
+* **menu-exec-api** was previously documented on this page and is documented in the FreeSWITCH book - it is however not currently supported.
+
+# Playing remote audio files
+
+There are two ways to play remote audio:
+
+* **mod\_shout**
+* **mod\_http\_cache**
+
+Generally speaking, [mod\_http\_cache](https://wiki.freeswitch.org/wiki/Mod%5Fhttp%5Fcache "Mod http cache")  is the preferred method, and this is explained below. 
+
+## Using mod_http_cache
+
+Here is an example using [mod\_http\_cache](https://wiki.freeswitch.org/wiki/Mod%5Fhttp%5Fcache "Mod http cache"):
+
+```xml
+greet-short="http_cache://http://127.0.0.1/audio.mp3"
+```
+
+By using the above, you can avoid hitting the remote server every time the audio needs to be played.
+
+However, it introduces some issues that you need to be aware of:
+
+* A suitable caching period needs to be used. If it's too high, then changes to the audio file won't happen in a timely fashion. Too low, and you risk having the same problems explained in mod\_shout.
+* The initial caching of the audio file directly impacts the IVR. If it takes 2 seconds for the audio file to cache initially, then the IVR will 'freeze' for 2 seconds. You can potentially look at using [http\_prefetch](https://wiki.freeswitch.org/wiki/Mod%5Fhttp%5Fcache#http%5Fprefetch "Mod http cache") to get around this.
+
+You will notice that audio files will start playing much quicker than mod\_shout, and the first few milliseconds of audio might get cut off. To get around this, just introduce a 500ms sleep, like so:
+
+```xml
+<action application="answer"/>
+<action application="sleep" data="500"/>
+<action application="ivr" data="my_ivr"/>
+```
+
+## Using mod_shout
+
+Here is an example of using mod\_shout:
+
+```xml
+greet-short="shout://127.0.0.1/audio.mp3"
+```
+
+However, you should be aware of the following problems;
+
+* Every time an audio file needs to be played, a new HTTP request is made to the remote server. This could result in accidental DDoS.
+* Any latency/slowness on the HTTP request will directly impact your IVR (if it takes 2 seconds to download the audio file, the IVR will 'freeze' for 2 seconds).
+* There is noticeable delay between play events, even if your remote HTTP server is on the same machine!
+* For the above reasons, this is not an advisable approach for production systems.
+
+# Examples
+
+## How to route the call if no DTMF is pressed
+
+First, define the IVR main menu like this:
+
+```xml
+<menu name="ivr-test"
+  greet-long="/usr/local/freeswitch/sounds/greetings.wav"
+  timeout="10000"
+  inter-digit-timeout="2000"
+  max-failures="1"
+  max-timeouts="2"
+  digit-len="1">
+      <entry action="menu-exec-app" digits="1" param="bridge sofia/internal/1001%10.10.10.10"/>
+      <entry action="menu-exec-app" digits="2" param="bridge sofia/internal/1002%10.10.10.10"/>
+      <entry action="menu-exec-app" digits="3" param="bridge sofia/internal/1003%10.10.10.10"/>
+</menu>
+```
+
+And then in your dialplan, you need:
+
+```xml
+<extension name="from_carrier_to_ivr-test">
+    <condition field="destination_number" expression="^15559876543$">
+        <action application="set" data="hangup_after_bridge=true"/>
+        <action application="ivr" data="ivr-test"/>
+        <action application="bridge" data="sofia/internal/1000%10.10.10.10"/>
+    </condition>
+</extension>
+```
+
+With this config, if the IVR manages to bridge the call, it will hang up when the bridge ends.
+
+But if no DTMF is sent, twice in a row (max-timeouts control that), FreeSWITCH will exit the IVR menu and process the next dialplan line, which bridges to 1000.
+
+## How to run several apps with one digit
+
+You need to use the execute\_extension app, with the inline parameter.
+
+For example:
+
+```xml
+<include>
+    <menu name="ivr-test"
+          greet-long="ivr/ivr-menu.wav"
+          confirm-macro=""
+          confirm-key=""
+          confirm-attempts="3"
+          timeout="5000"
+          inter-digit-timeout="2000"
+          max-failures="3"
+          max-timeouts="2"
+          digit-len="1">
+        <entry action="menu-exec-app" 
+               digits="1" 
+               param="execute_extension limit:'hash ivr in',
+set:call_timeout=15,export:absolute_codec_string=G729,set:sip_cid_type=none,
+bridge:sofia/internal/1001%10.10.10.10,playback:ivr/ivr-busy.wav,hangup inline"/>
+        <entry action="menu-exec-app" 
+               digits="2" 
+               param="execute_extension limit:'hash ivr in',
+set:call_timeout=15,export:absolute_codec_string=G729,set:sip_cid_type=none,
+bridge:sofia/internal/1002%10.10.10.10,playback:ivr/ivr-busy.wav,hangup inline"/>
+    </menu>
+</include>
+```
+
+With execute\_extension, you can add in sequence any apps you need, as in a regular XML extension, but the string containing the apps must not contain whitespaces.
+
+So you need to replace them by \\s, or as above, to put the substring with the spaces between ' ':
+
+```xml
+limit:'hash ivr in'
+```
+
+Also, see the playback and hangup apps after the bridge app.
+
+In an IVR (to be confirmed formally), continue\_on\_fail=true is the default.
+
+This means that if the bridge is not successful in my example, the file will be played back to the caller and the call will be hung up.
+
+If you don't hang up the call there, the IVR will playback the greetings file again.
+
+To end the call after a successful bridge, you just need to set:
+
+```xml
+<action application="set" data="hangup_after_bridge=true"/>
+```
+
+From the dialplan before calling the iVR, or in each execute\_extension string, as in the previous example above.
+
+## Another way to run several apps with one digit
+
+Simply list the same digit multiple times in the IVR menu definition. For instance if you have multiple entries for "1" then each entry for 1 will be executed in sequence if 1 is pressed. Note: if they are executed in reverse order you are using a version of Freeswitch that was built prior to September 2010 - to fix this you can either get a newer version or put the entries in reverse order so that they will be executed in the correct order! 
+
+## Path for Sound Files 
+
+Use an absolute path value for the greeting sounds. When you use a relative path (i.e. you don't start with a forward slash) then it will assume that you want to use a sound file somewhere in the sounds directory structure.
+
+Relative: greet-short="ivr/ivr-menu.wav"
+
+Absolute: greet-short="/full/path/to/file/ivr-menu.wav"
+
+# Variables
+
+## ivr_menu statues
+
+Channel Variable with options of success, failure or timeout.
+
+```xml
+variable_ivr_menu_status: [success]
+variable_ivr_menu_status: [failure]
+variable_ivr_menu_status: [timeout]
+```
+
+# Events
+
+Custom IVR Menu events since FreeSWITCH **1.6 .** 
+
+| Event-Name | Event-Subclass | desc |
+| ---------- | -------------- | ---- |
+| Custom     | menu::enter    |      |
+| Custom     | menu::exit     |      |
+
+# See Also
+
+* [Variable\_ivr\_menu\_status](https://wiki.freeswitch.org/wiki/Variable%5Fivr%5Fmenu%5Fstatus "Variable ivr menu status")
+* [Channel\_Variables](https://wiki.freeswitch.org/wiki/Channel%5FVariables "Channel Variables")
+
+## Comments:
+
+| Sometimes IVR menu got error " Too many levels of **recursion** " ![](/images/icons/contenttypes/comment_16.png) Posted by livem at lug 13, 2016 03:13                                                                                                                                                                                                                                                                                                      |
+| ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| That is a hard-coded limitation, if you call other menus recursively via the \`menu-sub\` action more than 12 times, it will exit the menu without executing it.See "Nesting IVRs" from <https://www.packtpub.com/books/content/freeswitch-utilizing-built-ivr-engine> for an alternative if menu-sub cannot be used (i.e. add an extension that invokes an IVR). ![](/images/icons/contenttypes/comment_16.png) Posted by Lekensteyn at lug 27, 2016 11:40 |
+| Is that wil cause freeswitch **crash** ? ![](/images/icons/contenttypes/comment_16.png) Posted by livem at lug 27, 2016 23:42                                                                                                                                                                                                                                                                                                                               |
+| **confirm-macro** **confirm-attempts**Can add some example codes with this two options ? ![](/images/icons/contenttypes/comment_16.png) Posted by livem at set 19, 2016 03:37                                                                                                                                                                                                                                                                               |
+
+Document generated by Confluence on nov 11, 2022 04:27

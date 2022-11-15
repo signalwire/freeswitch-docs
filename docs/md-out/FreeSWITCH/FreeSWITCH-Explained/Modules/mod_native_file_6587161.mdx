@@ -1,0 +1,144 @@
+
+# mod_native_file 
+
+ Created by  Belaid Areski, last modified by  Dragos Oancea on 2020.02.11
+
+# About
+
+The native file module is designed to make it easy to play sound files where no transcoding is necessary. The default FreeSWITCH sound files are in wav format. Generally, these require transcoding when being played to callers. However, if a native format sound file is available then FreeSWITCH can use it.
+
+This module is useful to play files that are encoded as ulaw, alaw, etc - but only when there is no transcoding path. If unsure use mod\_sndfile which is a generic module to play and record various audio file formats. 
+
+  
+Click here to expand Table of Contents
+
+* 1 [Formats and File Names](#formats-and-file-names)
+* 2 [Dialplan Examples](#dialplan-examples)
+* 3 [Script to convert a sound file to specific formats to avoid transcoding](#script-to-convert-a-sound-file-to-specific-formats-to-avoid-transcoding)
+
+## Formats and File Names
+
+File names need to have the proper extensions. Mod\_native\_file uses the IANA [naming conventions](http://www.iana.org/assignments/media-types/audio/). Please be sure to use those extensions. (Case sensitive?)
+
+## Dialplan Examples
+
+When specifying a file to play do not add the file name's extension. FreeSWITCH will pick the correct file.
+
+```xml
+ <action application="playback" data="/tmp/hello"/>
+```
+
+If you have several files in /tmp then FreeSWITCH will select the appropriate one for the codec in use on the call leg.
+
+```xml
+ /tmp/hello.wav
+ /tmp/hello.GSM
+ /tmp/hello.PCMU
+ /tmp/hello.PCMA
+ /tmp/hello.G722
+ /tmp/hello.G729
+ etc...
+```
+
+**NOTE:** the file type for the current codec must be present, otherwise you'll receive an error.
+
+(More to come...)
+
+## Script to convert a sound file to specific formats to avoid transcoding
+
+**wav2freeswitch-converter.sh** Espandi fonte 
+
+```bash
+#!/bin/bash
+# Version : 0.3
+#  Author : Mats Karlsson @ Rebtel
+#  Date   : 2006-05-09
+#  Scoop  : Convert voice prompts from wav format to FreeSWITCH (www.freeswitch.org)
+#           native formats (using res_convert in Asterisk).
+#           Converts to G.729, G.723, G.711 Alaw/Ulaw, and GSM
+#
+# Requirements:
+#         Asterisk 1.4 or 1.6 with res_convert loaded
+#         G.729 codec installed in Asterisk
+#         Digium hardware transcoder for G.723
+#         sox
+#
+#
+# Thanx to Kristian Kielhofner for the help and inspiration to create this script.
+#
+# Modified by Kristian Kielhofner <kris@krisk.org> to support multiple formats
+# more easily
+#
+# Modified again by Kristian Kielhofner <kris@kriskinc.com> to support FreeSWITCH
+
+#Source directory (where are your files?)
+SDIR=/root/fs-native/sounds
+
+#Dest directory (where do you want them to go?)
+DDIR=/root/fs-native/conv
+
+# Formats to convert to. Asterisk format:mod_native extension
+FORMATS="g729:G729 g723:G723 alaw:PCMA ulaw:PCMU gsm:GSM"
+
+# Convert Wav to SLN and resample wavs to 8KHz that is demanded by Asterisk
+# This looks really ugly but I wanted it to work recursively
+# But don't resample if we are already 8KHz - TODO: use sox instead of file
+# TODO: Support G.722, Siren, CELT, etc
+
+for X in `find $SDIR -iname *.wav`; do	
+	FNAME=`echo $X | sed -e s,$SDIR,,g`
+	DNAME=`echo $FNAME | sed -e s,.wav,.sln,g`
+	MKDIR=`dirname $DNAME`
+	mkdir -p $DDIR/$MKDIR
+	if `file $SDIR/$FNAME | grep -q "8000 Hz"`; then
+		echo "Converting $FNAME to sln using sox"
+		sox $SDIR/$FNAME -t raw -r 8000 -s -w -c 1 $DDIR/$DNAME
+	else
+		echo "Converting and resampling $FNAME to sln using sox"
+		sox $SDIR/$FNAME -t raw -r 8000 -s -w -c 1 $DDIR/$DNAME resample -ql
+	fi
+done
+
+for Y in `find $DDIR -iname *.sln`; do
+	FNAME=`echo $Y |sed -e s,$DDIR,,g`
+	for i in $FORMATS; do
+		# Convert SLN to $FORMAT with help of asterisk and convert (see ref)
+		FORMAT=`echo $i | cut -d: -f1`
+		EXTEN=`echo $i | cut -d: -f2`
+		ANAME=`echo $FNAME | sed -e s,.sln,.$FORMAT,g`
+		DNAME=`echo $FNAME | sed -e s,.sln,.$EXTEN,g`
+		# Asterisk requires the Asterisk-style extension to know format
+		echo "Converting $FNAME to $FORMAT using asterisk"
+		asterisk -rx "file convert $DDIR/$FNAME $DDIR/$ANAME" > /dev/null
+		# Move it to mod_native_file compatible naming
+		mv $DDIR/$ANAME $DDIR/$DNAME
+	done
+done
+
+# Remove Asterisk sln files
+# find $DDIR -iname *.sln | xargs rm -f
+```
+
+  
+* I've created a [script](http://mirror.astlinux.org/sounds/freeswitch/wav2freeswitch-converter.sh) to convert WAV files to various Mod\_native\_file formats using sox and Asterisk. It currently supports GSM, PCMU, PCMA, G729, and G723.
+* I've also used it to convert the default FreeSWITCH prompts into the file formats above. Files available [here](http://mirror.astlinux.org/sounds/freeswitch/).
+* Use the included fs\_encode program in the bin folder.
+
+```xml
+fs_encode -l mod_speex file.wav file.SPEEX
+```
+
+```xml
+Usage: ./fs_encode [options] input output
+
+The output must end in the format, e.g., myfile.SPEEX
+		 -l module[,module]	 Load additional modules (comma-separated)
+		 -f format		 fmtp to pass to the codec
+		 -p ptime		 ptime to use while encoding
+		 -r rate		 sampling rate
+		 -b bitrate		 codec bitrate (if supported)
+		 -v			 verbose
+```
+  
+  
+Document generated by Confluence on nov 11, 2022 04:27

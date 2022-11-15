@@ -1,0 +1,151 @@
+
+# Dinstar GSM gateway FreeSwitch HowTo 
+
+ Created by  Daniel Angeli, last modified by  livem Chan on 2019.03.18
+
+# About
+
+Dinstar's products include E1/T1 gateway, VoIP GSM/CDMA gateway, access gateway, softswitch, IP phone, billing systems, and Internet voice value-added service total solutions, etc., which are characterized by complete specifications and good compatibility. Moreover, Dinstar VoIP products reaches an operation level truly in respect of availability, manageability, and maintainability.
+
+Click here to expand Table of Contents
+
+* 1 [Dinstar GSM Gateway HowTo](#dinstar-gsm-gateway-howto)
+* 2 [Dinstar GSM Gateway HowTo ASSUMPTIONS](#dinstar-gsm-gateway-howto-assumptions)
+* 3 [Dinstar Device Before you Start](#dinstar-device-before-you-start)
+* 4 [Dinstar Device Login to FS](#dinstar-gsm-gateway-howto-assumptions)
+* 5 [Dinstar Device Status](#dinstar-gsm-gateway-howto)
+* 6 [FreeSwitch Gateway Configuration Example](#freeswitch-gateway-configuration-example)
+* 7 [FreeSwitch Context (Outbound) Configuration Example](#freeswitch-context-outbound-configuration-example)
+* 8 [Troubleshooting and Useful Tips](#troubleshooting-and-useful-tips)
+* 9 [Useful Docs](#dinstar-gsm-gateway-howto)
+* 10 [See Also](#dinstar-gsm-gateway-howto)
+
+## Dinstar GSM Gateway HowTo
+
+This is the minimal basic configuration to make the Dinstar GSM Gateway work with FreeSwitch.
+
+## Dinstar GSM Gateway HowTo ASSUMPTIONS
+
+You have the default Dinstar GSM Gateway configuration.
+
+You have the initial FreeSwitch install.
+
+You have are familiar with FreeSwitch dialplan and CLI commands.
+
+## Dinstar Device Before you Start
+
+Remember to remove the PIN number from your SIM card. Double check your SIM card with a Phone. It should not ask you for a PIN. Check out that the led lights (green and red) are blinking as they should.
+
+## Dinstar Device Login to FS
+
+**Dinstar main menu -> System Configuration -> SIP Configuration -> add SIP Server Address(freeswitch IP:172.16.33.100) and Is Register=yes**
+
+System configuration->port configuration -> select port 0, add user id:1000, Authenticate ID:1000, Authenticate Password:1234, add to VoIP hotline:1001
+
+Operation->Tel->IP Operation->add "any", tick the auto call
+
+This will redirect all your inbound calls to this Freeswitch extension (1001) in this case
+
+* Sip proxy should aim to the IP where your FS is running.
+* Do not change any other parameter, they should be as they are by default.
+* Make sure same all settings and go to tools->reboot to reboot the system
+
+## Dinstar Device Status
+
+**System inforamtion -> System Information, Mobile Information, SIP Information**
+
+* Make sure the system is on with working status.
+* Make sure SIM cards have been detected correctly and show card infomation.
+* Make sure SIP is regiestered.
+
+## FreeSwitch Gateway Configuration Example
+
+**Edit the /usr/local/freeswitch/conf/sip\_profiles/external/example.xml**
+
+```xml
+<include>
+  <gateway name="gsm">
+  <!--/// account username *required* ///-->
+  <param name="username" value="1000"/>
+  <!--/// auth realm: *optional* same as gateway name, if blank ///-->
+  <param name="realm" value="172.16.33.10"/>
+  <!--/// username to use in from: *optional* same as  username, if blank ///-->
+  <param name="from-user" value="1000"/>
+  <!--/// domain to use in from: *optional* same as  realm, if blank ///-->
+  <!--<param name="from-domain" value="asterlink.com"/>-->
+  <!--/// account password *required* ///-->
+  <param name="password" value="1234"/>
+  <!--/// extension for inbound calls: *optional* same as username, if blank ///-->
+  <!--<param name="extension" value="cluecon"/>-->
+  <!--/// proxy host: *optional* same as realm, if blank ///-->
+  <!--<param name="proxy" value="asterlink.com"/>-->
+  <!--/// send register to this proxy: *optional* same as proxy, if blank ///-->
+  <!--<param name="register-proxy" value="mysbc.com"/>-->
+  <!--/// expire in seconds: *optional* 3600, if blank ///-->
+  <!--<param name="expire-seconds" value="60"/>-->
+  <!--/// do not register ///-->
+  <param name="register" value="false"/>
+  <!-- which transport to use for register -->
+  <!--<param name="register-transport" value="udp"/>-->
+  <!--How many seconds before a retry when a failure or timeout occurs -->
+  <!--<param name="retry-seconds" value="30"/>-->
+  <!--Use the callerid of an inbound call in the from field on outbound calls via this gateway -->
+  <!--<param name="caller-id-in-from" value="false"/>-->
+  <!--extra sip params to send in the contact-->
+  <!--<param name="contact-params" value="tport=tcp"/>-->
+  <!--send an options ping every x seconds, failure will unregister and/or mark it down-->
+  <!--<param name="ping" value="25"/>-->
+  </gateway>
+</include>
+```
+
+## FreeSwitch Context (Outbound) Configuration Example
+
+```xml
+  <extension name="GSM inbound">
+    <condition field="destination_number" expression="^(1000)$">
+      <action application="log" data="INFO do you inbound stuff here!!!!! ani --${ani} "/>
+      <action application="hangup" />   // can transfer to any exten(10001,1002...)
+   </condition>
+  </extension>
+```
+
+* In this example all the inbound calls are sent to the extension 1000 then they are hanged up. The ani should appear.
+* 1001 also would ring, if the call is coming. please make sure 1001 is regiestered in freeswitch.
+
+## Troubleshooting and Useful Tips
+
+* Press F4 under fs\_cli, make sure it is there:
+
+```text
+   external::gsm       gateway                      sip:1000@172.16.33.10      NOREG
+
+
+```
+
+* sofia status (to check that the Dinstar gateway is properly configured and it is running).
+
+freeswitch@internal> sofia status gateway example.com
+
+Name example.com Profile external Scheme Digest Realm example.com Username joeuser Password yes From &lt;sip:joeuser@example.com;transport=udp> **Contact &lt;sip:gw+example.com@172.16.33.100:5080;transport=udp;gw=example.com>** Exten 5000 To sip:joeuser@example.com Proxy sip:example.com Context public Expires 600 Freq 600 Ping 0 PingFreq 0 PingState 0/0/0 State NOREG **Status UP** CallsIN 0 CallsOUT 0
+
+* If you are having trouble with the outbound calls try to log **directly** into the Dinstar Gateway, that is to say create an account with your favorite SIP client (Jitsy, X-Lite, SipDroid, CSipSimple...) use the same username and password and remember that **the IP must aim at your Dinstar Gateway IP, not the Freeswitch one**, then when your client is logged, try to make a call.
+
+## Useful Docs
+
+[how to set freeswitch and asterisk with Dinstar gateway](http://www.dinstar.com/service/Training.aspx)
+
+## See Also
+
+[Dinstar Official Website](http://www.dinstar.com)
+
+[Sofia\_Configuration\_Files#Structure\_of\_a\_Profile](http://wiki.freeswitch.org/wiki/Sofia%5FConfiguration%5FFiles#Structure%5Fof%5Fa%5FProfile)
+
+[FreeSwitch\_Dialplan\_XML](http://wiki.freeswitch.org/wiki/FreeSwitch%5FDialplan%5FXML)
+
+## Comments:
+
+| 鼎信通达 ![](/images/icons/contenttypes/comment_16.png) Posted by livem at gen 22, 2018 06:35 |
+| ---------------------------------------------------------------------------------------- |
+
+Document generated by Confluence on nov 11, 2022 04:28

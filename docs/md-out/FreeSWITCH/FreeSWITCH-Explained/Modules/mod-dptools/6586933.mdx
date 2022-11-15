@@ -1,0 +1,106 @@
+
+# mod_dptools: play_and_get_digits 
+
+ Created by  Maximiliano Guerra de Medeiros, last modified by  livem Chan on 2019.05.30
+
+# About
+
+Play a prompt and get digits. The prompt file can be interrupted by dialed digits.
+
+  
+Click here to expand Table of Contents
+
+* 1 [Usage](#-freeswitch--mod_dptools-play_and_get_digits-)
+* 2 [Parameters](#-freeswitch--mod_dptools-play_and_get_digits-)
+* 3 [Exit Values](#-freeswitch--mod_dptools-play_and_get_digits-)  
+   * 3.1 [read\_terminator\_used](#read_terminator_used)  
+   * 3.2 [var\_name\_invalid](#var_name_invalid)
+* 4 [Examples](#-freeswitch--mod_dptools-play_and_get_digits-)
+
+# Usage
+
+```xml
+<min> <max> <tries> <timeout> <terminators> <file> <invalid_file> [<var_name> [<regexp> [<digit_timeout> [<transfer_on_failure>]]]]
+```
+
+# Parameters
+
+* min = Minimum number of digits to fetch (minimum value of 0)
+* max = Maximum number of digits to fetch (maximum value of 128)
+* tries = number of tries for the sound to play
+* timeout = Number of milliseconds to wait for a dialed response after the file playback ends and before PAGD does a retry.
+* terminators = digits used to end input if less than &lt;max> digits have been pressed. If it starts with '=', then a terminator must be present for the input to be accepted (Since FS 1.2). (Typically '#', can be empty). Add '+' in front of terminating digit to always append it to the result variable specified in `var_name`.
+* file = Sound file to play to prompt for digits to be dialed by the caller; playback can be interrupted by the first dialed digit (can be empty or the special string "silence" to omit the message).
+* invalid\_file = Sound file to play when digits don't match the regexp (can be empty to omit the message).
+* var\_name = Channel variable into which valid digits should be placed (optional, no variable is set by default. See also 'var\_name\_invalid' below).
+* regexp = Regular expression to match digits (optional, an empty string allows all input (default)).
+* digit\_timeout = Inter-digit timeout; number of milliseconds allowed between digits in lieu of dialing a terminator digit; once this number is reached, PAGD assumes that the caller has no more digits to dial (optional, defaults to the value of &lt;timeout>).
+* transfer\_on\_failure = where to transfer call when max tries has been reached, example: "1 XML hangup" (optional, by default no transfer is executed, allowing the caller to process channel variables).
+
+  
+# Exit Values
+
+On exit, there may be some useful values in channel variables
+
+## read_terminator_used
+
+The digit used to terminate entry (if a digit was used). Note that if termination was due to a timeout or hangup, then this channel variable is not touched (so may be left as nil or whatever it was on entry)
+
+## var_name_invalid
+
+(Since FreeSWITCH v1.6.0)
+
+When the dialed digits do not satisfy the regexp pattern to form a valid response, the string that was actually dialed is returned in the var\_name with the string "\_invalid" appended to the var\_name. For example:
+
+If ${dialed\_digits} is the name of the variable that contains the valid string of digits that match the regular expression. Then
+
+${dialed\_digits\_invalid} will contain the digits that were dialed when they failed to match the regexp pattern specified to this command, to allow at least some further helpful processing.
+
+# Examples
+
+```xml
+<extension name="play_and_get_digits example">
+  <condition field="destination_number" expression="^(1888)$">
+    <action application="play_and_get_digits" data="2 5 3 7000 # $${base_dir}/sounds/en/us/callie/conference/8000/conf-pin.wav /invalid.wav foobar \d+"/>
+    <action application="log" data="CRIT ${foobar}"/>
+  </condition>
+</extension>
+```
+
+  
+The following example demonstrates using [mod\_dptools: say](./6586961.mdx#0-about) (or [mod\_dptools: phrase](./6586692.mdx#0-about)) to get one digit after 3s, 250ms of silence on fail (no digit entered). Quote the text string!
+
+```xml
+<extension name="play_and_get_digits with say">
+  <condition field="destination_number" expression="^(6500)$">
+    <action application="play_and_get_digits" data="1 1 1 3000 # say:'press one for technicial support' silence_stream://250 res \d+" />
+  </condition>
+</extension>
+```
+
+  
+Note that the parameters are slightly different in the lua version (and you can't use "say"!)
+
+```xml
+session:setVariable("read_terminator_used","-")
+destnum = session:playAndGetDigits(3, 20, 3, 5000, "#*", "phrase:getnum", "phrase:error", "\\d+")
+terminator = session:getVariable("read_terminator_used")
+```
+
+  
+See Also
+
+* [Dialplan](../../Dialplan/index.mdx#0-about)
+* [mod\_dptools: read](./6587029.mdx#about)
+
+## Comments:
+
+| Invalid responses are recorded to (var\_name)\_invalid as of commit[fb173c9af7e](https://freeswitch.org/stash/projects/FS/repos/freeswitch/commits/fb173c9af7e54b06688e1cc7d3bfd6b48aa8bb43). ![](/images/icons/contenttypes/comment_16.png) Posted by bjordan at gen 10, 2016 00:26 |
+| ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Added. Please check if I got it correct.Thanks. ![](/images/icons/contenttypes/comment_16.png) Posted by boteman at gen 13, 2016 16:49                                                                                                                                               |
+| Yup that looks good thanks! ![](/images/icons/contenttypes/comment_16.png) Posted by bjordan at feb 01, 2016 19:54                                                                                                                                                                   |
+| session:playAndGetDigits(1, 1, 3, 3000, "#", "speak:'" .. tts .. "'", "", "12\*") How can I use **speak** in **playAndGetDigits** in **lua** script ? ![](/images/icons/contenttypes/comment_16.png) Posted by livem at gen 05, 2017 02:07                                           |
+| I do not think that you can use speak there. That app plays sound files, but 'speak' is another application to run. Maybe ask on the mailing list or HipChat? ![](/images/icons/contenttypes/comment_16.png) Posted by boteman at gen 07, 2017 00:16                                 |
+| Thank you. ![](/images/icons/contenttypes/comment_16.png) Posted by livem at gen 10, 2017 02:23                                                                                                                                                                                      |
+
+Document generated by Confluence on nov 11, 2022 04:27

@@ -1,0 +1,217 @@
+
+# IVR 
+
+ Created by  Italo Rossi, last modified by  Mario G on 2018.06.12
+
+# About
+
+Interactive Voice Response (IVR) is an automated telephony system that interacts with callers, gathers information and routes calls to the appropriate recipient.
+
+Click here to expand Table of Contents
+
+* 1 [Sample IVRs](#sample-ivrs)  
+   * 1.1 [Included in Source](#included-in-source)  
+         * 1.1.1 [demo-ivr.xml](#demo-ivrxml)
+* 2 [Lua IVRs](#lua-ivrs)  
+   * 2.1 [Hello World](#hello-world)  
+   * 2.2 [Play Menu and get digits](#play-menu-and-get-digits)  
+   * 2.3 [Read Digits](#read-digits)  
+   * 2.4 [db\_agent\_login](#db_agent_login)  
+   * 2.5 [directory lua](#directory-lua)  
+   * 2.6 [directory in lua using ASR and TTS](#directory-in-lua-using-asr-and-tts)  
+   * 2.7 [inbound conferencing using lua](#inbound-conferencing-using-lua)  
+   * 2.8 [Example of a "group confirm" alternative: speaks text and does not require the call to be accepted](#example-of-a-group-confirm-alternative-speaks-text-and-does-not-require-the-call-to-be-accepted)  
+   * 2.9 [Checking if a user exists & if they're registered before dialing](#checking-if-a-user-exists--if-theyre-registered-before-dialing)  
+   * 2.10 [Javascript IVRs](#javascript-ivrs)  
+         * 2.10.1 [dbivrmenu js](#dbivrmenu-js)  
+   * 2.11 [Python IVRs](#python-ivrs)  
+         * 2.11.1 [frontdoor py](#frontdoor-py)  
+         * 2.11.2 [basic voicemail](#basic-voicemail)
+* 3 [See also](#see-also)
+
+Please note that if you are speaking to someone with a traditional telephony background, a simple call routing menu is called an [Automated Attendant](http://en.wikipedia.org/wiki/Automated%5Fattendant). The term [IVR](http://en.wikipedia.org/wiki/IVR) is reserved in the telecom industry to refer to a more complex system that relies on some sort of back end application. A self-contained menu that does nothing more than route calls to destinations would not be considered an IVR. FreeSWITCH and other open source telecom apps are cool because even the most basic menu could be argued to meet the definition of an IVR, but generally the term "Automated Attendant" is preferred in the telecom industry unless something more than rudimentary call routing is involved. Telecom people dream of the day when Emerging Telecom and VoIP professionals start to understand the difference between an IVR and an Automated Attendant, and use the terms correctly. (In telecom, people who refer to an Automated Attendant as "The IVR" are instantly considered newbies). Until the day everyone uses the terms correctly (or one side gives up), be aware of who you are talking to, or there will be confusion when you are scoping out a project.
+
+Language
+
+FreeSWITCH IVRs can be written in any language that FreeSWITCH supports including JavaScript, Python, Perl, Lua and an XML macro format.
+
+# Sample IVRs
+
+## Included in Source
+
+### demo-ivr.xml
+
+A sample IVR written in XML is included in the source. The IVR menus are loaded from conf/autoload\_configs/ivr.conf.xml
+
+The dialplan entry that calls the IVR menu is:
+
+```xml
+ <extension name="ivr_demo">
+     <condition field="destination_number" expression="5000">
+       <action application="ivr" data="demo_ivr"/>
+     </condition>
+   </extension>
+```
+
+  
+The macro file for the IVR is located at conf/lang/en/demo/[demo-ivr.xml](./Dialplan/XML-Dialplan/Demo-IVR_3966405.mdx#xml).
+
+# Lua IVRs
+
+## Hello World
+
+```xml
+-- answer the call
+session:answer();
+-- play a file
+session:streamFile("/path/to/blah.wav");
+-- hangup
+session:hangup();
+```
+
+## Play Menu and get digits
+
+```xml
+digits = session:playAndGetDigits(1, 3, 3, 3000, "#", "/menu-greeting.wav", "/invalid.wav", "\\d+")
+session:consoleLog("info", "Got dtmf: ".. digits .."\n");  
+```
+
+## Read Digits
+
+```xml
+digits = '12345';
+-- the next line will say "one two three four five"
+session:execute("say","en name_spelled pronounced " .. digits);
+-- the next line will say "twelve thousand, three hundred forty-five"
+session:execute("say","en number pronounced " .. digits); 
+```
+
+## db_agent_login
+
+[Example PostgreSQL-backed Lua IVR](./Client-and-Developer-Interfaces/Lua-API-Reference/Lua-examples/Lua-Database-agent-login-example_3965212.mdx#about)
+
+## directory lua
+
+* answers call
+* plays file asking for input of 1st 3 chars of last name
+* looks in list for matches
+* if match found play recorded\_name if available
+* otherwise spell out name and extension
+* ask for confirmation of match
+* if not the right one play the next one
+* if confirmed transfer to extension
+* otherwise play no match found and restart directory ivr
+
+[directory.lua](./Client-and-Developer-Interfaces/Lua-API-Reference/Lua-examples/Lua-Directory-example_1049009.mdx#about)
+
+## directory in lua using ASR and TTS
+
+[directory\_asr.lua](./Client-and-Developer-Interfaces/Lua-API-Reference/Lua-examples/index.mdx#about)
+
+## inbound conferencing using lua
+
+[simple\_conference.lua](./Client-and-Developer-Interfaces/Lua-API-Reference/Lua-examples/index.mdx#about)
+
+## Example of a "group confirm" alternative: speaks text and does not require the call to be accepted
+
+Here's an example where you can use Lua to speak some text (using TTS), or playback a file, or do whatever you want without requiring a group confirm key!
+
+To achieve this, we want to use the [exec functionality of group\_confirm\_key](./Client-and-Developer-Interfaces/Lua-API-Reference/Lua-examples/index.mdx#about) to call a Lua script with the selected menu option so we know what text to speak. The following script would be the frontend "automated attendant" Lua script:
+
+```xml
+selection = session:playAndGetDigits( 1, 1, 1, 3000, "#", "main-menu.wav", "", "" )
+if( selection ) then
+   session:setAutoHangup(false)
+   session:execute( "set", "group_confirm_key=exec" )
+   session:execute( "set", "group_confirm_file=lua lua/speak_selection.lua " .. tonumber(selection) )
+   session:transfer( "10", "XML", "extensions" )
+end
+```
+
+As you can see, we are calling speak\_selection.lua with 1 argument: _tonumber(selection)_ (ie. the digit the caller pressed from the main menu). The content of speak\_selection.lua is:
+
+```xml
+options = { "sales", "technical support", "whatever text you want to read out for menu option 3" }
+session:execute( "speak", "flite|kal|" .. options[tonumber(argv[1])] )
+```
+
+This was mostly for "playing" purposes, but if you happen to share an extension where different types of calls may come in (sales, tech support, etc) this system helps as it announces which menu option the caller entered.
+
+## Checking if a user exists & if they're registered before dialing
+
+This is used, for example, in a menu where you allow the caller to enter an extension. Rather than blindly dialing their extension, you could check if the user exists first and if they do, check if they're registered before finally attempting to dial. This is my way of doing it. If you have a different way of doing it .. add to the page!
+
+```xml
+-- * = go back to the main menu
+-- <blank> = timeout after 3 tries
+local extension = session:playAndGetDigits( 1, 2, 3, 3000, "#", "ivr/ivr-enter_ext.wav", "ivr/ivr-that_was_an_invalid_entry.wav", "[\\d{2}|*]" )
+if( extension ~= "*" and extension ~= "" ) then
+   session:execute( "set", "contact_exists=${user_exists(id " .. extension .. " ${domain})}" )
+   if( session:getVariable( "contact_exists" ) == "false" ) then
+       session:execute( "playback", "voicemail/vm-that_was_an_invalid_ext.wav" )
+   else
+       session:execute( "set", "contact_available=${sofia_contact(internal/" .. extension .. "@${domain})}" )
+       contact_available = session:getVariable( "contact_available" )
+       if( string.find( contact_available, "error" ) ) then
+           session:execute( "speak", "flite|kal|the extension number " .. extension .. " is not available" )
+       else
+           session:execute( "playback", "ivr/ivr-hold_connect_call.wav" )
+           session:execute( "set", "transfer_ringback=${hold_music}" )
+           session:transfer( extension, "XML", "extensions" )
+       end
+   end
+end
+```
+
+## Javascript IVRs
+
+See also: The [Javascript Examples](./Client-and-Developer-Interfaces/JavaScript/Javascript-Examples/index.mdx#about) page.
+
+### dbivrmenu js
+
+This IVR uses an sqlite database for storing the menu options. The database creation script is here - [Examples dbivrmenu dbcreate js](./Client-and-Developer-Interfaces/JavaScript/Javascript-Examples/JavaScript-Example---dbIVRmenu_7144656.mdx#about). The IVR script is here - [Examples dbivrmenu js](./Client-and-Developer-Interfaces/JavaScript/Javascript-Examples/JavaScript-Example---dbIVRmenu_7144656.mdx#about).
+
+#### afterhours ivr
+
+This is a basic javascript ivr that plays the message once and transfers to the voicemail extension of the operator at the end if no input is given. The IVR script is here - [JavaScript Example afterhoursivr.js](./Client-and-Developer-Interfaces/JavaScript/Javascript-Examples/Javascript-Example---AfterHoursIVR_7144104.mdx#about).
+
+## Python IVRs
+
+See [Mod\_python](./Modules/mod_python_1048940.mdx#eol) for more info on how to get these working.
+
+### frontdoor py
+
+* Plays welcome message
+* During welcome message play, press "0" to get special options (sneak in the backdoor)
+* If nothing pressed, continues
+* If "after hours", makes users press an extra key to continue
+* Bridges to destination endpoint(s) (eg, your phones)
+
+The IVR script is here - [Examples frontdoor py](./Modules/mod-python/9634487.mdx#about).
+
+### basic voicemail
+
+Uses Django O/R layer to talk to a database and save/retrieve voicemails:
+
+[voicemail.py](http://fisheye.freeswitch.org/browse/~raw,r=46/WikiPBX/ivr/voicemail.py)
+
+#### directory py
+
+* answers call
+* plays file asking for input of 1st 3 chars of last name
+* looks in list for matches
+* if match found play recorded\_name if available
+* otherwise spell out name and extension
+* ask for confirmation of match
+* if not the right one play the next one
+* if confirmed transfer to extension
+* otherwise play no match found and restart directory ivr
+
+[directory.py](./Modules/mod-python/9634440.mdx#about)
+
+# See also
+
+* [IVR Menu](./Modules/mod-dptools/6586989.mdx#about)
+* [Freeswitch IVR Originate](./Dialplan/Freeswitch-IVR-Originate_9634753.mdx#channel-variables)
+
+Document generated by Confluence on nov 11, 2022 04:28

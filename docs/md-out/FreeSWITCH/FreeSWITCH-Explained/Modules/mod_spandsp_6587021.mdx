@@ -1,0 +1,1048 @@
+
+# mod_spandsp 
+
+ Created by  Italo Rossi, last modified by  Sergey Safarov on 2018.04.29
+
+# About
+
+The family of FreeSWITCH™ modules including `mod_fax`, `mod_t38gateway`, and the `mod_voipcodecs` have now been merged into one module called `mod_spandsp` which takes advantage of all the DSP features found in the [spandsp](http://soft-switch.org) library including T.38 endpoint and gateway functionality.
+
+Click here to expand Table of Contents
+
+* 1 [Installation](#installation)
+* 2 [Fax](#fax)  
+   * 2.1 [Status](#status)  
+   * 2.2 [Invoking the app from the XML dialplan](#invoking-the-app-from-the-xml-dialplan)  
+         * 2.2.1 [For receiving a fax](#for-receiving-a-fax)  
+         * 2.2.2 [For transmitting a fax](#for-transmitting-a-fax)  
+         * 2.2.3 [Manual fax transmission](#manual-fax-transmission)  
+         * 2.2.4 [Execute based on fax session outcome](#execute-based-on-fax-session-outcome)  
+   * 2.3 [Invoking the app from the CLI](#invoking-the-app-from-the-cli)  
+         * 2.3.1 [For transmitting a fax](#for-transmitting-a-fax)  
+         * 2.3.2 [For transmitting a fax over ulaw from a SIP T.38 source](#for-transmitting-a-fax-over-ulaw-from-a-sip-t38-source)  
+   * 2.4 [fax2mail: Emailing the fax upon receipt](#fax2mail-emailing-the-fax-upon-receipt)  
+   * 2.5 [mail2fax: Faxing a received mail](#mail2fax-faxing-a-received-mail)  
+   * 2.6 [Configuring the app](#configuring-the-app)  
+   * 2.7 [Controlling the app](#controlling-the-app)  
+   * 2.8 [Checking the results](#checking-the-results)  
+         * 2.8.1 [Fax result code](#spandsptxfaxresult)  
+   * 2.9 [t38\_gateway App](#t38_gateway-app)  
+         * 2.9.1 [T.38 Reinvite](#t38-reinvite)  
+         * 2.9.2 [T.38 Transcode](#spandsptxfaxresult)  
+   * 2.10 [Receive Faxes](#receive-faxes)  
+   * 2.11 [Transmit Faxes](#transmit-faxes)  
+   * 2.12 [Fax Tone Detection](#stop-fax-tone-detection)  
+         * 2.12.1 [Full Example](#full-example)  
+   * 2.13 [Stop Fax Tone Detection](#stop-fax-tone-detection)
+* 3 [Examples](#examples)  
+   * 3.1 [Outbound Fax T.38 to TDM](#outbound-fax-t38-to-tdm)  
+   * 3.2 [Inbound Fax TDM to T.38](#inbound-fax-tdm-to-t38)  
+   * 3.3 [Internal T.38 to T.38](#internal-t38-to-t38)
+* 4 [Results](#spandsptxfaxresult)  
+   * 4.1 [Questions I got during testing](#questions-i-got-during-testing)
+* 5 [Events](#events)  
+   * 5.1 [spandsp::rxfaxpageresult](#spandsprxfaxpageresult)  
+   * 5.2 [spandsp::txfaxpageresult](#spandsptxfaxpageresult)  
+   * 5.3 [spandsp::rxfaxnegociateresult](#spandsprxfaxnegociateresult)  
+   * 5.4 [spandsp::txfaxnegociateresult](#spandsptxfaxnegociateresult)  
+   * 5.5 [spandsp::txfaxresult](#spandsptxfaxresult)  
+   * 5.6 [spandsp::rxfaxresult](#spandsprxfaxresult)
+* 6 [Troubleshooting](#troubleshooting)  
+   * 6.1 [Common Issues](#common-issues)  
+   * 6.2 [Suggested Process](#suggested-process)  
+   * 6.3 [Example](#example)  
+   * 6.4 [Further debugging](#further-debugging)
+* 7 [Tone Detection](#fax-tone-detection)  
+   * 7.1 [DTMF](#dtmf)  
+         * 7.1.1 [Related Tone Channel Variables](#related-tone-channel-variables)  
+         * 7.1.2 [Dialplan Applications](#dialplan-applications)  
+   * 7.2 [Call Progress](#call-progress)  
+         * 7.2.1 [Configuration](#configuration)  
+         * 7.2.2 [Dialplan Applications](#dialplan-applications)  
+         * 7.2.3 [APIs](#apis)  
+         * 7.2.4 [Events](#events)
+* 8 [Codecs](#codecs)
+* 9 [Software Modem](#software-modem)  
+   * 9.1 [COM Port Setting for Windows](#com-port-setting-for-windows)
+* 10 [See also](#see-also)
+
+# Installation
+
+Much of this document was written when spandsp was new. Many notes and references are horribly outdated, but are left here for now in the interest of consistency.
+
+`mod_spandsp` is enabled by default in `modules.conf` and therefore compiled automatically. Its also enabled by default in `modules.conf.xml`
+
+Ensure that you have libtiff development files installed. See the dependencies on the installation pages.
+
+For Debian/Ubuntu you can type
+
+```xml
+apt-get install libtiff4-dev
+```
+
+For CentOS 5.x
+
+```xml
+yum install libtiff-devel libjpeg-devel
+```
+
+  
+If you get a complaint about TIFF library, try the following:
+
+```xml
+make tiff-reconf
+```
+
+\* For FreeBSD
+
+```xml
+cd /usr/ports/graphics/tiff
+make install clean
+```
+
+\* Compile Errors/Problems  
+If you get an error about "`/usr/bin/ld: cannot find -ljpeg`" (FreeBSD) or something similar, then double check to see if you have the tiff library installed, look above for how to install for your OS.
+
+  
+\* For SUSE
+
+```xml
+zypper install libtiff-devel libjpeg-devel
+```
+
+\* General Build Errors
+
+If you get errors loading mod\_spandsp try:
+
+```xml
+make spandsp-reconf && make install
+```
+
+to rebuild the spandsp library.
+
+# Fax
+
+## Status
+
+It's important that you create the config XML file since the spool directory for faxes can be configured only there.
+
+Things to be done:
+
+\* Fire out an event on every fax received/sent.  
+\* Fire out an event on every fax page received/sent.
+
+Also, `mod_spandsp` requires that you use a G.711 (PCMA/PCMU) codec for T.30 fax or it won't work. If you are using `txfax` for sending and `rxfax` for receiving, remember to use the same codec at both ends.
+
+## Invoking the app from the XML dialplan
+
+You can invoke the rxfax application and use the data option to pass it the TIFF file name. If you do not pass any  
+information in the data option mod\_spandsp will create the file name for you and place the received fax into your spool directory.
+
+### For receiving a fax
+
+```xml
+<extension name="test_rxfax_stream">
+  <condition field="destination_number" expression="^\*90012$">
+    <action application="answer" />
+    <action application="playback" data="silence_stream://2000"/>
+    <action application="rxfax" data="//my_directory//rxfax.tiff"/>
+    <action application="hangup"/>
+  </condition>
+</extension>
+```
+
+If you want each fax have a unique name you can use this variation:
+
+```xml
+<extension name="fax_receive">
+  <condition field="destination_number" expression="^9978$">
+    <action application="answer" />
+    <action application="playback" data="silence_stream://2000"/>
+    <action application="rxfax" data="/tmp/FAX-${uuid}.tif"/>
+    <action application="hangup"/>
+  </condition>
+</extension>
+```
+
+If you want mod\_spandsp to send the re-INVITE for T.38 (per the standard) use this:
+
+```xml
+<extension name="fax_receive">
+  <condition field="destination_number" expression="^9978$">
+    <action application="answer" />
+    <action application="playback" data="silence_stream://2000"/>
+    <action application="set" data="fax_enable_t38_request=true"/>
+    <action application="set" data="fax_enable_t38=true"/>
+    <action application="rxfax" data="/tmp/FAX-${uuid}.tif"/>
+    <action application="hangup"/>
+  </condition>
+</extension>
+```
+
+### For transmitting a fax
+
+A PDF file can be converted to TIFF format using ImageMagick, here is an example:
+
+```xml
+convert -density 204x98 -units PixelsPerInch -resize 1728x1186\! -monochrome -compress Fax txfax.pdf txfax.tiff
+```
+
+Be explicit about the units (on my machine it defaulted to the metric system). Also, the exclamation mark forces a specific ratio. You may consider using graphicsmagick, since it's generally faster and supports Group4 compression. Keep in mind that these tools still rely on ghostscript to do conversion from pdf using gs's pnm device. The quality of gm was actually better than that produced by ghostscript which does too much dithering. I was able to successfully use width 2156 with graphicsmagick, even though there are different widths specified here for imagemagick and ghostscript.
+
+You can use Ghostscript for PDF/PS files. Here is an example, producing a standard resolution TIFF file:
+
+```xml
+gs -q -r204x98 -g1728x1078 -dNOPAUSE -dBATCH -dSAFER -dPDFFitPage -sDEVICE=tiffg3 -sOutputFile=txfax.tiff -- txfax.pdf
+```
+
+Here is an example producing a fine resolution TIFF file:
+
+```xml
+gs -q -r204x196 -g1728x2156 -dNOPAUSE -dBATCH -dSAFER -dPDFFitPage -sDEVICE=tiffg3 -sOutputFile=txfax.tiff -- txfax.pdf
+```
+
+[PDF to TIFF conversions using ghostscript](https://soft-switch.org/spandsp%5Ffaq/ar01s14.html)
+
+Ghostscript won't put your document in the correct orientation. This is not really a problem when sending to a remote paper machine, but can be a nuisance when receiving a fax on a computer.
+
+The use of -g1728x1078 and -g1728x2156 ensures that the resulting TIFF file contains pages of a size compatible with FAX machines. If the PDF file contains bit images, rather than scalable content, the images in resulting TIFF file may not fit the pages.
+
+You can transmit a Fax using the following dialplan:
+
+```xml
+<extension name="test_txfax_stream">
+  <condition field="destination_number" expression="^\*90012$">
+    <action application="txfax" data="txfax.tiff"/>
+    <action application="hangup"/>
+  </condition>
+</extension>
+```
+
+### Manual fax transmission
+
+when sending to a telefax, where a live operator gives you a fax tone, bind\_meta\_app comes handy.
+
+```xml
+<extension name="pstn-fxo-dialout">
+  <condition field="${toll_allow}" expression="local,domestic"/>
+  <condition field="destination_number" expression="^9([2-9]\d{6})$">
+    <action application="set" data="effective_caller_id_number=${outbound_caller_id_number}"/>
+    <action application="set" data="effective_caller_id_name=${outbound_caller_id_name}"/>
+    <action application="bind_meta_app" data="5 a o transfer:: 9179 XML default"/> 
+    <action application="set" data="hold_music=silence"/>
+    <action application="answer"/>
+    <action application="sleep" data="50"/>
+    <action application="playback" data="ivr/ivr-hold_connect_call.wav"/>
+    <action application="bridge" data="sofia/gateway/fxo/$1@192.168.0.99:5062"/>
+  </condition>
+</extension>
+```
+
+### Execute based on fax session outcome
+
+Channel variables that allow you to take action based on the success or failure of a fax transmission.
+
+Variables available are: `execute_on_fax_success`, `execute_on_fax_result`, `execute_on_fax_failure`, `execute_on_fax_detect`. Insert as required before your `rxfax` application call.
+
+Example: run an lua script when `mod_spandsp` reports a successful transmission.
+
+```xml
+<action application="set" data="execute_on_fax_success=lua process_fax.lua"/>
+```
+
+Example: run a shell command when `mod_spandsp` reports a failed transmission.
+
+```xml
+<action application="set" data="execute_on_fax_failure=system /bin/rm tmp/FAX-${uuid}.tif"/>
+```
+
+## Invoking the app from the CLI
+
+### For transmitting a fax
+
+In the CLI, for sending a fax via profile external using gateway 10.10.10.10 and fax machine number 100, you'll have to use this.
+
+```xml
+originate sofia/external/100@10.10.10.10 &txfax(/path_to_fax_file)
+```
+
+Or to specify the gateway to use:
+
+```xml
+originate sofia/gateway/<gateway name>/<phone number> &txfax(/path_to_fax_file)
+```
+
+### For transmitting a fax over ulaw from a SIP T.38 source
+
+* Make sure you have at least FreeSWITCH Git dating after 25 May 2010.
+* You also need mod\_spandsp loaded.
+* Add param enable-t38 to true in conf/autoload\_configs/spandsp.conf.xml.
+* NOTE: older versions of FreeSWITCH used fax.conf.xml instead. Newer versions only use fax.conf.xml if they don't find spandsp.conf.xml.
+* Just before executing bridge, execute: t38\_gateway with argument equal 'self'. This will monitor for the FAX tone generated so it can switch to T.38 if needed.
+
+I tested it using a Linksys SPA3102, You need to have T.38 mode to be in ReInvite.
+
+## fax2mail: Emailing the fax upon receipt
+
+In recent versions of FreeSWITCH, the dialplan ends once rxfax completes, api\_hangup\_hook executes the script in this case. It is of utmost importance to set api\_hangup\_hook before rxfax in dialplan. Also, if you use any fax vars for the system script, you have to escape them with \\\\\\  
+(example: \\\\\\${fax\_image\_size})
+
+This dialplan also illustrates some possible regex's for specific UAs that only have dedicated fax's attached so they send the fax as an e-mail attachment to the online fax service.
+
+```xml
+<include>
+  <extension name="outbound_fax">
+    <condition field="caller_id_number" expression="^(100[23])$"/>
+    <condition field="destination_number" expression="^(1\d{10})$">
+      <action application="set" data="api_hangup_hook=system ${base_dir}/scripts/emailfax.sh $1 /tmp/${uuid}.rxfax.tiff"/> 
+      <action application="answer"/>
+      <action application="playback" data="silence_stream://2000"/>
+      <action application="rxfax" data="/tmp/${uuid}.rxfax.tiff"/>
+      <action application="hangup"/>
+    </condition>
+  </extension>
+</include>
+```
+
+\* Uuencode is no longer well supported or as good a format as mime. Using mutt to send the attachments solves this but presents some configuration hurdles to format the email. This solution presents a way to deal with every such case. Edit the paths and domain to match your fax service. Create the ${base\_dir}/scripts/emailfax.sh file as follows:
+
+```xml
+#!/bin/bash
+#
+# $1 is email alias (The dialed #)
+# $2 is filename
+
+mutt -n -f /dev/null -F /opt/freeswitch/scripts/muttrc -s "Fax to $1@myfax.com" $1@myfax.com -a $2 < /dev/null
+```
+
+\* Now create the muttrc file. This configuration allows the sending of mail without a local mailbox which the user running FreeSWITCH probably doesn't have (you can add more config to tune the headers of your email as needed):
+
+```xml
+set from = 'alias@DOMAIN'
+set realname = 'YOUR ORG NAME'
+set folder = /dev/null
+```
+
+Here is another example, using a python script called \[<http://steffler.info/wp-content/uploads/2009/06/process-rxfax.py> process-rxfax.py\], via Dialplan XML:
+
+```xml
+<extension name="test_rxfax_python">
+  <condition field="destination_number" expression="^\*90012$">
+    <action application="set" data="recipient=YOU@YOURDOMAINHERE.com"/> <!-- Change to receiver's email address -->
+    <action application="python" data="process-rxfax"/> 
+    <action application="hangup"/>
+  </condition>
+</extension>
+```
+
+[This python script](http://steffler.info/wp-content/uploads/2009/06/process-rxfax.py) gets put into your FreeSWITCH's mod\_python path, and will launch mod\_spandsp to receive the fax and then convert it to a PDF and email it. The script requires that you have the ps2pdf utility (from Ghostscript) and tiff2ps installed. In FreeBSD these are in Ports and are also available under most Linux distributions via package management (apt-get, yum, rpm etc). This python script also requires a working mod\_python and mod\_spandsp installation. More information \[<http://steffler.info/my-first-python-script-receive-a-fax-via-freeswitch-spandsp/> here\].
+
+## mail2fax: Faxing a received mail
+
+There are several pieces:  
+\* Tell the MTA to run a script when a mail is received to special addresses (example [faxnumber@fax.domain.org](mailto:faxnumber@fax.domain.org)) :  
+\*\* examples at <http://hylafax.sourceforge.net/howto/faxing.php#ss5.4>   
+\* Create a script email2fax:  
+\*\* guess From: fax number from the email  
+\*\* run \[<https://freeswitch.org/fisheye/changelog/freeswitch-contrib/sathieu/email2pdf> email2pdf\]  
+\*\* convert PDF to tiff  
+\*\* call txfax within FS
+
+Install email2pdf into /usr/local/email2pdf. Link the main script into the path of the email user (/usr/local/bin is used in the script below). Edit header.html to be however you want it.
+
+Create the file /usr/local/email2pdf/emails and put the authorized originating emails you want into it.
+
+If using postfix, you can setup the fax delivery agent by adding these lines into /etc/postfix/[master.cf](http://master.cf):
+
+```xml
+email2fax unix - n n - - pipe
+flags= user=nobody argv=/usr/local/bin/email2fax $mailbox $sender
+```
+
+Then add this line to /etc/aliases and run postalias:
+
+```xml
+mail2fax: |/usr/local/bin/email2fax
+```
+
+Then configure your email server to forward a new domain ([fax.mydomain.com](http://fax.mydomain.com), for example) to the mail2fax alias. In postfix this will probably involve adding a transport map (transport\_maps) as well as a relay recipient (relay\_recipient\_maps). How you do it will depend on your mail server configuration.
+
+The script email2fax may look like this:
+
+```xml
+#!/bin/sh
+set -e
+PATH=/usr/local/bin:/usr/bin:/bin
+TMPMAIL=/tmp/email2fax.$$.txt
+TMPPDF=/tmp/email2fax.$$.pdf
+TMPFAX=/tmp/email2fax.$$.tiff
+TMPLOG=/tmp/email2fax.$$.log
+DEST='sofia/external/100@10.10.10.10'
+#or
+#DEST="sofia/gateway/sip.provider.com/$1"
+#check a file for the originating email address
+#and abort if it isn't in that file
+grep -i "$2" "/usr/local/email2pdf/emails" >/dev/null
+if [ $? -ne 0]; then
+echo "User not allowed!"
+exit 1;
+fi
+cat > $TMPMAIL
+cat $TMPMAIL | email2pdf --header=/usr/local/email2pdf/header.html - $TMPPDF >> $TMPLOG
+#rm $TMPMAIL
+gs -q -r204x98 -g1728x1078 -dNOPAUSE -dBATCH -dSAFER -dPDFFitPage -sDEVICE=tiffg3 -sOutputFile=$TMPFAX -- $TMPPDF >> $TMPLOG
+#rm $TMPPDF
+chmod o+r $TMPFAX
+/opt/freeswitch/bin/fs_cli \
+--execute="originate {fax_verbose=true}$DEST &txfax($TMPFAX)" >> $TMPLOG
+#This sends the log to the sender along with a copy of the fax as translated
+#change .tiff to .tif for fusionpbx, remove if you don't use that
+FAXBASE=$(basename "$TMPFAX")
+NEWFAX=${FAXBASE/tiff/tif}
+#This sends an email with the status result
+#use it if you don't have mpack
+#sendmail -v $2 -f fax@mydomain.com -r fax@mydomain.com <$TMPLOG
+#This sends an email with the fax as an attachment, requires mpack
+mpack -s "Successful Fax to $1" -d $TMPLOG $TMPFAX $2
+#puts the fax file into the outbound folder - change "1010" to your fax extension
+#this is the default location for fusionpbx, YMMV
+cp $TMPFAX "/usr/local/freeswitch/storage/fax/1010/sent/$NEWFAX"
+#delete the fax
+rm $TMPFAX
+```
+
+## Configuring the app
+
+App can be controlled globally using `spandsp.conf.xml`:
+
+```xml
+<configuration name="spandsp.conf" description="FAX application configuration">
+ <fax-settings>
+ <param name="use-ecm" value="true"/>
+ <param name="verbose" value="true"/>
+ <param name="disable-v17" value="false"/>
+ <param name="ident" value="SpanDSP Fax Ident"/>
+ <param name="header" value="SpanDSP Fax Header"/>
+ <param name="spool-dir" value="/tmp"/>
+ <param name="file-prefix" value="faxrx"/>
+ </fax-settings>
+</configuration>
+```
+
+## Controlling the app
+
+You can set the following channel's variables to control the behavior of the mod application:
+
+| Variable                      | Description                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| t38\_gateway\_detect\_timeout |                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| FAX\_DISABLE\_ECM             | Disabling ECM                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| fax\_disable\_v17             | Disable V17 modem that is: use lower speed modems (lower speeds are auto-negotiated with the remote party and cannot be forced. That's a work that the spandsp modem handles on its own.)                                                                                                                                                                                                                                                                                                                                                                                      |
+| fax\_enable\_t38              | Enable T.38 on a per call basis                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| fax\_enable\_t38\_insist      |                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| fax\_enable\_t38\_request     | Send a T.38-ReINVITE when a fax was detected by tone detection                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| fax\_end\_page                | A sent or receives document will end at specified page                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| fax\_force\_caller            | Force to act as caller or receiver; Mode: Tx=1 or Rx=0''                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| fax\_ident                    | The FAX identity should be set to the telephone number to be used within the FAX exchange. This will typically appear on an LCD display at the far end. In theory it should be limited to digits, spaces, + and one or two other characters appropriate to telephone numbers. In practice FAX machines are usually happy with any text, up to 20 characters long. This string may also play a part in page headers. To disable this header showing at all, put this to "\_undef\_" NB the underscores                                                                          |
+| fax\_header                   | If fax\_header is set to a non-null string, a header line will be inserted at the start of each page, just like a typical FAX machine does. The fax\_ident, fax\_header and the page number will be used to form the text of this line. If you are forwarding FAXes, you probably don't want to add a header line, as there will already be one that was inserted by the original source. If you are sending a locally generated FAX, you probably do want to add header lines to each page. To disable this header showing at all, put this to "\_undef\_" NB the underscores |
+| fax\_prefix                   | Prefix added to the file name for received faxes.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| fax\_start\_page              | A sent document will start at the specified page                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| fax\_use\_ecm                 | Forces the use of ECM if globally disabled, on a per call basis                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| ~~fax\_v17\_disabled~~        | ~~Same as fax\_disable\_v17??? This seems to be for T.30 fax mode~~                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| fax\_verbose                  | Be verbose when printing logs (per call basis)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| t38\_peer                     |                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| t38\_trace                    |                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+
+## Checking the results
+
+Rx/Tx fax will set the following channel variables when it terminates:
+
+**By mod\_spandsp.c**
+
+```xml
+t38_leg
+```
+
+**By mod\_spandsp\_fax.c**
+
+```xml
+fax_bad_rows
+fax_document_total_pages
+fax_document_transferred_pages
+fax_ecm_requested - 0/1
+fax_ecm_used - "on" or "off";
+fax_filename - File name of the received fax
+fax_image_resolution - XxY
+fax_image_size
+fax_local_station_id
+fax_result_code - 0 on error otherwise >= 1;
+fax_result_text - fax error string, provide info where an error has happened;
+fax_remote_station_id
+fax_success - 0 on error, 1 on success;
+fax_transfer_rate - speed expressed in bauds (bit per seconds) like 14.400, 9.600, etc.;
+fax_v17_disabled - 0/1 for T.30 mode?
+jitterbuffer_msec - Always 0
+rtp_autoflush_during_bridge
+t38_gateway_format - "audio" or "udptl"
+t38_peer - "self" or "peer"
+t38_trace_read
+```
+
+### Fax result code
+
+[Fax Result Codes](../Introduction/Variables/index.mdx#2-show-variables) listed on Variables page.
+
+## t38_gateway App
+
+t38\_gateway dialplan app will allow FreeSWITCH to transcode audio&lt;->t.38\. It converts to T38 Gateway if tones are heard.
+
+```xml
+<extension name="audio_aleg_t38_bleg">
+  <condition>
+    <action application="set" data="fax_enable_t38=true"/>
+    <action application="set" data="execute_on_answer=t38_gateway peer"/>
+    <action application="bridge" data="sofia/external/1234@host"/>
+  </condition>
+</extension>
+```
+
+### T.38 Reinvite
+
+You can also make FreeSWITCH listen in and send a reinvite back to the a-leg or forward to the b-leg with the t38\_gateway app. For example, this will transcode incoming T.38 on A-leg to ULAW on b-leg. (e.g. send incoming T.38 fax to Hylafax on Asterisk)
+
+**T.38 re-invite**
+
+```xml
+<extension name="t38_reinvite">
+  <condition>
+    <action application="set" data="fax_enable_t38=true"/> <!-- Enable t.38 for this call -->
+    <action application="set" data="fax_enable_t38_request=true"/> <!-- Enable t38_gateway to send a t.38 reinvite when a fax tone is detected. If using t38_gateway peer then you need to export this variable instead of set -->
+    <action application="set" data="execute_on_answer=t38_gateway self"/> <!--Execute t38_gateway on answer. self or peer. self: send a reinvite back to the a-leg. peer reinvite forward to the b-leg -->
+    <action application="bridge" data="sofia/external/1234@host"/>
+  </condition>
+</extension>
+```
+
+###   
+T.38 Transcode
+
+If you want to transcode T.38 on the A-leg to T.30 audio on the B-leg, but you want to react to an incoming T.38 invite/re-invite on A-leg instead of detecting CNG tones.
+
+Note: you may have to increase FaxT2Timer on hylafax to make this reliable
+
+**T.38 transcode**
+
+```xml
+<extension name="t38_transcode">
+  <condition field="destination_number" expression="^(fax_transcode)$">	
+    <action application="set" data="fax_enable_t38=true"/>
+    <action application="set" data="sip_execute_on_image=t38_gateway peer nocng"/> <!--Execute t38_gateway on t.38 invite on A-leg. "nocng" means don't detect the CNG tones. Just start transcoding to the b-leg -->
+    <action application="bridge" data="sofia/external/1234@host"/>
+  </condition>
+</extension>
+```
+
+  
+If you want to transcode audio on the A-leg to T.38 on the B-leg, from a T.38 invite on the B-leg:
+
+**T.38 transcode**
+
+```xml
+<extension name="t38_transcode">
+  <condition field="destination_number" expression="^(fax_transcode)$">
+    <action application="set" data="fax_enable_t38=true"/>
+    <action application="bridge" data="{sip_execute_on_image='t38_gateway self nocng'}sofia/internal/ext@host"/> <!-- "nocng" means don't detect the CNG tones. Just start transcoding -->
+  </condition>
+</extension>
+```
+
+  
+If you want to transcode t.38 on leg A to audio on leg B when leg A invites t.38, but refuse all t.38 offers from leg B :
+
+**T.38 transcode**
+
+```xml
+<extension name="t38_test" continue="true">
+  <condition field="destination_number" expression="^(fax_transcode)$"> 
+    <action application="set" data="sip_execute_on_image=t38_gateway self nocng"/>
+    <action application="bridge" data="{refuse_t38=true},sofia/gateway/external/$1" />
+  </condition>
+</extension>
+```
+
+Allow t.38 between leg A and leg B, but only if the t.38 re-invite comes from leg a
+
+```xml
+<extension name="passthrough">
+  <condition field="destination_number" expression="^(fax_transcode)$">
+    <!-- Allow T.38 reinvites from Leg A -->
+    <action application="set" data="t38_passthru=true"/>
+    <!-- but not from leg B -->
+    <action application="bridge" data="{refuse_t38=true},sofia/gateway/external/$1"/>
+  </condition>
+</extension>
+```
+
+## Receive Faxes
+
+Fax receive application
+
+rxfax [filename]
+
+If filename is missing, a default name is created in this form:
+
+spool/prefix-number-timestamp.tif
+
+where:
+
+* spool is set by the "spool-dir" configuration
+* prefix is set by the "fax\_prefix" channel variable or the "file-prefix" configuration
+* number is a count of number of received faxes
+* timestamp is the current time in microseconds
+
+Example usage:
+
+&lt;action application="set" data="fax_prefix=${uuid}"/>  
+&lt;action application="rxfax" data=""/>
+
+## Transmit Faxes
+
+Fax transmit application. It is recommended to set `ignore_early_media` to true to avoid some packet reordering issues.
+
+txfax &lt;filename>
+
+Example usage:
+
+&lt;action application="txfax" data="/tmp/YouAreFired.tif"/>
+
+## Fax Tone Detection
+
+&lt;action application="spandsp_start_fax_detect" data="&lt;app> '[&lt;app_args>]' [&lt;timeout>] [&lt;tone_type>]"/>
+
+Uses the spandsp code to detect fax tones which should be more reliable than using `tone_detect`. By default, the application detects CNG tones (sending side).
+
+`tone_type` can be set to "ced" to detect CED tones (receiving side).
+
+Example usage:
+
+&lt;action application="spandsp_start_fax_detect" data="transfer 'fax XML default' 3"/>
+
+This will listen for 3 seconds after the application is invoked and if heard, will transfer the call to the "fax" extension found in the "XML" dial plan in the "default" context. (see the Samples section below for an example dialplan for the "fax" extension). Note the use of single quotes to enclose the arguments to the dialplan app that is the target of spandsp\_start\_fax\_detect.
+
+Example usage:
+
+&lt;action application="set" data="execute_on_answer=spandsp_start_fax_detect transfer 'fax XML default' 3"/>
+
+This will listen for 3 seconds after extension is answered (by user or by other application such as voicemail) and if tones are detected, will transfer the call to the "fax" extension found in the "XML" dial plan in the "default" context. This is closest in setup to "fax machine on same analog line as regular phone".
+
+### Full Example
+
+We need to answer the call to let FreeSWITCH receive the audio to start detecting FAX tones. Because a bridge after an answer is actually a transfer, the Ringback sent to the caller is now defined by `transfer_ringback`.
+
+```xml
+<extension name="group_dial_sales">
+  <condition field="destination_number" expression="^sales$">
+    <action application="answer"/>
+    <action application="set" data="transfer_ringback=${us-ring}"/>
+    <action application="spandsp_start_fax_detect" data="transfer 'FAX XML default' 6"/>
+    <action application="bridge" data="${group_call(sales@${domain_name})}"/>
+  </condition>
+</extension>
+```
+
+## Stop Fax Tone Detection
+
+&lt;action application="spandsp_stop_fax_detect"/>
+
+# Examples
+
+Here is a working example using FreeSWITCH as a T.38-gateway.
+
+I used the following software and devices:
+
+* FAX\_B: Infotec IF2100e
+* ATA\_B: Cisco 186 v3.2.1
+* FAX\_A: RICOH FAX2000L (Super G3, 14.400 Baud)
+* ATA\_A: Grandstream HandyTone 502  
+   * Product model: HT-502 V1.2A  
+   * Firmware: Program-- 1.0.3.10 Bootloader-- 1.0.0.9 Core-- 1.0.3.6 Base-- 1.0.3.8
+* FreeSWITCH: git head of 2010-11-19
+* PRI E1-Stack: openzap
+* Sangoma-Wanpipe: version 3.5.17
+* TDM-Card: Sangoma A104d
+
+Grandstream
+
+**FXS-Port 1**
+
+* Fax Mode: T.38 (Auto Detect)
+* Fax tone detection mode: "Callee or Caller"
+* Preferred Vocoder: PCMA
+* Disable Line Echo Canceller (LEC): Yes
+* Jitter Buffer: High
+* Gain: Tx=0dB, Rx=0dB
+
+**spandsp.conf.xml**
+
+```xml
+<configuration name="spandsp.conf" description="Fax example">
+  <fax-settings>
+    <param name="use-ecm" value="true"/>
+    <param name="verbose" value="true"/>
+    <param name="disable-v17" value="false"/>
+    <param name="enable-t38" value="false"/>
+    <param name="enable-t38-request" value="false"/>
+    <param name="ident" value="SpanDSP Fax Ident"/>
+    <param name="header" value="SpanDSP Fax Header"/>
+    <param name="spool-dir" value="/tmp"/>
+    <param name="file-prefix" value="faxrx"/>
+  </fax-settings>
+</configuration>
+```
+
+## Outbound Fax T.38 to TDM
+
+Sequence of this arrangement:
+
+Fax\_A- > ATA\_B -> SIP -> t38\_gateway -> FreeSWITCH -> mod\_openzap -> ISDN/PRI E1 -> Fax
+
+I used an XML dialplan here. In opposite to the documentation above I have to answer the call and then starting calling the t38\_gateway app in dialplan instead of putting it into "execute\_on\_answer" didn't worked for me. - [Helmut Kuper](https://freeswitch.org/confluence/display/~hekuper)
+
+```xml
+<extension name="Fax_test2">
+  <condition field="caller_id_number" expression="^(4919)$"/>
+  <condition field="destination_number" expression="^(.*)$"/>
+    <action application="set" data="absolute_codec_string=PCMA"/>
+    <action application="set" data="fax_enable_t38=true"/>
+    <action application="set" data="fax_enable_t38_request=true"/>
+    <action application="answer"/>
+    <action application="t38_gateway" data="self"/>
+    <action application="bridge" data="openzap/1/a/$1"/>
+    <action application="hangup"/>
+  </condition>
+</extension>
+```
+
+## Inbound Fax TDM to T.38
+
+I used a Lua dialplan here. In opposite to the documentation above "peer" mode doesn't work. - [Helmut Kuper](https://freeswitch.org/confluence/display/~hekuper)   
+  
+Fax\_B -> ISDN/PRI E1 -> mod\_openzap -> FreeSWITCH -> t38\_gateway -> SIP -> ATA\_A -> Fax\_A (4919)
+
+**Lua inbound fax dialplan**
+
+```py
+if (dialed_ext == "4919") then
+ session:setAutoHangup(false)
+ session:execute("export", "nolocal:fax_enable_t38=true")
+ session:execute("export", "nolocal:fax_enable_t38_request=true")
+ session:execute("export", "nolocal:execute_on_answer=t38_gateway self")
+ session:execute("export", "nolocal:absolute_codec_string=PCMA")
+ session:execute("bridge", "user/".."4919@"..sip_domain)
+ return
+end
+```
+
+"dialed\_ext" contains the destination number of the ATA resp Fax.  
+"sip\_domain" contains the FreeSWITCH SIP-Domain.
+
+## Internal T.38 to T.38
+
+I used T.38 pass-through here. So FS has only to act as a proxy for the RTP and UDPTL data.
+
+Fax\_A (4919) -> ATA\_A -> SIP -> FreeSWITCH -> SIP -> ATA (same as ATA\_A) -> Fax\_B (2799)
+
+**Internal T.38 to T.38**
+
+```xml
+<extension name="Fax_test t.38 to t.38 via t38-passthru">
+  <condition field="caller_id_number" expression="^(4919)$"/ break="on-true"/>
+  <condition field="destination_number" expression="^(2799)$">
+    <action application="set" data="absolute_codec_string=PCMA"/>
+    <action application="set" data="proxy_media=true"/>
+    <action application="set" data="bypass_media=false"/>
+    <action application="bridge" data="user/2799@<domain>"/>
+    <action application="hangup"/>
+  </condition>
+</extension>
+```
+
+# Results
+
+by [Stavros Patiniotis](https://freeswitch.org/confluence/display/~stavros)
+
+I've sent an 8-page fax successfully in both directions. The complete transport way was this:
+
+```xml
+Fax_A <-> ATA_A <-> SIP/UDP <-> t38_gateway <-> FreeSWITCH <-> mod_openzap <----> ISDN/PRI E1 --|
+                                               ----------------------------                     |
+                                              /                            \               Ayaya-PBX
+                                             /                              \                   |
+Fax_B <-> ATA_B <-> SIP/UDP/G711a     <-----/                                \<-> ISDN/PRI E1 --|
+```
+
+## Questions I got during testing
+
+\*Where is the difference between "peer" and "self" mode and why does "peer" not work?
+
+\*Why does in T.38->TDM direction calling "t38\_gateway self" via execute\_on\_answer not work? t38\_gateway is called, it sets a media BUG but seems to hang listening for a tone and aborting after a 20 seconds timeout.
+
+# Events
+
+## spandsp::rxfaxpageresult
+
+## spandsp::txfaxpageresult
+
+## spandsp::rxfaxnegociateresult
+
+## spandsp::txfaxnegociateresult
+
+## spandsp::txfaxresult
+
+This event is fired when a fax finishes sending (either when it succeeds or when it fails). A header indicates whether the fax was successful.
+
+In addition to the session's usual headers it contains:
+
+fax-document-transferred-pages  
+fax-document-total-pages  
+fax-image-resolution  
+fax-image-size  
+fax-bad-rows  
+fax-transfer-rate  
+fax-result-code  
+fax-result-text  
+fax-ecm-used  
+fax-local-station-id  
+fax-remote-station-id
+
+These are undocumented above.
+
+## spandsp::rxfaxresult
+
+This event is fired when a fax finishes being received (either when it succeeds or when it fails). A header indicates whether the fax was successful.
+
+In addition to the session's headers it contains:
+
+fax-document-transferred-pages  
+fax-document-total-pages  
+fax-image-resolution  
+fax-image-size  
+fax-bad-rows  
+fax-transfer-rate  
+fax-result-code  
+fax-result-text  
+fax-ecm-used  
+fax-local-station-id  
+fax-remote-station-id
+
+These are undocumented above.
+
+# Troubleshooting
+
+Faxing can be a big pain over VOIP and despite FreeSWITCH's great attempt it's hard to match the reliability of a PSTN line (for transmitting analog-encoded data, that is). Using the methods outlined below with a decent provider that supports T.38 I can get somewhere in the 90-95% range with a bit higher with multiple retries. If the remote fax machine supports T.38 there is a better chance it will work fine.
+
+## Common Issues
+
+* Remote machine doesn't support T.38 properly (or at all), this is going to make things worse and is obviously common with PSTN machines
+* A T.38 gateway (or multiple) in between each transcode is going to hurt the chances of success
+* Carrier/Provider doesn't support T.38 well or is poor quality for standard codecs. Some carriers end up using several other carriers and the more carriers a call goes through or the lower the quality of carrier/route the harder faxing can be. A quality carrier is extremely important!
+* Some remote fax machines and PSTN lines can also be of low quality so while you may eventually be able to get good success overall some machines may prove always to be a challenge
+* Make sure your tiff is at the right size. There are many sizes supported by fax machines but 1728x1078 is probably the most common (and is at standard resolution). It's roughly 204x98dpi; "super fine" faxes are at higher resolutions. Ensuring the proper resolution and size is an important step to working with many remote fax machines
+* Ensure you have ignore\_early\_media enabled, without it random/out of order media can screw things up
+* For your codecs you generally want to force PCMU/PCMA (unless you know of success with something else better); that's generally going to give you the best results
+* Requesting T.38 can sometimes hurt your chances by things that don't properly handle or understand T.38 causing it to drop
+* Many "analog" PSTN lines are actually now transported by VoIP back to the central office, so you can't even count on those lines to transmit data modem signals any more.
+
+## Suggested Process
+
+* First try the optimal methods, t38 enabled and requested, ECM on
+* Second if that fails lets turn t38 requests off and ecm off and try again
+* If that still fails lets leave T38 and ecm off and just try again, if still failing chance of future success is low.
+
+## Example
+
+An example to start a fax from the command line:
+
+originate {ignore_early_media=true,absolute_codec_string='PCMU,PCMA',fax_enable_t38=true,fax_verbose=true,fax_use_ecm=true,fax_enable_t38_request=true}sofia/gateway/default/1231231234 &txfax('test_fax.tif')
+
+And if this fails further retries with:
+
+originate {ignore_early_media=true,absolute_codec_string='PCMU,PCMA',fax_enable_t38=true,fax_verbose=true,fax_use_ecm=false,fax_enable_t38_request=false}sofia/gateway/default/1231231234 &txfax('test_fax.tif')
+
+## Further debugging
+
+Setting fax\_verbose to true will dump a lot of data about faxes, make sure to go through it carefully as there can always be just one line that reveals the problem. Console debug logging can also be helpful as usual.
+
+# Tone Detection
+
+mod\_spandsp offers better tone detection than what is provided by default in the FreeSWITCH core.
+
+## DTMF
+
+Inband DTMF detectors in mod\_spandsp can detect duration in addition to frequency. The Teletone detector in the FreeSWITCH core is based on an old version of spandsp and should be replaced with this detector.
+
+### Related Tone Channel Variables
+
+Definitions for these are found on the [Variables page](../Dialplan/Variables-Archive/x__Variables_6587314.mdx).
+
+dtmf\_verbose
+
+min\_dup\_digit\_spacing\_ms
+
+spandsp\_dtmf\_rx\_threshold
+
+spandsp\_dtmf\_rx\_twist
+
+spandsp\_dtmf\_rx\_reverse\_twist
+
+spandsp\_dtmf\_rx\_filter\_dialtone
+
+### Dialplan Applications
+
+spandsp\_start\_dtmf
+
+Starts detection of baseband audio containing DTMF TouchTones. Note that this is not RFC2833 RTP detection, this counts the zero-crossings of the DTMF tones sent by analog phones.
+
+&lt;action application="spandsp_start_dtmf"/>
+
+spandsp\_stop\_dtmf
+
+Stop detecting DTMF in the baseband audio on this session. It saves some computing power to stop DTMF detection when you are certain that there will be none present.
+
+&lt;action application="spandsp_stop_dtmf"/>
+
+## Call Progress
+
+mod\_spandsp provides the tools to create a call progress tone detector. By accounting for cadence in addition to frequency, this call progress detector can distinguish between North American BUSY and REORDER, which only differ in cadence.
+
+### Configuration
+
+conf/autoload\_configs/spandsp.conf.xml defines the tone detector descriptors. Each descriptor defines a named group of tones to detect. When starting the tone detector, you specify the group of tones you wish to detect.
+
+This is a sample configuration for detecting some call progress tones in North America:
+
+**Call progress tone detection**
+
+```xml
+	<configuration name="spandsp.conf" description="Tone detector descriptors">
+  <descriptors debug-level="0">
+  <!-- These tones are defined in Annex to ITU Operational Bulletin No. 781 - 1.II.2003 -->
+  <!-- Various Tones Used in National Networks (According to ITU-T Recommendation E.180)(03/1998) -->
+  <!-- North America -->
+    <descriptor name="1">
+      <tone name="CED_TONE" description="ANS / ANSam">
+        <element freq1="2100" freq2="0" min="700" max="0"/>
+      </tone>
+      <tone name="SIT" description="Special Information Tone">
+        <element freq1="950" freq2="0" min="256" max="400"/>
+        <element freq1="1400" freq2="0" min="256" max="400"/>
+        <element freq1="1800" freq2="0" min="256" max="400"/>
+      </tone>
+      <tone name="RING_TONE" description="North America ring">
+        <element freq1="440" freq2="480" min="1200" max="0"/>
+      </tone>
+      <tone name="REORDER_TONE" description="North America reorder">
+        <element freq1="480" freq2="620" min="224" max="316"/>
+        <element freq1="0" freq2="0" min="168" max="352"/>
+        <element freq1="480" freq2="620" min="224" max="316"/>
+      </tone>
+      <tone name="BUSY_TONE" description="North America busy">
+        <element freq1="480" freq2="620" min="464" max="536"/>
+        <element freq1="0" freq2="0" min="464" max="572"/>
+        <element freq1="480" freq2="620" min="464" max="536"/>
+      </tone>
+    </descriptor>
+  </descriptors>
+</configuration>
+```
+
+Each descriptor defines the tones to detect. Each tone is composed of elements defining the frequencies and cadence of the tone. The tone name will be reported in the DETECTED\_TONE event. Each element can be composed of 0 (silence), 1, or 2 frequencies. min and max define the minimum and maximum element durations in milliseconds.
+
+#### Tuning the detector
+
+It takes much trial and error to figure out the tone configuration that works well without introducing talk-off. Debug level can be increased by changing the debug-level parameter in the descriptors tag of spandsp.conf.xml. Set the level to 2 to report additional detection information to assist in the tuning process.
+
+The "Tone report" log will tell you when a tone was detected.
+
+The "Tone segment" log will tell you each segment that is detected. The f1 and f2 values identify which frequencies were matched in that segment.
+
+### Dialplan Applications
+
+start\_tone\_detect
+
+Start background tone detection with cadence.
+
+  &lt;!-- start detection for North American call progress tones -->  
+  &lt;action application="start_tone_detect" data="1"/>
+
+stop\_tone\_detect
+
+Stop background tone detection with cadence
+
+&lt;action application="stop_tone_detect"/>
+
+### APIs
+
+start\_tone\_detect
+
+Start background tone detection with cadence
+
+start_tone_detect &lt;uuid> &lt;descriptor name>
+
+stop\_tone\_detect
+
+Stop background tone detection with cadence
+
+stop_tone_detect &lt;uuid>
+
+### Events
+
+DETECTED\_TONE
+
+This event is fired when the tone detector detects a tone.
+
+The following headers are set:
+
+  Detected-Tone
+
+  Unique-ID
+
+The Detected-Tone header will contain the name of the tone, as specified in the configuration file.
+
+The Unique-ID will contain the session UUID.
+
+# Codecs
+
+Spandsp implements the following codecs:
+
+* ADPCM (IMA)
+* G.726
+* G.722
+* G.711
+* GSM
+* LPC-10
+
+# Software Modem
+
+SpanDSP can also act as a softmodem. To enable the softmodem feature, see the [HylaFax](../Auxiliary-Knowledge-and-Utilities/HylaFax_13173342.mdx#esl) integration page. Setup should be identical, but you can send commands to it as if it were a regular dial-up modem.
+
+## COM Port Setting for Windows
+
+SpanDSP uses COM ports starting from COM4\. To loopback the COM ports to an application, an external piece of software such as [com0com](http://com0com.sourceforge.net/) may be required.
+
+# See also
+
+<http://www.soft-switch.org/t38/index.html> — Here are some more informations about T.38
+
+<http://www.itu.int/pub/T-SP-OB.781-2003> — Various Tones Used in National Networks
+
+<https://www.soft-switch.org/spandsp%5Ffaq/ar01s14.html> — How to generate a FAX compatible multi-page TIFF
+
+[Fax on AudioCodes Mediant](../Interoperability/Gateways/AudioCodes-Gateways/Fax-on-AudioCodes-Mediant_6586678.mdx#about) 
+
+## Comments:
+
+| \# wget <http://fisheye.freeswitch.org/browse/freeswitch-contrib.git/sathieu/email2pdf>\--2015-11-09 13:11:50-- <http://fisheye.freeswitch.org/browse/freeswitch-contrib.git/sathieu/email2pdf>Resolving [fisheye.freeswitch.org](http://fisheye.freeswitch.org)... 209.105.235.6, 2607:f348:1021::6Connecting to [fisheye.freeswitch.org](http://fisheye.freeswitch.org)\|209.105.235.6|:80... connected.HTTP request sent, awaiting response... 301 Moved PermanentlyLocation: <https://freeswitch.org/fisheye/browse/freeswitch-contrib.git/sathieu/email2pdf> \[following\]\--2015-11-09 13:11:51-- <https://freeswitch.org/fisheye/browse/freeswitch-contrib.git/sathieu/email2pdf>Resolving [freeswitch.org](http://freeswitch.org)... 209.105.235.6, 2607:f348:1021::6Connecting to [freeswitch.org](http://freeswitch.org)|209.105.235.6|:443... connected.HTTP request sent, awaiting response... 404 No such repository: freeswitch-contrib.git2015-11-09 13:11:51 ERROR 404: No such repository: freeswitch-contrib.git. ![](/images/icons/contenttypes/comment_16.png) Posted by denis at nov 09, 2015 05:12 |
+| ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+
+Document generated by Confluence on nov 11, 2022 04:27

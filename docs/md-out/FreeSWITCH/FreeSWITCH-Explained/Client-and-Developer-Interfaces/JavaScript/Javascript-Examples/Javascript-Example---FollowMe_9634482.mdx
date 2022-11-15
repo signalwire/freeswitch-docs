@@ -1,0 +1,121 @@
+
+# Javascript Example - FollowMe 
+
+ Created by  Pat Beirne, last modified on 2015.10.07
+
+# About
+
+When an extension is called ring multiple extensions or external phone numbers simultaneously or in order.
+
+Click here to expand Table of Contents
+
+Dialplan /usr/local/freeswitch/conf/dialplan/default.xml Do a find for "Local\_Extension" inside the file modify the bottom of that section. Comment out the following:
+
+```xml
+	<action application="bridge" data="user/${dialed_extension}@${domain_name}"/>
+```
+
+Then add:
+
+```xml
+ 	<action application="javascript" data="followme.js" />
+```
+
+Now it should look like this.
+
+```xml
+     <action application="javascript" data="followme.js" />
+     <!--<action application="bridge" data="user/${dialed_extension}@${domain_name}"/>-->
+     <action application="answer"/>
+     <action application="sleep" data="1000"/>
+     <action application="voicemail" data="default ${domain_name} ${dialed_extension}"/>
+```
+
+Add the follome javascript file to /usr/local/freeswitch/scripts/followme.js
+
+**followme.js**
+
+```js
+function get_sofia_contact(extension,domain_name, profile){
+   if (profile == "auto") {
+     profile = "internal";
+     session.execute("set", "sofia_contact_"+extension+"=${sofia_contact("+profile+"/"+extension+"@"+domain_name+")}");
+     sofia_contact = session.getVariable("sofia_contact_"+extension);
+     console_log( "info", "sofia_contact internal: "+sofia_contact+".\n" );
+     
+     //define additional profiles here
+     if (sofia_contact == "error/user_not_registered") {
+       profile = "lan";
+       session.execute("set", "sofia_contact_"+extension+"=${sofia_contact("+profile+"/"+extension+"@"+domain_name+")}");
+       sofia_contact = session.getVariable("sofia_contact_"+extension);
+       console_log( "info", "sofia_contact lan: "+sofia_contact+".\n" );
+     }
+   }
+   else {
+     session.execute("set", "sofia_contact_"+extension+"=${sofia_contact("+profile+"/"+extension+"@"+domain_name+")}");
+     sofia_contact = session.getVariable("sofia_contact_"+extension);
+     console_log( "info", "sofia_contact else: "+sofia_contact+".\n" );
+   }
+   return sofia_contact;
+}
+
+if (session.ready()) {
+  session.answer();    
+  dialed_extension = session.getVariable("dialed_extension");
+  domain_name = session.getVariable("domain_name");
+  domain = session.getVariable("domain");
+  us_ring = session.getVariable("us-ring");
+  session.execute("set", "ringback="+us_ring);          //set to ringtone
+  session.execute("set", "transfer_ringback="+us_ring); //set to ringtone
+  session.execute("set", "call_timeout=30");
+  session.execute("set", "hangup_after_bridge=true");
+  session.execute("set", "continue_on_fail=true");    
+  console_log( "info", "dialed extension:"+dialed_extension+".\n" );
+  console_log( "info", "domain: "+domain+".\n" );
+  console_log( "info", "us_ring: "+us_ring+".\n" );
+  console_log( "info", "domain: "+domain+".\n" );    
+  console_log( "info", "domain_name: "+domain_name+".\n" );
+
+  if (dialed_extension == "1001.noload") {
+      console_log( "info", "processing: 1001.\n" );        
+      sofia_contact_1001 = get_sofia_contact("1001",domain_name, "auto");
+      sofia_contact_1002 = get_sofia_contact("1002",domain_name, "auto");
+      sofia_contact_1003 = get_sofia_contact("1003",domain_name, "auto");      
+      session.execute("bridge", "sofia/gateway/flowroute.com/11231231234,"+sofia_contact_1001+","+sofia_contact_1002+","+sofia_contact_1003);           
+  }
+  else if (dialed_extension == "1002.noload") {
+      console_log( "info", "processing: 1003.\n" );
+      //session.execute("bridge", "user/1003@"+domain_name);
+      sofia_contact = get_sofia_contact("1003",domain_name, "auto");
+      sofia_contact_1001 = get_sofia_contact("1001",domain_name, "auto");
+      sofia_contact_1002 = get_sofia_contact("1002",domain_name, "auto");
+      session.execute("bridge", "sofia/gateway/flowroute.com/11231231234,"+sofia_contact+","+sofia_contact_1001+","+sofia_contact_1002);            
+  } 
+  else {
+      //ring extension as normal (default)
+      console_log( "info", "processing: else.\n" );
+      sofia_contact = get_sofia_contact(dialed_extension,domain_name, "auto");
+      session.execute("bridge", sofia_contact);
+      //session.execute("bridge", "user/"+dialed_extension+"@"+domain_name);        
+  }
+  
+  //clear variables
+  dialed_extension = "";
+  new_extension = "";
+  domain_name = "";
+  us_ring = "";
+  followme_processed = "";
+  domain = "";
+  
+}
+ 
+//Calling multiple destinations
+//http://wiki.freeswitch.org/wiki/Misc._Dialplan_Tools_bridge#Calling_multiple_destinations
+//By using commas to separate the addresses, bridge will dial them 
+//simultaneously. Using pipes, it'll dial one at a time.
+//If you need to set different channel variables for each destination, you may 
+//prefix the destinations with [] and the variables inside the brackets. Example:
+```
+ 
+
+Document generated by Confluence on nov 11, 2022 04:27

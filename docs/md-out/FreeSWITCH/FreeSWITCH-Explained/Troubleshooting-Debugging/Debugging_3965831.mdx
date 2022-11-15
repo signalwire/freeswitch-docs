@@ -1,0 +1,601 @@
+
+# Debugging 
+
+ Created by  Belaid Areski, last modified by  Joshua Young on 2019.09.19
+
+# About
+
+Welcome to FreeSWITCH debugging! As with all major software projects there will be occasional issues. You want your issue fixed quickly. We want your issue fixed quickly. The best way to quick resolution is to follow a few steps presented here. You will need to familiarize yourself with a few tools:
+
+* The [checklist](../Prototypes/Ostag/index.mdx#about) for reporting issues **PLEASE READ THIS FIRST**
+* **Git** \- <http://fisheye.freeswitch.org/browse/freeswitch-git>
+* **pastebin** \- [http://pastebin.freeswitch.org](http://pastebin.freeswitch.org/) (username/password displayed in challenge box)
+* **JIRA** \- [http://jira.freeswitch.org](http://jira.freeswitch.org/) (issue tracker, reg req'd)
+* **IRC** \- [irc.freenode.net](http://irc.freenode.net/), channel name #freeswitch
+* **GDB** (possibly)
+
+  
+Click here to expand Table of Contents
+
+* [Important Note, Please Read](#important-note-please-read)  
+   * [Standard Disclaimer](#standard-disclaimer)
+* [Fast Tracking your Bugs to Get Fixed Sooner](#fast-tracking-your-bugs-to-get-fixed-sooner)
+* [Debugging Steps](#debugging-steps)  
+   * [Get The Latest Code](#get-the-latest-code)  
+         * [Upgrading From Older Revisions](#upgrading-from-older-revisions)  
+   * [FreeSWITCH Command Line](#freeswitch-command-line)  
+   * [Asking The Community For Assistance](#asking-the-community-for-assistance)  
+   * [Using The Pastebin](#debugging-steps)  
+   * [Using The IRC Channel](#using-the-irc-channel)  
+   * [FreeSWITCH Users Mailing List](#freeswitch-users-mailing-list)  
+         * [Subject Lines](#debugging-steps)  
+         * [Message Body](#message-body)  
+         * [Following Up](#following-up)  
+   * [Calling The FreeSWITCH Conference](#calling-the-freeswitch-conference)
+* [Debugging Specific Technologies](#debugging-specific-technologies)  
+   * [Sofia/SIP](#debugging-steps)  
+         * [Turning On SIP Trace](#turning-on-sip-trace)  
+         * [Capturing RTP With tshark (Advanced)](#capturing-rtp-with-tshark-advanced)  
+         * [Making The pcap File Available](#making-the-pcap-file-available)  
+   * [FreeTDM/TDM](#freetdmtdm)  
+         * [Analog](#analog)  
+         * [CAS/RBS](#debugging-steps)  
+         * [ISDN](#debugging-steps)  
+   * [Event Socket](#event-socket)  
+         * [Inbound](#inbound)  
+         * [Outbound](#outbound)  
+   * [Scripting](#debugging-steps)  
+   * [CPU Usage](#debugging-steps)  
+         * [top](#debugging-steps)  
+         * [gcore](#debugging-steps)  
+         * [example](#debugging-steps)  
+   * [XML Curl](#xml-curl)  
+   * [Other Stuff?](#debugging-steps)
+* [Advanced Debugging Techniques](#advanced-debugging-techniques)  
+   * [Creating A Backtrace With gdb (Linux/Unix)](#creating-a-backtrace-with-gdb-linuxunix)  
+         * [How to configure FreeSWITCH to generate coredumps on a crash](#how-to-configure-freeswitch-to-generate-coredumps-on-a-crash)  
+         * [How to load coredump in gdb](#how-to-load-coredump-in-gdb)  
+         * [Getting a Backtrace](#getting-a-backtrace)  
+         * [Simple bash script to make debug easy](#simple-bash-script-to-make-debug-easy)  
+   * [Collecting Debug Information While FreeSWITCH Is Running (Linux/Unix)](#collecting-debug-information-while-freeswitch-is-running-linuxunix)  
+   * [Collection Information With Valgrind (Linux/Unix)](#collection-information-with-valgrind-linuxunix)
+* [Configuring Your System For Remote Access](#configuring-your-system-for-remote-access)  
+   * [Linux Prerequisites](#linux-prerequisites)  
+   * [SSH Tunnel Command For Linux Systems Without Public IP](#ssh-tunnel-command-for-linux-systems-without-public-ip)
+* [See Also](#debugging-steps)
+
+# Important Note, Please Read
+
+Please don't report bugs on the mailing list. Please.
+
+What should you do if you are experiencing unexpected behavior, but you don't know if it's a bug or a configuration issue? Take these steps:
+
+* Hop on the IRC channel and ask if anyone is familiar with the situation
+* Search the wiki for the symptoms you are experiencing
+* Search the mailing list history for the symptoms you are experiencing
+* Search Jira for the symptoms you are experiencing
+
+Here's what not to do: Send an email to the mailing list with lots of information and asking, "Is this a bug?"
+
+Do this instead: open a Jira ticket and **then** you can send a message to the list. Say something like, "I opened Jira ticket xxx because I'm having behavior yyy when I do zzz. I don't know if this is really a bug, so I'm open to suggestions."
+
+See the rest of this page for more information on how to interact on the IRC, mailing lists and how to file a Jira.
+
+## Standard Disclaimer
+
+Sometimes FreeSWITCH users and experts will offer suggestions on the mailing list ("ML" for short) or the IRC channel. The _standard disclaimer_ goes something like this:
+
+* I didn't test this myself, so you need to test thoroughly before telling me it doesn't work
+* It may have typos - please look for them before telling me it doesn't work
+* I may have forgotten something - please research any errors before telling me it doesn't work
+* I may be totally wrong - please research the solution before telling me it doesn't work
+
+In other words, when someone gives you a suggestion and it doesn't work on the first try, please make an attempt to figure out what the person was trying to accomplish and see if you can figure it out yourself. If, after concerted effort, you are unable to get it to work or you hit a roadblock that you cannot overcome only then should you report back that the suggestion did not work. Many times the suggestion may not work but it might get you going in the right direction. When that happens please report back what you found and how you resolved your issue. We like hearing that stuff. :)
+
+# Fast Tracking your Bugs to Get Fixed Sooner
+
+If you would like your issue resolved in the fastest manner, without having to pay to have support do it, these are some tips that will help greatly with the process:
+
+* Follow the instructions on this page, make sure to be detailed when possible
+* If it is something that you know worked in the past and doesn't work now see [Using Git Bisect](https://wiki.freeswitch.org/wiki/Git%5FTips#Git%5FBisect%5F-%5FTracking%5Fdown%5Fbreaks%5Fand%5Fbugs%5Fextremely%5Ffast%5Fwith%5Fgit "Git Tips") for helping us track down exactly what commit it broke in. As long as you can use the command line you can test with this method and it will greatly speed up bug fixing.
+* If you know what's wrong and are able to change the code to make the fix then see [Creating Patches With Git](https://wiki.freeswitch.org/wiki/Git%5FTips#Creating%5FPatches%5Fwith%5FGit "Git Tips"). A JIRA issue that has a patch just needs the code reviewed and tested is about the fastest way to have a ticket resolved.
+* Finally when [Reporting A Bug](../Prototypes/Ostag/index.mdx#about) make sure you submit concise repro steps and as much log data as can support the issue. To easily collect and submit log data and sip traces see [fs\_logger.pl](https://github.com/mitchcapper/FSMisc/blob/master/fs%5Flogger.md). It can collect all the log data, sip traces, and even submit individual files up to the pastebin. If needed it can obfuscate log data to remove sensitive information prior to posting. [fs\_logger.pl](https://github.com/mitchcapper/FSMisc/blob/master/fs%5Flogger.md) is very easy to use and doesn't have any dependencies other than fs\_cli on the box. It works in windows and linux and for windows users without perl there is a compiled exe that can be used. For some easy getting started with [fs\_logger.pl](https://github.com/mitchcapper/FSMisc/blob/master/fs%5Flogger.md) see the [Helping Others with fs\_logger.pl](https://github.com/mitchcapper/FSMisc/blob/master/fs%5Flogger.md#helping-others-debug-with-fs%5Floggerpl) section. It is recommended when filing a ticket to attach the raw pastebin content to the ticket rather than linking so it is preserved (as pastebin entries can and do go away after a certain amount of time).
+
+# Debugging Steps
+
+We need to know if your issue is really a bug, so there are some things to do, like updating to the latest software and getting some captures of the command line.
+
+## Get The Latest Code
+
+_Please do not report a bug without trying the latest Git! The very first thing the community will ask you is, "Have you tried it on latest Git?" Save yourself the time and update before reporting the bug._  
+  
+FreeSWITCH is evolving quickly, so the problem you may be experiencing might already have been fixed.
+
+* Linux Git  
+   * If installed by using the snapshot or doing a Git clone then updating is extremely simple. In the FreeSWITCH source directory:
+
+make current
+
+* * Now, shutdown FreeSWITCH and start it again. That's it! Wait for the system to refresh, and then see if you can reproduce your symptoms.
+* Windows Git  
+   * Use your Git client (like [TortoiseGit](http://code.google.com/p/tortoisegit/)) to update to the latest Git  
+   * Re-open the solution file and then click Build > Rebuild Solution  
+   * Run FreeSWITCH again and see if you can reproduce the symptoms.
+
+If you are using a pre-compiled binary, such as a DEB or RPM (or MSI file in Windows) then you have some work to do. Your best bet is to do a fresh checkout and see if you can reproduce the symptoms on a clean install. Make a backup of your entire **conf** folder and then clear it out so that you can start with a fresh default configuration. You'll want to get the system working with the default config first, and then add your customizations to see if you can reproduce symptoms.
+
+### Upgrading From Older Revisions
+
+If you are upgrading from an older revision, say from 1.0.1 to the latest Git, then you must do a few things:
+
+* Copy your conf directory to a safe location, e.g. /usr/local/freeswitch/conf
+* Completely remove the FreeSWITCH install directory, e.g. /usr/local/freeswitch
+* Completely remove the FreeSWITCH source directory
+* Do a fresh checkout and install, including "make samples"
+* **Carefully** copy your configuration changes back to the conf directory  
+   * You may want to launch FreeSWITCH prior to putting your customizations in place and confirm that all is working
+
+If the issue remains then it's time to ask for help, but first you'll need some basic knowledge on how to capture debug information.
+
+## FreeSWITCH Command Line
+
+Most of your debugging information will come from the FreeSWITCH command line interface (CLI). It is important that you are able to capture the output that is displayed on the command line. This means that you will need to use a terminal program of some sort that can scroll back and copy, or one that can enable capturing of output.   
+To put your console in debug mode, press **F8** or type **console loglevel 7**  
+For more information about the console please see [Mod\_console](https://wiki.freeswitch.org/wiki/Mod%5Fconsole "Mod console")  
+  
+Alternatively you can use the log file to capture specific information. NOTE: SIP trace messages (see "TPORT\_LOG=1" below) will not go to the log files. An easy way to isolate specific debug information with the log files is to use a manual log file rotation. From the FreeSWITCH CLI:
+
+fsctl send_sighup
+
+This will rotate the log files. Reproduce the symptoms you are troubleshooting and then issue a second **fsctl send\_sighup** command. You will have a relatively small log file in the log directory, at which point you can copy and paste that into the [pastebin](https://wiki.freeswitch.org/wiki/Reporting%5FBugs#Using%5FThe%5FPastebin "Reporting Bugs"). More information about log files can be found [here](../Modules/mod_logfile_1048990.mdx#about).
+
+## Asking The Community For Assistance
+
+The FreeSWITCH community is very welcoming of new members and is ready to assist those who have questions. In return we ask that you take the time and effort to gather all of the information that is needed in order to diagnose your issue.
+
+## Using The Pastebin
+
+The FreeSWITCH [pastebin](http://pastebin.freeswitch.org/) is a handy place for users to post information for other users or the developers to access easily. All pastebin posts will have an id. For example, [this post](https://pastebin.freeswitch.org/view/a9ebaf6c) has an entry number of a9ebaf6c. Frequent users will often abbreviate pastebin as "pb" and sometimes you will see notation like "pb a9ebaf6c" which, of course, refers to pastebin post number a9ebaf6c. For the sake of convenience, when submitting information to the mailing list, please paste the entire link and not an abbreviation.   
+Also, if you are posting the output of a FreeSWITCH console log (or freeswitch.log file) then be sure to use "FreeSWITCH log" as the syntax highlighting when creating the pastebin entry. This makes it much easier to read through the logs.
+
+Note: If using Jira please attach the file as a .txt file to the Jira rather than referencing [pastebin.freeswitch.org](http://pastebin.freeswitch.org). This helps make sure the reference doesn't get lost because the pastebins timeout.
+
+Pro Tip: Use this URL format to download a pastebin entry as text:
+
+https://pastebin.freeswitch.org/view/raw/####
+
+Where #### is the pastebin entry number (or click the raw link a pastebin).
+
+## Using The IRC Channel
+
+The #freeswitch channel on [irc.freenode.net](http://irc.freenode.net) is a good place to chat in real-time with FreeSWITCH developers, power users, and other new users. Please use proper chat room etiquette and be mindful that there are many people from around the world in the chat room. Be patient, even when others are not. Be kind, even when others are not. Don't take anything personally.
+
+You will need an IRC client, or you can use the link on the main [FreeSWITCH](http://www.freeswitch.org/) page. We recommend you learn some about how to use IRC. Here are some resources:
+
+* [irc.org](http://www.irc.org/)
+* [irchelp.org](http://www.irchelp.org/)
+
+When you log in to the channel you can ask your question simply by asking it. No need to ask permission to ask a question. Sometimes there is a high volume of traffic, in which case you might be prompted to use the "take-a-number" system. It works like this:
+
+~take-a-number Could someone tell me if there is a wiki page that discusses regular expressions?
+
+In either case, please wait for a response. It could take a few minutes to a few hours depending on the time of day. Most FreeSWITCH developers and power users are are located in the Americas, however there is a growing number of users from around the globe. If you are not in a position to sit on the chat channel and wait then it would be good to ask your question on the user list.  
+One other piece of advice: please be nice to **c888** when in the IRC channel.
+
+## FreeSWITCH Users Mailing List
+
+The FreeSWITCH project maintains mailing lists [here](http://lists.freeswitch.org/). Please join the mailing list so that you can send and receive emails along with the rest of the community. Emails to the users list should be addressed to [freeswitch-users@lists.freeswitch.org](mailto:freeswitch-users@lists.freeswitch.org). Please use a descriptive subject name and include as much detail as reasonably possible in the message body. 
+
+### Subject Lines
+
+#### Some examples of good subject lines
+
+* FreeSWITCH Crashes When Calling Application "foo"
+* Feature "xyz" stopped working when I upgraded to latest trunk
+* Dialplan question: how do I use "foo"?
+* Help With xxx Error When Using Gateway
+
+#### Some not-so-good subject lines
+
+* HELP!!!!
+* FreeSWITCH crashes!!!
+* What's Wrong?
+* This is broken!
+
+### Message Body
+
+The message body should include as much information as possible. At the very least you should include what is in the [Report Issue Checklist](../Prototypes/Ostag/index.mdx#about). We recommend that you use pastebin for large posts (30+ lines). In some cases it is advantageous to put command line debug output into one pastebin post, dialplan entries in another post, custom scripts in another post, etc. The pastebin supports syntax highlighting so keeping unlike items in separate pastebins will make them easier to read. Also, using pastebin makes it easier to look up information than scrolling through email threads.
+
+### Following Up
+
+Sometimes you might find more information about a bug report, perhaps after it has been filed but before it has been closed. It is quite common for people to open a report and then go back and start digging around. We encourage this! You'll learn a lot by doing so and you will also help the developers by doing some of the research and legwork.
+
+#### Reporting More Information
+
+If you have more information on a question that you previously posted to the list then please reply to the thread with the additional information. Also, please DO NOT include the ENTIRE email thread in your reply as that makes it more difficult to find the relevant information.
+
+#### Please Be Patient
+
+You've reported a bug or asked a question and haven't heard anything in a few days. You're itching for a fix. It's okay to post a follow up question, but please be polite. Definitely do NOT accuse the developers of ignoring questions, bug reports or feature requests. Their workload is enormous, and much if it is _pro bono_. If you are in desperate need of a new feature then please send an email to _[consulting@freeswitch.org](mailto:consulting@freeswitch.org)_ where paid support and custom work is available at reasonable rates.
+
+## Calling The FreeSWITCH Conference
+
+Occasionally there will be times when users will need to speak live instead of via email or IRC. There are many ways to call the voice conference and they are listed [here](../Community/ClueCon-Weekly-Conference-call_3965594.mdx#about) on the main page. Also, there are times when people call the voice conference just to hang out, so feel free to call in and see what is happening.
+
+# Debugging Specific Technologies
+
+Most of the time you will be debugging some sort of SIP trouble or a crash, but there are also times when you are troubleshooting something more specific, such as analog or digital TDM calls, or the many different "hooks" that FreeSWITCH provides: Lua/Perl/JavaScript/etc., event socket, XML curl, LDAP, etc. Here are some specific guidelines for gathering information on various technologies.
+
+## Sofia/SIP
+
+FreeSWITCH uses the [Sofia-SIP](https://wiki.freeswitch.org/wiki/Sofia-SIP "Sofia-SIP") stack; in many cases **SIP** and **Sofia** are interchangeable. Debugging SIP includes keeping in mind that your voice traffic is going over a data network and therefore devices on the network may affect your VoIP traffic.  
+Here are some things to keep in mind:
+
+* NAT/Firewalls will cause problems if not [properly configured](https://wiki.freeswitch.org/wiki/NAT "NAT")
+* Routers, Switches, and cabling can affect call quality
+* Network traffic and QoS can also affect call quality
+
+These are things that aren't voice specific so it may be necessary to get your network administrator.
+
+### Turning On SIP Trace
+
+In many cases it is critical to see the raw SIP messages. These can be displayed to (and captured from) the console. In Linux/Unix start FreeSWITCH like this:
+
+TPORT_LOG=1 /usr/local/freeswitch/bin/freeswitch
+
+To stop the SIP trace you will need to stop and restart FreeSWITCH without the TPORT\_LOG environment variable set. See [Troubleshooting FreeSWITCH](Troubleshooting-Freeswitch_9633933.mdx#about) for more information on SIP tracing.
+
+#### Quick and Easy SIP Trace
+
+The above commands are still available, however since version 1.0.6 there have been some handy sofia commands that make SIP traces easier to get. Without restarting FreeSWITCH you can use these commands:
+
+* sofia profile xxx siptrace on
+* sofia profile xxx siptrace off
+* sofia global siptrace on
+* sofia global siptrace off
+
+The first two commands will enable/disable SIP trace on a specific profile. The second two commands will enable/disable SIP trace on all profiles simultaneously.
+
+### Capturing RTP With tshark (Advanced)
+
+tshark -o "rtp.heuristic_rtp: TRUE" -R sip\|\|rtp\|\|rtcp -w test.pcap
+
+Even more advanced packet capture information is available [here](Packet-Capture/index.mdx).
+
+### Making The pcap File Available
+
+Packet captures are generally large files, so it's best to put them out on a server where we can use a tool like **wget** or a browser to download them. If you don't have access to a server then use a service like [YouSendIt](http://www.yousendit.com/). You can upload the file and then provide us with the link to download it.
+
+## FreeTDM/TDM
+
+Traditional telephony, or Time-Division Multiplexing (TDM), is handled in FreeSWITCH by the [FreeTDM](https://wiki.freeswitch.org/wiki/FreeTDM "FreeTDM") abstraction layer. It is important to provide copies of your FreeTDM configuration files as well as any dialplan entries that use FreeTDM:
+
+* freetdm.conf file
+* freetdm.conf.xml file
+
+There are basically three flavors of TDM which are covered in the next section.
+
+### Analog
+
+Analog cards, such as the Sangoma A200, Digium TDM400 or clones X100P/X101P, are for traditional POTS lines. There are two types of analog ports:
+
+* FXS - Supplies dial tone
+* FXO - Accepts dial tone
+
+Please note which kind of ports you are using when asking for help.
+
+### CAS/RBS
+
+When using CAS/RBS please specify which type of signaling you wish to use. (There is also a nice introductory discussion of this topic in a [Wikipedia article](http://en.wikipedia.org/wiki/Robbed%5Fbit%5Fsignaling).)
+
+### ISDN
+
+ISDN comes in two general forms: PRI and BRI. When reporting issues please make a note of which protocol dialect you are using:
+
+* DMS - Nortel DMS100
+* 5ESS - AT&T/Lucent (used for 4ESS also)
+* Q931 - Generic PRI, used for EuroISDN
+* National - NI2
+
+## Event Socket
+
+Please specify if you are using inbound or outbound event socket.
+
+### Inbound
+
+A key issue with socket programming is receiving the correct events. One thing to try is manually connecting to the event socket and subscribing to all events. The basic procedure on Linux is:
+
+telnet 127.0.0.1 8021\n
+auth ClueCon\n\n
+events plain all\n\n
+
+Note: "\\n" here means "Press Enter" so don't literally type "\\n"!  
+Now you may watch events, capture the output, etc. If you see something you believe to be unusual, please capture the output and include it with the information that you put into the pastebin.  
+To disconnect from the event socket:
+
+exit\n\n
+
+### Outbound
+
+Please provide a copy of the dialplan and script/shell command you are using. Please also describe the symptoms you are experiencing.
+
+## Scripting
+
+To debug scripting it is critical that we be able to reproduce the issue. There are two ways to do this:
+
+* Create the smallest, simplest script that can reproduce the behavior
+* Give us the entire script
+
+We do understand that there are proprietary concerns, so the developers and troubleshooters will be happy to keep such proprietary code in strict confidence. However, it is not acceptable that someone reports a bug with a script but then refuses to let us see the script that makes the behavior happen!
+
+## CPU Usage
+
+Occasionally your system may exhibit signs of sluggishness. Sometimes this means that a particular process is misbehaving in some fashion. For Linux systems you have several tools at your disposal.
+
+### top
+
+The top utility displays information about CPU, memory and disk usage for each process on the system. Use it to see which processes are using system resources. If a FreeSWITCH instance is using a lot of system resources then use "top -H" to find the particular thread that is acting up. Locate the process ID (PID) of the offender and then get ready to do a gcore...
+
+### gcore
+
+Run gcore on the PID in question to generate a core file. Then run "thread apply all bt" to see what's going on. Most likely you'll need to capture this information and put it into pastebin and then ask one of the advanced FreeSWITCH users for assistance on the IRC channel. (Don't use the mailing list, please.) Most likely you'll need to open a Jira ticket, so be ready to do that. Also, see the next section ("example") for some specific steps for collecting information to put into the Jira.
+
+### example
+
+To generate core file and backtrace text file output:
+
+1. update to the latest version of FS
+2. install gdb  
+```xml  
+apt-get update && apt-get install gdb  
+```
+3. reproduce the issue
+4. visualize FS process. if hung, find the process that is 100% and note its pid  
+```xml  
+top -H `cat /usr/local/freeswitch/run/freeswitch.pid`  
+```
+5. generate core file  
+   1. the core file will be saved in the local directory, so cd to the location you want it saved, and note the file name produced by gcore, such as core.4499  
+   ```xml  
+   gcore $(pidof freeswitch)  
+   ```
+6. process core file into a backtrace text file  
+   1. if you have installed from source:  
+         1. simply run the command:  
+         ```xml  
+         /usr/src/freeswitch/scripts/backtrace-from-core /path/to/core/file /usr/local/freeswitch/bin/freeswitch  
+         ```  
+   2. if installed from packages, there are a few extra steps:  
+         1. cd into desired directory  
+         2. get the processing script:  
+         ```xml  
+         wget -O backtrace-from-core 'https://freeswitch.org/stash/projects/FS/repos/freeswitch/browse/scripts/backtrace-from-core?at=e62f2481e89c2b643b088901e964107468c4a5dd&raw'  
+         ```  
+         3. run the processing script:  
+         ```xml  
+         ./backtrace-from-core /path/to/core/file /usr/bin/freeswitch  
+         ```
+7. Create a JIRA ticket, upload the backtrace text file onto the new JIRA
+8. A short script to automate getting a backtrace on stuck calls... This should spit out a link where the info was sent to our pastebin.
+
+```xml
+apt-get install curl freeswitch-all-dbg libfreeswitch1-dbg
+sysctl -w kernel.core_pattern=/tmp/core.%p
+ulimit -c unlimited
+cd /tmp
+gcore $(pidof freeswitch)
+if [ -f /usr/bin/freeswitch ]; then
+    FREESWITCH=/usr/bin/freeswitch;
+elif [ -f /usr/local/freeswitch/bin/freeswitch ]; then
+    FREESWITCH=/usr/local/freeswitch/bin/freeswitch;
+else echo "freeswitch binary not found in /usr/bin nor in /usr/local/freeswitch/bin... exiting..."; exit 0;
+fi
+if [ $(pidof freeswitch) ]; then
+    gdb -ex "set logging file /tmp/backtrace.log" -ex "set logging on" -ex "set pagination off" -ex "bt" -ex "bt full" -ex "info threads" -ex "thread apply all bt" -ex "thread apply all bt full" -ex "quit" $FREESWITCH $(find /tmp/core.$(pidof freeswitch))
+printf "\n\n\n\n"
+curl -d private=1 --data-urlencode text@/tmp/backtrace.log https://pastebin.freeswitch.org/api/create
+fi
+
+
+```
+
+  
+The output from the backtrace ("bt") will hopefully yield the necessary information about why the CPU usage spiked. As always, open a Jira with this information - don't send it to the -users list. If you wish to discuss the backtrace with other developers you can actually do that on the Jira comments. Those are public, so no need to overrun the mailing lists with these discussions.
+
+## XML Curl
+
+* TODO
+
+## Other Stuff?
+
+* TODO
+
+# Advanced Debugging Techniques
+
+## Creating A Backtrace With gdb (Linux/Unix)
+
+If you are getting core dumps (aka Segmentation Faults or "segfaults") in Linux/Unix then it is important to get a backtrace, which is a tool for developers to examine what happened right up to the point where the program crashes. Any report of a segfault should be accompanied by a backtrace. Once you have a backtrace please attach it as a txt file to the relevant [JIRA](https://freeswitch.org/jira) issue.
+
+For further information on the very powerful gdb debugger see [debugging-with-gdb](http://betterexplained.com/articles/debugging-with-gdb)
+
+### How to configure FreeSWITCH to generate coredumps on a crash
+
+This is an important step as a coredump is _required_ in order to produce a backtrace.
+
+* You need to set `/proc/sys/fs/suid_dumpable` to a non-zero value (see man 5 proc), to enable core dumping for processes that switch their UID on startup (such as freeswitch with -u option).  
+   * This can be verified by '`sysctl fs.suid_dumpable`'  
+   * 2 is a good setting  
+   * This can be set persistently (if required) in `/etc/sysctl.conf`  
+         * On Debian/Ubuntu it is better to locate the customization in a file in /etc/sysctl.d/
+* With Linux kernel 3.6 or newer (Debian Jessie and newer), the pattern in `/proc/sys/kernel/core_pattern` is required for `suid_dumpable`.
+* With older kernels, the freeswitch process will try to put the core file into the CWD (current working directory).
+* The ulimit settings may also restrict the size of the coredump generated and thus prevent the file being generated. FreeSWITCH will attempt to set this to unlimited if started with the -core option.
+
+It is a good idea to verify on a new installation that coredumps are generated and that you know where to locate them, in the event they are required to debug a crash. You can trigger a crash through fs\_cli using the 'fsctl crash' command. The coredump file will be named 'core', possibly with the numeric process ID as a suffix.
+
+You might also want to check out man 5 core, for all the other options (e.g. piping core dumps into a custom handler, with core\_pattern).
+
+The following commands will enable coredumps under Debian Jessie or newer:
+
+```bash
+echo "/var/tmp/core.%e.%p.%h.%t" > /proc/sys/kernel/core_pattern
+echo 2 > /proc/sys/fs/suid_dumpable
+```
+
+  
+### How to load coredump in gdb
+
+From /usr/local/freeswitch:
+
+$ gdb bin/freeswitch 
+
+To load with a core file
+
+$ gdb bin/freeswitch core.xxx
+
+### Getting a Backtrace
+
+Once you load the core file into GDB you can collect a backtrace typing:
+
+  
+```xml
+bt
+bt full
+info threads
+thread apply all bt
+thread apply all bt full
+```
+
+#### To save the output to a logfile
+
+  
+```xml
+(gdb) set pagination off
+(gdb) set logging file /tmp/backtrace.log
+(gdb) set logging on
+Copying output to /tmp/backtrace.log.
+(gdb) thread apply all bt
+(gdb) set logging off
+Done logging to /tmp/backtrace.log.
+(gdb) quit
+```
+
+Backtrace script... for crashes that result in core dumps. Just fill in "core.###" with a pid number (i.e. do "ls /tmp | grep core") to find the pid and adjust script. You should get back a hyper link where the backtrace was uploaded.
+
+```xml
+gdb -ex "set logging file /tmp/backtrace.log" -ex "set logging on" -ex "set pagination off" -ex "bt" -ex "bt full" -ex "info threads" -ex "thread apply all bt" -ex "thread apply all bt full" -ex "quit" /usr/bin/freeswitch /tmp/core.####
+printf "\n\n\n\n"
+curl -d private=1 --data-urlencode text@/tmp/backtrace.log https://pastebin.freeswitch.org/api/create
+
+
+```
+
+  
+To report a specific thread/pid
+
+1) Update to the latest and try to reproduce first;  
+2) If you can reproduce, then:
+
+cmd: top -H -p `cat /usr/local/freeswitch/run/freeswitch.pid`
+
+Find the process that is 100% and note its pid:
+
+cmd: gcore `cat /usr/local/freeswitch/run/freeswitch.pid`
+cmd: gdb `which freeswitch` &lt;name of resulting file generated by gcore>
+enter: "info threads"
+
+Look for the one with the same pid as the one you noted above:
+
+enter: thread &lt;thread # that goes with the pid>
+enter: bt
+
+3) Open a bug report in Jira.
+
+### Simple bash script to make debug easy
+
+In the source directory there is a support-d sub-directory. Inside this directory is a handy shell script called fscore\_pb. The script will collect the appropriate trace (and some other information), post it to [pastebin.freeswitch.org](http://pastebin.freeswitch.org), and then give you the URL to give to the developers.
+
+Usage:
+
+```xml
+ support-d/fscore_pb gcore [user]
+ support-d/fscore_pb [user]
+```
+
+If gcore is given it will take a gcore of a running instance of FreeSWITCH (this will pause the process during the dump). If gcore is not given it will use the most recent core.\* file in the directory.
+
+User is optional, and is the name given when submitting the pastebin. If it is omitted it will use your local username.
+
+## Collecting Debug Information While FreeSWITCH Is Running (Linux/Unix)
+
+Occasionally FreeSWITCH will become unresponsive. To help determine what is happening you can do a "g-core" and report the results. Please follow these steps: 
+
+Open a terminal window and cd to the FreeSWITCH source dir.
+
+Type this:
+
+```xml
+sh scripts/freeswitch-gcore > core.trace 
+```
+
+Attach the resulting file, named _core.trace_, to a JIRA ticket (see [Reporting Bugs to JIRA](../Prototypes/Ostag/index.mdx#about))
+
+## Collection Information With Valgrind (Linux/Unix)
+
+Valgrind is a debugging tool that helps identify memory usage issues, such as memory leaks.  
+To run FreeSWITCH in valgrind please follow these steps at the Linux command line:
+
+```xml
+cd /usr/src/freeswitch.trunk
+ulimit -s 240
+valgrind --tool=memcheck --log-file-exactly=vg.log --leak-check=full --leak-resolution=high --show-reachable=yes .libs/freeswitch -vg
+```
+
+FreeSWITCH will start in valgrind. You will probably notice that things move more slowly - this is normal. Please wait for FreeSWITCH to exhibit the behavior being studied - including a core dump if that is what is being investigated. 
+
+  
+Once the behavior has been exhibited, stop FreeSWITCH (unless it has crashed) and then look for a file named **vg.log** in your source directory. This file should be attached to the JIRA issue. _Please do not try to interpret the contents of the vg.log file._ Leave that to the developers as they are eminently qualified to do so. After sending the vg.log to JIRA please notify the developers and wait for further instructions.
+
+  
+# Configuring Your System For Remote Access
+
+Occasionally there are extreme, curious, and downright weird scenarios that the developers must "see for themselves," so it is nice for them to have direct access to your FreeSWITCH server in these cases. Here's a checklist of things to consider:
+
+* Public IP address
+* Firewall issues
+* Your company's IT security policy
+* SSH server, ssh keys
+
+The absolute easiest way for the developers to access your system is via direct ssh connection. (If you do not have a public IP address on your system then there is a second option: ssh tunnel command; see below.)  
+  
+## Linux Prerequisites
+
+On Linux systems please do this:
+
+```xml
+cd /path/to/freeswitch/source
+make support
+./support-d/prereq.sh
+```
+
+These will install the necessary prerequisites for the developers to log in and work on your system.
+
+## SSH Tunnel Command For Linux Systems Without Public IP
+
+If your system is behind a firewall and NAT then it will require an alternate means of giving remote access to the developers. The prerequisites are still applicable, so definitely get those in place.
+
+To do the ssh tunnel command, go to the command prompt:
+
+```xml
+ssh -N -p222 -R xxxxx:127.0.0.1:22 guest@yoda.ostag.org
+```
+
+In this case, xxxxx is the TCP port number. Please ask a developer to suggest a port number for you so that there isn't a collision with an existing port. If this is the first time connecting you will need to accept the RSH key by typing 'yes' at the prompt. At this point the developer will tell you what to do next.
+
+# See Also
+
+* [Debugging FreeSWITCH](Debugging-Freeswitch_9633850.mdx#about)
+* [Error Codes](https://wiki.freeswitch.org/wiki/Error%5FCodes "Error Codes")
+* [Submitting Patches](https://wiki.freeswitch.org/wiki/Submitting%5FPatches "Submitting Patches")
+
+Document generated by Confluence on nov 11, 2022 04:28

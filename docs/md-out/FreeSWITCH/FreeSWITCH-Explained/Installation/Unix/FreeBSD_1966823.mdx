@@ -1,0 +1,182 @@
+
+# FreeBSD 
+
+ Created by  Mario G, last modified by  Zvnoimir Buzanic on 2019.07.05
+
+# About
+
+These docs are BARE minimum to allow Freeswitch to compile. It will use the default compiler on your platform unless you override it with CC and CXX variables prior to configure. None of the extra hoops need to be jumped through any longer. It should just WORK out of the box and we can address any specific issues as they come up. Anyone wishing to help improve this updated documentation please email [brian@freeswitch.org](mailto:brian@freeswitch.org) or contact bkw\_ on IRC,
+
+Maintainer Needed
+
+We need YOU to maintain this port of FreeSWITCH. Please contact one of the FreeSWITCH core developers on Freenode IRC channel #freeswitch or the [freeswitch-users@lists.freeswitch.org](mailto:freeswitch-users@lists.freeswitch.org) mailing list to help them keep the code current for this operating system.
+
+* [Build Environment](#build-environment--)
+* [FreeBSD rc.d script](#freebsd-rcd-script)
+
+# Build Environment  
+
+This is part of the [Installation](../index.mdx#about) documentation which you should review first. It provides notes unique to FreeBSD 10.2\. If you're on FreeBSD it will default to using clang. If you want to force it, export CC=\`which clang\` and export CXX=\`which clang++\` or if you prefer, use gcc and g++. The following will build the default modules.conf, and additional modules you wish to enable may require more dependencies. To enable or disable modules edit modules.conf file and comment or uncomment modules with #. This build procedure is tested on FreeBSD 11.2:
+
+**FreeSWITCH Master**
+
+```bash
+pkg install autoconf automake curl git gmake jpeg-turbo ldns libedit libtool openssl pcre pkgconf speex sqlite3 wget sudo libsndfile lua52 opus tiff
+cd /usr/local/src/;
+git clone https://freeswitch.org/stash/scm/fs/freeswitch.git
+
+cd freeswitch
+./bootstrap.sh -j
+./configure 
+gmake
+sudo gmake install cd-sounds-install cd-moh-install
+```
+
+If you get gmake error stating no-extended-offsetof, then execute code below and run ./configure again:
+
+```xml
+sed -i' ' -e s:'-Wno-extended-offsetof:-Wno-invalid-offsetof -Wunknown-warning-option:' Makefile;
+sed -i' ' -e s:'-Wno-extended-offsetof:-Wno-invalid-offsetof:' configure;
+```
+
+If you want to change directory prefix, enable Postgresql support, use configure like this (taken from FuxionPBX build script):
+
+```xml
+pkg install postgresql10-server postgresql10-client sudo;
+
+#Initialize database
+sudo sysrc postgresql_enable="YES";
+sudo service postgresql initdb;
+sudo service postgresql start;
+sudo -u postgres psql -c "SELECT version();";
+sudo -u postgres psql -c "CREATE DATABASE freeswitch;";
+sudo -u postgres psql -c "CREATE USER fsuser with encrypted password 'fspass';";
+sudo -u postgres psql -c "GRANT ALL PRIVILEGES ON DATABASE freeswitch to fsuser;";
+
+./configure --prefix=/usr/local/freeswitch --disable-dependency-tracking --enable-core-pgsql-support --disable-fhs;
+```
+
+If you want to enable mod\_av you need to install libav and mp4v2 packages:
+
+```xml
+pkg install autoconf automake curl git gmake jpeg-turbo ldns libedit libtool openssl pcre pkgconf speex sqlite3 wget sudo libsndfile lua52 opus tiff libav mp4v2;
+cd /usr/local/src/;
+git clone https://freeswitch.org/stash/scm/fs/freeswitch.git
+
+cd freeswitch
+./bootstrap.sh -j
+./configure 
+gmake
+sudo gmake install cd-sounds-install cd-moh-install
+```
+
+To fix building mod\_av with deprecated functions edit mod\_av Makefile:
+
+```xml
+vi /usr/local/src/freeswitch/src/mod/applications/mod_av/Makefile
+# edit CFLAGS lines and add -Wno-deprecated-declarations:
+ 
+AVCODEC_CFLAGS = -I/usr/local/include -Wno-deprecated-declarations
+AVFORMAT_CFLAGS = -I/usr/local/include -Wno-deprecated-declarations
+AVRESAMPLE_CFLAGS = -I/usr/local/include -Wno-deprecated-declarations
+AVUTIL_CFLAGS = -I/usr/local/include -Wno-deprecated-declarations
+```
+
+**FreeSWITCH 1.6**
+
+```bash
+pkg install autoconf automake curl git gmake jpeg ldns libedit libtool openssl pcre pkgconf speex sqlite3 wget sudo
+cd /usr/local/src/;
+git clone -b v1.8.7 https://freeswitch.org/stash/scm/fs/freeswitch.git
+
+cd freeswitch
+./bootstrap.sh -j
+./configure 
+gmake
+sudo gmake install cd-sounds-install cd-moh-install
+```
+
+  
+**FreeSWITCH 1.8.7**
+
+```bash
+pkg install autoconf automake curl git gmake jpeg ldns libedit libtool openssl pcre pkgconf speex sqlite3 wget sudo
+cd /usr/local/src/;
+git clone -b v1.8.7 https://freeswitch.org/stash/scm/fs/freeswitch.git
+
+cd freeswitch
+./bootstrap.sh -j
+./configure 
+gmake
+sudo gmake install cd-sounds-install cd-moh-install
+```
+
+  
+# FreeBSD rc.d script
+
+The default installation comes with an rc-script but it doesn't meet the requirements of the FreeBSD rc.d framework. I've created (or actually copy/pasted it from Postfix) a script that does meets the rc.d requirements. Create the example below in /usr/local/etc/rc.d and give it the name 'freeswitch'
+
+/usr/local/etc/rc.d/freeswitch
+
+**rc.d/freeswitch**
+
+```bash
+#!/bin/sh
+#
+# PROVIDE: freeswitch
+# REQUIRE: LOGIN cleanvar
+# KEYWORD: shutdown
+#
+# Add the following lines to /etc/rc.conf to enable freeswitch:
+# freeswitch_enable:       Set it to "YES" to enable freeswitch.
+#                          Default is "NO".
+# freeswitch_flags:        Flags passed to freeswitch-script on startup.
+#                          Default is "".
+#
+. /etc/rc.subr
+name="freeswitch"
+rcvar=${name}_enable
+load_rc_config $name
+: ${freeswitch_enable="NO"}
+: ${freeswitch_pidfile="/usr/local/freeswitch/run/freeswitch.pid"}
+start_cmd=${name}_start
+stop_cmd=${name}_stop
+pidfile=${freeswitch_pidfile}
+freeswitch_start() {
+        /usr/local/freeswitch/bin/freeswitch ${freeswitch_flags}
+		echo -n "Starting FreeSWITCH: "
+}
+freeswitch_stop() {
+        /usr/local/freeswitch/bin/freeswitch -stop
+}
+run_rc_command "$1"
+```
+
+After creating the file it's time to change the permissions, otherwise it can't be executed. Go to /usr/local/etc/rc.d and issue the following command
+
+```bash
+chmod u-w,ugo+x freeswitch
+```
+
+Now it's time for calling the script from /etc/rc.conf. Put the two line below in the rc.conf file. The first one executes the startup script itself, the second one pipes the parameters.
+
+```bash
+freeswitch_enable="YES"
+freeswitch_flags="-nc" 
+```
+
+In this example FreeSWITCH™ gets started with the parameters -nc (no console, you can access the console later using [fs\_cli](https://wiki.freeswitch.org/wiki/Fs%5Fcli "Fs cli")). If your Freeswitch server has a IP address and not behind a NAT router, add the "-nonat" parameter (This will disable NAT traversal feature of FreeSWITCH). After a reboot you should see something like this in your console:
+
+10381 Backgrounding.
+  
+  
+## Comments:
+
+| I know these instructions are deprecated, but it would be nice to get this built on freebsd. I am getting the following error when compiling. src/switch\_core\_video.c:545:20: error: unused function 'switch\_img\_get\_yuv\_pixel' \[-Werror,-Wunused-function\]static inline void switch\_img\_get\_yuv\_pixel(switch\_image\_t \*img, switch\_yuv\_color\_t \*yuv, int x, int y) ^src/switch\_core\_video.c:702:20: error: unused function 'switch\_color\_rgb2yuv' \[-Werror,-Wunused-function\]static inline void switch\_color\_rgb2yuv(switch\_rgb\_color\_t \*rgb, switch\_yuv\_color\_t \*yuv) ^src/switch\_core\_video.c:713:20: error: unused function 'switch\_color\_yuv2rgb' \[-Werror,-Wunused-function\]static inline void switch\_color\_yuv2rgb(switch\_yuv\_color\_t \*yuv, switch\_rgb\_color\_t \*rgb) ^3 errors generated.Makefile:1901: recipe for target 'src/libfreeswitch\_la-switch\_core\_video.lo' failedgmake\[1\]: \*\*\* \[src/libfreeswitch\_la-switch\_core\_video.lo\] Error 1gmake\[1\]: Leaving directory '/root/src/freeswitch'Makefile:1067: recipe for target 'all' failedgmake: \*\*\* \[all\] Error 2 ![](/images/icons/contenttypes/comment_16.png) Posted by pankid at set 22, 2015 14:08                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Hi [Nicholas Schoonover](https://freeswitch.org/confluence/display/~pankid)!I just built freeSWITCH from master on a digital ocean droplet and it built and installed correctly:FreeSWITCH Version 1.7.0+git\~20160318T233049Z\~4d180b1aa1\~64bit (git 4d180b1 2016-03-18 23:30:49Z 64bit) ![](/images/icons/contenttypes/comment_16.png) Posted by jungleboogie at mar 19, 2016 01:54                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| If you have updates, by all means please update this page with your findings. I checked and you are in the the Confluence editors group.THANKS! ![](/images/icons/contenttypes/comment_16.png) Posted by boteman at mar 28, 2016 14:21                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| FreeSWITCH Version 1.8.2+git\~20180926T175525Z\~a98a958ac3\~64bit (git a98a958 2018-09-26 17:55:25Z 64bit)built cleanly 11-3-18 on FreeBSD 11.2-RELEASE-p4 #0: Thu Sep 27 08:16:24 UTC 2018Thanks to Brian West, Michael Jerris, Ken Rice and Anthony Minessale II for all you do andfor making it run on FreeBSD. ![](/images/icons/contenttypes/comment_16.png) Posted by kimc at nov 03, 2018 19:32                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| FreeSWITCH Version 1.10.1-dev+git\~20190805T233722Z\~ad99d725af\~64bit (git ad99d72 2019-08-05 23:37:22Z 64bit)FreeBSD 11.3-STABLE #0 r350400MFreeBSD clang version 8.0.1 (tags/RELEASE\_801/final 366581) (based on LLVM 8.0.1)Built using bash :pkg install autoconf automake curl git gmake jpeg ldns libedit libtool openssl pcre pkgconf speex sqlite3 wget sudo libsndfile lua52 opus tiffmkdir \~/srccd \~/srcgit clone <https://freeswitch.org/stash/scm/fs/freeswitch.git>CFLAGS+=-Wno-errorexport CFLAGScd freeswitch./bootstrap.sh -jsed -i' ' -e s:'applications/mod\_signalwire:#applications/mod\_signalwire:' modules.conf;sed -i' ' -e s:'databases/mod\_pgsql:#databases/mod\_pgsql:' modules.conf;./configuresed -i' ' -e s:'-Wno-extended-offsetof:-Wno-invalid-offsetof -Wunknown-warning-option:' Makefile;sed -i' ' -e s:'-Wno-extended-offsetof:-Wno-invalid-offsetof:' configure;./configuregmakesudo gmake install cd-sounds-install cd-moh-installlightly tested using Microsip 3.19.18 (IVR works fine, audio/video record/playback works)mod\_signalwire disabled (libks missing)mod\_pgsql disabled (pgsql headers not installed on machine, using sqlite)CFLAGS modified to cope with clang 8.0.0 (libsofia-sip-ua doesn't build if ~~Wno~~ error is not set)patch available in [FS-10581](https://freeswitch.org/jira/browse/FS-10581?src=confmacro)  \-[Autentica](https://freeswitch.org/confluence/plugins/servlet/applinks/oauth/login-dance/authorize?applicationLinkID=c4b15fa3-ad57-3c05-af05-8c167cb92266) per visualizzare i dettagli del problema  still necessary. ![](/images/icons/contenttypes/comment_16.png) Posted by emss at giu 21, 2019 09:02 |
+
+Document generated by Confluence on nov 11, 2022 04:24

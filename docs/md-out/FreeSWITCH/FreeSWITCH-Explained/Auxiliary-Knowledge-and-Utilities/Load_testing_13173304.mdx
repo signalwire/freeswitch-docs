@@ -1,0 +1,74 @@
+
+# Load_testing 
+
+ Created by  Késsia Castro, last modified on 2016.12.23
+
+# About
+
+This document covers information about load testing tools.
+
+Click here to expand Table of Contents
+
+* 1 [Load testing](#load-testing)  
+   * 1.1 [Load testing tools](#load-testing-tools)  
+         * 1.1.1 [SIPp](#load-testing)  
+         * 1.1.2 [WinSIP](#load-testing)  
+         * 1.1.3 [Back-to-back](#load-testing)  
+   * 1.2 [How to count calls?](#load-testing-tools)  
+   * 1.3 [Examples of load tests](#examples-of-load-tests)
+
+# Load testing
+
+Load testing is a **dark art**. If you don't have extensive experience with load testing in a telephony environment then nothing on this page will be of any use to you. You are **much** better off doing real-world tests.
+
+An example of this can be found in this email thread from the freeswitch-users list:
+
+* [SIPp thread](http://lists.freeswitch.org/pipermail/freeswitch-users/2009-August/thread.html#18226)
+
+Notice how the OP asked questions, hinting that he thought "something was wrong with FreeSWITCH." When we asked more questions it turns out that he was using a 32-bit OS on 64-bit hardware. When he took the advice of Tony and loaded CentOS 5.3 64-bit on his hardware and re-ran his tests... well, let's just say that the results were stellar.
+
+The moral of the story is this: Don't load test if you don't know what you're doing. Do REAL WORLD tests. Unless you make your money by running SIPp all day then just get reliable hardware, a solid 64-bit OS like CentOS, install FS from git trunk and you'll be doing dozens of CPS (or more) and 100's (or more) simultaneous calls with media.
+
+## Load testing tools
+
+### SIPp
+
+The open source tool, SIPp, has apparently been used extensively by the FreeSWITCH community, see [\[1\]](http://www.freeswitch.org/eg/load%5Ftest). The tool can be compiled with different options, and with the standard option, there is no support for authentication. To make calls to FS, the with SIP profile for the port used must have the parameter "auth-calls" set to false. The documentation of the tool is not aimed at newbies. Take some hours to get under the skin of it! The tool is highly flexible and test calls are controlled by a XML script. Error injection and tailor made SIP headers is supported.
+
+### WinSIP
+
+WinSIP by Touchstone Technologies is Windows based with a nice GUI. It support authentication and can be used to make calls as well as for receiving calls. Errors can be injected. Its easy to use but expensive - 4-8 thousands USD. A limited time trial license can be acquired free of charge but the number of simultaneous calls is limited to 50 calls.
+
+### Back-to-back
+
+Back-to-back tests could be an easy way if you are familiar with an existing switch such as Asterisk. One of the unit can be controlled by an appropriate API, or the dial plan can be set up to make a chain of calls forth and back. Remember to answer the calls to be sure that the RTP is anchored on the switch - if that's what you want. The main drawback is the lack of error reporting. Further, errors or capacity limits may relate to the testing switch, not the tested switch.
+
+## How to count calls?
+
+In order to make tests comparable, calls must be counted in the same way. It is suggested that a "call" should consist of two legs, as this is the case when two people have a conversation through the switch. Remember to include details about servers and network.
+
+## Examples of load tests
+
+Feel free to include your own tests below.
+
+---
+
+Server: Fujitsu-Siemens Econel 100 S with Intel(R) Pentium(R) Dual CPU, Fedora 9 64bit. 1 GB RAM. Gbis/s network between servers. Back-back test against Asterisk on same server, but 32 bit version. Using the top command, load of 100, 200 and 300 calls, 64 kbit/s alaw with 20 ms packets. Rtp through the switch, no transcoding. The other server was an Asterisk, and tests have been made with Asterisk on a 32 and a 64 bit OS (Fedora):
+
+| | cpu  | sy | ni | id | wa | hi | si | total | OS-bit |    |
+| ------ | -- | -- | -- | -- | -- | -- | ----- | ------ | -- |
+| \* 100 | 3  | 10 | 0  | 82 | 1  | 0  | 4     | 100    | 64 |
+| \* 100 | 3  | 10 | 0  | 84 | 1  | 0  | 2     | 100    | 32 |
+| FS100  | 7  | 8  | 0  | 82 | 1  | 0  | 2     | 100    | 64 |
+| |      |    |    |    |    |    |    |       |        |    |
+| \* 200 | 6  | 20 | 0  | 57 | 2  | 1  | 14    | 100    | 64 |
+| \* 200 | 7  | 18 | 0  | 67 | 0  | 1  | 7     | 100    | 32 |
+| FS200  | 14 | 17 | 0  | 62 | 0  | 0  | 7     | 100    | 64 |
+| |      |    |    |    |    |    |    |       |        |    |
+| \* 300 | 8  | 26 | 0  | 45 | 4  | 0  | 17    | 100    | 64 |
+| \* 300 | 10 | 30 | 0  | 33 | 0  | 2  | 25    | 100    | 32 |
+| FS300  | 22 | 28 | 0  | 39 | 0  | 0  | 11    | 100    | 64 |
+
+The same test have been completed with the dial plan line which makes the FS listen to DTMF during the conversation ([f.in](http://f.in): &lt;action application="bind\_meta\_app" data="1 b s execute\_extension::dx XML features"/>) with no difference in the load.
+
+Document generated by Confluence on nov 11, 2022 04:29

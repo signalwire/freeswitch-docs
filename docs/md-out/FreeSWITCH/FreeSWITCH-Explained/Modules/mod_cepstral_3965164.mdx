@@ -1,0 +1,180 @@
+
+# mod_cepstral 
+
+ Created by  Belaid Areski, last modified by  John Boteler on 2016.05.17
+
+# About
+
+Cepstral is a TTS (Text to Speech) engine, Cepstral provides realistic synthetic voices in the following languages : US English, UK English, Italian, German, Canadian French & Americas Spanish
+
+For further information about Cepstral, please visit their website: [https://www.cepstral.com/](https://www.cepstral.com/en/telephony)
+
+Do \*not\* load mod\_cepstral and mod\_flite at the same time! (Symbol collision)
+
+  
+Click here to expand ToC
+
+* [Install & Configure in Linux](#install--configure-in-linux)
+* [Examples](#examples)  
+   * [Usage from Dialplan](#usage-from-dialplan)  
+   * [Usage from script](#usage-from-script)
+* [Beware](#beware)
+* [Windows Build](#windows-build)
+* [Cepstral 5.1 under Ubuntu](#cepstral-51-under-ubuntu)
+* [FAQ](#faq)  
+   * [When selecting a different voice in session.speak it defaults to original voice.](#when-selecting-a-different-voice-in-sessionspeak-it-defaults-to-original-voice)  
+   * [How do I install a license purchased from cepstral?](#how-do-i-install-a-license-purchased-from-cepstral)  
+   * [Can I use a 16khz "desktop voice"?](#can-i-use-a-16khz-desktop-voice)  
+   * [libswift.so.4: cannot open shared object file: No such file or directory](#libswiftso4-cannot-open-shared-object-file-no-such-file-or-directory)
+* [See Also](#see-also)
+
+# Install & Configure in Linux
+
+As of 2016.05.17 Cepstral version 6 is reported to work with FreeSWITCH. Previously, the suggested version to use was **4.x** since there were known issues with **5.1** (which is closed source).
+
+These instructions were developed under the old versions and possibly require updating for use with modern versions of Cepstral. Please help us keep this page current if you know of changes by commenting below or editing this page (ask for edit permission if needed).
+
+1. [Buy](http://www.cepstral.com/store) or download a [free trial voice](http://www.cepstral.com/downloads/) from [Cepstral](http://www.cepstral.com/). Each voice comes with the library, so the **SDK is not needed**.
+2. cd /opt
+3. For x64 do
+4. wget <http://www.cepstral.com/downloads/installers/linux64/Cepstral%5FAllison-8kHz%5Fx86-64-linux%5F6.0.1.tar.gz>
+5. For i386 etc. do
+6. wget <http://www.cepstral.com/downloads/installers/linux32/Cepstral%5FAllison-8kHz%5Fi386-linux%5F6.0.1.tar.gz>
+7. tar xvfz Cepstral\_Allison-8kHz\_x86-64-linux\_6.0.1.tar.gz
+8. cd Cepstral\_Allison-8kHz\_x86-64-linux\_6.0.1
+9. or
+10. tar xvzf Cepstral\_Allison-8kHz\_i386-linux\_6.0.1.tar.gz
+11. cd Cepstral\_Allison-8kHz\_i386-linux\_6.0.1
+12. ./install.sh
+13. Follow prompts (recommended add: export SWIFT\_HOME=/opt/swift to your FS user profile)
+14. Add /opt/swift/lib (if you chose the default install) to end of file /etc/[ld.so](http://ld.so).conf
+15. run ldconfig
+16. Define SWIFT\_HOME to point to install root (e.g. export SWIFT\_HOME=/opt/swift)
+17. Edit modules.conf and uncomment the line: asr\_tts/mod\_cepstral
+18. Build FreeSWITCH
+19. Enable mod\_cepstral in the modules.conf.xml file by uncommenting &lt;load module="mod\_cepstral"/>
+
+You can also use a Cepstral voice with a language other than English without editing any files. _&lt;lang>_ is the voices language, i.e. _de_ or _fr_. Just add two links in $SWIFT\_HOME/lib:
+
+1. libceplang\_en.so -> libceplang\_ _&lt;lang>_.so.4.2
+2. libceplex\_en.so -> libceplex\_ _&lt;lang>_.so.4.2
+
+If you don't use the default install dir (/opt/swift) you will need to modify \`src/mod/asr\_tts/mod\_cepstral/Makefile\`
+
+You must define an environment variable SWIFT\_HOME in the shell where you run fs, otherwise you won't hear any audio.
+
+# Examples
+
+## Usage from Dialplan
+
+You should now be able to use something similar to the following in your dialplan
+
+```xml
+<action application="speak" data="cepstral|david|Please hold while we connect you to the conference"/>
+```
+
+## Usage from script
+
+Javascript / Python example:
+
+```js
+session.answer()
+session.speak("cepstral","William","Hello from FreeSwitch")
+```
+
+# Beware
+
+Using a 16khz voice and 0.03 for RTP Packet Size (Sipura Setting), it will sound horrible. Workaround: modify RTP Packet Size to 0.02 in Sipura config, under Advanced/SIP section.
+
+If audio gets cut off at the beginning, try using: &lt;break time='1s' /> tags as a workaround.
+
+Single quotes ( ' ) get stripped out from strings run through FreeSWITCH code to chop strings of the form a|b|c into bits. Use double quotes ( " ) instead. If, for example, you want to pass something like this to Cepstral:
+
+```xml
+<prosody rate="fast">Hello there.</prosody>
+```
+
+If you find that the volume of your TTS is much higher (or lower) than that of the sound files, try decreasing the volume using the 'volume' tag with Cepstral's SSML. For example, this will lower the TTS volume significantly:
+
+```xml
+<prosody volume='15'>This is pretty softly spoken.</prosody>
+```
+
+The '15' in the above example means 15% of default volume.
+
+For other SSML tricks check out the [examples](http://cepstral.com/cgi-bin/support?page=ssml#examples%7C) on Cepstral's support site.
+
+# Windows Build
+
+In order to compile mod\_cepstral.c under Visual Studio C++ you must ensure the Cepstral SDK is installed on your build machine. The SDK is not free. You can, however, obtain an evaluation copy Contact Cepstral Support with subject line "Cepstral Windows SDK".
+
+Once the SDK is installed you'll need to make sure mod\_cepstral is selected to be compiled (not on by default). Right click the FreeSWITCH solution from the Solution Explorer in VS and select Configuration Manager. Scroll down until you see mod\_cepstral and select the Bulid flag.
+
+In addition you need to verify the following properties for mod\_cepstral.c (right click mod\_cepstral from the Solution Explorer on the left hand side and select "properties").
+
+1. Additional Include Directories (from C/C++, General): This path should be set to "C:\\Program Files\\Cepstral\\sdk\\include"
+2. Additional Library Directories (from Linker, General): This path should include "C:\\Program Files\\Cepstral\\sdk\\lib\\windows" and "C:\\Program Files\\Cepstral\\sdk\\lib\\winnt". Between Cepstral 4.2 and 5.0 these paths changed.
+
+Finally, you'll need to make sure the the Cepstral bin path is part of the Windows PATH environment variable as the Cepstral DLLs are installed in this directory (C:\\Program Files\\Cepstral\\bin ). Without this path mod\_cepstral.DLL will not initialize during Freeswitch startup.
+
+# Cepstral 5.1 under Ubuntu
+
+Here is how it worked under Ubuntu 8.04: First, disable mod\_flite as they are incompatible.
+
+Then set environment var export SWIFT\_HOME=/opt/swift
+
+Check if /opt/swift /lib/libswift.so.5 link exists. If not provide a symbolic link from the actual libswift.so library.
+
+Create a file /etc/ld.so.conf.d/swift.conf with the following content:
+
+```xml
+# Swift default configuration
+/opt/swift/lib
+```
+
+Run:
+
+```xml
+ldconfig
+```
+
+This worked with actual sources Rev. 10438 (End of Nov 2008). Previous sources had a bug in the APR lib.
+
+# FAQ
+
+## When selecting a different voice in session.speak it defaults to original voice.
+
+Please make sure you use the correct name in your session.speak. In the /opt/swift/voices/ you will be able to see the names you should use. (e.g. Allison-8kHz, Callie-8kHz, David-8kHz, Diane-8kHz, Marta-8kHz, Miguel-8kHz, William-8kHz)
+
+Common error is to just type session.speak("cepstral","Allison") when it should be session.speak("cepstral","Allison-8kHz")
+
+## How do I install a license purchased from cepstral?
+
+Run the following command "swift --reg-voice" and answer the questions
+
+Your Name, Company (if applicable), Voice (e.g. Miguel-8kHz), License
+
+## Can I use a 16khz "desktop voice"?
+
+**Q:** Can I use a 16khz "desktop voice" or do I have to use an 8kz telephone voice?
+
+**A:** You can use a 16kz voice and FreeSWITCH™ will re-sample automatically to 8khz as needed. Bear in mind this will add to your cpu overhead, so an [8khz voice](http://www.cepstral.com/cgi-bin/downloads?type=1143746987) is better from a performance perspective.
+
+## libswift.so.4: cannot open shared object file: No such file or directory
+
+Try manually adding the /opt/swift/lib directory to /etc/ld.so.conf or /etc/ld.so.conf.d/ and run ldconfig.
+
+# See Also
+
+* [FreeSwitch Dependencies](https://freeswitch.org/confluence/display/FAH/FreeSWITCH+Dependencies)
+* [Session speak](https://wiki.freeswitch.org/wiki/Session%5Fspeak "Session speak")
+* [mod\_unimrcp](./mod_unimrcp_6586728.mdx#tts)
+* [Voices](../Codecs-and-Media/Voice_9634277.mdx#--)
+
+  
+## Comments:
+
+| Version 6.x.x of Cepstral works again ![](/images/icons/contenttypes/comment_16.png) Posted by madovsky at mag 17, 2016 09:35 |
+| ---------------------------------------------------------------------------------------------------------------------------- |
+
+Document generated by Confluence on nov 11, 2022 04:27

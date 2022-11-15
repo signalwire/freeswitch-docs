@@ -1,0 +1,242 @@
+
+# SmartOS 
+
+ Created by  John Boteler, last modified by  Kim Culhan on 2018.12.19
+
+# About
+
+This page lists steps to prepare the SmartOS hypervisor for the installation of FreeSWITCH.
+
+Click to expand Table of Contents
+
+* 1 [Initialization](#initialization)
+* 2 [Import VM Image](#import-vm-image)
+* 3 [Solaris Privileges](#solaris-privileges)
+* 4 [Zone Definition](#zone-definition)
+* 5 [Create the Zone](#create-the-zone)
+* 6 [UUID](#uuid)
+* 7 [Login](#login)
+* 8 [Build FreeSWITCH](#build-freeswitch)
+* 9 [Manifest](#manifest)
+* 10 [References](#references)
+
+# Initialization
+
+Get SmartOS up and running. If using desktop virtualization, be forewarned that the KVM features of SmartOS will not be available (they're not needed in this case). This is rather like installing ESXi under virtualbox, it's a wonder it works at all.
+
+An automated script for doing this on virtualbox under some kind of \*nix is available from:  
+<http://www.perkin.org.uk/posts/automated-virtualbox-smartos-installs.html>
+
+Instructions for installing in other ways (including under vmware) can be found here:  
+<http://wiki.smartos.org/display/DOC/Getting+Started+with+SmartOS>
+
+The key items here are: Boot from the live CD (image) or USB key, then follow the instructions on screen to do the initial setup of any attached hard drive(s). If you only give it one hard drive, this is as simple as just retyping the disk name back in when it displays it and asks you which drives to use.
+
+The default root password changes with each release and will be in the text file linked on this page:  
+<https://us-east.manta.joyent.com/Joyent%5FDev/public/SmartOS/latest.html>
+
+# Import VM Image
+
+After the install is done, login to the console and import the 64 bit basic VM root image (assume $# is the root prompt from now on). "`imgadm avail`" will show you the latest available image for base-64, and you copy the image UUID from its output.
+
+$# imgadm avail | grep base-64
+
+1f32508c-e6e9-11e6-bc05-8fea9e979940 base-64-lts 16.4.1 smartos  zone-dataset  2017-01-30
+
+$# imgadm import 1f32508c-e6e9-11e6-bc05-8fea9e979940
+
+# Solaris Privileges
+
+The following privileges are used by FreeSWITCH daemon, and some of them are not available by default in a SmartOS zone:
+
+| Name or alias        | ID                         | Description                                                                                                                                                                                                                | Available by default in a zone      |
+| -------------------- | -------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------- |
+| basic                |                            | Basic set of privileges, as output by ppriv -l basic command                                                                                                                                                               | yes                                 |
+| proc\_clock\_highres | PRIV\_PROC\_CLOCK\_HIGHRES | Access to the high-resolution clock. FreeSWITCH will refuse to start without this privilege.                                                                                                                               | no, needs to be added by host admin |
+| sys\_resource        | PRIV\_SYS\_RESOURCE        | Allow a process to exceed the resource limits                                                                                                                                                                              | yes                                 |
+| file\_dac\_search    | PRIV\_FILE\_DAC\_SEARCH    | Allow a process to read directories belonging to other uid                                                                                                                                                                 | yes                                 |
+| proc\_priocntl       | PRIV\_PROC\_PRIOCNTL       | Allow a process to control its scheduler. If granted, this allows FreeSWITCH to set the real-time priority scheduler for itself. Otherwise, it tries to use proc\_prioup privilege and sets a higher-than-normal priority. | no, needs to be added by host admin |
+| proc\_prioup         | PRIV\_PROC\_PRIOUP         | Allow a process to elevate its priority. This privilege is used if \-rp flag is specified and proc\_priocntl is not available                                                                                              | yes                                 |
+
+# Zone Definition
+
+Create a "Zone definition" JSON file in a folder under `/opt` (remember that `/root` is mounted on ramdisk and will be flushed after reboot). The zone should receive the `proc_clock_highres` privilege in order to get use of high-resolution timer. FreeSWITCH would crash immediately at start if this privilege is not available within the zone. This means that hosting at Joyent is problematic.
+
+**/opt/vm-def.json**
+
+```xml
+{
+ "autoboot": true,
+ "brand": "joyent",
+ "image_uuid": "1f32508c-e6e9-11e6-bc05-8fea9e979940",
+ "hostname": "fs01",
+ "dns_domain": "example.com",
+ "max_physical_memory": 1024,
+ "alias": "fs01",
+ "quota": "20",
+ "limit_priv": "default,proc_clock_highres,proc_priocntl",
+ "resolvers": [
+  "8.8.8.8",
+  "8.8.4.4"
+ ],
+ "nics": [
+ {
+  "interface": "net0",
+  "nic_tag": "admin",
+  "ip": "192.168.0.104",
+  "netmask": "255.255.255.0",
+  "gateway": "192.168.0.1"
+  }
+ ],
+"internal_metadata": {
+    "root_pw": "xyzfoo62",
+    "admin_pw": "tuvhee94"
+  }
+}
+```
+
+# Create the Zone
+
+Create your virtual zone within smartos:
+
+$# vmadm create -f /opt/vm-def.json
+
+# UUID
+
+Find the UUID assigned to your new VM:
+
+$# vmadm list
+
+# Login
+
+Using the UUID from the above list ( refered to as &lt;UUID> ):
+
+$# zlogin &lt;UUID>
+
+# Build FreeSWITCH
+
+We are now inside the VM and we can execute all the commands to set up for building freeswitch:
+
+**Build FS**
+
+```bash
+ 
+pkgin up && pkgin -y ug && pkgin -y in git gcc49 gmake \
+autoconf gettext gettext-m4 automake libtool pkg-config \
+unixodbc speex speexdsp libogg libvorbis libshout ldns editline libjpeg-turbo \
+lua52 libopus libsndfile
+
+mkdir /opt/local/src
+cd /opt/local/src
+git clone -b v1.6 https://freeswitch.org/stash/scm/fs/freeswitch.git freeswitch
+cd freeswitch
+
+
+./bootstrap.sh -j && \
+sed -i -e 's,^.*/mod_fsv$,\#&,' -e 's,^.*/mod_png$,\#&,' -e 's,^.*/mod_vpx$,\#&,' modules.conf  && \
+./configure -C \
+ --prefix=/opt/local --localstatedir=/var --sysconfdir=/opt/local/etc && \
+make && \
+make install
+```
+
+# Manifest
+
+Contributed by [Kim Culhan](https://freeswitch.org/confluence/display/~kimc) 2017.01.12
+
+I've hacked together this manifest which appears to work well on smartos:
+
+[![](/images/placeholder-medium-code.png)freeswitch.xml](/confluence/download/attachments/3375391/freeswitch.xml?version=1&modificationDate=1526994251516&api=v2)
+
+```xml
+<?xml version="1.0"?>
+<!DOCTYPE service_bundle SYSTEM "/usr/share/lib/xml/dtd/service_bundle.dtd.1">
+<service_bundle type="manifest" name="export">
+    <service name="pkgsrc/freeswitch" type="service" version="1">
+        <create_default_instance enabled="false" />
+        <single_instance />
+        <dependency name='network' grouping='require_all' restart_on='error' type='service'>
+            <service_fmri value='svc:/milestone/network:default' />
+        </dependency>
+        <dependency name='filesystem-local' grouping='require_all' restart_on='none' type='service'>
+            <service_fmri value='svc:/system/filesystem/local:default' />
+        </dependency>
+        <method_context>
+        </method_context>
+        <exec_method type="method" name="start" exec="/opt/local/bin/freeswitch -u freeswitch -nc" timeout_seconds="60" />
+        <exec_method type="method" name="stop" exec=":kill" timeout_seconds="60" />
+        <exec_method type="method" name="refresh" exec=":kill -HUP" timeout_seconds="60" />
+        <property_group name="startd" type="framework">
+            <propval name="duration" type="astring" value="contract" />
+            <propval name="ignore_error" type="astring" value="core,signal" />
+        </property_group>
+        <template>
+            <common_name>
+            <loctext xml:lang="C">freeswitch</loctext>
+            </common_name>
+        </template>
+    </service>
+</service_bundle>
+```
+
+  
+In your FreeSWITCH smartos zone you could copy this to `/opt/local/lib/svc/manifest/freeswitch.xml`
+
+This is based on having the FreeSWITCH executable installed at `/opt/local/bin/freeswitch` and running as user 'freeswitch'
+
+You could create a user 'freeswitch' with:
+
+useradd -d /opt/local/etc/freeswitch -m -c "freeswitch user" freeswitch
+
+After installing freeswitch with 'make install' it will be necessary to set the ownership of some file locations
+
+or freeswitch will fail to start, leaving the service status in 'maintenance' state. This will be true after setting
+
+the service configurations in the next few steps, so before attempting to enable the service
+
+with: 'svcadm enable freeswitch' you will need to set ownership correctly.
+
+Validate with:
+
+  svccfg validate freeswitch.xml
+
+Import the manifest with:
+
+  svccfg import freeswitch.xml
+
+Enable freeswitch:
+
+  svcadm enable freeswitch
+
+Check that it is online:
+
+  svcs -a|grep freeswitch
+
+Caveats
+
+1. FreeSWITCH will refuse to start if the process does not have the `proc_clock_highres` privilege. This means, the zone manifest should be configured to receive this privilege. If you add it to an existing zone, do "`vmadm update`" and then reboot the zone. Also `proc_priocntl` privilege is highly recommended.
+2. ZRTP is not yet supported: `libs/libzrtp` fails to compile.
+3. `Fixed, please test: ` ~~`mod_eventsocket`~~ ~~cannot bind to IPv6 loopback, and "::" in "listen-ip" does not work. You need to specify "127.0.0.1" in it.~~
+4. As of 05-22-18 with Freeswith 1.6 it is necessary to set, in \~/freeswitch/autoload\_configs/event\_socket.conf.xml, &lt;param name="listen-ip" value="127.0.0.1"/> as IPv6 loopback "::" does not work on my setup. I'm using a Smartos zone created with the latest Joyent zone-dataset available at the moment: base-64 18.1.0 2018-04-08 with nothing special adjusted for IPv6.  
+Without modifying the as-shipped freeswitch value, it would not be possible to run fs\_cli and the freeswitch console, amonst other things.
+
+# References
+
+[FS-6561](https://freeswitch.org/jira/browse/FS-6561?src=confmacro)  \-[Autentica](https://freeswitch.org/confluence/plugins/servlet/applinks/oauth/login-dance/authorize?applicationLinkID=c4b15fa3-ad57-3c05-af05-8c167cb92266) per visualizzare i dettagli del problema 
+
+[FS-7967](https://freeswitch.org/jira/browse/FS-7967?src=confmacro)  \-[Autentica](https://freeswitch.org/confluence/plugins/servlet/applinks/oauth/login-dance/authorize?applicationLinkID=c4b15fa3-ad57-3c05-af05-8c167cb92266) per visualizzare i dettagli del problema 
+
+[FS-8195](https://freeswitch.org/jira/browse/FS-8195?src=confmacro)  \-[Autentica](https://freeswitch.org/confluence/plugins/servlet/applinks/oauth/login-dance/authorize?applicationLinkID=c4b15fa3-ad57-3c05-af05-8c167cb92266) per visualizzare i dettagli del problema 
+  
+  
+## Attachments:
+
+![](/images/icons/bullet_blue.gif) [freeswitch.xml](/attachments/3375391/17694857.xml) (text/xml)  
+
+## Comments:
+
+| I have added your contribution under the Manifest header. I also added you to the confluence-editors group so feel free to maintain this as needed.The editing guidelines can be found (currently) under the Community link in the Table of Contents pane.Thanks! Happy New Year! ![](/images/icons/contenttypes/comment_16.png) Posted by boteman at gen 13, 2017 13:07                                                 |
+| ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Freeswitch remains unable to do outbound TCP as per [FS-7991](https://freeswitch.org/jira/browse/FS-7991?src=confmacro)  \-[Autentica](https://freeswitch.org/confluence/plugins/servlet/applinks/oauth/login-dance/authorize?applicationLinkID=c4b15fa3-ad57-3c05-af05-8c167cb92266) per visualizzare i dettagli del problema ![](/images/icons/contenttypes/comment_16.png) Posted by digitaldaz at mar 16, 2017 06:58 |
+
+Document generated by Confluence on nov 11, 2022 04:24

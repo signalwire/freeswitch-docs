@@ -1,0 +1,141 @@
+
+# Python_SBC 
+
+ Created by  Késsia Castro, last modified by  John Boteler on 2017.01.03
+
+# About
+
+by [Addison Martin](https://freeswitch.org/confluence/display/~nikko) This document covers information about PySBC.
+
+Click here to expand Table of Contents
+
+* 1 [PySBC: A Session Border Controller in Python](#pysbc-a-session-border-controller-in-python)  
+   * 1.1 [My Plans](#my-plans)  
+   * 1.2 [Beginning Code](#beginning-code)
+
+# PySBC: A Session Border Controller in Python
+
+FreeSWITCH is not a pure Session Border Controller (SBC). To have a truly scaleable FreeSWITCH cluster with load balancing, and failover, you need a lightweight, high-performance SBC cluster in front of FreeSWITCH Media Servers that handle the media proxy.
+
+## My Plans
+
+SBC written in Python — Using FreeSWITCH ESL libs and Twisted, PySBC is a server written in Python that tracks call volume in each server using ESL. Then, every SIP request PySBC receives, it checks for the lowest loaded server, and responds to the request with a 302 Redirect to that server.
+
+BAM! SBC
+
+Redundancy handled with Heartbeat on 2x of these servers
+
+## Beginning Code
+
+```py
+#NOTE THIS CODE IS INCOMPLETE! It will run, but not without runtime errors.
+"""
+PySBC.py  - Nik's Python Based Load Balancing SBC for FreeSWITCH
+
+Copyright (c) 2010, Nik Martin, Server Corps LLC
+All rights reserved.
+
+Redistribution and use in source and binary forms, with or without modification,
+are permitted provided that the following conditions are met:
+
+Redistributions of source code must retain the above copyright notice, this list
+of conditions and the following disclaimer.
+Redistributions in binary form must reproduce the above copyright notice, this
+list of conditions and the following disclaimer in the documentation and/or
+other materials provided with the distribution.
+Neither the name of the <ORGANIZATION> nor the names of its contributors may be
+used to endorse or promote products derived from this software without specific
+prior written permission.
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
+ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+"""
+
+import ConfigParser
+import sys
+from twisted.internet import reactor
+from twisted.protocols import sip
+from twisted.internet.protocol import ServerFactory
+
+from ESL import ESLconnection
+
+class SipProxy(sip.Proxy):
+    """The actual Proxy SBC"""
+
+    def __init__(self):
+        """this code just runs"""
+        sip.Proxy.__init__(self, host=listenip, port=5060)
+
+    def handle_request(self, message, addr):
+        """Proxy all requests, we don;t currently care wha they are"""
+
+        print message.toString()
+        print dir(message)
+        if message.method == 'ACK':
+            return
+        #Now, get the lest loaded server
+        server = loadbalancer.getserver(fslist)
+        
+        response = self.responseFromRequest(302, message)
+        response.addHeader("Contact", "sip:127.0.0.1:5060")
+        response.creationFinished()
+        self.deliverResponse(response)
+        print response
+        print addr
+
+
+"""
+class sipfactory(ServerFactory):
+
+        protocol=SipProxy
+"""
+
+class loadbalancer:
+    """The FreeSWITCH Load Balancer.
+    Currently uses Current_Calls/Max_Calls=%load"""
+    def getserver(fslist):
+        """gets the best server to redirect the nect action to"""
+        try:
+            for server in server_list(len(fslist)):
+                con = ESLconnection(server, esl_port, esl_pass)
+
+            #are we connected?
+            if con.connected():
+                #run command
+                e = con.api('show calls count')
+                print e.getBody()
+
+            else:
+                print "Not Connected"
+                sys.exit(2)
+
+        except:
+            print "error connecting to server" + server
+
+class setup:
+    """setup class that gets everything initialized"""
+    config = ConfigParser.RawConfigParser()
+    config.read('/etc/pysbc.cfg')
+    myip = config.get('pysbc_config', 'listen_ip')
+    server_list = config.get('freeswitch_config', 'server_list')
+    server_list = server_list.split(",")
+    esl_pass = config.get('freeswitch_config', 'esl_pass')
+    esl_port = config.get('freeswitch_config', 'esl_port')
+
+
+sconfig = setup()
+listenip = sconfig.myip
+fslist = sconfig.server_list
+reactor.listenUDP(5060, SipProxy(), listenip)
+reactor.run()
+```
+
+Document generated by Confluence on nov 11, 2022 04:27

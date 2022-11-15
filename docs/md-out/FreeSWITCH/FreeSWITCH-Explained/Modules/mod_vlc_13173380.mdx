@@ -1,0 +1,222 @@
+
+# mod_vlc 
+
+ Created by  João Vitor on 2016.12.23
+
+# About
+
+You HAVE to have libvlc version 1.2 or later for mod\_vlc to work. Both for the reason that libvlc version 1.2 is LGPL and because there are new APIs in 1.2 that are required.
+
+The Debian Wheezy package for vlc had a segfault in one of the lua playlist plugins making that version of vlc useless with Freeswitch. If you enable the debian wheezy-backports and install that version(2.1) of vlc it'll work fine.
+
+Click here to expand Table of Contents
+
+* 1 [FAQ](#faq)
+* 2 [Building](#building)  
+   * 2.1 [Using vlc from wheezy-backports repo](#using-vlc-from-wheezy-backports-repo)  
+   * 2.2 [Using vlc git repository](#using-vlc-git-repository)
+* 3 [Installing on Ubuntu](#installing-on-ubuntu)  
+      * 3.1.1 [Install Dependencies](#install-dependencies)  
+      * 3.1.2 [Enable module in build](#enable-module-in-build)  
+      * 3.1.3 [Configure/Make](#configuremake)  
+      * 3.1.4 [Enable module in runtime](#enable-module-in-runtime)  
+      * 3.1.5 [Load the Module](#--)  
+   * 3.2 [From packaged library](#from-packaged-library)  
+   * 3.3 [For Mac OS](#for-mac-os)
+* 4 [Usage Examples](#usage-examples)
+* 5 [Development](#--)
+* 6 [TODO](#todo)
+* 7 [NOTES and FEEDBACK](#notes-and-feedback)
+
+# FAQ
+
+Does mod\_vlc support path resolution for sound files like other FS modules.
+
+Not yet, no.
+
+Does mod\_vlc allow multiple channels to stream the same audio source?
+
+Yes, but right now it will open a separate stream from the audio source for each caller. It is on the TODO list to allow additional callers to share the same source stream.
+
+Does mod\_vlc support \[random audio file or stream\] ?
+
+Honestly the answer is probably yes. Since vlc has a huge list of supported audio codecs. Basically give it a try in vlc player. If that works then it'll most likely work in mod\_vlc.
+
+Can mod\_vlc be used to stream calls?
+
+Yes, now it can. Use the format of the --sout option in vlc. Such as:
+
+rtp{mux=ts,dst=239.255.12.42,port=5004,sdp=sap://,name=\\"TestStream\\"}'"
+
+To stream raw audio, use the following command in your dialplan The stream can be accessed using an http get request to [http://ipoffreeswitchserver:port/variablename](http://ipoffreeswitchserverport) (You won't be able to play it vlc)
+
+This can be useful if you want to stream conferences raw (possibly for ASR applications, and then you can do end-pointing using ESL because mod\_conference throws events on start/end of speech). In the conference profile you'd do something like:
+
+```xml
+<param name="auto-record" value="vlc://#standard{access=http,mux=raw,dst=192.168.1.8:8080/${conference_name}}"/>
+```
+
+To stream raw audio, use the following command in your dialplan:
+
+```xml
+<action application="record" data ="vlc://#standard{access=http,mux=raw,dst=localip:someport/somevariable}"/>
+```
+
+If you are peculiar about latency, you might want to use access=file, let the module write to a file, and as it only does write lock you can read from the same file through an external script and stream yourself. Its much faster, the only catch is that you need to take care of synchronization.
+
+Can you add \[random feature\] to mod\_vlc?
+
+There are four good ways to have the feature added: Add the feature request to the list below, catch me on IRC (quentusrex or quentusrex\_), contact [consulting@freeswitch.org](mailto:consulting@freeswitch.org) or send me a patch.
+
+# Building
+
+## Using vlc from wheezy-backports repo
+
+run these commands as a user with sudo access:
+
+sudo echo 'deb <http://debian.osuosl.org/debian/> wheezy-backports main contrib non-free' >> /etc/apt/sources.list
+
+sudo echo 'Package: \*' >> /etc/apt/preferences.d/backports.pref
+
+sudo echo 'Pin: release a=backports' >> /etc/apt/preferences.d/backports.pref
+
+sudo echo 'Pin-Priority: 10' >> /etc/apt/preferences.d/backports.pref
+
+sudo apt-get update
+
+sudo apt-get -t wheezy-backports install vlc-dbg libvlc-dev libvlccore-dev
+
+or as root:
+
+echo 'deb <http://debian.osuosl.org/debian/> wheezy-backports main contrib non-free' >> /etc/apt/sources.list
+
+echo 'Package: \*' >> /etc/apt/preferences.d/backports.pref
+
+echo 'Pin: release a=backports' >> /etc/apt/preferences.d/backports.pref
+
+echo 'Pin-Priority: 10' >> /etc/apt/preferences.d/backports.pref
+
+apt-get update
+
+apt-get -t wheezy-backports install vlc-dbg libvlc-dev libvlccore-dev
+
+## Using vlc git repository
+
+1\. install required packages
+
+```xml
+apt-get install libavcodec-dev libavutil-dev libavformat-dev liba52-0.7.4-dev
+```
+
+2\. Checkout libvlc using the following:
+
+```xml
+git://git.videolan.org/vlc.git to get 
+```
+
+3. configure the libvlc:
+
+```xml
+./configure --prefix=/usr/ --disable-vlc --disable-lua --disable-mad --disable-swscale --disable-postproc --disable-xcb --disable-alsa
+```
+
+4\. make and make install, and you're ready to go.
+
+# Installing on Ubuntu
+
+### Install Dependencies
+
+```xml
+apt-get install libavcodec-dev libavutil-dev libavformat-dev liba52-0.7.4-dev libvlc-dev
+```
+
+  
+ ### Enable module in build
+
+Edit modules.conf in source directory to add mod\_vlc.
+
+```xml
+formats/mod_sndfile
+formats/mod_vlc    <--- NEW
+#languages/mod_perl
+```
+
+ ### Configure/Make
+
+```xml
+./configure && make install
+```
+
+You can also use make mod\_vlc-install
+
+ ### Enable module in runtime
+
+Edit /usr/local/freeswitch/conf/autoload\_configs/modules.conf.xml to add mod\_vlc to the list.
+
+```xml
+<load module="mod_native_file"/>
+<!--For icecast/mp3 streams/files-->
+<load module="mod_vlc"/>          <------- NEW
+```
+
+###   
+Load the Module
+
+from the CLI, run "load mod\_vlc"
+
+## From packaged library
+
+Debian now has VLC 2.0 packaged (squeeze-backports/wheezy). I am now testing with the packaged version of the library.
+
+## For Mac OS
+
+Download and install VLC for mac to /Applications/VLC.app
+
+and then compile with the following Makefile
+
+BASE=../../../..
+include $(BASE)/build/modmake.rules
+
+MACVLC=/Applications/VLC.app/Contents/MacOS
+LOCAL_CFLAGS=-I$(MACVLC)/include
+LOCAL_LDFLAGS=-L$(MACVLC)/lib -lvlc
+
+# Usage Examples
+
+The dialplan syntax I use are one of the following:
+
+```xml
+<action application="playback" data="vlc://http://example.com/vlc.mp3"/>
+
+<action application="playback" data="vlc://mms://example.com/mms_stream"/>
+
+<action application="playback" data="vlc:///usr/local/freeswitch/sounds/vlc.mp3"/>
+
+<action application="record" data="vlc:///path/to/file.mp3"/>
+```
+
+#   
+Development
+
+If you are having troubles, first change the value of vlc\_args in mod\_vlc.c.
+
+The documentation for the libvlc library is located at: <http://www.videolan.org/developers/vlc/doc/doxygen/html/group%5F%5Flibvlc.html>
+
+# TODO
+
+Following list not in priority order.
+
+1. Determine if a new instance is needed for each independant inbound stream, or if a global instance can handle all inbound and outbound streams
+2. Test multiple concurrent listeners to the same stream.  
+   1. Look into have a single libvlc thread stream the file and write to the audio buffer, and multiple readers  
+   2. Test multiple input streams simultaniously  
+   3. Load test multiple requests(both multiple to the same stream, and multiple unique streams) to look for issues
+3. Enable proper seeking support
+4. Add video support
+5. Confirm streaming from file works on differnt sample rates. 8k, 16k, etc.
+
+# NOTES and FEEDBACK
+
+Finally got back around to working on this module and getting it to a working public state. -Quentusrex, 20 months after starting the module.
+
+Document generated by Confluence on nov 11, 2022 04:27

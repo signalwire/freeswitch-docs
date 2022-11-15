@@ -1,0 +1,97 @@
+
+# Multi Homed Dual NIC How To 
+
+ Created by  Waldyr de Souza on 2017.01.13
+
+# About
+
+This tutorial was created from an install of Freeswitch 1.0.6 on Centos 5.5 using the sample configuration files. The system has eth0 on the public network using dhcp and eth1 was on the private network using a static ip address. Depending on your setup some changes to this configuration may be necessary. This tutorial assumes you have a sip phone connected to the system and using extension number 1000 for inbound and outbound dialing. The default install location for conf directory was used, /usr/local/freeswitch/conf.
+
+Click here to expand Table of Contents
+
+* 1 [Multi Homed Dual NIC How To](#multi-homed-dual-nic-how-to)
+
+# Multi Homed Dual NIC How To
+
+1\. Open vars.xml with your favorite text editor located in the conf directory and make the following changes and additions to the file.
+
+```bash
+ Look for the domain veriable and change this to your public ip address or public dns name.
+<X-PRE-PROCESS cmd="set" data="domain=(YOUR PUBLIC IP OR DNS)"/>
+
+Down at the bottom of vars.xml add these variables in the external and internal sections of the configuration flie. In this example $${local_ip_v4} is the public ip address of the system, in your case it may or may not be, 192.168.100.1 is the private ip address being used for the internal network.
+
+<X-PRE-PROCESS cmd="set" data="external_sip_ip=$${local_ip_v4}"/>
+<X-PRE-PROCESS cmd="set" data="external_rtp_ip=$${local_ip_v4}"/>
+
+<X-PRE-PROCESS cmd="set" data="internal_sip_ip=192.168.100.1"/>
+<X-PRE-PROCESS cmd="set" data="internal_rtp_ip=192.168.100.1"/>
+```
+
+  
+2\. Next the external and internal sip configurations need to be edited so open sip\_profile/external.xml first and uncomment the following lines.
+
+```bash
+<param name="force-register-domain" value="$${domain}"/>
+<param name="force-register-db-domain" value="$${domain}"/>
+<param name="dbname" value="share_presence"/>
+<param name="presence-hosts" value="$${domain}"/>
+```
+
+Then open sip\_profile/internal.xml and uncomment the same lines.
+
+```bash
+<param name="force-register-domain" value="$${domain}"/>
+<param name="force-register-db-domain" value="$${domain}"/>
+<param name="dbname" value="share_presence"/>
+<param name="presence-hosts" value="$${domain}"/>
+```
+
+  
+3\. Now a sip provider needs to be added to your external sip profiles, so open sip\_proflie/external/example.xml in here make the necessary changes to this file to connect to a sip providor. There are many tutorials on how to add a sip provider to freeswitch that will not be covered in this tutorial. Change the gateway name to “multi-example" to match the setup of this tutorial.
+
+```bash
+<gateway name="multi-example">
+```
+
+  
+4\. The next step will be routing the inbound DID from the sip provider setup in step 3\. In order for the system to route the DID properly it needs to be specified in the following dialplan configuration file: dialplan/public/00\_inbound\_did.xml. Change the expression value in the destination\_number variable to match what the sip provider is passing, this typically will be the 10 digit number in the US.
+
+```bash
+Before:  <condition field="destination_number" expression="^(phonenumber)$">
+After:  <condition field="destination_number" expression="^(4075551234)$">
+```
+
+  
+5\. In your dial plan you have to specify your outbound route to use the gateway you setup edit this block in dialplan/default/[01\_example.com](http://01%5Fexample.com).exml. The final configuration change to get the system up and running will be to add the sip provider added in step 3 to the default outbound route. Open the file dialplan/default/[01\_example.com](http://01%5Fexample.com).xml and make the following change to the domestic outbound route.
+
+Edit the &lt;extension name="[domestic.example.com](http://domestic.example.com)"> xml block.
+
+```bash
+Before: <action application="bridge" data="sofia/gateway/${default_gateway}/$1"/>
+After: <action application="bridge" data="sofia/gateway/multi-example /$1"/>
+```
+
+6\. In your directory you have to change the param dial-string in directory/default.xml.
+
+```bash
+Before: <param name="dial-string" value="{sip_invite_domain=${dialed_domain},presence_id=${dialed_user}@${dialed_domain}}${sofia_contact(${dialed_user}@${dialed_domain})}"/>
+After: <param name="dial-string" value="{ignore_early_media=true,presence_id=${dialed_user}@${dialed_domain}}${sofia_contact(*/${dialed_user}@${dialed_domain})}${db(select/${domain_name}-call_forward/${dialed_user})}"/>
+```
+
+7\. The last step is to do a full reload and a sip reload with the following commands in the freeswitch cli, fs\_cli.
+
+```bash
+> reloadxml
+> reload mod_sofia
+```
+
+  
+Or just do a full restart of freeSWITCH.
+
+Now all of these changes have been made you should be able to call your DID number and it will ring into your sip phone with extension number 1000 and that phone should also be able to dial out through the sip provider using 11 digit dialing 1+10 digit US number.
+
+This tutorial was provided by [http://www.jonathanmanning.com](http://www.jonathanmanning.com/)
+
+  
+Document generated by Confluence on nov 11, 2022 04:29

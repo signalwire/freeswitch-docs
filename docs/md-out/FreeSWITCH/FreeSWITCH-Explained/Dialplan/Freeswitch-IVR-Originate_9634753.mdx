@@ -1,0 +1,171 @@
+
+# Freeswitch IVR Originate 
+
+ Created by  Pat Beirne, last modified by  John Boteler on 2021.03.13
+
+Click here to expand Table of Contents
+
+* 1 [IVR originate data syntax](#ivr-originate-data-syntax)  
+   * 1.1 [Call a normal channel](#call-a-normal-channel)  
+   * 1.2 [Multiple destinations in outbound calls](#multiple-destinations-in-outbound-calls)  
+   * 1.3 [Answer confirmation](#answer-confirmation)  
+   * 1.4 [Channel variables](#channel-variables)
+
+## IVR originate data syntax
+
+### Call a normal channel
+
+Default pattern for originating calls:
+
+endpoint_name/endpointdata
+
+Originating by profile:
+
+sofia/${profile_name}/1234@domain.com
+
+Or by gateway(the sofia/gateway/ has special meaning make sure you include it when dialing via a gateway):
+
+sofia/gateway/${gateway_name}/1234
+
+If you want to set variables on the originated call, see the description at the top of the [\_\_Channel Variables](./Variables-Archive/x__Channel-Variables_1048892.mdx#--) page.
+
+### Multiple destinations in outbound calls
+
+This means any dialstring may contain a '|' and/or ',' separated list of call URLs. The "|" calls one call at a time, the "," calls multiple calls simultaneously.
+
+The example below will call 2 locations and connects the first to answer
+
+**call 2, bridge to the first to answer**
+
+```xml
+<extension name="3002">
+  <condition field="destination_number" expression="^3002$">
+    <action application="bridge" data="iax/guest@somebox/1234,sofia/test-int/1000@somehost"/>
+  </condition>
+</extension>
+```
+
+If you have a problem with one of the destinations causing the others to stop ringing, insert this into the bridge application: {ignore_early_media=true} like so:
+
+```xml
+<extension name="3002">
+  <condition field="destination_number" expression="^3002$">
+    <action application="bridge" data="{ignore_early_media=true}sofia/test-int/1001@somebox,sofia/test-int/1000@somehost"/>
+  </condition>
+</extension>
+```
+
+If only one destination has the problem, use square brackets instead of curly brackets. Channel variables set within curly brackets (braces) apply to all the call destinations, whereas channel variables set within square brackets apply only to the call destination immediately following it.
+
+And this example will first call 1 location and if that results in a failure, try 2 at once on the next go
+
+**call 1, then call 2**
+
+```xml
+<extension name="3002">
+  <condition field="destination_number" expression="^3002$">
+    <action application="bridge" data="sofia/test-int/3920@10.3.3.104|sofia/test-int/3910@10.3.3.104,sofia/test-int/3920@10.3.3.104"/>
+  </condition>
+</extension>
+```
+
+#### Enterprise originate
+
+  
+**IMPORTANT, you must set continue\_on\_fail=true on the A-leg of the call!**
+
+The so called 'enterprise originate' syntax is a way to simultaneously originate multiple calls in several threads (regular simultaneous originate is single threaded). To use it simply separate valid dial strings by :\_: . Each dial string can have its own {} and \[\] blocks and can themselves be simultaneous or sequential (containing ',' or '|') as above. To add channel variables to the entire enterprise originate use &lt;> blocks:
+
+originate &lt;all_threads=true>{first_thread=true}sofia/gw/foo/bar:_:{second_thread=true}sofia/gw/foo/baz
+
+This can be helpful when dealing with call forwarding. Without it, FreeSWITCH™ would drop the simultaneous dial and transfer to the forwarded extension.
+
+For example, I'm bridging to two SIP phones, 101 and 102, with "," between them. 101 redirects to some other URL. 102 will now stop ringing. With :\_: it wouldn't.
+
+By default each new thread is it's own A-leg in the CDRs. You can access the variable ent\_originate\_aleg\_uuid to put the call back together.
+
+**XML Diaplan Example**
+
+```xml
+<action application="set" data="continue_on_fail=true"/> 
+<action application="bridge" data="<ignore_early_media=true>{origination_caller_id_number=18005551212}sofia/internal/18004441212@192.168.0.10:5060:_:{origination_caller_id_number=18005551213}sofia/internal/18004441213@192.168.0.11:5060"/>
+```
+
+### Answer confirmation
+
+It is possible to map a certain key as required indication of an accepted call. You may also supply a filename to play possibly instructing the call recipient to press the desired key etc...
+
+The example below will call 2 locations playing prompt.wav to any who answer and completing the call to the first off-hook recipient to dial "4"
+
+**call 2, wait for confirmation key==4**
+
+```xml
+<extension name="3002">
+  <condition field="destination_number" expression="^3002$">
+    <action application="set" data="call_timeout=60"/>
+    <action application="set" data="group_confirm_file=/path/to/prompt.wav"/>
+    <action application="set" data="group_confirm_key=4"/>
+    <action application="bridge" data="iax/guest@somebox/1234,sofia/test-int/1000@somehost"/>
+  </condition>
+</extension
+```
+
+  
+The following is the equivalent but the confirm data is passed via the bridge parameters (This is for situations where there is no originating channel to set variables on). It can also be used from the FreeSWITCH command line with the dial string in double quotes (e.g. the originate command).
+
+**alternate form**
+
+```xml
+ <extension name="3002">
+  <condition field="destination_number" expression="^3002$">
+    <action application="bridge" data="{group_confirm_file=/path/to/prompt.wav,group_confirm_key=4,call_timeout=60} iax/guest@somebox/1234,sofia/test-int/1000@somehost"/>
+  </condition>
+</extension>
+```
+
+This logic should be permitted in anything that establishes an outgoing call with `switch_ivr_originate`(). That means even in the originate API command you can call multiple targets and send whoever answers first to an extension that calls more multiple targets. You should be able to do the same in the mod\_conference dial and dynamic conference features.
+
+Note that setting `group_confirm_file` without `group_confirm_key` makes no effect. If you want to just playback an audio prompt to the callee before bridging the call, without asking any confirmation, here's an example:
+
+**no confirm key**
+
+```xml
+<extension name="3002">
+  <condition field="destination_number" expression="^3002$">
+    <action application="bridge" data="{group_confirm_file=playback /path/to/prompt.wav,group_confirm_key=exec,call_timeout=60} iax/guest@somebox/1234,sofia/test-int/1000@somehost"/>
+  </condition>
+</extension> 
+```
+
+exec in answer confirm
+
+Instead of requiring locations to press a certain key to accept the call, you can require them to complete a script. This is done by setting 'group\_confirm\_key=exec' and 'group\_confirm\_file=application script &lt;args>'. In the example below, the test.js script is run for each location that is dialed. Whichever location finishes the script first gets the call.
+
+**execute javascript on each destination**
+
+```xml
+ <extension name="3002">
+  <condition field="destination_number" expression="^3002$">
+    <action application="export" data="call_timeout=60"/>
+    <action application="export" data="group_confirm_key=exec"/>
+    <action application="export" data="group_confirm_file=javascript test.js arg1 arg2"/>
+    <action application="bridge" data="sofia/test-int/1000@domain.com,sofia/test-int/1001@mydomain.com"/>
+  </condition>
+</extension>
+```
+
+Remember that when making a parallel dial in bridge, the script will be executed for all the end (which answers) but finally bridges with the one who completed the script successfully.
+
+### Channel variables
+
+| Variable                        | Description                                                                                       |
+| ------------------------------- | ------------------------------------------------------------------------------------------------- |
+| group\_confirm\_key             | A digit that should be entered by the called party to accept the call.                            |
+| group\_confirm\_file            | An audio file or phrase that is played to the called party (e.g. "Press 1 to answer the call")    |
+| group\_confirm\_cancel\_timeout | If set, cancels leg\_timeout after the call is answered. originate\_timeout still remains active. |
+| group\_confirm\_error\_file     | Audio file or phrase to play after invalid confirmation input.                                    |
+| group\_confirm\_read\_timeout   | Time in milliseconds to wait for the confirmation input (default: 5000)                           |
+| fail\_on\_single\_reject        | (boolean value, needs description)                                                                |
+  
+  
+Document generated by Confluence on nov 11, 2022 04:27

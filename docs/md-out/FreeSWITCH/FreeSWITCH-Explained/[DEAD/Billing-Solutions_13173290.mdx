@@ -1,0 +1,304 @@
+
+# Billing Solutions 
+
+ Created by  Italo Monteiro, last modified by  livem Chan on 2018.12.13
+
+Click here to expand Table of Contents
+
+* 1 [DIY Billing for FreeSWITCH](#diy-billing-for-freeswitch)
+* 2 [Open Source Billing Solutions for FreeSWITCH](#open-source-billing-solutions-for-freeswitch)  
+   * 2.1 [ASTPP - Open Source VOIP Billing Solution](#astpp---open-source-voip-billing-solution)  
+         * 2.1.1 [Customer Account](#customer-account)  
+         * 2.1.2 [Reseller Support](#reseller-support)  
+         * 2.1.3 [Call Rating Capabilities](#call-rating-capabilities)  
+         * 2.1.4 [Least Cost & Failover Routing](#least-cost--failover-routing)  
+         * 2.1.5 [Credit Control](#credit-control)  
+         * 2.1.6 [DID Mapping](#did-mapping)  
+         * 2.1.7 [Automated Account & Device Management](#automated-account--device-management)  
+         * 2.1.8 [Calling Cards](#calling-cards)  
+         * 2.1.9 [Vendor Billing](#vendor-billing)  
+   * 2.2 [vBilling. The First Open Source Billing Platform for FreeSWITCH](#vbilling-the-first-open-source-billing-platform-for-freeswitch)  
+   * 2.3 [FreeSWITCH Viking](#freeswitch-viking)  
+         * 2.3.1 [Wholesale Application](#wholesale-application)  
+         * 2.3.2 [Testing the BETA](#testing-the-beta)  
+         * 2.3.3 [Calling Card Application](#calling-card-application)  
+         * 2.3.4 [CLI-based/Retail](#cli-basedretail)  
+   * 2.4 [CGrates - Carrier Grade Realtime Charging](#cgrates---carrier-grade-realtime-charging)
+* 3 [Commercial Billing Solutions for FreeSWITCH](#commercial-billing-solutions-for-freeswitch)  
+   * 3.1 [Multi-Tenant/Reseller/White Label](#multi-tenantresellerwhite-label)  
+   * 3.2 [DTH VoIP Billing](#dth-voip-billing)  
+   * 3.3 [WebCDR](#webcdr)  
+   * 3.4 [2600hz.org](#2600hzorg)
+
+# DIY Billing for FreeSWITCH
+
+Do it yourself billing for FreeSWITCH by [Avi Marcus](https://wiki.freeswitch.org/wiki/User:Avi%5FMarcus "User:Avi Marcus") ([talk](https://wiki.freeswitch.org/wiki/User%5Ftalk:Avi%5FMarcus "User talk:Avi Marcus"))
+
+* For post-paid, you can simply post-process the [CDRs](../Configuration/CDR/index.mdx#about).
+* To enforce a channel limit per account, you can use limit  
+   * &lt;action application="limit" data="hash outbound ${accountcode} 4"/>  
+   * For just 1 machine, you can use in-memory 'hash'. To share the limit across several machines, use 'db'.
+* For setting a credit limit, you can schedule cutoffs. Calculate many seconds their remaining credit allows, then:  
+   * On your A leg: &lt;action application="export" data="nolocal:api\_on\_answer=[sched\_transfer](https://wiki.freeswitch.org/wiki/Misc.%5FDialplan%5FTools%5Fsched%5Ftransfer "Misc. Dialplan Tools sched transfer") +3600 ${uuid} cutoff\_incall"/>  
+         * after 3600 seconds from answer, transfer the call to an extension called cutoff\_incall. Or, you can just [sched\_hangup](https://wiki.freeswitch.org/wiki/FreeSwitch%5FScheduler%5FAPI#Scheduled%5Fhangup%5Fdialplan%5Fapplication "FreeSwitch Scheduler API") with no message.  
+   * You can also [schedule](https://wiki.freeswitch.org/wiki/FreeSwitch%5FScheduler%5FAPI#Scheduled%5Fbroadcast%5Fdialplan%5Fapplication "FreeSwitch Scheduler API") a warning message to the A user: &lt;action application="[sched\_broadcast](https://wiki.freeswitch.org/wiki/FreeSwitch%5FScheduler%5FAPI#Scheduled%5Fbroadcast%5Fdialplan%5Fapplication "FreeSwitch Scheduler API")" data="+3540 playback::/tmp/1\_minute\_left.wav"/>
+* To enforce multiple channels with a strict prepaid, you need to be aware of the other active calls affect on the balance, otherwise 2 expensive calls can use up the remaining balance twice, leading to a large negative.  
+   * With $10 on their account, they might initiate two $1/minute calls. If you calculate based on the current balance and allow 2 channels, then each will cut off after $10 -- a $20 bill on only $10 of credit.  
+   * [mod\_nibblebill](https://wiki.freeswitch.org/wiki/Mod%5Fnibblebill "Mod nibblebill") will let you bill calls on a set heartbeat, e.g. every 6 seconds. Be sure to save the charges in your CDRs so you can reconstruct why their balance went up or down.  
+   * There might be some other creative, hackish solution, but I haven't implemented one...
+
+# Open Source Billing Solutions for FreeSWITCH
+
+## ASTPP - Open Source VOIP Billing Solution
+
+[ASTPP](http://astpp.org/) is a billing solution for Freeswitch and Asterisk. It supports pre-paid and post-paid billing with call rating and credit control. It also provides many other features such as calling cards, least cost routing (LCR), did management, resellers, callbacks, etc. ASTPP is able to integrate with OSCommerce to provide a Web store for your users to purchase calling cards and sign up for VoIP accounts.
+
+* Demo Information : <http://astpp.org/index.php/demo>
+* Installation Guide : <http://wiki.astpp.org/index.php?title=Installation%5FGuide>
+
+  
+**Key Features**
+
+### Customer Account
+
+* Support for an unlimited number of customer accounts
+* Support a mix of Post-paid and Prepaid accounts
+* Your invoices can be generated on numerous different cycles: daily, weekly, monthly, quarterly, biyearly or yearly.
+* Apply charges to the customers’ accounts on a per account or per pricelist basis. This can be done in the same cycles as the invoices are generated at.
+
+### Reseller Support
+
+* Mulit layer reseller support
+* Reseller can add their own rates
+* Reseller portal
+
+### Call Rating Capabilities
+
+* Real-time freeswitch billing
+* Batch billing
+* Unlimited number of brands/pricelists
+* Very flexible call processing
+* Calls can be posted to ASTPP ie. Prepaid billing
+* Calls can be posted to 3rd party applications such as OSCommerce, Optigold, or AgileBill.
+* All charges are written to CSV files
+* Very powerful and flexible regex pattern matching applies the correct rate
+* Packages: Support to have X number of free minutes to Y locations. This will allow you to offer your customers X free minutes per month for Y price and bill after the minutes are used up.
+
+### Least Cost & Failover Routing
+
+* Provides redundancy based on cost
+* Powerful regex based LCR engine
+* Limit the number of simultaneous calls per trunk
+* Multiple trunks per provider
+
+### Credit Control
+
+* Allows you to control the length of your users calls
+* Keep prepaid users from spending more than they have purchased
+
+### DID Mapping
+
+* Dynamically map incoming DIDs to the correct user via the web interface
+* Impose credit controls on incoming DIDs.
+* Dynamically assign extensions to users.
+* Handles monthly billing for DIDs
+
+### Automated Account & Device Management
+
+* Automation supported via HTTP POST commands
+* Manage ASTPP accounts from 3rd party billing applications
+* Manage Asterisk devices from 3rd party billing applications
+* Manage DIDs from 3rd party billing application with inventory management
+
+### Calling Cards
+
+* Generate cards in bulk and enable as you go along
+* Support for connection & disconnection fees
+* Support a charge after X number of hours of usage
+* Support a charge after X number of days after first usage and repeats every X days.
+* Support expiration of cards X days after first usage
+* Bill in customizable increments
+* Integrate fully with Freeswitch and Asterisk.
+* Customer portal allows calling card users to view their cards status.
+* ANI Mapping
+
+### Vendor Billing
+
+* Track what your calls through each vendor should have cost. This assist in ensuring that all billing is correct.
+* Vendor login page which allows vendors to set their call costs.
+
+## vBilling. The First Open Source Billing Platform for FreeSWITCH
+
+The first Open Source billing platform for FreeSWITCH. Take a look at <http://www.vbilling.org/> to see all features and details.
+
+Some of the major features includes:
+
+* **Both Pre-Paid and Post-Paid model**
+* **Multiple administration access levels**
+* **Multiple reseller level**
+* **Easy rate/price management**
+* **Route management**
+* **Separate user interface to view their CDR(s) and billing information**
+* **Authentication by IP/ANI and SIP registration**
+* **Codec management for both user and switch**
+* **CDR statistics**
+* **Gateway statistics**
+* **Admin/Reseller/User management**
+* **Switch management from 1 GUI**
+* **Balance and payment information**
+
+... and much more.
+
+Download and install via github <http://github.com/digitallinx/vBilling> or our website, <http://vbilling.org/get-started/> The demo is available online and can be accessed using the following credentials
+
+  
+Admin Panel: <http://demo.vbilling.org/>   
+Admin Login: admin  
+Admin Password: vBilling   
+  
+Customer Panel: <http://demo.vbilling.org/>  
+Customer Login: demouser  
+Customer Password: demouser
+
+  
+If you have any questions, just drop us an email at [support@vbilling.org](mailto:support@vbilling.org) or visit our support panel at <http://support.vbilling.org/> or even the community forum at <http://forum.vbilling.org/> and we would be happy to assist you. 
+
+## FreeSWITCH Viking
+
+### Wholesale Application
+
+We are eagerly awaiting his posting an application on the git contrib. I'm finishing a "complete" wholesale application created on freeswitch and I was wondering whether it would be a good idea to put it up on the wiki. I just don't know how.
+
+Features include all the following parameters configurable via web interface:
+
+* Profile creation based on server IP where traffic is received. You can have multiple IPs, system will create multiple profiles/diaplans so it can differentiate.  
+   * i.e. offer to the same customer a "gold" routing on IP1 and cheap routing on IP2
+* Customer add/modify/delete  
+   * IP source  
+   * Rates for client routes based on area code  
+   * Prepaid or postpaid.  
+         * When customer balance is 0, no more calls are allowed.  
+   * limit max channels  
+   * Media by-pass  
+         * When by-passed, customer and provider will exchange RTPs directly. Else, server will be in the middle.
+* Provider add/modify/delete  
+   * costs for provider routes based on area code  
+   * limit max channels
+* Routing based on areacode, gives great granularity.
+* Routes can be assigned multiple gateways/providers which can in turn be distributed based on weight. Includes overflow to next configured GW.
+* Basic financial report generation (totals) by customer/provider
+* Basic traffic ASR/ACD report (totals) by customer/provider
+* Basic user administration. (No access level, only total access)
+* CDR export to csv file.
+
+### Testing the BETA
+
+You can test the BETA version by getting it from the git:
+
+&lt;git://github.com/davidcsi/FreeSWITCH-Billing.git>
+
+### Calling Card Application
+
+I also have a prepaid card app... no web interface on that one though. I do the route selecting with a lua script. overflow and load distribution with mod\_distributor loaded via curl.
+
+* You can have multiple card access numbers associated to a card "name"
+* Each card is associated with a rate table.
+* Each areacode in the rate table has a route to use, which in turn is a distributor gw list.
+* Every gateway is actually a provider which also has a cost table associated with it.
+* After the call duration is calculated, the app sets a shcedule-api to disconnect the call.
+* When the call is hung up, a CDR is posted to the webserver via xml\_cdr.
+* This CDR contains all information regarding the call. i.e. rate, cost, clgnum, cldnum, gw\_used, balance\_before, balance\_after, ratetable, costtable, etc...
+
+### CLI-based/Retail
+
+I have now made a retail version for FreeSWITCH-Billing.
+
+It works like this:
+
+* A specific context is created for this application.
+* Any calls which comes in on said context is handled by the retail script.
+* The script Looks up the incomming caller ID Number in a DB table.
+* The CLI is associated with a "Master" acount via the Master account's ID.
+* This Master account has a balance, a rate table and a username/password (for later use, this user will be able to check his traffic, balance, etc via web)
+* If the account has a positive balance, the rate table is used to apply a price per minute.
+* The Max talk time is calculated and set by the script and the call is sent out using the route tables (already existing in the wholesale side).
+* Once the call is finished, the CDR is posted using mod\_xml\_cdr on a web server and the receiving php inserts the cdr into the cdr table, also calculating and setting the cost of the call.
+
+TO DO:
+
+* web pages for the client to check out his balance, clis, etc.
+
+  
+I will upload this into the github this weekend!
+
+Have fun!
+
+note: any suggestion is VERY welcome!
+
+## CGrates - Carrier Grade Realtime Charging
+
+Home page: <http://www.cgrates.org/>
+
+Source code: <https://github.com/cgrates/cgrates>
+
+# Commercial Billing Solutions for FreeSWITCH
+
+## Multi-Tenant/Reseller/White Label
+
+[ITSPtec](http://www.itsptec.com/freeswitch%5Fbilling.html) Offers a complete and mature Carrier grade converged FreeSWITCH billing system, service provisioning and customer management platform that enables telecommunication service providers and carriers to offer HostedPBX, Carrier/Wholesale, Calling card and Residential VoIP services.
+
+**Billing Engine**
+
+* Robust and flexible Routing Engine
+* Real-time billing
+* Flexible rating
+* Invoicing System
+* Credit Card payment processing
+* Multiple business models (HostedPBX, Residential VoIP, Carrier/Wholesale, Callingcard, Callshops etc)
+* Prepaid and postpaid service
+* Products and account management
+* Web-based customer care and self-provisioning
+* Reports (Billing, Account, CDR's etc)
+* Least Cost Routing or LATA/LERG Based Routing
+* Web Interface that controls all aspects of billing engine
+* Partnerships /Reseller
+* Account Management
+* Scalability, reliability and high availability
+* Operation support systems and fraud detection
+* Statistics and monitoring
+* Scratch cards and recharge cards
+
+**Telephony Services Offered**
+
+* HostedPBX
+* Carrier/Wholesale
+* Residential VoIP services.
+* Calling card
+* Call Shops etc
+
+**Support (24/7 support)**
+
+* We offer various support packages with free Updates/Upgrades
+
+Website: [http://www.itsptec.com](http://www.itsptec.com/)
+
+## DTH VoIP Billing
+
+_Mentioned on [the blog](http://www.freeswitch.org/node/266)_
+
+See [the home page](http://www.dthvoipbilling.com/pub/features.aspx) for a full list of features, as they are extensive!
+
+## WebCDR
+
+A hosted telecom and VoIP billing solution which supports FreeSWITCH. Their other cloud-based services include an anti-fraud solution, real-time routing, and WebCDR Watchdog for QoS and VoIP monitoring. (For more information, [visit their home page.](https://www.webcdr.com/))
+
+## 2600hz.org
+
+Open source / commercial - [2600hz.org](http://www.2600hz.org/) should have a paid-for commercial billing solution of some kind.
+
+## Comments:
+
+| OV500 Billing Solution<https://ov500.openvoips.org/>License: GPLOV500 is opensource Billing and Switching Solution developed by the openvoips community manage by Chinna Technologies. Features:**System Management Interface**GUI is developed GUI in Codeigniter framework.**Highly Scalable with Integrated Routing, Switching, and Billing**Regardless of the concurrent calls and calls per second with the distributed architecture design, the solution can seamlessly perform Routing**,** switching and billing operations.**Advance routing mechanism** Least cost routing on the same priority routes, priority routing and load balancing between the same priority routes including the LCR. **Real-Time with Live Reports**Get the live calls statistics reports to track business flow and determine profits and carrier connectivity stats. **Solution fit for Different Volumes**The solution is designed in such a way that it conforms with different wholesale VoIP business models, retail business models and VoIP aggregators.**Integrated payment gateway**Ready to use the PayPal payment gateway by simple configuration to collect payment across the world. **Ready to Integrated SIP Log system**Ready to integrated Homer sipcapture with single module enabling in load balancer module. ![](/images/icons/contenttypes/comment_16.png) Posted by openvoips at ott 30, 2019 08:42 |
+| --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+
+Document generated by Confluence on nov 11, 2022 04:28

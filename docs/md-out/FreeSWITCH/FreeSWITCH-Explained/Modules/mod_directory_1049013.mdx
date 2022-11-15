@@ -1,0 +1,250 @@
+
+# mod_directory 
+
+ Created by  John Boteler, last modified by  Emmanuel Schmidbauer2 on 2015.01.15
+
+# About
+
+mod\_directory is a dial by name directory application.
+
+```xml
+directory <profile_name> <domain name> <transfer context>
+```
+
+Caller can search for a member of a domain using their telephone keypad. They can search by first or last name. Single or multiple results can be returned and easily navigated. The directory application will play, if available, the recorded name associated with the extension, letter spell the name or can be setup to use cepstral tts. The letter spelling vs tts setup is accomplished by changing conf/lang/en/en.xml.
+
+Directory uses phrase macros, delivered into "conf/lang/en/us/dir".
+
+Click here to expand ToC
+
+* [Configuration](#configuration)  
+   * [Params](#params)  
+         * [search-order](#-search-order-)  
+         * [use-number-alias](#-use-number-alias-)
+* [Dialplan Usage](#dialplan-usage)
+* [Name source](#name-source)  
+   * [Variables](#-directory-visible-)  
+         * [directory\_full\_name](#-directory_full_name-)  
+         * [effective\_caller\_id\_name](#-effective_caller_id_name-)  
+   * [Parameters](#-parameters-)  
+         * [directory-visible](#-directory-visible-)  
+         * [directory-exten-visible](#-directory-exten-visible-)  
+   * [Example Directory Entry](#-example-directory-entry)  
+   * [Interaction with xml\_curl](#interaction-with-xml_curl)
+* [Sounds Files](#-directory-visible-)
+* [Speaking the name](#speaking-the-name)
+
+# Configuration
+
+The directory application has a configuration file (directory.conf.xml) which is loaded on FreeSWITCH startup from **conf/autoload\_configs**.
+
+Demo directory.conf.xml file:
+
+```xml
+<configuration name="directory.conf" description="Directory">
+  <settings>
+  </settings>
+  <profiles>
+    <profile name="default">
+      <param name="max-menu-attempts" value="3"/>
+      <param name="min-search-digits" value="3"/>
+      <param name="terminator-key" value="#"/>
+      <param name="digit-timeout" value="3000"/>
+      <param name="max-result" value="5"/>
+      <param name="next-key" value="6"/>
+      <param name="prev-key" value="4"/>
+      <param name="switch-order-key" value="*"/>
+      <param name="select-name-key" value="1"/>
+      <param name="new-search-key" value="3"/>
+      <param name="search-order" value="last_name"/>
+      <param name="use-number-alias" value="false"/>
+    </profile>
+  </profiles>
+</configuration>
+```
+
+## Params
+
+The directory application will react differently depending on some params set in the configuration file.
+
+###  search-order 
+
+Some customers will say that people only know them by first name, and when you are dealing with a small entity, it doesn't really hurt. So you can set this param to "first\_name" instead of the profile default value of "last\_name", then it will search the directory using first names.
+
+You can also set search-order to "first\_and\_last\_name" which will allow search the directory for matches of either first or last name.
+
+If you have the "search-order" param set to last\_name and would like to use first\_name on some calls, you can set the "directory\_search\_order" channel variable to "first\_name" and it will search by first name for the current call.
+
+```xml
+<action application="set" data="directory_search_order=first_name"/>
+```
+
+###  use-number-alias 
+
+Setting this parameter to true will have directory search by the "number-alias" instead of "id" in user directory.
+
+# Dialplan Usage
+
+To use directory from the dialplan:
+
+```xml
+<extension name="directory" continue="true">
+ <condition field="destination_number" expression="^411$">
+  <action application="directory" data="default $${domain} default"/> 
+ </condition>
+</extension>
+```
+
+# Name source
+
+Directory uses the Freeswitch User Directory as its source of information.
+
+##  Variables 
+
+Multiple variables set on a user will change how the directory finds/returns information. Specify these in the &lt;variables> section of the user.
+
+###  directory_full_name 
+
+This field needs to contain the full name of the person in this format "FirstName LastName". This is primarily used to override the effective\_caller\_id\_name that is used by default. Useful if the display of the name on the caller id has been shortened or reversed, it can also be useful if your have characters that aren't present on a telephone keypad.
+
+###  effective_caller_id_name 
+
+This field will be used if directory\_full\_name isn't set. Check directory\_full\_name for more information.
+
+##  Parameters 
+
+Specify these in the &lt;params> section of the user.
+
+###  directory-visible 
+
+True:False/ This allow to hide a user from the directory. Useful for dummy extension(Door phone, Intercom...) or private entry (CEO). (Defaults to True)
+
+###  directory-exten-visible 
+
+True/False: This define if we playback the extension of the person after it name or not. Can be useful so caller doesn't need to access the directory on every call. You might not want to give your extension for privacy and security (Defaults to True)
+
+##  Example Directory Entry
+
+Example: freeswitch/conf/directory/default/1001.xml
+
+```xml
+  <include>
+    <user id="1001" mailbox="1001">
+      <params>
+        <param name="password" value="12$z3def."/>
+        <param name="vm-password" value="1234"/>
+        <param name="directory-exten-visible" value="false"/>
+      </params>
+      <variables>
+        <variable name="toll_allow" value="domestic,international,local"/>
+        <variable name="accountcode" value="1001"/>
+        <variable name="user_context" value="default"/>
+        <variable name="effective_caller_id_name" value="John Doe"/>
+        <variable name="effective_caller_id_number" value="1001"/>
+        <variable name="directory_full_name" value="John Doe"/>
+      </variables>
+    </user>
+  </include>
+```
+
+## Interaction with xml_curl
+
+Whenever this application is called, it parses the user directory and creates a mapping between each user's name, and the digits that would be dialed to spell their name. If you are using xml\_curl to generate your user directory on the fly, it is important that you include some logic in your script that will return enough information when this lookup is performed.
+
+The request will look something like this:
+
+**Note:** some elements have been removed, such as FreeSWITCH-Hostname, etc...
+
+```xml
+ section->directory
+ tag_name->domain
+ key_name->name
+ key_value-><domain passed to the directory application>
+ Event-Name->REQUEST_PARAMS
+ Calling-File->mod_directory.c
+ Event-Calling-Function->populate_database
+```
+
+Your script must return each user that is a member of the specified domain, so the directory application can build it's lookup table.
+
+```xml
+<?xml version="1.0"?>
+<document type="freeswitch/xml">
+  <section name="directory">
+    <domain name="'''lab.somedomain.com'''">
+    </params>
+    <variables/>
+      <groups>
+        <group name="default">
+          <users>
+            <user id="5240">
+              <params/>
+              <variables>
+                <variable name="effective_caller_id_name" value="Lab 1"/>
+              </variables>
+            </user>
+            <user id="5241">
+              <params>
+              <param name="directory_full_name" value="John Doe"/>
+              <params/>
+              <variables>
+                <variable name="effective_caller_id_name" value="Lab 2"/>
+               </variables>
+            </user>
+            <user id="5242">
+              <params/>
+              <variables>
+                <variable name="effective_caller_id_name" value="Lab 3"/>
+              </variables>
+            </user>
+          </users>
+        </group>
+      </groups>
+    </domain>
+  </section>
+</document>
+```
+
+In the above example, only the effective\_caller\_id\_name and directory\_full\_name values are returned. While there is no harm in returning other fields like sip passwords, dial strings, etc. there is no reason to. The less data FreeSWITCH has to parse, the better.
+
+The users returned MUST be a member of a group, otherwise mod\_directory will not parse them. You can enclose all the returned users in the default group to satisfy this requirement.
+
+#  Sounds Files 
+
+The default en/us/callie sounds contain the sounds needed for the directory.
+
+If you would like to use your TTS engine for everything instead of using prerecorded sounds, edit the \[freeswitch\_root\]/conf/lang/\[language\]/\[language\].xml and replace the line that looks like:
+
+```xml
+<X-PRE-PROCESS cmd="include" data="dir/sounds.xml"/>
+```
+
+with:
+
+```xml
+<X-PRE-PROCESS cmd="include" data="dir/tts.xml"/>
+```
+
+# Speaking the name
+
+If the user has recorded their name, then that recording will be used when listing the matches. If they have not, the name will be read one letter at a time by default. If you would like the system to read their name as if it were being spoken, the following two files will have to be edited:
+
+\[freeswitch\_root\]/conf/lang/\[language\]/dir/sounds.xml - Replace the action tag under "directory\_result\_say\_name" with:
+
+```xml
+<action function="speak-text" data="$1"/>
+```
+
+\[freeswitch\_root\]/conf/lang/\[language\]/\[language\].xml - Make sure that your tts engine and voice are correct in the line:
+
+```xml
+<language name="[language]" say-module="[language]" sound-prefix="$${sounds_dir}/en/us/callie" tts-engine="flite" tts-voice="slt">
+```
+
+If you are using flite, you can find information about it here: [mod\_flite](./mod_flite_3965160.mdx#about)
+
+_language_ is the two character language abbreviation
+
+_freeswitch\_root_ is the root of your Freeswitch installation
+
+Document generated by Confluence on nov 11, 2022 04:27

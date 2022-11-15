@@ -1,0 +1,324 @@
+
+# Command Line Interface (fs_cli) 
+
+ Created by  John Boteler, last modified by  Italo Rossi on 2021.11.18
+
+---
+
+Table of Contents (click to expand)
+
+* [0\. About](#-freeswitch--command-line-interface-fs_cli-)
+* [1\. Requirements](#1-requirements)
+* [2\. Install](#-freeswitch--command-line-interface-fs_cli-)  
+   * [2.1 Server](#-freeswitch--command-line-interface-fs_cli-)  
+   * [2.2 Client](#-freeswitch--command-line-interface-fs_cli-)
+* [3\. Usage](#-freeswitch--command-line-interface-fs_cli-)  
+   * [3.1 Available switches](#31-available-switches)  
+   * [3.2 Examples](#32-examples)  
+         * [3.2.1 Simple](#321-simple)  
+         * [3.2.2 Using profiles](#322-using-profiles)  
+         * [3.2.3 Sending a command and then logging off](#323-sending-a-command-and-then-logging-off)
+* [4\. Available commands](#4-available-commands)  
+   * [4.1 FreeSWITCH API](#41-freeswitch-api)  
+   * [4.2 Forward slash (/) commands](#42-forward-slash--commands)
+* [5\. Configuration](#5-configuration)  
+   * [5.1 switch.conf.xml](#-freeswitch--command-line-interface-fs_cli-)  
+   * [5.2 mod\_console](#-freeswitch--command-line-interface-fs_cli-)  
+   * [5.3 /etc/fs\_cli.conf and \~/.fs\_cli](#53-etcfs_cliconf-and-fs_cli-)  
+         * [5.3.1 Format](#531-format)  
+         * [5.3.2 Configuration options](#532-configuration-options)
+* [6\. Wish List](#-freeswitch--command-line-interface-fs_cli-)
+* [7\. See Also](#-freeswitch--command-line-interface-fs_cli-)
+
+---
+
+## 0\. About
+
+The `fs_cli` program is a Command-Line Interface that allows a user to connect to a running FreeSWITCH™ instance. The `fs_cli` program can connect to the FreeSWITCH™ process on the local machine or on a remote system. (Network connectivity to the remote system is, of course, required.)
+
+The `fs_cli` program uses FreeSWITCH™ 's [Event Socket Library (ESL)](./Event-Socket-Library/index.mdx#-new-) to tap into FreeSWITCH™'s event system to send commands issued by the user, and to collect the server responses to send to the display. The [Event Socket Library (ESL)](./Event-Socket-Library/index.mdx#-new-), a C-based socket library, was developed for use with `fs_cli,` although a programmer could use this library for any C language program that needs to connect to the event socket. With the `-x` switch (see below) `fs_cli` can issue a command to the server, get a response, and then disconnect.
+
+The `fs_cli` program can connect to FreeSWITCH™, whether it has been [started](../Introduction/Running-FreeSWITCH_15696307.mdx#about)[ as a service](../Introduction/Running-FreeSWITCH_15696307.mdx#about) (TODO) or [on the console (either background or foreground)](../Introduction/Running-FreeSWITCH_15696307.mdx#about) (TODO), regardless of operating system.
+
+## 1\. Requirements
+
+`fs_cli` **requires** [mod\_event\_socket](../Modules/mod_event_socket_1048924.mdx#11-acl) to be loaded in order to connect to the FreeSWITCH™ server.
+
+Normally, the easiest way to [check if a module is loaded](../Modules/mod_commands_1966741.mdx#domain_exists) is to use `fs_cli` 
+
+```xml
+$ fs_cli
+
+freeswitch@tr2> module_exists mod_event_socket
+true
+
+# or
+$ fs_cli -x 'module_exists mod_event_socket'
+true
+```
+
+but in this case, for obvious reasons, check whether the [mod\_event\_socket](../Modules/mod_event_socket_1048924.mdx#11-acl) is enabled in `modules.conf.xml` (see [Configuring FreeSWITCH](../Configuration/Configuring-FreeSWITCH/index.mdx#set)).
+
+The default [mod\_event\_socket](../Modules/mod_event_socket_1048924.mdx#11-acl) configuration binds to `::` (i.e., to listen to connections from **any** host), which will work on IPv4 or IPv6\. 
+
+`::` means that [mod\_event\_socket](../Modules/mod_event_socket_1048924.mdx#11-acl) will listen to connections from **any** host (see vanilla `<conf_dir>/autoload_configs/[event_socket.conf.xml](https://github.com/signalwire/freeswitch/blob/a5cecbfc2a5e0ea2d3f45489f2681a67e32ce955/conf/vanilla/autoload%5Fconfigs/event%5Fsocket.conf.xml)` configuration file in the [SignalWire GitHub repository](https://github.com/signalwire/freeswitch)). There are obvious security risks, so one would want to change this (e.g., to localhost only, `::1` ), and perhaps also limit access via a firewall and/or [ACL](https://wiki.freeswitch.org/wiki/ACL "ACL"), as well as never using the default password.
+
+## 2\. Install
+
+### 2.1 Server 
+
+The FreeSWITCH™ server will build and install the `fs_cli` client by default.
+
+### 2.2 Client 
+
+The client can also be built without needing to build the entire FreeSWITCH™ server.
+
+To build:
+
+```xml
+make current
+cd libs/esl
+make
+```
+
+To run:
+
+```xml
+./fs_cli
+```
+
+## 3\. Usage
+
+### 3.1 Available switches
+
+**command syntax**
+
+```bash
+  -?,-h --help                    Usage Information
+  -H, --host=hostname             Host to connect (default is 127.0.0.1)
+  -P, --port=port                 Port to connect (default is "8021")
+  -u, --user=user@domain          user@domain
+  -p, --password=password         Password (default is "ClueCon")
+  -i, --interrupt                 Allow Control-c to interrupt
+  -x, --execute=command           Execute Command and Exit
+  -l, --loglevel=command          Log Level (default is debug)
+  -U, --log-uuid                  Include UUID in log output
+  -S, --log-uuid-short            Include shortened UUID in log output
+  -q, --quiet                     Disable logging
+  -r, --retry                     Retry connection on failure every two seconds until connected (or until 2 minutes has passed)
+  -R, --reconnect                 Reconnect if disconnected
+  -d, --debug=level               Debug Level (0 - 7)
+  -b, --batchmode                 Batch mode
+  -t, --timeout                   Timeout for API commands (in miliseconds)
+  -T, --connect-timeout           Timeout for socket connection (in miliseconds)
+  -n, --no-color                  Disable color
+```
+
+### 3.2 Examples
+
+#### 3.2.1 Simple
+
+```xml
+fs_cli
+```
+
+`fs_cli` which connects to local machine using default username, password, and debug level.
+
+#### 3.2.2 Using profiles
+
+```xml
+fs_cli my_profile
+```
+
+Launches `fs_cli` using profile named "my\_profile" found in `.fs_cli_conf` file (see **section 5.3** below).
+
+#### 3.2.3 Sending a command and then logging off
+
+```xml
+fs_cli -x "sofia status profile internal"
+```
+
+Launches `fs_cli` and sends a command before logging off. The output of the above command looks like this:
+
+```xml
+$ fs_cli -x "sofia status profile internal"
+=================================================================================================
+Name internal
+Domain Name N/A
+Auto-NAT false
+DBName sofia_reg_internal
+Pres Hosts 10.0.0.5,10.0.0.5
+Dialplan XML
+Context public
+Challenge Realm auto_from
+RTP-IP 10.0.0.5
+SIP-IP 10.0.0.5
+URL sip:mod_sofia@10.0.0.5:5060
+BIND-URL sip:mod_sofia@10.0.0.5:5060;transport=udp,tcp
+WS-BIND-URL sip:mod_sofia@10.0.0.5:5066;transport=ws
+WSS-BIND-URL sips:mod_sofia@10.0.0.5:7443;transport=wss
+HOLD-MUSIC local_stream://moh
+OUTBOUND-PROXY N/A
+CODECS IN OPUS,G722,PCMU,PCMA,VP8
+CODECS OUT OPUS,G722,PCMU,PCMA,VP8
+TEL-EVENT 101
+DTMF-MODE rfc2833
+CNG 13
+SESSION-TO 0
+MAX-DIALOG 0
+NOMEDIA false
+LATE-NEG true
+PROXY-MEDIA false
+ZRTP-PASSTHRU true
+AGGRESSIVENAT false
+CALLS-IN 0
+FAILED-CALLS-IN 0
+CALLS-OUT 0
+FAILED-CALLS-OUT 0
+REGISTRATIONS 0
+```
+
+## 4\. Available commands
+
+### 4.1 FreeSWITCH API
+
+While connected, the user can issue any command in the [FreeSWITCH API](../Introduction/FreeSWITCH-API_30867723.mdx#-freeswitch--freeswitch-api-) (which are all the commands exposed in the [enabled modules](../Configuration/Configuring-FreeSWITCH/index.mdx#modulesconfxml) and [mod\_commands](../Modules/mod_commands_1966741.mdx#--)).
+
+See the `console` commands for example, exposed by [mod\_console](../Modules/mod_console_1048950.mdx#about) .
+
+```xml
+freeswitch@tr2> console
+USAGE:
+--------------------------------------------------------------------------------
+console help
+console loglevel [[0-7] | <loglevel_string>]
+console uuid [on|off|toggle]
+console json [on|off|toggle]
+console colorize [on|off|toggle]
+-------------------------------------------------------------------------------
+```
+
+### 4.2 Forward slash (`/`) commands
+
+Additionally, there are several commands that can be issued using a forward slash (`/`) character.
+
+| "slash" command       | Description                                                                                                                                                                                                                                                                                                                       | Examples                                                                                                                 | Notes                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| --------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| /quit                 | These all result in disconnecting from the FreeSWITCH command line.                                                                                                                                                                                                                                                               | /quit                                                                                                                    |                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| /bye                  | /bye                                                                                                                                                                                                                                                                                                                              |                                                                                                                          |                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| /exit                 | /exit                                                                                                                                                                                                                                                                                                                             |                                                                                                                          |                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| /event                | Subscribe to [FreeSWITCH ](../Introduction/Event-System/index.mdx#0-about)[events](../Introduction/Event-System/index.mdx#0-about).                                                                                                                                                                                                                                   | /event all                                                                                                               | This command corresponds to the [event](../Modules/mod_event_socket_1048924.mdx#35-event) command in [mod\_event\_socket](../Modules/mod_event_socket_1048924.mdx#11-acl).                                                                                                                                                                                                                                                                   |
+| /noevents             | Unsubscribe from all events (previously subscribed to using /event).                                                                                                                                                                                                                                                              | /noevents                                                                                                                | This command corresponds to the [noevents](../Modules/mod_event_socket_1048924.mdx#315-noevents) command in [mod\_event\_socket](../Modules/mod_event_socket_1048924.mdx#11-acl).                                                                                                                                                                                                                                                            |
+| /nixevent             | Suppress the specified type of event. Useful when you want to allow /event all followed by nixevent &lt;some\_event> to see all but one type of event.                                                                                                                                                                               | /nixevent HEARTBEAT                                                                                                      | This command corresponds to the [nixevent](../Modules/mod_event_socket_1048924.mdx#314-nixevent) command in [mod\_event\_socket](../Modules/mod_event_socket_1048924.mdx#11-acl).                                                                                                                                                                                                                                                            |
+| /log                  | Set [log level](../Modules/mod_console_1048950.mdx#about) of the FreeSWITCH deamon.0 - CONSOLE 1 - ALERT 2 - CRIT 3 - ERR 4 - WARNING 5 - NOTICE 6 - INFO 7 - DEBUG                                                                                                                                                                           | /log alert/log 1                                                                                                         | This command corresponds to the [log](../Modules/mod_event_socket_1048924.mdx#312-log) command in [mod\_event\_socket](../Modules/mod_event_socket_1048924.mdx#11-acl).TODO **So what is the point of console loglevel &lt;level> ?** The default log level is stated when fs\_cli is started (which is 7 for debug), but console loglevel will report NOTICE (i.e., 5).However it is, /log seems to take precedence over the console commands. |
+| /nolog                | Disable logging.                                                                                                                                                                                                                                                                                                                  | /nolog                                                                                                                   | This command corresponds to the [nolog](../Modules/mod_event_socket_1048924.mdx#313-nolog) command in [mod\_event\_socket](../Modules/mod_event_socket_1048924.mdx#11-acl).                                                                                                                                                                                                                                                                  |
+| /uuid                 | Filter logs for a single call (specified by its UUID).                                                                                                                                                                                                                                                                            | /uuid 6936d2ad-bea3-40b3-9de3-34024404e8d4                                                                               |                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| /filter               | Specify what events to listen to by [event header](../Introduction/Event-System/Event-headers_32178341.mdx#0-about) value./filter &lt;EventHeader> &lt;ValueToFilter>                                                                                                                                                                                                     | /filter Event-Name HEARTBEAT/filter Unique-ID d29a070f-40ff-43d8-8b9d-d369b2389dfe                                       | This command corresponds to the [filter](../Modules/mod_event_socket_1048924.mdx#36-filter) command in [mod\_event\_socket](../Modules/mod_event_socket_1048924.mdx#11-acl).                                                                                                                                                                                                                                                                 |
+| /filter delete        | Delete previously set event filters./filter delete &lt;EventHeader> &lt;ValueToFilter>If &lt;ValueToFilter> is omitted, the command will delete all filters previously set for the specified event header.                                                                                                                                 | /filter delete Event-Name HEARTBEAT/filter delete Unique-ID d29a070f-40ff-43d8-8b9d-d369b2389dfe/filter delete Unique-ID | This command corresponds to the [filter delete](../Modules/mod_event_socket_1048924.mdx#37-filter-delete) command in [mod\_event\_socket](../Modules/mod_event_socket_1048924.mdx#11-acl).                                                                                                                                                                                                                                                    |
+| /logfilter &lt;string>   | Filter the logs by the given &lt;string> . (The log levels are set by /log , see above.)TODO What is the exact syntax? Does it accept regexes as well? I know that it takes anything that follows /logfilter literally, because adding double quotes to a string with space will actually look for double quotes in the log entries. | /logfilter Codec Activated                                                                                               |                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| /logfilter            | Disable all logfilters.                                                                                                                                                                                                                                                                                                           | /logfilter                                                                                                               |                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| /help                 | List available fs\_cli commands.                                                                                                                                                                                                                                                                                                  | /help                                                                                                                    |                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| /debug &lt;debug\_level> | There are 8 debug levels (from 0 to 7) and the higher the number the more verbose the logs will become./debug &lt;debug\_level> is equivalent to /log 7 /debug &lt;debug\_level>                                                                                                                                                        | /debug 3                                                                                                                 |                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| /debug                | Same as /debug 0                                                                                                                                                                                                                                                                                                                  | /debug                                                                                                                   |                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+
+For command-line editing, see "Command-Line Editing" section of [mod\_console](https://wiki.freeswitch.org/wiki/Mod%5Fconsole#Command-Line%5FEditing "Mod console"). The details are the same as of [SVN r13964](http://fisheye.freeswitch.org/changelog/FreeSWITCH/?cs=13964).
+
+## 5\. Configuration
+
+TODO The statements in this section need confirmation. For example, tried to de-colorize the console logs by setting the relevant section to `false` in `console.conf.xml` (see [mod\_console](../Modules/mod_console_1048950.mdx#about)) and in [switch.conf.xml](../Configuration/Configuring-FreeSWITCH/Switch.conf.xml_9634306.mdx#about), while having no `fs_cli.conf` anywhere in the system after a [vanilla FreeSWITCH](../Installation/Linux/Vanilla-installation-files_27591294.mdx#0-about) install.
+
+### 5.1 [switch.conf.xml](../Configuration/Configuring-FreeSWITCH/Switch.conf.xml_9634306.mdx#about)
+
+[switch.conf.xml](../Configuration/Configuring-FreeSWITCH/Switch.conf.xml_9634306.mdx#about) contains the core FreeSWITC configuration, see more there.
+
+### 5.2 [mod_console](../Modules/mod_console_1048950.mdx#about)
+
+[mod\_console](../Modules/mod_console_1048950.mdx#about) and its configuration file, `console.conf.xml` also affect `fs_cli`, and some of the options are redundant with [switch.conf.xml](../Configuration/Configuring-FreeSWITCH/Switch.conf.xml_9634306.mdx#about).
+
+### 5.3 `/etc/fs_cli.conf` and `~/.fs_cli` 
+
+TODO This section definitely needs confirmation; the [vanilla FreeSWITCH](../Installation/Linux/Vanilla-installation-files_27591294.mdx#0-about) install doesn't have any `fs_cli.conf` (only `~/.fs_cli_history` ), and the only intact `fs_cli.conf` file I could find is [this](https://github.com/signalwire/freeswitch/blob/master/libs/esl/fs%5Fcli.conf).
+
+Use `fs_cli.conf` to override existing configuration (`/etc/fs_cli.conf` for system-wide settings and `~/.fs_cli_conf` for user-specific settings).
+
+#### 5.3.1 Format
+
+The config file uses a simple INI-style layout and allows for multiple profiles. This allows one to access many FreeSWITCH™ systems from a single workstation.
+
+```xml
+[default]
+; Put me in /etc/fs_cli.conf or ~/.fs_cli_conf
+;overide any default options here
+loglevel => 6
+log-uuid => false
+quiet => false
+key_f1 => help
+key_f2 => status
+key_f3 => show channels
+key_f4 => show calls
+key_f5 => sofia status
+key_f6 => reloadxml
+key_f7 => /log console
+key_f8 => /log debug
+key_f9 => sofia status profile internal
+key_f10 => sofia global siptrace on
+key_f11 => sofia global siptrace off
+key_f12 => version
+
+[profile1]
+host     => 192.168.1.10
+port     => 8021
+password => secret_password
+debug    => 7
+
+[profile2]
+host     => 192.168.1.11
+port     => 8021
+password => someother_password
+loglevel => info
+
+[my_profile]
+```
+
+#### 5.3.2 Configuration options
+
+| Option                            | Description                                                                                                                                                                                                                                                                                                                                     | Example                                |         |        |      |       |                                  |  |
+| --------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------- | ------- | ------ | ---- | ----- | -------------------------------- |  |
+| host => &lt;hostname>                | Host to connect (default is 127.0.0.1)                                                                                                                                                                                                                                                                                                          | host => 127.0.0.1                      |         |        |      |       |                                  |  |
+| port => &lt;port>                    | Port to connect (default is 8021)                                                                                                                                                                                                                                                                                                               | port => 8021                           |         |        |      |       |                                  |  |
+| user => &lt;username>                | user@domain                                                                                                                                                                                                                                                                                                                                     |                                        |         |        |      |       |                                  |  |
+| password => &lt;password>            | Password (default is "ClueCon")                                                                                                                                                                                                                                                                                                                 | password => ClueCon                    |         |        |      |       |                                  |  |
+| interrupt => true \| false        | Allow Control-c to interrupt                                                                                                                                                                                                                                                                                                                    |                                        |         |        |      |       |                                  |  |
+| execute => &lt;command>              | Execute command and exit                                                                                                                                                                                                                                                                                                                        |                                        |         |        |      |       |                                  |  |
+| loglevel => console \| alert      | crit                                                                                                                                                                                                                                                                                                                                            | err                                    | warning | notice | info | debug | Set log Level (default is debug) |  |
+| log-uuid => true \| false         | Include UUID in log output                                                                                                                                                                                                                                                                                                                      |                                        |         |        |      |       |                                  |  |
+| log-uuid-short => true \| false   | Include shortened UUID in log output                                                                                                                                                                                                                                                                                                            |                                        |         |        |      |       |                                  |  |
+| quiet => true \| false            | Disable logging                                                                                                                                                                                                                                                                                                                                 |                                        |         |        |      |       |                                  |  |
+| retry => true \| false            | Retry connection on failure every two seconds until connected (or until 2 minutes has passed)                                                                                                                                                                                                                                                   |                                        |         |        |      |       |                                  |  |
+| reconnect => true \| false        | Reconnect if disconnected                                                                                                                                                                                                                                                                                                                       |                                        |         |        |      |       |                                  |  |
+| debug => &lt;0 .. 7>                 | Debug Level (0 - 7)                                                                                                                                                                                                                                                                                                                             |                                        |         |        |      |       |                                  |  |
+| batchmode => true \| false        | Batch modeTODO What does this mean?                                                                                                                                                                                                                                                                                                             |                                        |         |        |      |       |                                  |  |
+| timeout => &lt;milliseconds>         | Timeout for API commands (in miliseconds)                                                                                                                                                                                                                                                                                                       |                                        |         |        |      |       |                                  |  |
+| connect-timeout => &lt;milliseconds> | Timeout for socket connection (in miliseconds)                                                                                                                                                                                                                                                                                                  |                                        |         |        |      |       |                                  |  |
+| no-color => true \| false         | Disable color                                                                                                                                                                                                                                                                                                                                   |                                        |         |        |      |       |                                  |  |
+| key\_f&lt;n>                         | Set F1 - F12 keys for a certain functionality.Default key-bindingsF1 = help F2 = status F3 = show channels F4 = show calls F5 = sofia status F6 = reloadxml F7 = console loglevel 0 F8 = console loglevel 7 F9 = sofia status profile internal F10 = sofia profile internal siptrace on F11 = sofia profile internal siptrace off F12 = version | See example at **5.3.1 Format** above. |         |        |      |       |                                  |  |
+
+## 6\. Wish List  
+
+* Option to see all output to include FS console output.
+* Option to see all output from all fs\_cli instances connected to the FS box, plus the console.
+* Option to connect to more than one FS box.
+
+## 7\. See Also
+
+* [mod\_event\_socket](../Modules/mod_event_socket_1048924.mdx#11-acl)
+* [Event Socket Library](./Event-Socket-Library/index.mdx#-new-)
+* [Event list](../Introduction/Event-System/Event-List_7143557.mdx#nat)
+* [Fs\_gui](https://wiki.freeswitch.org/wiki/Fs%5Fgui "Fs gui")
+
+## Comments:
+
+| See this JIRA for an issue I faced: [FS-7718](https://freeswitch.org/jira/browse/FS-7718?src=confmacro)  \-[Autentica](https://freeswitch.org/confluence/plugins/servlet/applinks/oauth/login-dance/authorize?applicationLinkID=c4b15fa3-ad57-3c05-af05-8c167cb92266) per visualizzare i dettagli del problema I was not able to connect to freeswitch on localhost with fs\_cli until I copied the example conf file from /usr/src/freeswitch to /usr/loca/freeswitch.Maybe future releases won't require this but I'm writing here so at least I know how to resolve tfs\_cli connection issues. ![](/images/icons/contenttypes/comment_16.png) Posted by jungleboogie at giu 23, 2015 22:55 |
+| --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+
+Document generated by Confluence on nov 11, 2022 04:27

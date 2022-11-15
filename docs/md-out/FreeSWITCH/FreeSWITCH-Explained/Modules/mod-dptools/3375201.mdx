@@ -1,0 +1,571 @@
+
+# mod_dptools: limit 
+
+ Created by  John Boteler, last modified by  Jérôme Poulin on 2022.08.05
+
+# About
+
+  
+Set a limit on number of calls to/from a resource.Limit is designed to provide limit management on resources. This is useful if you want to limit the number of calls to or from an arbitrary resource.
+
+  
+When the limit is reached, the call is automatically transferred to "limit\_exceeded" in the same context or the specified context.
+
+Note that a limit is active within a given context - if you transfer an inbound call from the public dialplan to an extension in the default dialplan - any limit you just set in the public dialplan will be reset.
+
+NB: if the limit is on the destination number, and then the call is transferred to another extension even in same context, limit will be decreased
+
+Also note that a limit is not decreased if you transfer the call using the "REFER" method, eg using the TRANSFER button on the phone.
+
+Click to expand Table of Contents
+
+* 1 [Dialplan Apps](#dialplan-apps)  
+   * 1.1 [limit](#limit)  
+         * 1.1.1 [realm](#limit)  
+         * 1.1.2 [resource](#-resource-)  
+         * 1.1.3 [max](#limit)  
+         * 1.1.4 [transfer\_destination\_number](#-transfer_destination_number-)  
+   * 1.2 [limit\_execute](#limit_execute)  
+         * 1.2.1 [backend](#-backend-)  
+         * 1.2.2 [realm](#-realm-)  
+         * 1.2.3 [resource](#-resource-)  
+         * 1.2.4 [max](#limit)  
+         * 1.2.5 [application](#-application-)  
+         * 1.2.6 [application arguments](#-application-arguments-)
+* 2 [API](#limit)  
+   * 2.1 [limit\_status](#limit_status)  
+   * 2.2 [limit\_usage](#limit_usage)  
+   * 2.3 [uuid\_limit\_release](#uuid_limit_release)  
+   * 2.4 [limit\_interval\_reset](#limit_interval_reset)  
+   * 2.5 [hash\_remote](#-hash_remote-)
+* 3 [Channel Variables](#channel-variables)  
+   * 3.1 [Variables Set by Limit](#variables-set-by-limit)  
+   * 3.2 [Variables That Affect Limit](#variables-that-affect-limit)
+* 4 [Backends](#backends)  
+   * 4.1 [db](#limit)  
+   * 4.2 [hash](#limit)  
+   * 4.3 [hiredis](#hiredis)
+* 5 [Which Backend Do I Use?](#which-backend-do-i-use)
+* 6 [Examples](#more-examples)  
+   * 6.1 [Limit Access To an Application](#-limit-access-to-an-application-)  
+   * 6.2 [Limit a User's Concurrent Calls](#limit-a-users-concurrent-calls)  
+   * 6.3 [Rate Limiting Calls, Anti-SPIT](#rate-limiting-calls-anti-spit)  
+   * 6.4 [User Busy](#user-busy)  
+   * 6.5 [Using Limit With Per-Gateway or Per-User Channel Limits](#using-limit-with-per-gateway-or-per-user-channel-limits)  
+   * 6.6 [Using Limit With an Outbound Gateway](#using-limit-with-an-outbound-gateway)  
+   * 6.7 [Using Limit to Monitor Each Gateway IP Address](#using-limit-to-monitor-each-gateway-ip-address)  
+   * 6.8 [Using Limit to Handle Outbound Calls](#using-limit-to-handle-outbound-calls)  
+   * 6.9 [More Examples](#more-examples)  
+         * 6.9.1 [Imported from an old FreeSwitch weekly article.](#imported-from-an-old-freeswitch-weekly-article)
+
+# Dialplan Apps
+
+The limit dialplan apps are implemented by [mod\_dptools](../mod_dptools_1970333.mdx#-c).
+
+## limit
+
+```xml
+limit <backend> <realm> <resource> <max[/interval]> [<transfer_destination_number> [<dialplan> [<context>]]
+```
+
+  
+backend
+
+The backend to use.
+
+###  realm 
+
+Arbitrary name
+
+###  resource 
+
+The resource on which to limit the number of calls.
+
+###  max 
+
+The maximum number of concurrent calls allowed to pass or a call rate in calls/sec. If not set or set to a negative value the limit application only acts as a counter.
+
+Note: limit is not decreased if you transfer the call using the "REFER" method, eg using the TRANSFER button on the phone.  
+NB: if the limit is on the destination number, and then the call is transferred to another extension even in same context, limit will be decreased
+
+The interval argument is ONLY supported by the hash and hiredis backend.
+
+###  transfer_destination_number 
+
+Transfer to this extension in the dialplan. It's optional. If you don't give it, limit transfers to 'limit\_exceeded' extension in the current dialplan and context.
+
+## limit_execute
+
+Execute requested APP only if resource has not reached its limit
+
+Note: limit is not decreased if you transfer the call using the "REFER" method, eg using the TRANSFER button on the phone.  
+NB: if the limit is on the destination number, and then the call is transferred to another extension even in same context, limit will be decreased
+
+limit_execute &lt;backend> &lt;realm> &lt;resource> &lt;max[/interval]> &lt;application> [application arguments]
+
+###  backend 
+
+The backend to use.
+
+###  realm 
+
+Arbitrary name
+
+###  resource 
+
+The resource on which to limit application execution
+
+###  max 
+
+The maximum number of concurrent executions or an interval in executions/sec. If set to a negative value then there is no limit; the limit system simply acts as a counter. Setting the value to zero will set a limit of zero, meaning no concurrent executions.
+
+Note: limit is not decreased if you transfer the call using the "REFER" method, eg using the TRANSFER button on the phone.  
+NB: if the limit is on the destination number, and then the call is transferred to another extension even in same context, limit will be decreased
+
+###  application 
+
+The application to execute
+
+###  application arguments 
+
+The optional application arguments
+
+  
+# API
+
+The limit APIs are implemented by [mod\_commands](../mod_commands_1966741.mdx#--). You can also use them via the dialplan like so:
+
+```xml
+<action application="set" data="api_result=${limit_usage(<backend> <realm> <id></pre>)}"/>
+```
+
+limit\_reset
+
+Resets a given limit backend.
+
+* DB: deletes ALL entries for that hostname.
+* Hiredis: not implemented.  
+   * to reset the resource, use the command:  
+   * hiredis_raw set &lt;resource_name> 0
+* Hash: not implemented.
+
+API: limit_reset &lt;backend>
+
+## limit_status
+
+Retrieve current status of a given backend. Only supported in DB, not hash or hiredis.
+
+API: limit_status &lt;backend>
+
+## limit_usage
+
+Retrieve current usage for a given resource, all backends.
+
+Note: limit is not decreased if you transfer the call using the "REFER" method, eg using the TRANSFER button on the phone.  
+NB: if the limit is on the destination number, and then the call is transferred to another extension even in same context, limit will be decreased
+
+limit_usage &lt;backend> &lt;realm> &lt;id>
+
+## uuid_limit_release
+
+Manually decrease the usage by one by removing the "usage" entry for that UUID.
+
+If realm/resource is specified, it removes only that limit. Otherwise, it removes all limits held by the given UUID.
+
+API: uuid_limit_release &lt;uuid> &lt;backend> [realm] [resource]
+
+## limit_interval_reset
+
+Manually reset the interval counter to zero prior to the next interval starting: Only implemented in Hash, not DB or hiredis.
+
+API: limit_interval_reset &lt;backend> &lt;realm> &lt;resource>
+
+##  hash_remote 
+
+You can access data from other FreeSWITCH systems with the **hash\_remote** API. The hash\_remote API uses the event socket. Configure your server names and credentials in conf/autoload\_configs/hash.conf.xml.
+
+It seems it queries each remote hash endpoint every 5 seconds for the entire hash list. It hen adds that to normal hash usage on the current server.
+
+hash_remote &lt;list>|&lt;kill> [name]|&lt;rescan>
+
+# Channel Variables
+
+## Variables Set by Limit
+
+The following [channel variables](../../Dialplan/Channel-Variables_16352493.mdx#about) are set when limit is called.
+
+* "limit\_realm"
+* "limit\_id"
+* "limit\_max"
+
+These channel variables are used at hang up to remove the record. More specifically, the delete is limited by uuid, hostname, realm and id.
+
+## Variables That Affect Limit
+
+limit\_ignore\_transfer=true - causes the current call count to not be reset when the call is transferred. This is useful where calls that come into a gateway are transferred to an extension, but you want to preserve the call count.
+
+limit\_ignore\_transfer=false - calls that are transferred cause the call count for that realm\_id to decrement
+
+Note: limit is not decreased if you transfer the call using the "REFER" method, eg using the TRANSFER button on the phone.
+
+NB: if the limit is on the destination number, and then the call is transferred to another extension even in same context, limit will be decreased
+
+# Backends
+
+## db
+
+You may choose to take advantage of the db backend [mod\_db](../mod_db_6586567.mdx#api) to allow multiple servers to limit the number of calls and stay aware of how many calls &lt;resource> has in session across all participating servers.
+
+## hash
+
+[mod\_hash](../mod_hash_6586975.mdx#api) provides a hashtable backend for limit. It uses a hashtable as data structure (faster) and has some additional features. Here is the syntax for the main application:
+
+&lt;action application="limit" data="hash &lt;realm> &lt;id> [&lt;max>[/&lt;interval>] [number [dialplan [context]]]" />
+
+Note that you can also do rate-limiting with this application by specifying an interval, 5/1 will limit the resource to 5 calls per second. The application will transfer the call to the specified number/dialplan/context if the resource is currently over-limit. You can also use tell limit\_hash to automatically hangup the call when its over-limit, use a ! before the number to indicate that it is a hangup cause.
+
+&lt;action application="limit" data="hash inbound 15142223333 2 !USER_BUSY" />
+
+If the maximum isn't specified, limit will count the number of active calls but won't limit anything.
+
+## hiredis
+
+mod\_hiredis[ provides a redis backend for limit.](../mod_redis_3964957.mdx#about)
+
+# Which Backend Do I Use?
+
+| Backend | Speed   | Persistence       | Cluster-ability  | Interval Support |
+| ------- | ------- | ----------------- | ---------------- | ---------------- |
+| Hash    | fastest | no                | see hash\_remote | yes              |
+| DB      | slow    | yes               | possible         | no               |
+| Hiredis | fast    | yes, configurable | yes              | yes              |
+
+#  Examples 
+
+##  Limit Access To an Application 
+
+It is sometimes required to limit access to a single application, such as when trying outbound carriers, the following will do so:
+
+```xml
+<action application="limit_execute" data="hash <realm> <id> <max>[/<interval>] <application> <data>" />
+```
+
+**Example:** this will try 2 carriers, not sending more than 5 calls per carrier.
+
+```xml
+<extension name="outbound">
+  <condition field="destination_number" expression="^1?[2-9]\d{2}[2-9]\d{6}$">
+    <action application="limit_execute" data="hash outbound carrier1 5 bridge sofia/gateway/carrier1/${destination_number}" />
+    <action application="limit_execute" data="hash outbound carrier2 5 bridge sofia/gateway/carrier2/${destination_number}" />
+  </condition>
+</extension>
+```
+
+## Limit a User's Concurrent Calls
+
+The following is a simple example of limiting a user in your domain to 1 call. Here, max\_calls is set to 1 in the dialplan, but you could use a global variable (vars.xml) or a user variable (directory.conf).
+
+```xml
+      <extension name="limit_exceeded">
+        <condition field="destination_number" expression="^limit_exceeded$">
+          <action application="playback" data="/sounds/overthelimit.wav"/>
+          <action application="hangup"/>
+        </condition>
+      </extension>
+
+      <extension name="limit" continue="true">
+        <condition>
+          <!-- You can set ${max_calls} per user in directory.conf and remove the line below -->
+          <action application="set" data="max_calls=1" inline="true"/>
+          <action application="limit" data="db $${domain} ${sip_auth_username} ${max_calls}"/>
+        </condition>
+      </extension> 
+```
+
+Note that limit\_exceeded comes before the limit extension as limit() uses transfer(), which will search from the beginning of the dialplan. You must do this or add regex to check the destination to avoid a transfer loop.
+
+  
+## Rate Limiting Calls, Anti-SPIT
+
+Limit the calls per second by source ip + destination number:
+
+```xml
+<action application="limit" data="hash ${sip_received_ip} ${destination_number} ${calls_per_second}/1" />
+```
+
+Limit calls to 5 calls every 10 minutes:
+
+```xml
+<action application="limit" data="hash ${sip_received_ip} ${destination_number} 5/600" />
+```
+
+## User Busy
+
+This checks the current usage a limit counter before dialing a user, conditionally returning user\_busy or putting the call through under a specific condition over the value of this counter. This can be useful if you wish to check against a counter managed by an external application or incremented by other events.
+
+```xml
+<action application="bridge" data="${cond(${limit_usage(db time_spent in_bed)} <= 60 ? error/user_busy : user/$1)}" />
+```
+
+**Note:** The above action will not increment the limit counter.
+
+**Note:** In recent versions, in order for this function to return a non-zero value you must call the limit application before. It should set some limit for this resource (even -1 which is unlimited) in order to enable counting.
+
+## Using Limit With Per-Gateway or Per-User Channel Limits
+
+If you wish to set a limit bound to the b-leg part of a call (ex: outgoing counter), it is only possible using loopback channels. The following will do so:
+
+```xml
+<action application="set" data="destnum=${destination_number}" />
+<action application="bridge" data="loopback/context/gw1,loopback/context/gw2" />
+```
+
+And inside the corresponding context:
+
+```xml
+<extension name="gw1">
+  <condition field="destination_number" expression="gw1">
+    <action application="limit" data="db outgoing gw1 10" />
+    <action application="bridge" data="sofia/gateway/gw1/${destnum}" />
+  </condition>
+</extension>
+<extension name="gw2">
+  <condition field="destination_number" expression="gw2">
+    <action application="limit" data="db outgoing gw2 5" />
+    <action application="bridge" data="sofia/gateway/gw2/${destnum}" />
+  </condition>
+</extension>
+```
+
+The result of this example is that if the first gateway has too many channels open, then it cleans up the limit data for the first gateway before trying the next gateway.
+
+If this was done within an extension as a series of limit and bridge apps, then the limit data wouldn't be cleaned up until the a-leg returned to the CS\_ROUTING state. That would mean calls would continue holding a channel open on a gateway they had tried while they were still connected to another gateway.
+
+## Using Limit With an Outbound Gateway
+
+Example below, things to note:
+
+* auto\_hunt=true so that you can jump directly to extensions without going through the entire dialplan
+* Replace PROVIDER1..3 with the relevant gateways
+* Replace PROVIDER1..3\_CHANNEL\_LIMIT with the relevant channel limit
+* transfer is done after the bridge so that failover works between the providers, ie, PROVIDER1 may be down
+* This example is only for 10 digit US phone numbers, please adapt as needed to other dialplans
+
+  
+```xml
+<extension name="Outbound calls">
+        <!-- support calls to 10 digit US phone numbers directly -->
+        <condition field="destination_number" expression="^(\d{10})$" break="on-true">
+                <action application="set" data="continue_on_fail=true"/>
+                <action application="set" data="hangup_after_bridge=true"/>
+                <action application="enum" data="1$1 e164.arpa"/>
+                <action application="bridge" data="${enum_auto_route}"/>
+                <action application="enum" data="1$1 e164.org"/>
+                <action application="bridge" data="${enum_auto_route}"/>
+                <action application="enum" data="1$1 nrenum.net"/>
+                <action application="bridge" data="${enum_auto_route}"/>
+                <action application="set" data="auto_hunt=true"/>
+                <action application="limit" data="$${domain} gw_PROVIDER1 PROVIDER1_CHANNEL_LIMIT usdirect2"/>
+                <action application="bridge" data="sofia/gateway/PROVIDER1/1$1"/>
+                <action application="transfer" data="usdirect2"/>
+        </condition>
+</extension>
+
+<extension name="usdirect2">
+        <condition field="destination_number" expression="^usdirect2$"/>
+        <condition field="rdnis" expression="^(\d{10}$)">
+                <action application="limit" data="db $${domain} gw_PROVIDER2 PROVIDER2_CHANNEL_LIMIT usdirect3"/>
+                <action application="bridge" data="sofia/gateway/PROVIDER2/1$1"/>
+                <action application="transfer" data="usdirect3"/>
+        </condition>
+</extension>
+
+<extension name="usdirect3">
+        <condition field="destination_number" expression="^usdirect3$"/>
+        <condition field="rdnis" expression="^(\d{10}$)">
+                <action application="limit" data="db $${domain} gw_PROVIDER3 PROVIDER3_CHANNEL_LIMIT"/>
+                <action application="bridge" data="sofia/gateway/PROVIDER2/1$1"/>
+        </condition>
+</extension>
+
+<extension name="limit_exceeded">
+        <condition field="destination_number" expression="^limit_exceeded$">
+                <action application="playback" data="/sounds/overthelimit.wav"/>
+                <action application="hangup"/>
+        </condition>
+</extension>
+```
+
+## Using Limit to Monitor Each Gateway IP Address
+
+To get the number of concurrent calls per gateway ip address, you may issue a command as follows:
+
+To monitor "inbound"
+# fs_cli -x 'limit_usage db inbound 1.2.3.4'
+
+To monitor "outbound
+# fs_cli -x 'limit_usage db outbound 5.6.7.8'
+
+Example Dialplan:
+
+```xml
+    <extension name="customer_a">
+      <condition field="network_addr" expression="^1\.2\.3\.4$"/>
+      <condition field="destination_number" expression="^(.*)$">
+        <action application="limit" data="db inbound 1.2.3.4 10000" />
+        <action application="limit_execute" data="db outbound 5.6.7.8 10000 bridge sofia/gateway/5.6.7.8/$1"/>
+      </condition>
+    </extension>
+```
+
+## Using Limit to Handle Outbound Calls
+
+If you have the default configs then locate the Local\_Extension in conf/dialplan/default.xml. Add this line right after the condition:
+
+```xml
+<action application="limit" data="hash ${domain} $1 1 handle_over_limit XML over_limit_actions"/>
+```
+
+Then add this new file as "limits.xml" in conf/dialplan/ :
+
+```xml
+<include>                                                                                                                                                       
+ <context name="over_limit_actions">                                                                                                                           
+   <extension name="oops, too many calls for this one">                                                                                                        
+     <condition field="destination_number" expression="handle_over_limit">                                                                                     
+       <action application="answer"/>                                                                                                                          
+       <action application="playback" data="ivr/ivr-no_no_no.wav"/>                                                                                            
+       <action application="playback" data="ivr/ivr-no_no_no.wav"/>                                                                                            
+       <action application="playback" data="ivr/ivr-no_no_no.wav"/>                                                                                            
+       <action application="hangup" data="USER_BUSY"/>                                                                                                         
+     </condition>                                                                                                                                              
+   </extension>                                                                                                                                                
+ </context>                                                                                                                                                    
+</include>
+```
+
+Now when you call a local extension it won't allow more than one call. Note that you can change the value in the limit's data argument. For example, this would cause a limit of 4 concurrent calls, sending the 5th call into "oops, too many calls" extension:
+
+```xml
+<action application="limit" data="hash ${domain} $1 4 handle_over_limit XML over_limit_actions"/>
+```
+
+Here is another example that when this person makes a call to a 7-digit number or does 1+ 7 or more digits, it will add to his limit totals. However, if he just calls another 4-digit extension on the system then it won't add to his limit. Put it right after the "global" extension in default.xml:
+
+```xml
+    <!-- set outound caller limit -->                                                                                                                           
+    <extension name="set outbound limit" continue="true">                                                                                                       
+      <condition field="destination_number" expression="^1?\d{7}" break="on-false"/>                                                                            
+      <condition field="caller_id_number" expression="^(10[01][0-9])">                                                                                          
+        <action application="limit" data="hash ${domain} $1 4 handle_over_limit XML over_limit_actions"/>                
+        <action application="log" data="INFO Added limit for caller $1"/>                                                                                       
+      </condition>                                                                                                                                              
+    </extension>
+```
+
+## More Examples
+
+* Here are some [Dialplan Recipes](../../Dialplan/Dialplan-Recipes_9634252.mdx#about) using limit.
+
+### Imported from an old FreeSwitch weekly article.
+
+With the growing number of SIP attacks on the rise, a lot of people are worried about their exposure to toll fraud. A simple way of protecting  
+your wallet would be to limit the number of outbound calls your system can place using the dial plan. If one your extension get compromised  
+your attacker can only do so much damage per day.
+
+```xml
+  <extension name="domestic.VoiceNetwork.ca">
+    <condition field="${toll_allow}" expression="domestic"/>
+    <condition field="destination_number" expression="^(\d{11})$">
+      <action application="set" data="effective_caller_id_number=${outbound_caller_id_number}"/>
+      <action application="set" data="effective_caller_id_name=${outbound_caller_id_name}"/>
+
+    <!-- Only allow 4 simultaneous call -->
+      <action application="limit" data="hash fraud_protection calls_max 4 !NORMAL_TEMPORARY_FAILURE"/>
+
+    <!-- Only allow 250 calls per day -->
+      <action application="limit" data="hash fraud_protection call_per_day 250/86400 !NORMAL_TEMPORARY_FAILURE"/>
+
+      <action application="bridge" data="sofia/gateway/VoiceNetwork/$1"/>
+    </condition>
+  </extension> 
+```
+
+  
+If you're not doing a lot of international calls why not limit the number of calls per day, the maximum duration of any call, and  
+the number of simultaneous calls.
+
+```xml
+  <extension name="international.VoiceNetwork.ca">
+    <condition field="${toll_allow}" expression="international"/>
+    <condition field="destination_number" expression="^(011\d+)$">
+      <action application="set" data="effective_caller_id_number=${outbound_caller_id_number}"/>
+      <action application="set" data="effective_caller_id_name=${outbound_caller_id_name}"/>
+
+      <!-- Limit the Call duration to 30 minutes per call, set lower if you need to -->
+      <action application="sched_hangup" data="+1800 alloted_timeout"/>
+
+      <!-- Only allow 1 simultaneous call -->
+      <action application="limit" data="hash fraud_protection calls_max_intl 1 !NORMAL_TEMPORARY_FAILURE"/>
+
+      <!-- Only allow 10 calls per day -->
+      <action application="limit" data="hash fraud_protection call_per_day_intl 10/86400 !NORMAL_TEMPORARY_FAILURE"/>
+      <action application="bridge" data="sofia/gateway/VoiceNetwork/$1"/>
+    </condition>
+  </extension> 
+```
+
+  
+If you wanted to expand on this you could add variables to your user registrations this would allow you to set limits  
+for each registered user. Here is an example for user 1001.xml
+
+```xml
+  <user id="1001">
+    <params>
+      <param name="password" value="$${default_password}"/>
+      <param name="vm-password" value="1001"/>
+    </params>
+    <variables>
+      <variable name="toll_allow" value="domestic,international,local"/>
+
+      <!-- Set your Limits outbound call limits here for International calls -->
+      <variable name="calls_max_intl" value="1"/>
+      <variable name="call_per_day_intl" value="3"/>
+
+      <variable name="accountcode" value="1001"/>
+      <variable name="user_context" value="default"/>
+      <variable name="effective_caller_id_name" value="Extension 1001"/>
+      <variable name="effective_caller_id_number" value="1001"/>
+      <variable name="outbound_caller_id_name" value="$${outbound_caller_name}"/>
+      <variable name="outbound_caller_id_number" value="$${outbound_caller_id}"/>
+      <variable name="callgroup" value="techsupport"/>
+    </variables>
+  </user> 
+```
+
+  
+And your new international dialplan would have variables instead of hard coded values, and  
+you could change the limits on a per user bases.
+
+```xml
+  <extension name="international.VoiceNetwork.ca">
+    <condition field="${toll_allow}" expression="international"/>
+    <condition field="destination_number" expression="^(011\d+)$">
+      <action application="set" data="effective_caller_id_number=${outbound_caller_id_number}"/>
+      <action application="set" data="effective_caller_id_name=${outbound_caller_id_name}"/>
+
+      <!-- Limit the Call duration to 30 minutes per call, set lower if you need to -->
+      <action application="sched_hangup" data="+1800 alloted_timeout"/>
+
+      <!-- Only allow 1 simultaneous call -->
+      <action application="limit" data="hash fraud_protection calls_max_intl ${calls_max_intl} !NORMAL_TEMPORARY_FAILURE"/>
+
+      <!-- Only allow 10 calls per day -->
+      <action application="limit" data="hash fraud_protection call_per_day_intl ${call_per_day_intl}/86400 !NORMAL_TEMPORARY_FAILURE"/>
+      <action application="bridge" data="sofia/gateway/VoiceNetwork/$1"/>
+    </condition>
+  </extension> 
+```
+  
+  
+Document generated by Confluence on nov 11, 2022 04:27

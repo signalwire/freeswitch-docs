@@ -1,0 +1,188 @@
+
+# JavaScript Example - Say IVR Menu 
+
+ Created by  John Boteler on 2015.04.10
+
+# About
+
+Uses "sayphrase" to speak IVR menu and collect a single DTMF digit. 
+
+Click here to expand Table of Contents
+
+* 1 [Requirements](#requirements)
+* 2 [IVR Menu Code](#ivr-menu-code)
+* 3 [Menu Text](#menu-text)
+
+# Requirements
+
+To use the "say" TTS feature of FreeSWITCH™ you must load the Speech Phrase Management module for the appropriate language. By default, the English module is uncommented in conf/autoload\_configs/modules.conf.xml
+
+&lt;load module="mod_say_en"/>
+
+# IVR Menu Code
+
+**IVR menu code example**
+
+```js
+/** 
+   ivrmenu.js - Simple IVR Menu 
+   JavaScript Application for FreeSwitch::mod_spidermonkey.
+   by Michael Murdock 
+   
+   This file includes work ripped off from other JavaScript apps created by pist and anthm @ #freeswitch.
+           
+   Install:  copy this file to your <freeswitch dir>/scripts/
+           Add the following section to your default_dialplan.conf.xml around the extension 1000 section.
+           --------
+           <extension name="1200">
+           <condition field="destination_number" expression="^1200$">
+             <action application="javascript" data="ivrmenu.js"/>
+           </condition>
+         </extension> 
+           --------
+           Dial 1200 from your sip phone and voila!  Ofcourse you can match for inbound DID/DNIS, and run this app.
+           
+   Disclaimer: Use at your own risk.  No implied warranties or help if/when stuff blows up.
+   **/
+   
+   var dtmf_digits = "";
+   
+   function on_dtmf(session, type, digits, arg)
+   {
+       console_log("digit: " + digits.digit + "\n");
+       dtmf_digits += digits.digit;
+   
+       return(false);
+   }
+   
+   /* Speaks a menu and waits for a single digit press. If the user does not enter a selection */
+   /* then the menu is repeated up to 3 times. */
+   function sayivrmenu(ivrsession, menuname, validdigits, timeout) {
+       var repeat = 0;
+   
+       console_log("sayivrmenu: menu=[" + menuname + "] validdigits=[" + validdigits + "]\n");
+   
+       session.flushDigits();
+       dtmf_digits = "";
+   
+       while (ivrsession.ready() && dtmf_digits == "" && repeat < 3) {
+           /* play phrase - if digit keyed while playing callback will catch them*/
+           ivrsession.sayPhrase(menuname, validdigits, "en", on_dtmf, "");
+   
+           /* if caller still here and has not entered any selection yet - wait for a selection*/
+           if (ivrsession.ready() && dtmf_digits == "") {
+               dtmf_digits = ivrsession.getDigits(1, "", timeout);
+               /* if still no selection repeat menu */
+               if (dtmf_digits == "") {
+                   repeat++;
+               }
+           }
+       }
+       return(dtmf_digits);
+   }
+   
+   
+   var menuselection = "";
+   
+   /** Let's answer our call **/
+   session.answer();
+   
+   /** Play our Main Menu prompt (options 0, 1, 2, 3 and #) **/
+   menuselection = sayivrmenu(session, "mainmenu", "0123#", 6000);
+   
+   if (session.ready()) {
+       session.execute("phrase", "saydigits," + menuselection);
+   }
+```
+
+# Menu Text
+
+The above script will play the Phrase [Macro](../../../../Modules/mod-dptools/6586692.mdx#0-about) "mainmenu" below. Depending upon the digits passed to sayivrmenu (0123# in the example) only the specified options will be played.
+
+**mainmenu phrases**
+
+```xml
+   <macro name="mainmenu">
+       <input pattern="0">
+           <match>
+               <action function="speak-text" data="Press 0 for the Operator."/>
+           </match>
+       </input>
+   
+       <input pattern="1">
+           <match>
+               <action function="speak-text" data="Press 1 for Accounting."/>
+           </match>
+       </input>
+   
+       <input pattern="2">
+           <match>
+               <action function="speak-text" data="Press 2 for Sales."/>
+           </match>
+       </input>
+   
+       <input pattern="3">
+           <match>
+               <action function="speak-text" data="Press 3 for Support."/>
+           </match>
+       </input>
+   
+       <input pattern="4">
+           <match>
+               <action function="speak-text" data="Press 4 for The Janitor."/>
+           </match>
+       </input>
+   
+       <input pattern="5">
+           <match>
+               <action function="speak-text" data="Press 5 for The Smoking Lounge."/>
+           </match>
+       </input>
+   
+       <input pattern="6">
+           <match>
+               <action function="speak-text" data="Press 6 for the men's bathroom."/>
+           </match>
+       </input>
+   
+       <input pattern="7">
+           <match>
+               <action function="speak-text" data="Press 7 for the women's powder room."/>
+           </match>
+       </input>
+   
+       <input pattern="8">
+           <match>
+               <action function="speak-text" data="Press 8 for no special reason."/>
+           </match>
+       </input>
+   
+       <input pattern="9">
+           <match>
+               <action function="speak-text" data="Press 9 for a good time."/>
+           </match>
+       </input>
+   
+       <input pattern="\*">
+           <match>
+               <action function="speak-text" data="Press star for good luck."/>
+           </match>
+       </input>
+   
+       <input pattern="\#">
+           <match>
+               <action function="speak-text" data="Press pound for psychological counseling."/>
+           </match>
+       </input>
+   </macro>
+   
+   <macro name="saydigits">
+       <input pattern="(.*)">
+           <match>
+               <action function="speak-text" data="You pressed $1"/>
+           </match>
+       </input>
+   </macro>
+```
+
+Document generated by Confluence on nov 11, 2022 04:27

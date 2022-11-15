@@ -1,0 +1,305 @@
+
+# mod_xml_rpc 
+
+ Created by  John Boteler, last modified by  Konstantin on 2020.06.28
+
+# About
+
+mod\_xml\_rpc allows you to use the webapi - firing any API from the web browser just as you would from the FS console!
+
+API command documentation can be found in the [mod\_commands](./mod_commands_1966741.mdx#--) section.
+
+## webapi 
+
+To use, you must enable this module within the `conf/autoload_configs/modules.conf.xml` file and restart the switch. You can configure the module (HTTP port, domain, login/password) within the `conf/autoload_configs/xml_rpc.conf.xml` file.
+
+The basic syntax would be:
+
+[http://](http://confluence.freeswit.ch)&lt;freeswitch-hostname-or-IP>:8080/webapi/&lt;api command>
+
+For example:
+
+<http://192.168.1.1:8080/webapi/help>
+
+Requires:
+
+* HTTP only, no HTTPS
+* port 8080
+* Typical HTTP authentication - username, password (default is freeswitch/works)
+
+Generally, the web root is {prefix}/freeswitch/htdocs.
+
+Other HTML/JavaScript/etc. files in htdocs will get served up as requested.
+
+When using an API command that has more than one word, use a question mark to separate the first and second words, then a space for the rest.
+
+Example:
+
+<http://192.168.1.1:8080/webapi/sofia?status%20profile%20internal>
+
+##  Returning data to the webpage using Lua and [stream:write](http://streamwrite) 
+
+To execute a FS command from a web page and display the result in the webpage use:
+
+<http://127.0.0.1:8080/api/lua?lua/api.lua>
+
+## Using webapi with curl
+
+Examples:
+
+**show channels, text output**
+
+```bash
+curl -s -S -G -X GET \
+      --user login:password  \
+      --data-urlencode "channels" \
+      'http://127.0.0.1:8080/xmlapi/show'
+
+```
+
+**output**
+
+```bash
+uuid,direction,created,created_epoch,name,state,cid_name,cid_num,ip_addr,dest,application,application_data,dialplan,context,read_codec,read_rate,read_bit_rate,write_codec,write_rate,write_bit_rate,secure,hostname,presence_id,presence_data,accountcode,callstate,callee_name,callee_num,callee_direction,call_uuid,sent_callee_name,sent_callee_num,initial_cid_name,initial_cid_num,initial_ip_addr,initial_dest,initial_dialplan,initial_context
+5d2ae508-ab6b-11ea-88cb-311ce82e049e,inbound,2020-06-10 18:40:20,1591828820,sofia/internal/1019@192.0.2.10,CS_EXECUTE,1019,1019,192.0.2.50,55,echo,,XML,default,PCMU,8000,64000,PCMU,8000,64000,,hostname.local,1019@192.0.2.10,,1019,ACTIVE,,,,,,,1019,1019,192.0.2.50,55,XML,default
+
+1 total.
+
+
+```
+
+**show channels, xml output**
+
+```bash
+curl -s -S -G -X GET \
+      --user login:password  \
+      --data-urlencode "channels as xml" \
+      'http://127.0.0.1:8080/xmlapi/show'
+```
+
+**output**
+
+```bash
+<result row_count="1">
+  <row row_id="1">
+    <uuid>5d2ae508-ab6b-11ea-88cb-311ce82e049e</uuid>
+    <direction>inbound</direction>
+    <created>2020-06-10 18:40:20</created>
+    <created_epoch>1591828820</created_epoch>
+    <name>sofia/internal/1019@192.0.2.10</name>
+    <state>CS_EXECUTE</state>
+    <cid_name>1019</cid_name>
+    <cid_num>1019</cid_num>
+    <ip_addr>192.0.2.50</ip_addr>
+    <dest>55</dest>
+    <application>echo</application>
+    <application_data></application_data>
+    <dialplan>XML</dialplan>
+    <context>default</context>
+    <read_codec>PCMU</read_codec>
+    <read_rate>8000</read_rate>
+    <read_bit_rate>64000</read_bit_rate>
+    <write_codec>PCMU</write_codec>
+    <write_rate>8000</write_rate>
+    <write_bit_rate>64000</write_bit_rate>
+    <secure></secure>
+    <hostname>hostname.local</hostname>
+    <presence_id>1019@192.0.2.10</presence_id>
+    <presence_data></presence_data>
+    <accountcode>1019</accountcode>
+    <callstate>ACTIVE</callstate>
+    <callee_name></callee_name>
+    <callee_num></callee_num>
+    <callee_direction></callee_direction>
+    <call_uuid></call_uuid>
+    <sent_callee_name></sent_callee_name>
+    <sent_callee_num></sent_callee_num>
+    <initial_cid_name>1019</initial_cid_name>
+    <initial_cid_num>1019</initial_cid_num>
+    <initial_ip_addr>192.0.2.50</initial_ip_addr>
+    <initial_dest>55</initial_dest>
+    <initial_dialplan>XML</initial_dialplan>
+    <initial_context>default</initial_context>
+  </row>
+</result>
+
+
+```
+
+**show channels, json output**
+
+```bash
+curl -s -S -G -X GET \
+      --user login:password  \
+      --data-urlencode "channels as json" \
+      'http://127.0.0.1:8080/xmlapi/show' | jq
+```
+
+**output**
+
+```bash
+{
+  "row_count": 1,
+  "rows": [
+    {
+      "uuid": "5d2ae508-ab6b-11ea-88cb-311ce82e049e",
+      "direction": "inbound",
+      "created": "2020-06-10 18:40:20",
+      "created_epoch": "1591828820",
+      "name": "sofia/internal/1019@192.0.2.10",
+      "state": "CS_EXECUTE",
+      "cid_name": "1019",
+      "cid_num": "1019",
+      "ip_addr": "192.0.2.50",
+      "dest": "55",
+      "application": "echo",
+      "application_data": "",
+      "dialplan": "XML",
+      "context": "default",
+      "read_codec": "PCMU",
+      "read_rate": "8000",
+      "read_bit_rate": "64000",
+      "write_codec": "PCMU",
+      "write_rate": "8000",
+      "write_bit_rate": "64000",
+      "secure": "",
+      "hostname": "hostname.local",
+      "presence_id": "1019@192.0.2.10",
+      "presence_data": "",
+      "accountcode": "1019",
+      "callstate": "ACTIVE",
+      "callee_name": "",
+      "callee_num": "",
+      "callee_direction": "",
+      "call_uuid": "",
+      "sent_callee_name": "",
+      "sent_callee_num": "",
+      "initial_cid_name": "1019",
+      "initial_cid_num": "1019",
+      "initial_ip_addr": "192.0.2.50",
+      "initial_dest": "55",
+      "initial_dialplan": "XML",
+      "initial_context": "default"
+    }
+  ]
+}
+
+
+```
+
+**uuid\_setvar**
+
+```bash
+curl -s -S -G -X GET \
+      --user login:password   \
+      --data-urlencode "<uuid> record_sample_rate 8000" \
+      'http://127.0.0.1:8080/xmlapi/uuid_setvar'
+```
+
+**start stream rtmp**
+
+```bash
+curl -s -S -G -X GET \
+      --user login:password   \
+      --data-urlencode "<uuid> start rtmp://domain.local/stream:teststream" \
+      'http://127.0.0.1:8080/xmlapi/uuid_record'
+```
+
+  
+**use uuid\_buglist**
+
+```bash
+curl -s -S -G -X GET \
+      --user login:password   \
+      --data-urlencode "<uuid>" \
+      'http://127.0.0.1:8080/xmlapi/uuid_buglist'
+```
+
+**output**
+
+```bash
+<media-bugs>
+ <media-bug>
+  <function>session_record</function>
+  <target>rtmp://domain.local/stream:teststream</target>
+  <thread-locked>0</thread-locked>
+ </media-bug>
+</media-bugs>
+
+
+```
+
+**Initiate call with silence in channel**
+
+```bash
+curl -s -S -G -X GET \
+       --user login:password \
+       --data-urlencode "{origination_caller_id_number={number from}}sofia/{profile}/sip:{user}@{domain} silence XML play" \
+       'http://127.0.0.1:8080/xmlapi/originate'
+```
+
+**play.xml**
+
+```bash
+<include>
+  <context name="play">
+	<extension name="play-silence_stream" continue="true">
+      <condition field="destination_number" expression="^silence$">
+        <action application="answer"/>
+        <action application="endless_playback" data="silence_stream://-1"/>
+      </condition>
+    </extension>
+  </context>
+</include>
+```
+
+**Start stream media in the channel**
+
+```bash
+curl -s -S -G -X GET \
+      --user login:password  \
+      --data-urlencode "{uuid} {/path/to/file/file} both" \
+      'http://127.0.0.1:8080/xmlapi/uuid_broadcast'
+```
+
+**Pause/resume stream in the channel**
+
+```bash
+curl -s -S -G -X GET \
+      --user login:password  \
+      --data-urlencode "{uuid} pause" \
+      'http://127.0.0.1:8080/xmlapi/uuid_fileman'
+```
+
+**Stop stream in the channel**
+
+```bash
+curl -s -S -G -X GET \
+      --user login:password  \
+      --data-urlencode "{uuid} stop" \
+      'http://127.0.0.1:8080/xmlapi/uuid_fileman'
+```
+
+**Stop call**
+
+```bash
+curl -s -S -G -X GET \
+      --user login:password  \
+      --data-urlencode "{uuid}" \
+      'http://127.0.0.1:8080/xmlapi/uuid_kill'
+```
+
+  
+## See also 
+
+* [Examples of calling mod\_xml\_rpc from various languages](../Configuration/FreeSWITCH-XML-RPC_13173038.mdx#--)
+* <http://wiki.freeswitch.org/wiki/Webapi>
+* [Freeswitch Portal](./mod-xml-rpc/Freeswitch-Portal_13173033.mdx#faq)
+* [FreeSWITCH XML-RPC](../Configuration/FreeSWITCH-XML-RPC_13173038.mdx#--)
+
+## Comments:
+
+| In page [FreeSWITCH XML-RPC](../Configuration/FreeSWITCH-XML-RPC_13173038.mdx#--) I can find the **freeswitch.api** examples,but where can I find the **freeswitch.management** some examples ? ![](/images/icons/contenttypes/comment_16.png) Posted by livem at mag 09, 2019 06:05 |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+
+Document generated by Confluence on nov 11, 2022 04:27

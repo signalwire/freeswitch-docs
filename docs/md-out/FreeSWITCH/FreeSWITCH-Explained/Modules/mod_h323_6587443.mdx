@@ -1,0 +1,331 @@
+
+# mod_h323 
+
+ Created by  Italo Rossi, last modified by  John Boteler on 2015.01.16
+
+# About
+
+mod\_h323 is an endpoint module based on the [H.323plus](http://www.h323plus.org/) telephony library.
+
+Click here to expand Table of Contents
+
+* 1 [Status](#status)
+* 2 [Installation](#installation)  
+   * 2.1 [Method 1:](#method-1)  
+   * 2.2 [Method 2:](#method-1)
+* 3 [Configuration](#configuration)  
+   * 3.1 [settings](#settings)  
+   * 3.2 [listeners (you can have more than one listener)](#listeners-you-can-have-more-than-one-listener)
+* 4 [Usage](#usage)
+* 5 [Applications](#applications)
+* 6 [API commands](#api-commands)
+* 7 [Events](#events)
+* 8 [Channel Variables](#channel-variables)
+* 9 [Known Bugs](#known-bugs)
+* 10 [Troubleshooting](#troubleshooting)
+* 11 [See Also](#see-also--)
+
+# Status
+
+In development
+
+# Installation
+
+## Method 1:
+
+Use the script provided with FreeSWITCH by running the buildopal.sh script in the build directory.
+
+## Method 2:
+
+Ptlib and H323plus need to be installed before you can build mod\_h323\. You must be sure to install the exact working combination of ptlib / h323plus in order to make this work smoothly.
+
+Working combinations:
+
+# ptlib-2.8.2 + h323plus-trunk 
+# ptlib-2.8.2 + h323plus-20100525 
+# ptlib-2.8.1 + h323plus-20100525 
+
+  
+You'll need development tools. If in Debian, run:
+
+```xml
+apt-get install build-essential bison
+```
+
+ptlib (trunk from trunk) (NOT WORKING AS OF 10/05/2010\. USE VERSION 2.8.2 THAT FOLLOWS INSTEAD) :
+
+In your home, create a directory e.g. h323
+
+```xml
+mkdir -p ~/h323 
+cd ~/h323 
+svn co http://svn.code.sf.net/p/opalvoip/code/ptlib/trunk ptlib 
+export PKG_CONFIG_PATH=/usr/local/lib/pkgconfig 
+export LD_LIBRARY_PATH=/usr/local/lib 
+cd ptlib 
+./configure 
+make 
+sudo make install 
+cd ..
+```
+
+ptlib (version 2.8.2): (Works on Debian 6 but not 7 AS OF 11/12/2013\. For Debian 7, use trunk above)
+
+In your home, create a directory e.g. h323
+
+```xml
+mkdir -p ~/h323
+cd ~/h323
+svn co http://svn.code.sf.net/p/opalvoip/code/ptlib/tags/v2_8_2/ ptlib
+export PKG_CONFIG_PATH=/usr/local/lib/pkgconfig
+export LD_LIBRARY_PATH=/usr/local/lib
+cd ptlib
+./configure
+make
+sudo make install
+```
+
+If you receive error:
+
+configure: error: PTLib needs the GNU Project fast lexical analyzer generator flex 
+
+then:
+
+```xml
+yum install flex
+```
+
+install h323plus (trunk):
+
+```xml
+cd ~/h323
+cvs -d:pserver:anonymous@h323plus.cvs.sourceforge.net:/cvsroot/h323plus checkout h323plus
+export PTLIBDIR=~/h323/ptlib
+cd h323plus
+./configure
+make
+sudo make install
+```
+
+or install 20100525 version if you like:
+
+```xml
+cd ~/h323
+wget http://waix.dl.sourceforge.net/project/openh323gk/Sources/2.3.2/h323plus-20100525.tar.gz
+
+tar xzvf h323plus-20100525.tar.gz
+cd h323plus-20100525
+export PTLIBDIR=~/h323/ptlib
+./configure
+make
+sudo make install
+```
+
+March 2012: It turned out that a good way to make h323plus running is ptlib-2.8.2 with h323plus 1.22.0 (tested under Ubuntu 10.04 64bit and Debian 6)
+
+```xml
+cd ~/h323
+wget http://www.h323plus.org/source/download/h323plus-1.22.0.tar.gz
+tar xzvf h323plus-1.22.0
+cd h323plus-1.22.0
+export PTLIBDIR=~/h323/ptlib
+./configure
+make
+sudo make install
+```
+
+If you get an error: ERROR: you must first run 'aclocal' in \~/h323plus-20100525/plugins than just do it:
+
+```xml
+cd ~/h323plus-20100525/plugins
+$ aclocal
+cd ..
+```
+
+build mod\_h323:
+
+Assuming you have FreeSWITCH source in your home:
+
+```xml
+cd ~/freeswitch-trunk
+make mod_h323-clean
+make mod_h323
+sudo make mod_h323-install
+```
+
+If you get an error like this: '/usr/include/openh323/h323caps.h:289:31: error: ../include/codecs.h: No such file or directory' most probably you don't have codecs.h in the correct path or you don't have it at all.
+
+Simply:
+
+```xml
+cp ~/h323/h323plus-20100525/include/codecs.h /usr/include/
+```
+
+And make the mod\_h323 again.
+
+If you get an error like this:
+
+'/usr/src/freeswitch/src/mod/endpoints/mod\_h323/mod\_h323.h:43:18: error: h323.h: No such file or directory'
+
+then try doing this:
+
+```xml
+ln -s /usr/local/include/openh323 /usr/include/openh323
+```
+
+If you got errors like "error: 'BOOL' has not been declared" or something like that. Just do following and then do make mod\_h323 again.
+
+```xml
+chmod +w /usr/include/openh323/*
+sed -i "s/BOOL/PBoolean/g" /usr/include/openh323/*
+chmod -w /usr/include/openh323/*
+```
+
+# Configuration
+
+The configuration is almost the same as for mod\_opal so no big surprises here.
+
+h323.conf.xml:
+
+```xml
+<configuration name="h323.conf" description="H323 Endpoints">
+ <settings>
+   <param name="trace-level" value="6"/>
+   <param name="context" value="default"/>
+   <param name="dialplan" value="XML"/>
+   <param name="codec-prefs" value="PCMA,PCMU,GSM,G729"/>
+   <param name="use-rtp-timer" value="true"/> <!-- enable RTP timer - should always be enabled -->
+   <param name="rtp-timer-name" value="soft"/> <!-- Timer name, soft is default -->
+   <!-- <param name="ptime-override-value" value="20"/> --> <!-- Override negotiated ptime value with this value -->
+   <param name="gk-address" value=""/>    <!-- empty to disable, "*" to search LAN -->
+   <param name="gk-identifer" value=""/>  <!-- optional name of gk (BUG: this parameter is currently mandatory)-->
+   <param name="gk-interface" value=""/>  <!-- mandatory listener interface name -->
+   <param name="gk-retry" value="30"/>  <!-- optional GK register retry timer -->
+   <param name="gk-prefix" value="777"/>  <!-- optional register with this prefix -->
+   <param name="gk-prefix" value="779"/>  <!-- optional register with this prefix -->
+   <param name="faststart" value="true"/>  <!-- optional -->
+   <param name="h245tunneling" value="true"/>  <!-- optional -->
+   <param name="h245insetup" value="true"/>  <!-- optional -->
+   <param name="dtmfinband" value="false"/>  <!-- optional -->
+   <param name="jitter-size" value="60"/>  <!-- optional -->
+   <param name="progress-indication" value="8"/> <!-- optional - PI value in progress message-->
+   <param name="alerting-indication" value="8"/> <!-- optional - PI value in alerting message-->
+   <param name="endpoint-name" value="fs"/>
+   <param name="fax-old-asn" value="true"/>
+ </settings>
+ <listeners>
+   <listener name="default">
+     <param name="h323-ip" value="$${local_ip_v4}"/>
+     <param name="h323-port" value="1720"/>
+   </listener>
+ </listeners>
+</configuration>
+```
+
+## settings
+
+* **trace-level:** it is the level of logging you will get on console (0-4, default 0)
+* **context:** context the incoming call through mod\_h323 will fall in (default set to public)
+* **dialplan:** the type of dialplan used (default XML)
+* **codec-prefs:** comma separated list of supported codecs (Note: the order of the codecs won't be used. It will only enable or disable them. Codecs are always sent in the same order: PCMA, PCMU, GSM, G723, G729b, G729, G729a, , G729ab, G723.1\. Check in mod\_h323.cpp for a table called h323\_formats).
+
+## listeners (you can have more than one listener)
+
+* **name:** just a name
+* **h323-ip:** an ip address for mod\_h323 to bind
+* **h323-port:** a port for mod\_h323 to bind
+
+  
+Add this into vars.xml files to allow incoming calls to extensions (this needs to be tested!!!):
+
+&lt;X-PRE-PROCESS cmd="set" data="domain_name=$${local_ip_v4}"/>
+
+# Usage
+
+create a file in $FS\_DIR/conf/dialplan/default/ (e.g. 10\_outgoing\_via\_h323.xml) and add the something like this:
+
+&lt;include>
+  &lt;extension name="OUTGOING_VIA_H323">
+    &lt;condition field="destination_number" expression="^([2-8]\d{6,7}|0[1-9]\d{7,8}|00[1-9]\d{8,16})$">
+      &lt;action application="set" data="effective_caller_id_number=385${ani}"/>
+      &lt;action application="set" data="PEER_IP=10.1.1.1"/>
+      &lt;action application="set" data="call_timeout=30"/>
+      &lt;action application="set" data="hangup_after_bridge=true"/>
+      &lt;action application="bridge" data="h323/$1@${PEER_IP}"/>
+    &lt;/condition>
+  &lt;/extension>
+&lt;/include>
+
+In your $FS\_DIR/conf/dialplan/public.xml make sure you have:
+
+  &lt;extension name="public_extensions">
+    &lt;condition field="destination_number" expression="^(10[01][0-9])$">
+      &lt;action application="transfer" data="$1 XML default"/>
+    &lt;/condition>
+  &lt;/extension>
+
+All incoming calls via mod\_h323 will be transferred to context default.
+
+# Applications
+
+needs to be updated!
+
+# API commands
+
+needs to be updated!
+
+# Events
+
+needs to be updated!
+
+# Channel Variables
+
+needs to be updated!
+
+# Known Bugs
+
+faststart and codecs v CallProceeding due to h323plus, grep "Very Frustrating - S.H." in h323plus source and uncomment commented lines. (should be fixed in H323Plus as of 2011-05-17)
+
+missing features.
+
+# Troubleshooting
+
+```xml
+freeswitch@nemesis> load mod_h323
+2010-10-02 20:16:37.660670 [INFO] mod_enum.c:808 ENUM Reloaded
+2010-10-02 20:16:37.660670 [INFO] switch_time.c:950 Timezone reloaded 530 definitions
+2010-10-02 20:16:37.717932 [CRIT] switch_loadable_module.c:928 Error Loading module /usr/local/freeswitch/mod/mod_h323.so
+**libpt.so.2.8.2: cannot open shared object file: No such file or directory**
+
++OK Reloading XML
+-ERR [module load file routine returned an error]
+```
+
+  
+This is a common problem when [libpt.so](http://libpt.so) is not in path. Simply:
+
+```xml
+ln -sf /usr/local/lib/libpt.so.2.8.2 /usr/local/freeswitch/lib/libpt.so.2.8.2
+```
+
+```xml
+freeswitch@fs01> load mod_h323
+2012-03-20 12:45:25.826535 [CRIT] switch_loadable_module.c:1290 Error Loading module /usr/local/freeswitch/mod/mod_h323.so
+**libh323_linux_x86_64_.so.1.22.0: cannot open shared object file: No such file or directory**
++OK Reloading XML
+-ERR [module load file routine returned an error]
+```
+
+This is a common problem when [libh323\_linux\_x86\_64\_.so](http://libh323%5Flinux%5Fx86%5F64%5F.so).1.22.0 is not in path. Simply:
+
+```xml
+ln -sf /usr/local/lib/libh323_linux_x86_64_.so.1.22.0 /usr/local/freeswitch/lib/libh323_linux_x86_64_.so.1.22.0
+```
+
+# See Also  
+
+* [Freeswitch Endpoints](https://freeswitch.org/confluence/label/FREESWITCH/endpoints)
+* [h323plus](http://www.h323plus.org/)
+* [opal](http://www.opalvoip.org/wiki/index.php)
+
+Document generated by Confluence on nov 11, 2022 04:27

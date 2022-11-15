@@ -1,0 +1,103 @@
+
+# Codecs and Media 
+
+ Created by  Brian West, last modified by  Branden Jordan on 2018.12.30
+
+# About
+
+A codec is an encoding and compression scheme for a media stream or file format. The term is an acronym derived from COding and DECoding. See this article for more technical information: <http://en.wikipedia.org/wiki/Codec>. FreeSWITCH™ has provisions for bypassing the media server altogether to save bandwidth and load on the server as well as proxy media in cases where a particular codec is not supported; this allows devices to exchange media directly between them.
+
+Click to expand Table of Contents
+
+* 1 [HD Audio support](#hd-audio-support)
+* 2 [Enabling codecs in modules.conf.xml](#enabling-codecs-in-modulesconfxml--)
+* 3 [dingaling.conf.xml file](#dingalingconfxml-file)
+* 4 [sofia.conf.xml file](#sofiaconfxml-file)
+* 5 [Media proxying](#media-proxying)  
+   * 5.1 [Benefits of proxy media](#benefits-of-proxy-media)
+* 6 [Codecs offered by Proxy\_Media](#benefits-of-proxy-media)
+* 7 [See Also](#see-also)
+
+## HD Audio support
+
+FreeSWITCH supports most HD (high definition) audio codecs including Speex, G.722, G.722.1 (Siren) and SILK. BroadVoice codecs were added by Brian (bkw) just 90 minutes after official release.
+
+## Enabling codecs in modules.conf.xml  
+
+FreeSWITCH supports a large number of VoIP compression codecs out of the box, however the default config does not enable them all for all transport types. Codecs are built from various modules and from the core FreeSWITCH source (no need to load modules for core codecs, they are in CORE\_PCM\_MODULE, e.g. they're built into the core of FreeSWITCH). For codecs not in core, you need to compile and load the corresponding module.
+
+Some codecs are encumbered by patents, therefore they are not open source and can not be distributed directly. Licenses are available for purchase where applicable.
+
+Executing the fs\_cli command "show codec" displays the enabled codecs.
+
+The [vars.xml](../Configuration/Configuring-FreeSWITCH/vars.xml_7144079.mdx#about) file contains the the following lines that globally control which codecs are negotiated with remote endpoints:
+
+```xml
+ <X-PRE-PROCESS cmd="set" data="global_codec_prefs=G722,PCMA,PCMU,GSM"/>
+ <X-PRE-PROCESS cmd="set" data="outbound_codec_prefs=G722,PCMA,PCMU,GSM"/>
+```
+
+**Note:** iLBC@30i configures the iLBC codec to default to 30ms frames instead of 20ms frames which will allow you to receive iLBC calls from Asterisk servers which unfortunately do not correctly send their iLBC codec preferences.
+
+Most transports (channels) have a config block at the top of their configuration file like the following:
+
+```xml
+<settings>
+  <param name="codec-prefs" value="XXXXXXX"/>
+</settings>
+```
+
+**Note:** There are generally other lines inside the &lt;settings> block, but you can safely ignore them for now.
+
+## dingaling.conf.xml file
+
+The default [dingaling.conf.xml](../Modules/mod_dingaling_6587385.mdx#faq) config contains the following (codec related) settings:
+
+```xml
+<settings>
+  <param name="codec-prefs" value="PCMU"/>
+</settings>
+```
+
+While you may use almost any codec you wish when using [dingaling](../Modules/mod_dingaling_6587385.mdx#faq) to talk between two FreeSWITCH servers, the official Google Talk(tm) client has some very peculiar quirks in its codec handling.
+
+## sofia.conf.xml file
+
+The default [sofia.conf.xml](../Configuration/Sofia-SIP-Stack/Sofia-Configuration-Files_7144453.mdx#--) config contains the following settings related to codecs:
+
+```xml
+<settings>
+ <param name="inbound-codec-prefs" value="$${global_codec_prefs}"/>
+ <param name="outbound-codec-prefs" value="$${global_codec_prefs}"/>
+</settings>
+```
+
+This allows [Sofia-SIP](../Configuration/Sofia-SIP-Stack/index.mdx#faq) to inherit the **global\_codec\_prefs** which we configured in [vars.xml](../Configuration/Configuring-FreeSWITCH/vars.xml_7144079.mdx#about). It's best to leave it that way, however you may manually specify a codec list if you wish.
+
+## Media proxying
+
+FreeSWITCH can proxy media between endpoints if is NATed or you want to reduce usage of your CPU
+
+### Benefits of proxy media
+
+* Lower CPU usage\*
+* N.A.T. handling (RTP Side)
+* Pass–through not supported Codecs like G721, G728, G719, AMR and some other codecs\*
+* Video conferencing through external MCU
+
+## Codecs offered by [Proxy_Media](../Configuration/Proxy-Media_13173588.mdx#faqs)
+
+* PROXY PASS-THROUGH to pass audio media in proxy mode
+* PROXY VIDEO PASS-THROUGH to pass video media in proxy mode
+
+## See Also
+
+* [Audio Codecs](./Audio-Codecs_1048675.mdx#--)
+* [mod\_fsv](../Modules/mod_fsv_6587435.mdx#about)
+* [Codec Negotiation](./index.mdx#about)
+* [Proxy Media](../Configuration/Proxy-Media_13173588.mdx#faqs)
+* [Bypass Media](../../Channel-Variables-Catalog/bypass_media_16353339.mdx#bypass_media)
+* [Proxy Media (Variable)](../../Channel-Variables-Catalog/proxy_media_16353349.mdx#proxy_media)
+* [Daala codec](https://www.youtube.com/watch?v=Dmho4gcRvQ4) — YouTube of Linux 2015 Conference presentation of Daala codec project, includes nice graph at 7:20 plotting capabilities versus bandwidth of various audio codecs
+
+Document generated by Confluence on nov 11, 2022 04:24

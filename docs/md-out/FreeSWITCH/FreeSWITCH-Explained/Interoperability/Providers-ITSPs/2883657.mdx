@@ -1,0 +1,99 @@
+
+# Provider Broadvoice (USA) 
+
+ Created by  Mario G, last modified on 2014.05.31
+
+Last update: 17 November 2010
+
+* 1 [Broadvoice.com](#broadvoicecomhttpbroadvoicecom)
+* 2 [Dialplan Codec Selection](#dialplan-codec-selection)
+* 3 [DNS SRV and Broadvoice](#dns-srv-and-broadvoice)
+* 4 [Alternative DNS method](#alternative-dns-method)
+
+### [Broadvoice.com](http://Broadvoice.com)
+
+### Dialplan Codec Selection
+
+* Incoming and Outgoing calls work with UDP only.
+* As of 12 February 2008 Broadvoice is not [RFC 3261](https://tools.ietf.org/html/rfc3261) compliant. Broadvoice does not support the usage of TCP within their SIP stack. This means you have to set the [absolute\_codec\_string channel variable](../../Dialplan/Variables-Archive/x__Channel-Variables_1048892.mdx#channel-variables-in-dial-strings) to PCMU.
+* [Chris](https://wiki.freeswitch.org/wiki/User:Danielsonchris "User:Danielsonchris") 11:24, 31 January 2008 (EST) It was brought up on the IRC channel, Broadvoice apparently isn't following the SIP specifications for MTU packet sizes.  
+   * You will receive a [4xx Request Failure Responses](../../Troubleshooting-Debugging/SIP-Protocol-Messages_1048971.mdx#4xx-request-failure-responses) message unless you trim down the number of codecs contained in the UDP packets. By setting the [absolute\_codec\_string channel variable](../../Dialplan/Variables-Archive/x__Channel-Variables_1048892.mdx#channel-variables-in-dial-strings) to PCMU, you will play by their rules.  
+   * `originate {absolute_codec_string=PCMU}sofia/gateway/broadvoice/12221231234 15551231234` `  
+   `
+
+### DNS SRV and Broadvoice
+
+Broadvoice uses DNS SRV records to provide failover to redundant geographically disparate SIP proxy servers located across the US. FreeSWITCH supports [DNS SRV](http://wiki.freeswitch.org/wiki/DNS) records.
+
+The use of DNS SRV for failover seems to occur many times during the course of each day, presumably as part of a load balancing function within the Broadvoice network. Having initially attempted to follow the DNS "fix" documented below I kept getting registration errors at regular intervals each time broadvoice failover mechanism kicked in.
+
+The following configuration seems to work reliably. The proxy should use the nearest broadvoice server to you:
+
+* [proxy-nyc.broadvoice.com](http://proxy-nyc.broadvoice.com)
+* [proxy-bos.broadvoice.com](http://proxy-bos.broadvoice.com)
+* [proxy-dca.broadvoice.com](http://proxy-dca.broadvoice.com)
+* [proxy-atl.broadvoice.com](http://proxy-atl.broadvoice.com)
+* [proxy-chi.broadvoice.com](http://proxy-chi.broadvoice.com)
+* [proxy-mia.broadvoice.com](http://proxy-mia.broadvoice.com)
+* [proxy-lax.broadvoice.com](http://proxy-lax.broadvoice.com)
+
+Note that you MUST use the SRV record which contain a dash within the host name. These DNS SRV records are not directly "pingable" but can be resolved by performing an "nslookup" with a 'set type = SRV' first.
+
+```xml
+  <include>
+        <gateway name="broadvoice">
+          <param name="username" value="5555551234"/>
+          <param name="realm" value="sip.broadvoice.com"/>
+          <param name="from-domain" value="sip.broadvoice.com"/>
+          <param name="password" value="hackmybroadvoiceaccount"/>
+          <param name="extension" value="5555551234"/>
+          <param name="proxy" value="proxy-nyc.broadvoice.com"/> <!-- example using the broadvoice DNS SRV record for New York City. -->
+          <param name="expire-seconds" value="60"/>
+          <param name="register" value="true"/>
+          <param name="retry-seconds" value="60"/>
+        </gateway>
+    </include> 
+```
+
+### Alternative DNS method
+
+* The following method is suggested IF you experience difficulty using DNS SRV. It is a work around that seems to cause frequent registration errors.
+* Broadvoice has a funny DNS situation, use the following fix. (Broadvoice kept on returning [403 Forbidden messages](../../Troubleshooting-Debugging/SIP-Protocol-Messages_1048971.mdx#4xx-request-failure-responses) until I modified my DNS entries within the hosts file)  
+   * This is according to the directions on [broadvoice.com](http://broadvoice.com)[\[1\]](http://www.broadvoice.com/support%5Finstall%5Fasterisk.html)
+
+```text
+Ping the following, and choose the best time.
+proxy.lax.broadvoice.com
+proxy.dca.broadvoice.com
+proxy.mia.broadvoice.com
+proxy.atl.broadvoice.com
+proxy.chi.broadvoice.com
+proxy.bos.broadvoice.com
+proxy.nyc.broadvoice.com
+
+Modify your hosts (*nix world: /etc/hosts, windows: C:\Windows\System32\drivers\etc\hosts) file
+with the correct IP address as follows:
+{ip} sip.broadvoice.com 
+```
+
+```xml
+     <include>
+        <gateway name="broadvoice">
+          <param name="username" value="5555551234"/>
+          <param name="realm" value="BroadWorks"/>
+          <param name="from-domain" value="sip.broadvoice.com"/>
+          <param name="password" value="hackmybroadvoiceaccount"/>
+          <param name="extension" value="5555551234"/>
+          <param name="proxy" value="sip.broadvoice.com"/>
+          <param name="expire-seconds" value="3600"/>
+          <param name="register" value="true"/>
+          <param name="retry-seconds" value="3600"/>
+        </gateway>
+    </include>
+```
+
+`  
+`
+
+  
+Document generated by Confluence on nov 11, 2022 04:28

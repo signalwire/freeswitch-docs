@@ -1,0 +1,267 @@
+
+# Zaptel Tutorial 
+
+ Created by  Italo Monteiro, last modified on 2016.12.23
+
+# About
+
+This Zaptel Tutorial provides a set of step-by-step instructions for configuring Zaptel and OpenZAP using sample configurations.
+
+Click here to expand Table of Contents
+
+* 1 [What hardware is in your system?](#what-hardware-is-in-your-system)
+* 2 [Configure Zaptel](#configure-zaptel)
+* 3 [Load Zaptel Drivers](#configure-zaptel)
+* 4 [Checkout and build FreeSWITCH](#about)
+* 5 [Configure OpenZAP](#configure-openzap)
+* 6 [Simple Dialplan](#about)
+* 7 [Ready to rock and/or roll](#--)
+
+### What hardware is in your system?
+
+You likely know what cards are in your system because you probably put them there. In this example, the system has a TDM400P (analog card with 2 FXO and 2 FXS ports) and a TE405P (QuadSpan T-1 card). If you don't know what cards are in your system, you can always try _lspci_ from the CLI.
+
+```xml
+forbin@gamehenge:~$ lspci
+...
+00:09.0 Communication controller: Tiger Jet Network Inc. Tiger3XX Modem/ISDN interface
+00:0a.0 Communication controller: Digium, Inc. Wildcard TE405P quad-span T1/E1/J1 card 5.0V (rev 02)
+```
+
+ ### Configure Zaptel
+
+The [OpenZAP wiki page](https://wiki.freeswitch.org/wiki/OpenZAP "OpenZAP") recommends a specific version of Zaptel, but I wanted something more recent. I originally tried the latest and greatest source in the 1.4 Zaptel branch but encountered problems. To work around these problems, I used a specific revision (4630) of Zaptel that I had successfully used in the past. Follow the instructions below to checkout and build the same revision that I used.
+
+```xml
+svn checkout --revision 4630 http://svn.digium.com/svn/zaptel/branches/1.4 ~/zaptel
+cd ~/zaptel
+./configure
+make
+sudo make install
+sudo make config
+```
+
+It is time to modify _/etc/zaptel.conf_ after Zaptel is successfully built. This step tells the Zaptel drivers about channels in the system. In this particular configuration example, I have 92 ISDN b-channels, 4 ISDN d-channels, 2 FXS channels, and 2 FXO channels. My ISDN channels are configured for back-to-back usage and I have spans 1 & 3 connected to spans 2 & 4, respectively using a cross connect cable. Below is my _/etc/zaptel.conf_ file. If you don't have a TE405P and just want to configure analog channels just ignore the ISDN span blocks and subtract 96 from the fxs/fxo channel numbers.
+
+```xml
+loadzone = us
+defaultzone=us
+
+# ISDN span 1
+span=1,1,0,esf,b8zs
+bchan=1-23
+dchan=24
+
+# ISDN span 2
+span=2,0,0,esf,b8zs
+bchan=25-47
+dchan=48
+
+# ISDN span 3
+span=3,1,0,esf,b8zs
+bchan=49-71
+dchan=72
+
+# ISDN span 4
+span=4,0,0,esf,b8zs
+bchan=73-95
+dchan=96
+
+fxoks=97,98
+fxsks=99,100
+```
+
+###   
+Load Zaptel Drivers
+
+You are ready to load the Zaptel drivers for your hardware. This example requires drivers for the TE405P (wct4xxp) and TDM400P (wctdm). **NOTE:** This example configuration tutorial will ignore the TE405P channels from this point forward. A subsequent example will incorporate the use of these channels. If you don't want to load TE405P drivers, ignore the wct4xxp line.
+
+```xml
+forbin@gamehenge:~$ sudo modprobe wct4xxp
+forbin@gamehenge:~$ sudo modprobe wctdm
+```
+
+And execute _ztcfg_ to create your Zaptel devices.
+
+```xml
+forbin@gamehenge:~$ sudo ztcfg -vv
+ 
+outputs:
+ 
+Zaptel Version: SVN-branch-1.4-r4629
+Echo Canceller: MG2
+Configuration
+======================
+ 
+SPAN 1: ESF/B8ZS Build-out: 0 db (CSU)/0-133 feet (DSX-1)
+SPAN 2: ESF/B8ZS Build-out: 0 db (CSU)/0-133 feet (DSX-1)
+SPAN 3: ESF/B8ZS Build-out: 0 db (CSU)/0-133 feet (DSX-1)
+SPAN 4: ESF/B8ZS Build-out: 0 db (CSU)/0-133 feet (DSX-1)
+ 
+Channel map:
+
+Channel 01: Clear channel (Default) (Slaves: 01)
+Channel 02: Clear channel (Default) (Slaves: 02)
+Channel 03: Clear channel (Default) (Slaves: 03)
+...
+Channel 21: Clear channel (Default) (Slaves: 21)
+Channel 22: Clear channel (Default) (Slaves: 22)
+Channel 23: Clear channel (Default) (Slaves: 23)
+Channel 24: D-channel (Default) (Slaves: 24)
+Channel 25: Clear channel (Default) (Slaves: 25)
+Channel 26: Clear channel (Default) (Slaves: 26)
+Channel 27: Clear channel (Default) (Slaves: 27)
+...
+Channel 47: Clear channel (Default) (Slaves: 47)
+Channel 48: D-channel (Default) (Slaves: 48)
+Channel 49: Clear channel (Default) (Slaves: 49)
+Channel 50: Clear channel (Default) (Slaves: 50)
+...
+Channel 71: Clear channel (Default) (Slaves: 71)
+Channel 72: D-channel (Default) (Slaves: 72)
+Channel 73: Clear channel (Default) (Slaves: 73)
+Channel 74: Clear channel (Default) (Slaves: 74)
+...
+Channel 94: Clear channel (Default) (Slaves: 94)
+Channel 95: Clear channel (Default) (Slaves: 95)
+Channel 96: D-channel (Default) (Slaves: 96)
+Channel 97: FXO Kewlstart (Default) (Slaves: 97)
+Channel 98: FXO Kewlstart (Default) (Slaves: 98)
+Channel 99: FXS Kewlstart (Default) (Slaves: 99)
+Channel 100: FXS Kewlstart (Default) (Slaves: 100)
+  
+100 channels to configure.
+   
+Changing signalling on channel 1 from FXO Kewlstart to Clear channel
+Changing signalling on channel 2 from FXS Kewlstart to Clear channel
+Changing signalling on channel 3 from FXS Kewlstart to Clear channel
+Changing signalling on channel 4 from FXS Kewlstart to Clear channel
+```
+
+###   
+Checkout and build FreeSWITCH
+
+**NOTE:** If you don't have autoconf installed, install it. (for example: _sudo apt-get install autoconf_)
+
+Perform the Subversion checkout of FreeSWITCH and make sure you modify _modules.conf_ to ensure that _mod\_openzap_ is built. You may also want to review the [Linux quick install guide](../../../Installation/Linux/Deprecated-Installation-Instructions/Linux-Quick-Install-Guide_1966854.mdx#download) and/or [the FreeSWITCH Installation Guide](../../../Installation/index.mdx#about)
+
+```xml
+svn checkout http://svn.freeswitch.org/svn/freeswitch/trunk ~/freeswitch
+cd ~/freeswitch
+```
+
+**NOTE:** Edit \~/freeswitch/modules.conf and uncomment _"../../libs/openzap/mod\_openzap"_
+
+```xml
+./bootstrap.sh
+./configure
+make
+make install
+```
+
+ ### Configure OpenZAP
+
+There are 3 files related to OpenZAP that need to be reviewed and potentially modified. This example makes changes to 2 of the 3 OpenZAP files. In addition to the 3 OpenZAP files, the _/usr/local/freeswitch/conf/autoload\_configs/modules.conf.xml_ file can be modified to make the mod\_openzap module load when FreeSWITCH starts up. If you don't make this change you will need to manually load mod\_openzap from the FreeSWITCH CLI via _'load mod\_openzap'_
+
+To make mod\_openzap load automatically when FreeSWITCH starts, open _/usr/local/freeswitch/conf/autoload\_configs/modules.conf.xml_ with your favorite editor and uncomment: _&lt;load module="mod\_openzap"/>_
+
+Now you are ready to review and optionally modify the general OpenZAP configuration options in the _/usr/local/freeswitch/conf/zt.conf_ file. I used the default options and made no changes. The contents of this file are below.
+
+```xml
+[defaults]
+codec_ms => 20
+wink_ms => 150
+flash_ms => 750
+echo_cancel_level => 64
+rxgain => 0.0
+txgain => 0.0
+```
+
+Time to configure the OpenZAP channels that you would like to use in FreeSWITCH. Remember, in this example we are ignoring the first 96 channels because we are only configuring the FXO and FXS channels. Modify _/usr/local/freeswitch/conf/openzap.conf_ for your configuration. My file contents are below. If you ignored the ISDN channel configuration steps in above sections, subtract 96 from the _fxs-channel_ and _fxs-channel_ lines below.
+
+```xml
+[span zt]
+name => OpenZAP
+number => 1
+fxs-channel => 97
+
+[span zt]
+name => OpenZAP
+number => 2
+fxs-channel => 98
+
+[span zt]
+name => OpenZAP
+number => 3
+fxo-channel => 99
+
+[span zt]
+name => OpenZAP
+number => 4
+fxo-channel => 100
+```
+
+**NOTE:** I had some help (thanks raulfragoso!) in the friendly [#openzap IRC channel](../../../Community/IRC_1970341.mdx#pb) and learned that the span context syntax is:
+
+```xml
+<context> ::= [ span <type> [<id>] ]
+        
+where:
+         the bold characters are literals
+         <type> ::= { pika | wanpipe | zt | <etc...> } // Type of Hardware
+         <id> ::= an optional identifier that must be matched in the openzap.conf.xml file
+
+And now we modify /usr/local/freeswitch/conf/autoload_configs/openzap.conf.xml. Remember, if you used the optional <id> in the previous file, you must match that identifier in this file. I swiped my file contents from another FreeSWITCH wiki example
+<configuration name="openzap.conf" description="OpenZAP Configuration">
+ <settings>
+  <param name="debug" value="9"/>
+ </settings>
+ <analog_spans>
+   <param name="tonegroup" value="us"/> <param name="digit-timeout" value="2000"/> <param name="max-digits" value="11"/> <param name="dialplan" value="XML"/> <param name="context" value="default"/> <param name="enable-analog-option" value="3-way"/> <param name="moh" value="$${base_dir}/sounds/Dardedisco.wav"/> 
+   <param name="tonegroup" value="us"/> <param name="digit-timeout" value="2000"/> <param name="max-digits" value="11"/> <param name="dialplan" value="XML"/> <param name="context" value="default"/> <param name="enable-analog-option" value="3-way"/> <param name="moh" value="$${base_dir}/sounds/Dardedisco.wav"/> 
+   <param name="tonegroup" value="us"/> <param name="digit-timeout" value="2000"/> <param name="max-digits" value="11"/> <param name="dialplan" value="XML"/> <param name="context" value="default"/> 
+   <param name="tonegroup" value="us"/> <param name="digit-timeout" value="2000"/> <param name="max-digits" value="11"/> <param name="dialplan" value="XML"/> <param name="context" value="default"/> 
+ </analog_spans>
+</configuration>
+```
+
+###   
+Simple Dialplan
+
+Bridging FXS &lt;--> FXO channels enables you to make and receive calls. The first 2 ports on the analog card are FXS ports so we plug the 2500 telephone set into one of these (I'm using port 2). The third and fourth ports are FXO ports so we plug the line from the CO into one (I'm using port 3). Below is the contents of my _/usr/local/freeswitch/conf/dialplan/default.xml_ file:
+
+```xml
+<?xml version="1.0" encoding="utf-8"?>
+<include>
+  <context name="default">
+    <extension name="incoming">
+      <condition field="destination_number" expression="^${caller_id_number}$">
+        <action application="answer"/>
+        <action application="sleep" data="1000"/>
+        <action application="ring_ready"/>
+        <action application="set" data="call_timeout=10"/>
+        <action application="set" data="hangup_after_bridge=true"/>
+        <action application="set" data="continue_on_fail=true"/>
+        <action application="bridge" data="openzap/2/1"/>
+      </condition>
+    </extension>
+    <extension name="long_distance">
+      <condition field="destination_number" expression="^1(\d{10})$" continue="on-true">
+        <action application="set" data="dialed_ext=1$1"/>
+        <action application="bridge" data="openzap/3/1/1$1"/>
+      </condition>
+    </extension>
+  </context>
+</include>
+```
+
+###   
+Ready to rock and/or roll
+
+Time to start FreeSWITCH (_/usr/local/freeswitch/bin/freeswitch_)
+
+If you want to see your OpenZAP channels, type: _oz list_ at the FreeSWITCH CLI.
+
+Good Luck!
+
+Document generated by Confluence on nov 11, 2022 04:28

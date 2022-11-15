@@ -1,0 +1,227 @@
+
+# mod_managed 
+
+ Created by  francisco evangilo, last modified on 2016.12.23
+
+# About
+
+mod\_managed allows execution of Common Language Infrastructure code inside FreeSWITCH. It supports the Microsoft CLR (".NET") on Windows, as well as Mono on Windows and other platforms. Effectively, this allows use of any .NET language, such as F#, VB.NET, C#, IronRuby, IronPython, JScript.NET, and many others, to create FreeSWITCH modules, applications, and API functions. (mod\_managed replaces mod\_mono.)
+
+As of July 27, 2010, mod\_managed has a new plugin architecture. This breaks backwards compatibility -- plugins no longer subclass ApiFunction or AppFunction, but instead implement specific interfaces. With this, reloading (multiple AppDomains) and scripting support has been added.
+
+  
+Click here to expand Table of Contents
+
+* 1 [Installation](#installation)  
+   * 1.1 [Microsoft CLR Build](#microsoft-clr-build)  
+   * 1.2 [Mono Build](#mono-build)  
+   * 1.3 [Linux Build](#linux-build)  
+   * 1.4 [Linux Mono 2.8 and greater Build](#linux-mono-28-and-greater-build)
+* 2 [Loading Modules](#loading-modules)  
+   * 2.1 [Dynamic Loading](#dynamic-loading)
+* 3 [Scripting](#scripting)
+* 4 [Native Interop](#native-interop)
+* 5 [Examples](#examples)  
+   * 5.1 [DRK Presentation](#drk-presentation)  
+   * 5.2 [Demo.cs](#democs)  
+   * 5.3 [Parking Lot Sample](#parking-lot-sample)
+* 6 [Dialplan and Example](#dialplan-and-example)
+* 7 [AbortOnHangup](#abortonhangup)
+* 8 [ODBC on Linux](#odbc-on-linux)
+* 9 [See Also](#see-also)
+
+# Installation
+
+mod\_managed only supports the .NET Framework 3.5 or (as of November, 2011) Mono 2.8+. Support for older versions of Mono has been discontinued.
+
+To get mod\_managed to build on Windows, you’ll need Visual Studio 2008 (C++ and C# to build the entire thing, although C# binaries are provided).
+
+The precompiled Windows binaries do not include the managed part of mod\_managed. At the moment (3-Mar-2010) you need to build the complete SLN from source to get mod\_managed.
+
+## Microsoft CLR Build
+
+mod\_managed should "just work" with the .NET Framework 3.5 and Visual Studio 2008 installed. In the build configuration manager inside Visual Studio, mod\_managed has configurations for both Debug/Release CLR and Mono. Simply select Debug\_CLR and build.
+
+## Mono Build
+
+For the Mono version, the Windows build requires that Mono install be accessible at "C:\\Program Files\\Mono". If you installed somewhere else, symlink it:
+
+Windows 6+:
+
+```bash
+ mklink /d "C:\Program Files\Mono" "C:\Program Files\Mono-2.4"
+```
+
+Earlier versions:
+
+```bash
+ Get Junction: http://technet.microsoft.com/en-us/sysinternals/bb896768.aspx
+ junction -d "C:\Program Files\Mono" "C:\Program Files\Mono-2.4"
+```
+
+You’ll have to generate mono.lib for your compiler. Details here: <http://www.mono-project.com/Embedding%5FMono> (Search for mono.def). A batch file is provided: monolibx86.cmd:
+
+```powershell
+ C:\freeswitch\src\mod\languages\mod_managed>monolibx86
+ C:\freeswitch\src\mod\languages\mod_managed>lib /nologo /def:mono.def /out:mono.lib /machine:x86
+  Creating library mono.lib and object mono.exp
+```
+
+Make sure your PATH has the Mono bin folder in it (such as "C:\\Program files\\Mono\\bin") or the mod will not load.
+
+From there, simply compile the mod\_managed project in the languages folder. This will build the unmanaged side and the managed loader and put them in your mod directory. If you get errors, the SWIG generated interface might be out of date. From the mod\_managed directory, you can run "runswig.cmd" to regenerate the SWIG files. This batch file assumes SWIG is accessible at "\\dev\\swig".
+
+## Linux Build
+
+To build on Linux, first [install Mono](http://mono-project.com/Compiling%5FMono%5FFrom%5FTarball) and make sure "languages\\mod\_managed" is uncommented in modules.conf. In the src/mod/mod\_managed dir, you should be able to:
+
+```xml
+ make && make install
+```
+
+If this complains about pkgconfig, try:
+
+```xml
+ export PKG_CONFIG_PATH=/usr/local/lib/pkgconfig
+```
+
+When running on Linux, you might get a DllNotFoundException for libc. Try making sure [libc.so](http://libc.so) is in one of the ldconfig paths. For example, on a clean CentOS 5.3 x64 system, I had to do this:
+
+```xml
+ ln -s /lib64/libc-2.5.so /lib64/libc.so
+```
+
+Followed by ld config. Almost all DllNotFoundExceptions are because of incorrect ld paths.
+
+As of November 2011, the error with finding [libc.so](http://libc.so) has been resolved. You do not need to create a symlink anymore.
+
+If you are experiencing NullReferenceExceptions with any plugin run through the dialplan, make sure you have included the appropriate entry in your [dllmap](http://mono-project.com/Config%5FDllMap) configuration:
+
+## Linux Mono 2.8 and greater Build
+
+Mono 2.8+ support is now enabled by default, and older Mono versions are unsupported.
+
+# Loading Modules
+
+To load mod\_managed at FreeSWITCH start up you will need to add "&lt;load module="mod\_managed" />" to the modules.conf.xml. The best place for this line is in the languages sections.
+
+Modules.conf.xml is located in &lt;FS install dir>\\conf\\autoload\_configs\\
+
+mod\_managed automatically scans the &lt;FreeSWITCH mod dir>\\managed for managed modules. (For example, this may be "C:\\freeswitch\\debug\\mod\\managed".) mod\_managed will not load if the "managed" subdirectory under the modules directory does not exist.
+
+There are two main plugin interfaces: IApiPlugin, and IAppPlugin. Any assembly or script in the managed directory containing types implementing those interfaces will automatically get loaded and registered. The name registered is the full name (Namespace.TypeName), as well as just the TypeName. If there are conflicts, the last loaded type will overwrite previous ones.
+
+IAppPlugins are only called on sessions, say,fromthedialplan. IApiPlugins can be called anywhere from FreeSWITCH. IApiPlugins can be run normally ("managed"/Execute), as well as in the background on their own thread ("managedrun"/ExecuteBackground).
+
+A third plugin interface, ILoadNotificationPlugin, is for controlling loading of scripts or assemblies. If any ILoadNotificationPlugin returns false from Load, the file will not be loaded. This is also a way to get notified when your code is being loaded and perform initialization tasks.
+
+## Dynamic Loading
+
+mod\_managed will watch the managed directory for changes to loaded files and their config files. Any changes will trigger a reload of that file. First, the file will be re-read and loaded. Then the previous version will be unloaded. The only notification provided is via the AppDomain.CurrentDomain.DomainUnload event.
+
+To force a reload,usethemanagedreloadcommand: "managedreloadmy.dll".
+
+# Scripting
+
+mod\_managed now supports scripting via any managed language. Simply drop a script file in the managed directory, and mod\_managed will compile it and load it into memory (and reload it when changed).
+
+Scripts must produce a valid entry point. Entry points must be public for use on Mono. Anentrypointmayreturnavalue,andmaytakeasinglestringarrayparameter, however, the return value is not checked, and the string array parameter will always be empty.
+
+Inside the script, check the static variable FreeSWITCH.Script.ContextType to see how the script is being invoked: App,Apior, ApiBackground. Based on that, obtain the context via Script.GetAppContext(), Script.GetApiContext() or Script.GetApiBackgroundContext(). At that point, it is exactly like having a precompiled plugin.
+
+In contrast to other scripting environments, mod\_managed loads your script into memory and initializes it once. Thisprovidesahugeperformanceincreaseoverloadingiteachtime. Staticvariablesaresharedacrossinvocationsofascript,sothatcachingandotherscenariosareenabled. Do be aware of multithreading issues, as multiple threads will be in your script at the same time.
+
+Scripts can define types that implement the plugin interfaces. These will be loaded and registered like normal.
+
+The built-in supported languages are [F# (.fsx)](http://research.microsoft.com/en-us/um/cambridge/projects/fsharp/), VB (.vbx), C# (.csx) and JScript.NET (.jsx). Note the different extensions -- mod_managed will ignore .cs, .vb, and .js files. Mono does not seem to support JScript.NET. Other language support is being looked at.
+
+Scripts can be precompiled as .exes. Simply drop a .exe into the managed directory, and mod\_managed will pick it up like any other script file. This allows deployment without source, as well as deploying scripts that mod\_managed cannot dynamically compile.
+
+# Native Interop
+
+mod\_managed exposes nearly the entire FreeSWITCH C API (courtesy of SWIG). This allows creation of not just API functions and call apps, but any type of module that FreeSWITCH supports (codecs, endpoints, etc.). The types are in the FreeSWITCH.Native namespace. FreeSWITCH.Native. The FreeSWITCH.Native.freeswitch type contains static members to access all the functions.
+
+# Examples
+
+## DRK Presentation
+
+DaveKompel(DRK) gave a presentation about mod\_managed on the May 12, 2010 weekly FreeSWITCH conf call:
+
+* Listen to the presentation [here](http://www.voicenetwork.ca/mod%5Fmanaged/)
+* Download the sample files [here](http://git.drkngs.com/public)
+
+## Demo.cs
+
+See Demo.cs in mod\_managed\\managed. To specify a function, use the name of the type (such as AppDemo or ApiDemo). You can also fully qualify with the namespace and type name, ex: FreeSWITCH.Demo.AppDemo.
+
+```xml
+2008-10-08 17:41:05 [INFO] mod_managed.cpp:310 mod_managed_load() Loading mod_managed (Common Language Infrastructure), Microsoft CLR Version
+ 2008-10-08 17:41:05 [DEBUG] mod_managed.cpp:299 findLoader() Found all FreeSWITCH.Loader functions.
+ 2008-10-08 17:41:05 [DEBUG] switch_cpp.cpp:1059 console_log() mod_managed_lib loader is starting with directory 'C:\freeswitch\Debug\mod\managed'.
+ 2008-10-08 17:41:05 [NOTICE] switch_cpp.cpp:1059 console_log() loadAssemblies: C:\freeswitch\Debug\mod\managed
+ 2008-10-08 17:41:05 [DEBUG] switch_cpp.cpp:1059 console_log() Loading 'C:\freeswitch\Debug\mod\managed\fsfsdemos.dll'.
+ 2008-10-08 17:41:05 [DEBUG] switch_cpp.cpp:1059 console_log() Loading 'C:\freeswitch\Debug\mod\managed\pizzacs.dll'.
+ 2008-10-08 17:41:05 [INFO] switch_cpp.cpp:1059 console_log() Inside AppDemo::Load.
+ 2008-10-08 17:41:05 [NOTICE] switch_cpp.cpp:1059 console_log() Function FreeSWITCH.Demo.AppDemo loaded.
+ 2008-10-08 17:41:05 [DEBUG] switch_cpp.cpp:1059 console_log() Inside ApiDemo::Load.
+ 2008-10-08 17:41:05 [NOTICE] switch_cpp.cpp:1059 console_log() Function FreeSWITCH.Demo.ApiDemo loaded.
+ 2008-10-08 17:41:05 [DEBUG] switch_cpp.cpp:1059 console_log() Trying to resolve assembly 'mod_managed_lib, Version=1.0.2.0, Culture=neutral, PublicKeyToken=null'.
+ 2008-10-08 17:41:05 [NOTICE] switch_cpp.cpp:1059 console_log() Function rss.RssReader loaded.
+ 2008-10-08 17:41:05 [DEBUG] switch_cpp.cpp:1059 console_log() Trying to resolve assembly 'mod_managed_lib, Version=1.0.2.0, Culture=neutral, PublicKeyToken=null'.
+ 2008-10-08 17:41:05 [NOTICE] switch_cpp.cpp:1059 console_log() Function pizzacs.PizzaApp loaded.
+ 2008-10-08 17:41:05 [DEBUG] mod_managed.cpp:328 mod_managed_load() Load completed successfully.
+ 2008-10-08 17:41:05 [DEBUG] mod_managed.cpp:354 mod_managed_load() Load completed successfully.
+ 
+ > help
+ ...
+ managed,<module> [<args>],Run a module as an API function (Execute)
+ managedreload,<filename>,ReLoad assembly
+ managedrun,<module> [<args>],Run a module (ExecuteBackground)
+ 
+ >managed apidemo a1 123
+ API CALL [managed(apidemo a1 123)] output:
+ ApiDemo executed with args 'a1 123' and event type API.
+ 
+ >freeswitch@ODIN> managedrun apidemo a1 123
+ API CALL [managedrun(apidemo a1 123)] output:
+ +OK
+ 2008-10-08 17:44:25 [DEBUG] switch_cpp.cpp:1059 console_log() ApiDemo on a background thread #(3), with args 'a1 123'.
+ 2008-10-08 17:44:25 [DEBUG] switch_cpp.cpp:1059 console_log() ExecuteBackground in apidemo completed.
+```
+
+## Parking Lot Sample
+
+An implementation of a [FreePBX-like parking lot module](http://github.com/joshrivers/FreeSWITCH%5FManaged%5FParkingLot) demonstrates using API and APPpluginswithceptstral text to speech.
+
+# Dialplan and Example
+
+You may point to your managed application by entering the routing into the dialplan as demonstrated below.
+
+```xml
+<extension name="testapp">
+  <condition field="destination_number" expression="^(1024)">
+     <action application="managed" data="yourclassname"/>
+  </condition>
+</extension>
+```
+
+# AbortOnHangup
+
+With mod\_managed 1.0.4, this is no longer used. Emailthefreeswitchdeveloperlist if you need this functionality.
+
+# ODBC on Linux
+
+For some reason, mod\_managed doesn't pickupMono's [dllmap](http://mono-project.com/Config%5FDllMap) entries for odbc32.dll to [unixodbc.so](http://unixodbc.so). So, to get ODBC support working, you'll need to create an odbc32.dll link, for example:
+
+```xml
+ln -s /lib64/libodbc.so /lib64/odbc32.dll
+```
+
+[ More information on Mono and ODBC](http://www.mono-project.com/ODBC)
+
+# See Also
+
+* [Mod event socket dotnet](mod_event_socket_dotnet_6587414.mdx#about)
+  
+  
+Document generated by Confluence on nov 11, 2022 04:27

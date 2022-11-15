@@ -1,0 +1,158 @@
+
+# Javascript Example - Intercom 
+
+ Created by  John Boteler, last modified on 2015.04.10
+
+# About
+
+Add intercom recipients to a conference bridge.This script works by originating a channel to each of your Intercom recipients. The call will be auto-answered by default, but you may specify it to ring in case you are dealing with older or non-sip intercom equipment (or a mixed environment like myself). Once all of the recipients have answered or rejected the call they are added to a conference via a transfer command. Once this has been completed the initiator will be connected to the conference as well. All legs are dropped when the initiator hangs up.
+
+# Example Code
+
+**intercom.js example** Espandi fonte 
+
+```js
+// Main
+var script_major_version = 0;
+var script_minor_version = 8;
+var script_name = "Intercom";
+console_log("notice", script_name+" v"+script_major_version+"."+script_minor_version+"\n");
+
+var intercom_answered = 0;
+var recipient_data = argv[0];
+var transfer_command = argv[1];
+var conference_command = argv[2];
+
+var domain_name = session.getVariable("domain_name");
+var originate_options = "ignore_early_media=true";
+
+// exit now if we werent passed what we need
+if(!recipient_data || !transfer_command || !conference_command)
+{
+	console_log("warning", "Improper call to "+script_name+" v"+script_major_version+"."+script_minor_version+"\n");
+	exit();
+}
+
+
+// enumerate users and autodial options
+var arr_rlist = new Array();
+var arr_rvars = new Array();
+var recipients = new Array();
+var autoanswer = new Array();
+
+// create our recipient list ... splitting by , then ;
+arr_rlist = recipient_data.split(",");
+for(i in arr_rlist)
+{
+       if(!arr_rlist[i]) continue;
+	arr_rvars = arr_rlist[i].split(":");
+	
+	recipients[i] = arr_rvars[0];
+	autoanswer[i] = arr_rvars[1];
+	if(autoanswer[i] != "false") autoanswer[i] = "true";
+}
+
+
+// answer the call if we can, exit if we cant
+if(session.ready()) session.answer();
+else exit();
+
+pageSessions = new Array();
+for(i in recipients)
+{
+	console_log("debug", "Originating: "+recipients[i]+"\n");
+
+
+	session.execute("export", "sip_auto_answer="+autoanswer[i]);
+	if(autoanswer[i] == "true")
+	{
+		session.execute("export", "sip_invite_params=intercom=true");
+		session.execute("export", "sip_h_Call-Info=<sip:"+domain_name+">;answer-after=0");
+	}
+
+	// if we originate via the Session() constructor, our exported intercom options will not be passed along
+	// so we construct an empty session and originate via the method
+	pageSessions[i] = new Session();
+	//pageSessions[i].setCallerData("caller_id_name", "Intercom Page") <== WRONG
+       originate_options = originate_options + ",caller_id_name=Intercom Page";
+	pageSessions[i].originate(session, "{"+originate_options+"}user/"+recipients[i]);
+
+}
+
+
+for(i in recipients)
+{
+	console_log("debug", "Conferencing: "+recipients[i]+"\n");
+
+	// if the session is not ready, send a notice and do not transfer to the conference
+	if(!pageSessions[i].ready())
+	{
+		console_log("notice", recipients[i]+" not ready: "+pageSessions[i].cause+"\n");
+	}
+	else
+	{
+		// transfer instead of conferencing, since transfer is a nonblocking call
+		pageSessions[i].execute("transfer", transfer_command);
+		intercom_answered++;
+	}
+}
+console_log("debug", intercom_answered+" recipients answered our page\n");
+
+
+// send ourselves to the conference if someone is waiting for us
+// otherwise send a warning that the pager might not be working
+if(intercom_answered)
+{
+	session.execute("conference", conference_command);
+}
+else
+{
+	console_log("warning", "Intercom page reached no recipients\n");
+	// stream a sound file if desired here
+}
+
+
+// done :)
+console_log("notice", "Intercom page completed");
+exit();
+
+
+```
+
+The above script can be invoked with the following syntax:
+
+```xml
+<action application="javascript" data="Intercom.js 'sofia_address1[:auto_answer][,sofia_address2:[auto_answer][,...]]' 'transfer_command' 'conference_command'"/>
+```
+
+* sofia\_addressX are the recipients of the intercom page and can take any format accepted by [originate](https://wiki.freeswitch.org/wiki/Session%5Foriginate "Session originate") (eg. 'user/101@mydomain')
+* auto\_answer: true or false. Determines whether this address will be auto answered by the recipient
+* transfer\_command: the data string passed to [transfer](../../../Modules/mod-dptools/6586616.mdx#about). This is used on recipients after they have answered the page
+* conference command: the data string passed to [conference](../../../Modules/mod_conference_3965534.mdx#list). This is used on the initiator after all recipients have been conferenced
+
+Below is the relevant section of my dialplan:
+
+**Dialplan example for intercom.js**
+
+```xml
+<extension name="Example Intercom">
+	<condition field="destination_number" expression="^150$" break="never">
+		<action application="javascript" data="Intercom.js '101@${domain_name},117@${domain_name},150@${domain_name}:false' '9150 XML default' '150@default'"/>
+	</condition>
+</extension>
+
+<extension name="Example Intercom Conference">
+	<condition field="destination_number" expression="^9150$" break="never">
+		<action application="conference" data="150@default+flags{mute}"/>
+	</condition>
+</extension>
+```
+
+Extension 150 is my intercom page extension. 9150 is the extension to which paged recipients are directed. 150 is set to false on auto\_answer as it is an intercom connected to a legacy device connected to a Sipura 2102 ATA (thus it must ring so the device can pick up). 101 and 117 are Polycom Soundpoint IP phones with reg.x.callsPerLineKey="1". This means that call-waiting is disabled on their pager lines, so incoming pages don't put their current caller on hold.
+
+Feedback for additional phones would be great! Currently tested on:
+
+* Polycom Soundpoint IP 320/330 and 550/650
+* Linksys/Sipura SPA2102 ATA
+
+Document generated by Confluence on nov 11, 2022 04:27

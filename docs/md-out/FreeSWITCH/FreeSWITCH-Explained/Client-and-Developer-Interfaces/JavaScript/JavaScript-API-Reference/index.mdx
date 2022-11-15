@@ -1,0 +1,1838 @@
+
+# JavaScript API Reference 
+
+ Created by  N Oliver, last modified by  Henning Heedfeld on 2022.10.20
+
+# About
+
+This page provides the documentation of the Javascript FreeSWITCH API.
+
+Docs Help Needed
+
+Most API aren't documented, so please feel free to improve the documentation and complete the API examples.
+
+This page is in process, having been copied from Lua (for consistent formatting).
+
+The JavaScript engine has changed from Spidermonkey to V8\. Verification of the APIs (as seen in the old wiki) is needed.
+
+Click here to expand Table of Contents
+
+* 1 [FreeSWITCH DB Access From JavaScript](#freeswitch-db-access-from-javascript)
+* 2 [apiExecute](#apiexecute)  
+   * 2.1 [apiExecute Notes](#apiexecute-notes)
+* 3 [bridge](#-freeswitch--javascript-api-reference-)
+* 4 [callback](#callback)  
+   * 4.1 [Returns:](#returns)  
+         * 4.1.1 [Recording](#recording)  
+         * 4.1.2 [Playing Back](#playing-back)  
+         * 4.1.3 [Bridge](#-freeswitch--javascript-api-reference-)  
+         * 4.1.4 [Other](#-freeswitch--javascript-api-reference-)  
+   * 4.2 [Callback Examples](#callback-examples)
+* 5 [console\_log](#console_log)
+* 6 [Database Access](#database-access)  
+   * 6.1 [DB.close](#dbclose)  
+   * 6.2 [DB.exec](#-freeswitch--javascript-api-reference-)  
+   * 6.3 [DB.fetch](#dbfetch)  
+   * 6.4 [DB.next](#-freeswitch--javascript-api-reference-)  
+   * 6.5 [DB.path](#-freeswitch--javascript-api-reference-)  
+   * 6.6 [DB.prepare](#dbprepare)
+* 7 [email](#-freeswitch--javascript-api-reference-)
+* 8 [Url Access](#url-access)  
+   * 8.1 [FetchUrl](#fetchurl)  
+   * 8.2 [FetchUrlFile](#fetchurlfile)  
+   * 8.3 [FetchUrlHash](#fetchurlhash)
+* 9 [File](#-freeswitch--javascript-api-reference-)  
+   * 9.1 [File.canAppend](#filecanappend)  
+   * 9.2 [File.canRead](#filecanread)  
+   * 9.3 [File.canReplace](#filecanreplace)  
+   * 9.4 [File.canWrite](#filecanwrite)  
+   * 9.5 [File.close](#fileclose)  
+   * 9.6 [File.copyTo](#filecopyto)  
+   * 9.7 [File.creationTime](#filecreationtime)  
+   * 9.8 [File.error](#fileerror)  
+   * 9.9 [File.exists](#fileexists)  
+   * 9.10 [File.flush](#fileflush)  
+   * 9.11 [File.hasAutoFlush](#filehasautoflush)  
+   * 9.12 [File.hasRandomAccess](#filehasrandomaccess)  
+   * 9.13 [File.input](#fileinput)  
+   * 9.14 [File.isDirectory](#fileisdirectory)  
+   * 9.15 [File.isFile](#fileisfile)  
+   * 9.16 [File.isNative](#fileisnative)  
+   * 9.17 [File.isOpen](#fileisopen)  
+   * 9.18 [File.lastModified](#filelastmodified)  
+   * 9.19 [File.length](#filelength)  
+   * 9.20 [File.list](#filelist)  
+   * 9.21 [File.mkdir](#filemkdir)  
+   * 9.22 [File.mode](#filemode)  
+   * 9.23 [File.name](#-freeswitch--javascript-api-reference-)  
+   * 9.24 [File.open](#fileopen)  
+   * 9.25 [File.output](#fileoutput)  
+   * 9.26 [File.parent](#fileparent)  
+   * 9.27 [File.path](#filepath)  
+   * 9.28 [File.position](#fileposition)  
+   * 9.29 [File.read](#fileread)  
+   * 9.30 [File.readAll](#filereadall)  
+   * 9.31 [File.readln](#filereadln)  
+   * 9.32 [File.remove](#fileremove)  
+   * 9.33 [File.renameTo](#filerenameto)  
+   * 9.34 [File.seek](#fileseek)  
+   * 9.35 [File.size](#filesize)  
+   * 9.36 [File.toString](#filetostring)  
+   * 9.37 [File.toURL](#filetourl)  
+   * 9.38 [File.type](#filetype)  
+   * 9.39 [File.write](#filewrite)  
+   * 9.40 [File.writeAll](#filewriteall)  
+   * 9.41 [File.writeln](#filewriteln)
+* 10 [fileDelete](#filedelete)
+* 11 [FileIO](#-freeswitch--javascript-api-reference-)  
+   * 11.1 [Description](#description)  
+   * 11.2 [FileIO.data](#fileiodata)  
+   * 11.3 [FileIO.path](#fileiopath)  
+   * 11.4 [FileIO.read](#fileioread)  
+   * 11.5 [FileIO.write](#fileiowrite)
+* 12 [getGlobalVariable](#getglobalvariable)  
+   * 12.1 [See Also](#see-also)
+* 13 [include](#-freeswitch--javascript-api-reference-)
+* 14 [Session](#-freeswitch--javascript-api-reference-)  
+   * 14.1 [Constructor](#constructor)  
+   * 14.2 [Session.sayPhrase](#sessionsayphrase)  
+   * 14.3 [Session.speak](#sessionspeak)
+* 15 [setGlobalVariable](#setglobalvariable)  
+   * 15.1 [Notes](#apiexecute-notes)  
+   * 15.2 [See Also](#see-also)
+* 16 [system](#-freeswitch--javascript-api-reference-)
+* 17 [TeleTone](#teletone)  
+   * 17.1 [TeleTone.addTone](#teletoneaddtone)  
+   * 17.2 [TeleTone.generate](#teletonegenerate)  
+   * 17.3 [TeleTone.name](#teletonename)  
+   * 17.4 [TeleTone.onDTMF](#teletoneondtmf)
+
+  
+# FreeSWITCH DB Access From JavaScript
+
+FreeSWITCH uses SQLite for a variety of internal operations. There is a mechanism where you can also use SQLite in your JavaScript applications. The methods and properties available are listed below in alphabetical order.
+
+SQLite is provided to demonstrate the capabilities of FreeSWITCH. For production systems processing high volumes of calls a database system that can handle that volume must be used, for example Postgres.
+
+* [DB.close](index.mdx#dbclose)
+* [DB.exec](index.mdx#-freeswitch--javascript-api-reference-)
+* [DB.fetch](index.mdx#dbfetch)
+* [DB.next](index.mdx#-freeswitch--javascript-api-reference-)
+* [DB.prepare](index.mdx#dbprepare)
+
+  
+# apiExecute
+
+SPIDERMONKEY V8 UNVERIFIED
+
+Executes an API (FreeSWITCH console) command.  
+(To execute a dialplan application, use [session.execute](./Session-Execute_13173606.mdx).)
+
+For a list of commands that can be executed with apiExecute, see the [Command reference](../../../Modules/mod_commands_1966741.mdx#--).
+
+Usage:
+
+apiExecute(apiCommand, args);
+
+* `apiCommand` (`String`) - the command name to execute
+* `args` (`String`) - arguments for the command (all joined together into a single string) (**not** the internal `arguments` variable)
+
+Returns: `undefined` ?
+
+**apiExecute examples**
+
+```js
+// ???
+apiExecute("show", "channels");
+
+//Plays a sound file for everyone currently residing in conference room 1.
+apiExecute("conference", "1 play /usr/local/freeswitch/sounds/myfile.wav");
+
+//Using text to speech engine speaks to everyone in conference room 1.
+apiExecute("conference", "1 say Hello there");
+```
+
+## apiExecute Notes
+
+apiExecute() does not have the same object hierarchy as other methods exposed via mod\_spidermonkey (it is not an extension of session).
+
+  
+api (console cli) commands can be executed via a workaround. The following will set myvar with the output of apicommand()   
+`execute("set","myvar=${apicommand()}")`
+  
+  
+# bridge
+
+SPIDERMONKEY V8 UNVERIFIED
+
+Bridges 2 channels together.
+
+**bridge usage**
+
+```js
+bridge(session1, session2[, callback[, callbackArgs])
+```
+
+* `session1` ([Session](#-freeswitch--javascript-api-reference-)) - one session to bridge
+* `session2` ([Session](#-freeswitch--javascript-api-reference-)) - the other session to bridge
+* `callback` ([Function](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global%5FObjects/Function)) - function to call every time DTMF is generated on either of the channels
+* `callbackArgs` ([String](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global%5FObjects/String)) - data that you wish to access in the `callback`
+
+Returns: `undefined` ?
+
+# callback
+
+The `callback` function argument is invoked every time DTMF is generated on either one of the session channels.
+
+**callback example**
+
+```js
+function <callbackName> ( session, type, dtmf, userData  ) {
+   //.. do something ..
+   return <value>; 
+}
+```
+
+Arguments:
+
+* session (string) - the session UUID that generated the event.
+* type (object) - the type of event object (list/link possible values here)
+* dtmf (object)  
+   * dtmf.digit (string) - digit pressed  
+   * dtmf.duration (Number?) - duration the digit was pressed.
+* userData (Mixed) - the callbackArgs passed to the callback from the bridge function
+
+## Returns:
+
+The meaning of the return value varies depending on the current telephony operation.
+
+### Recording
+
+* true - keep recording
+* false - stop
+* "pause"
+* "restart"
+
+### Playing Back
+
+* true - keep going, do not interrupt the current operation
+* false - stop, and exit the current operation
+* "seek:\[+/-\]\[value\]" in milliseconds
+* "speed:\[+/-\]\[value\]" in some unknown unit  
+Relative:  
+   * return("speed:+");  
+   * return("speed:-");  
+   * return("speed:+5");  
+   * return("speed:-5");  
+   Absolute:  
+   * return("speed:0");  
+   * return("speed:5");
+* "pause" (toggle; sending a second pause will resume playback)
+* "restart"
+
+### Bridge
+
+* `false` \- stop and exit the current bridge.
+* `true` \- keep going, do not interrupt the current bridge.
+
+### Other
+
+* true - keep going, do not interrupt the current operation
+* false - stop, and exit the current operation
+
+## Callback Examples
+
+**Simple bridge example**
+
+```js
+var anotherSession = new Session(session, "sofia/sip/1234@10.10.2.55");
+bridge(session, anotherSession);
+anotherSession.hangup();
+```
+
+  
+This example will print "Given userData.param of under the rock" in the FS console and will recall mycall@mydomain.com every time someone presses a key on either of the call legs
+
+**bridge example 2**
+
+```js
+function logAndStopBridge ( session, type, dtmf, userData) {
+ console_log("WARNING","Given userData.param of "+(userData && userData.param));
+ return false;
+}
+session.answer();
+while ( session.ready() ) {
+  var mySession = new Session("sofia/sip/mycall@mydomain.com");
+  bridge(session, mySession, logAndStopBridge, {param:"under the rock"});
+} 
+```
+
+# console_log
+
+SPIDERMONKEY V8 UNVERIFIED
+
+Logs a message to the console logger.
+
+**bridge usage**
+
+```js
+console_log([level,] message)
+```
+
+* `level` ([String](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global%5FObjects/String)) - severity of the message ("DEBUG", "INFO", "NOTICE", "WARNING", "ERR", "CRIT", "ALERT"), defaults to "DEBUG" when unspecified
+* `message` ([String](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global%5FObjects/String)) - message to appear in the FS console, usually ends with a newline (`\n`)
+
+Returns: `undefined` ?
+
+**console\_log example**
+
+```js
+console_log("Hello there\n"); // DEBUG level in FS console
+console_log("WARNING", "Ho!\n"); 
+```
+
+  
+# Database Access
+
+## DB.close
+
+This method closes your database connection. Please note that as soon as a script finishes executing the engine will automatically close any CoreDB resources. This close method was designed to help you free up those resources for longer running scripts.
+
+Usage:
+
+DB.close()
+
+  
+**DB.close example**
+
+```js
+use("CoreDB");
+
+var DB = new CoreDB("js");
+var sql="select * from users;";
+DB.prepare(sql);
+while(DB.next()) {
+   hash = DB.fetch();
+   console_log("name = " + hash["name"] + " number " + hash["did"] + "\n");
+}
+DB.close();
+//Do Some other stuff here. 
+```
+
+  
+## DB.exec
+
+Executes an SQL statement. If you are doing a select you may want to look at [DB.prepare](https://wiki.freeswitch.org/wiki/Javascript%5FDB%5FPrepare "Javascript DB Prepare") instead.
+
+Usage:
+
+exec(sql statement)
+
+  
+**DB.close example**
+
+```js
+use("CoreDB");
+
+var db = new CoreDB("js");
+var sql="delete from users";
+db.exec(sql);
+```
+
+  
+## DB.fetch
+
+Gets the next row from a select operation.
+
+Usage:
+
+fetch()
+
+  
+**DB.fetch example**
+
+```js
+use("CoreDB");
+
+var db = new CoreDB("js");
+var sql="select * from users;";
+db.prepare(sql);
+while(db.next()) {
+  hash = db.fetch();
+  console_log("name = " + hash["name"] + " number " + hash["did"] + "\n");
+}
+```
+
+  
+## DB.next
+
+This goes to the next row, presumably after you have DB.fetch()ed it.
+
+Usage:
+
+next()
+
+**DB.next example**
+
+```js
+use("CoreDB");
+
+var db = new CoreDB("js");
+var sql="select * from users;";
+db.prepare(sql);
+while(db.next()) {
+   hash = db.fetch();
+   console_log("name = " + hash["name"] + " number " + hash["did"] + "\n");
+}
+```
+
+  
+## DB.path
+
+Returns the path for the SQLite database.
+
+Usage:
+
+console_log(DB.path + "\n");
+
+## DB.prepare
+
+Prepares the specified SQL statement for use.
+
+Usage:
+
+prepare(statement)
+
+  
+**DB.prepare example**
+
+```js
+use("CoreDB");
+
+var db = new CoreDB("js");
+var sql="select * from users;";
+db.prepare(sql);
+while(db.next()) {
+   hash = db.fetch();
+   console_log("name = " + hash["name"] + " number " + hash["did"] + "\n");
+}
+```
+
+  
+# email
+
+Sends an email from within your application
+
+Usage:
+
+email(to, from, headers, body, [&lt;filename>]);
+
+Arguments:
+
+* from - from email address
+* to - to email address
+* headers - optional headers (i.e. "Subject: yadayada")
+* body - body of email message
+* filename - optional filename to attach
+
+  
+**email example**
+
+```js
+if (eMailTo != "") {
+  var tmp_eMailSubject = eMailSubject + sv_caller_id_name + " (" + sv_caller_id_num + ")";
+  email(eMailTo, eMailFrom, "Subject: " + tmp_eMailSubject, eMailBody, tmp_Filename);
+}
+```
+
+# Url Access
+
+## FetchUrl
+
+Usage:
+
+var result = fetchUrl(&lt;url>, [bufferSize]);
+
+Arguments:
+
+* result - Will contain document info, or false if an error occurred during the fetching.
+* url - The complete url to the document.
+* bufferSize - Optional parameter that specifies size of the buffer, default size is 65535 bytes.
+
+#### Error reasons
+
+* The url is incorrect.
+* The buffer is too small for the document.
+
+#### Use through web proxy
+
+If you have to use fetchUrl through a corporate web proxy you can set the environment variable http\_proxy='http://proxy\_username:proxy\_password@proxy.ip.address:proxy.port' You can done this only if security is not a first concern for you (e.g. you are the only one using the freeswitch machine).
+
+#### Example
+
+```xml
+var result = fetchUrl("https://localhost/user/get/1");
+if (result == false)
+  console_log("Failed to get user");
+else
+  console_log("User doc: " + result);
+```
+
+## FetchUrlFile
+
+Fetches the content of a webpage and stores it into a file. This is safer than fetching directly into memory directly since you may not know how much memory it will take until after the page has loaded.
+
+Usage:
+
+fetchUrlFile(url,file)
+
+Arguments
+
+* url - any cURL supported URL.
+* file - the file including path into which to store the response.
+
+```xml
+fetchUrlFile("http://www.somewhere.tld/somepage.html","/tmp/somepage.html");
+```
+
+## FetchUrlHash
+
+Fetch the response from a webserver and store it in a hash.
+
+Usage:
+
+fetchUrlHash(url,hash)
+
+* url - any CURL supported format (you can encode data you want to send to the server)
+* hash - name of the hash to save data into
+
+Note: the hash variable name must be enclosed between quotes.
+
+The web server must return data with a
+
+ Content-type: text/plain\n\n
+
+header and `attribute=value` pairs in the body, e.g.:
+
+ moo=ojnk  
+ foo=bar
+
+Spaces on either side of the name or value will be trimmed off, so 'foo = bar' is valid and in Javascript would be the same as 'foo=bar'
+
+You may have to escape any quoted parameters ( " ) with \\" (backslash quote) to get it to work properly due to the way this is converted into Javascript. e.g.
+
+ foo=\"bar\"
+
+  
+**FetchURLHash example**
+
+```js
+var myhash = new Array(); // must be defined in the same scope, i.e. same function
+fetchUrlHash("http://www.somewhere.tld/somepage.html","myhash");
+for (key in myhash) {
+    console_log(key + ": " + myhash[key] + "\n");
+}
+```
+
+  
+Security Warning
+
+The data returned is processed with eval(), which means that if the web server has control to send anything it wants the returned data will be processed and can overwrite other variables, execute arbitrary code, whatever. An example might be:
+
+foo=bar";console_log("pwned\n");var blah="
+
+the last `var blah="` is to catch the trailing quote and not have a parse error.
+
+Do not fetch arbitrary URLs off the internet with this, only use sites that you control to avoid an evil user from causing harm.
+
+  
+# File
+
+File class is still **not yet implemented in v1.10**, use FileIO instead**.**
+
+  
+Fai clic qui per espandere...
+
+## File.canAppend
+
+Returns a boolean indicating whether or not we can append to the specified file.
+
+Usage:
+
+canAppend
+
+  
+**File.canAppend example**
+
+```js
+var fd = new File("/tmp/blah");
+fd.open("write,append");
+if (fd.canAppend) {
+  console_log(fd.name) + "can be appended to\n");
+} else {
+  console_log(fd.name) + "cannot be append to\n");
+}
+```
+
+## File.canRead
+
+Returns a boolean indicating whether or not we can read this file.
+
+Usage:
+
+canRead
+
+  
+**File.canRead example**
+
+```js
+var fd = new File("/tmp/blah");
+if (fd.canRead) {
+  console_log((fd.name) + "can be read\n");
+} else {
+  console_log((fd.name) + "can not be read\n");
+}
+```
+
+## File.canReplace
+
+Returns a boolean indicating whether or not we can replace the contents in this file.
+
+Usage:
+
+canReplace
+
+  
+**File.canReplace example**
+
+```js
+var fd = new File("/tmp/blah");
+fd.open("read,write,replace");
+if (fd.canReplace) {
+  console_log(fd.name) + "can be overwritten\n");
+} else {
+  console_log(fd.name) + "cannot be overwritten\n");
+}
+```
+
+  
+## File.canWrite
+
+Returns a boolean indicating whether or not we can write to the file.
+
+Usage:
+
+canWrite
+
+  
+**File.canWrite example**
+
+```js
+var fd = new File("/tmp/blah");
+if (fd.canWrite) {
+  console_log(fd.name) + "can be written to\n");
+} else {
+  console_log(fd.name) + "can not be written to\n");
+}
+```
+
+  
+## File.close
+
+Closes an open file handle.
+
+Usage:
+
+close()
+
+  
+**File.close example**
+
+```js
+var fd = new File("/tmp/blah");
+fd.((FreeSwitch Javascript File open|open))("read");
+fd.close();
+```
+
+  
+## File.copyTo
+
+Copy a file to a new file.
+
+Usage:
+
+copyTo(dest)
+
+  
+**File.copyTo example**
+
+```js
+var fd = new File("/tmp/blah");
+fd.copyTo("/tmp/moo");
+```
+
+  
+## File.creationTime
+
+The timestamp of when the file was created.
+
+Usage:
+
+creationTime
+
+  
+**File.creationTime example**
+
+```js
+var fd = new File("/tmp/blah");
+console_log(fd.creationTime+"\n");
+```
+
+## File.error
+
+A File object for standard error.
+
+Usage:
+
+error
+
+  
+**File.error example**
+
+```js
+var fd = File.error
+fd.open("write");
+fd.writeln("\n\ntesting\n\n");
+```
+
+  
+## File.exists
+
+Returns a boolean indicating whether the file exists or not.
+
+Usage:
+
+exists
+
+  
+**File.exists example**
+
+```js
+var fd = new File("/tmp/blah");
+if (fd.exists) {
+  console_log((fd.name) + "exists\n");
+} else {
+  console_log((fd.name) + "does not exist\n");
+}
+```
+
+  
+## File.flush
+
+Flushes the buffer to the file.
+
+Usage:
+
+flush()
+
+  
+**File.flush example**
+
+```js
+var fd = new File("/tmp/blah");
+fd.open("write");
+fd.write("hi");
+fd.flush();
+```
+
+  
+## File.hasAutoFlush
+
+Returns a boolean indicating whether or not this file has automatic buffer flushing enabled.
+
+Usage:
+
+hasAutoFlush
+
+  
+**File.hasAutoFlush example**
+
+```js
+var fd = new File("/tmp/blah");
+fd.open("read,write,autoFlush");
+console_log("Do we have auto flush? " + fd.hasAutoFlush + "\n");
+```
+
+  
+## File.hasRandomAccess
+
+Returns a boolean indicating whether we have random access to this file or not, i.e. will (FreeSWITCH JavaScript File seek|seek) work.
+
+Usage:
+
+hasRandomAccess
+
+  
+**File.hasRandomAccess example**
+
+```js
+var fd = new File("/tmp/blah");
+fd.open("read");
+console_log("Do we have random access? " + fd.hasRandomAccess+"\n"); 
+```
+
+## File.input
+
+A file object for standard input.
+
+Usage:
+
+input
+
+  
+**File.input example**
+
+```js
+var fd = File.input
+fd.open("read");
+fd.readln();var fd = File.input
+fd.open("read");
+fd.readln();
+```
+
+## File.isDirectory
+
+Returns a boolean indicating whether or not the current file is a directory.
+
+Usage:
+
+isDirectory
+
+  
+**File.isDirectory example**
+
+```js
+var fd = new File("/tmp/blah");
+if (fd.isDirectory) {
+  console_log(fd.name) + "is a directory\n");
+} else {
+  console_log(fd.name) + "is not a directory\n");
+} 
+```
+
+## File.isFile
+
+Returns a boolean indicating whether or this resource is a file.
+
+Usage:
+
+isFile
+
+  
+**File.isFile example**
+
+```js
+var fd = new File("/tmp/blah");
+if (fd.isFile) {
+ console_log(fd.name) + "is a file\n");
+} else {
+  console_log(fd.name) + "is not a file\n");
+} 
+```
+
+## File.isNative
+
+Returns a boolean indicating whether or not we are using an OS specific FILE handle.
+
+Usage:
+
+isNative
+
+  
+**File.isNative example**
+
+```js
+var fd = new File("/dev/zero"); // or COM1 or whatever in windows
+console_log(fd.isNative);
+fd.close();
+```
+
+  
+## File.isOpen
+
+Returns a boolean indicating whether or not the file is open.
+
+Usage:
+
+isOpen
+
+  
+**File.isOpen example**
+
+```js
+var fd = new File("/tmp/blah");
+console_log("Is the file open? " + fd.isOpen + "\n");
+fd.open("read");
+console_log("Is the file open? " + fd.isOpen + "\n");
+fd.close(); 
+```
+
+  
+## File.lastModified
+
+The timestamp of when the file was last modified.
+
+Usage:
+
+lastModified
+
+  
+**File.lastModified example**
+
+```js
+var fd = new File("/tmp/blah");
+console_log(fd.lastModified+"\n");
+```
+
+  
+## File.length
+
+Returns the length of the file.
+
+Usage:
+
+length
+
+  
+**File.length example**
+
+```js
+var fd = new File("/tmp/blah");
+console_log(fd.length+"\n"); 
+```
+
+  
+## File.list
+
+Returns the file names in a directory.
+
+Usage:
+
+list()
+
+  
+**File.list example**
+
+```js
+var fd = new File("/tmp");
+console_log(fd.list()); 
+```
+
+  
+## File.mkdir
+
+Create a directory in the current directory and point the file object to it.
+
+Usage:
+
+mkdir(directory)
+
+  
+**File.mkdir example**
+
+```js
+var fd = new File("/tmp")
+fd.mkdir("blah");
+```
+
+  
+## File.mode
+
+A comma separated list of the modes that you are allowed to use for this file.
+
+Usage:
+
+mode
+
+Modes:
+
+mode - a comma separated list of the file modes
+
+* read - open for reading
+* write - open for writing
+* readWrite - open for reading and writing
+* append - add to the end of a file
+* create - create the file if it doesnt exist
+* replace - replace the contents with new ones (truncate)
+* autoflush - auto flush the buffer when writing
+
+  
+**File.mode example**
+
+```js
+var fd = new File("/tmp/blah");
+fd.open("read,append");
+console_log(fd.mode+"\n");
+```
+
+  
+## [File.name](http://File.name)
+
+Returns the name of the current file without the directory part, the basename.
+
+Usage:
+
+name
+
+  
+```xml
+var fd = new File("/tmp/blah");
+console_log(fd.name);
+```
+
+  
+## File.open
+
+Opens a file handle.
+
+Usage:
+
+open(mode)
+
+where mode - a comma separated list of the file modes
+
+* _read_ \- open for reading
+* _write_ \- open for writing
+* _readWrite_ \- open for reading and writing
+* _append_ \- add to the end of a file
+* _create_ \- create the file if it doesnt exist
+* _replace_ \- replace the contents with new ones (truncate)
+* _autoflush_ \- auto flush the buffer when writing
+
+**File.open example**
+
+```js
+var fd = new File("/tmp/blah");
+fd.open("read,write,create");
+
+// Read output from an application
+var fd = new File("|ls /home");
+fd.open("read");
+var result = fd.read("128");
+```
+
+  
+## File.output
+
+A file object for standard output.
+
+Usage:
+
+output
+
+  
+**File.open example**
+
+```js
+var fd = File.output
+fd.open("write");
+fd.writeln("\n\ntesting\n\n");
+```
+
+  
+## File.parent
+
+Returns the parent part of the path.
+
+Usage:
+
+parent
+
+  
+**File.parent example**
+
+```js
+var fd = new File("/tmp/blah");
+console_log(fd.parent);
+```
+
+## File.path
+
+Returns the full path to the current file descriptor.
+
+Usage:
+
+path
+
+  
+**File.path example**
+
+```js
+var fd = new File("/tmp/blah");
+console_log(fd.path); 
+```
+
+  
+## File.position
+
+The current position in the file.
+
+Usage:
+
+position
+
+  
+**File.position example**
+
+```js
+var fd = new File("/tmp/blah");
+fd.open("read");
+fd.seek(10);
+console_log("We are at offset " + fd.position + "\n");
+fd.close()
+```
+
+## File.read
+
+Reads a specified number of bytes into a buffer.
+
+Usage:
+
+read(size)
+
+size - the number of bytes to read
+
+**File.read example**
+
+```js
+var fd = new File("/tmp/blah");
+var buff = fd.read(10);
+```
+
+  
+## File.readAll
+
+Reads the entire contents of a file into a buffer. 
+
+Be careful of memory allocation with this command so you don't have 1000 calls all trying to read in a 100MB file.
+  
+  
+Usage:
+
+readAll()
+
+  
+**File.readAll example**
+
+```js
+var fd = new File("/tmp/blah");
+var buff = fd.readAll();
+```
+
+  
+## File.readln
+
+Reads a file up to a newline into a buffer.
+
+Usage:
+
+readln()
+
+  
+**File.readln example**
+
+```js
+var fd = new File("/tmp/blah");
+var buff = fd.readln();
+```
+
+## File.remove
+
+Deletes a file.
+
+Usage:
+
+remove();
+
+  
+**File.remove example**
+
+```js
+var fd = new File("/tmp/blah");
+fd.remove();
+```
+
+  
+## File.renameTo
+
+Renames a file name to some other name.
+
+Usage:
+
+renameTo(newName)
+
+newName - the new name of the file
+
+**File.renameTo example**
+
+```js
+var fd = new File("/tmp/blah");
+fd.renameTo("/tmp/moo"); 
+```
+
+  
+## File.seek
+
+Sets the file pointer to a specified position in a file.
+
+Usage:
+
+seek(offset)
+
+offset - the byte offset to seek to
+
+**File.seek example**
+
+```js
+var fd = new File("/tmp/blah");
+fd.open("read");
+fd.seek(1024);
+```
+
+  
+## File.size
+
+Return the file size. This appears to be the same as (FreeSWITCH JavaScript File length)
+
+Usage:
+
+size
+
+  
+**File.size example**
+
+```js
+var fd = new File("/tmp/blah");
+console_log(fd.size+"\n"); 
+```
+
+  
+## File.toString
+
+Returns a string for the path to the file.
+
+Usage:
+
+toString()
+
+  
+**File.toString example**
+
+```js
+console_log(fd.toString());
+```
+
+  
+## File.toURL
+
+Returns a URL–formatted object for the file name/path.
+
+Usage:
+
+toURL()
+
+  
+```xml
+console_log(fd.toURL() + "\n");
+```
+
+## File.type
+
+Returns the type (i.e. text, UTF, Unicode, etc.) of the file.
+
+Usage:
+
+type
+
+  
+**File.type example**
+
+```js
+var fd = new File("/tmp/blah");
+fd.open("read");
+console_log(fd.type+"\n");
+```
+
+  
+## File.write
+
+Writes a string to a file.
+
+Usage:
+
+write(string)
+
+  
+**File.write example**
+
+```js
+var fd = new File("/tmp/blah");
+fd.write("whee!\n");
+```
+
+  
+## File.writeAll
+
+Writes an array to a file.
+
+Usage:
+
+writeAll(data)
+
+  
+**File.writeAll example**
+
+```js
+var data = new Array("moo","ojnk");
+var fd = new File("/tmp/blah");
+fd.open("write");
+fd.writeAll(data); 
+```
+
+  
+## File.writeln
+
+Writes a string and appends a \\n (newline) to the end into a file.
+
+Usage:
+
+writeln(string)
+
+  
+**File.writeln example**
+
+```js
+var fd = new File("/tmp/blah");
+fd.writeln("this is a test!"); 
+```
+
+  
+# fileDelete
+
+Deletes a file from the system.
+
+Usage:
+
+fileDelete(filename);
+
+Argument:
+
+* filename - full path to filename (use unix slash "/" even on win32)
+
+Returns:
+
+* true - on success
+* false - on file not found or failure
+
+  
+**fileDelete example**
+
+```js
+rtn = fileDelete("/tmp/recording.wav");
+```
+
+# FileIO
+
+## Description
+
+The FileIO object lets you manipulate files.
+
+#### Synopsis
+
+FileIO(filename,flags)
+
+* name - the filename including path to open
+* flags are one of  
+   * r - read  
+   * w - write  
+   * c - create  
+   * a - append  
+   * t - truncate  
+   * b - binary
+
+Note: if the file does not exist and the 'c' flag is not set the JS script will abort and an error event will be generated saying it cant open the file.
+
+#### Example
+
+fd = new FileIO(argv[[0], "r");
+
+#### Methods
+
+* [FileIO.read](#fileioread)
+* [FileIO.write](#fileiowrite)
+* [FileIO.data](#fileiodata)
+
+#### Properties
+
+* [FileIO.path](#fileiopath)
+
+## FileIO.data
+
+Returns the data from a previous read.
+
+Usage:
+
+data()
+
+  
+**FileIO.data example**
+
+```js
+fd = new FileIO("/tmp/blah","r");
+fd.read(2048);
+console_log(fd.data() + "\n"); 
+```
+
+## FileIO.path
+
+Contains the path to the current file.
+
+Usage:
+
+path
+
+  
+**FileIO.path example**
+
+```js
+fd = new FileIO("/tmp/blah","rc");
+console_log(fd.path + "\n"); 
+```
+
+## FileIO.read
+
+Reads data from a file.
+
+Usage:
+
+read(size)
+
+  
+**FileIO.read example**
+
+```js
+fd = new FileIO("/tmp/blah","r");
+fd.read(2048);
+console_log(fd.data()); 
+```
+
+## FileIO.write
+
+Writes data to a file.
+
+Usage:
+
+write(data)
+
+  
+**FileIO.write example**
+
+```js
+fd = new FileIO("/tmp/blah","wc");
+fd.write("testing\n"); 
+```
+
+  
+# getGlobalVariable
+
+SPIDERMONKEY V8 UNVERIFIED
+
+Global variables can be used to share information between all channels. You can save anything in a global variable.
+
+This is not to be confused with a property of the global scope object.
+
+**getGlobalVariable usage**
+
+```js
+var varVal = getGlobalVariable(varName);
+```
+
+* `varName` (`String`) - the name of the global variable
+
+Returns: `varVal` (??) - the value of the gobal variable
+
+**getGlobalVariable example**
+
+```js
+// retrieve the value of the 'clients' global variable
+var clients = getGlobalVariable("clients");
+```
+
+## See Also
+
+* [setGlobalVariable](index.mdx#setglobalvariable)
+
+  
+# include
+
+Includes a file into the current Javascript file.
+
+Usage:
+
+include(path)
+
+'path' should be the full path to the file
+
+**include example**
+
+```js
+include("/path/to/file.js");
+```
+
+  
+# Session
+
+The session object provides methods that allow you to interact with the channel.
+
+For applications written in Javascript: While the JavaScript application will continue to execute after a hangup is detected the session object will be destroyed and any attempt to access it will cause the JavaScript to terminate. Save any variables you might need for post–hangup processing and use your local variables instead.
+
+## Constructor
+
+You can create a new session with the following:
+
+s = new Session();
+
+Creates an empty session object that provides methods that allow you to interact with the channel.
+
+  
+s = new Session(uuid);
+
+Creates a session object from an existing uuid. This allows you to interact with an existing channel.
+
+You do not need to create a default session. 'session' is created automatically for the current session and your JavaScript is running in it already. Create a new session to originate a call to a new Leg B, for example.
+
+  
+To create a new session and automatically dial out, proceeding only after the call has been answered (ignoring early media information), try this JS code:
+
+**JS outdial example**
+
+```js
+s = new Session("{ignore_early_media=true}sofia/default/foo@bar.com");
+while (s.ready()) {
+ // The call has been answered
+}
+```
+  
+  
+Other options, such as those available to the [originate](../../../Modules/mod_commands_1966741.mdx#originate) command, may be used:
+
+```xml
+s = new Session("{ignore_early_media=true,origination_caller_id_name=Jack}sofia/default/foo@bar.com");
+while (s.ready()) {
+ // The call has been answered
+}
+```
+
+## Session.sayPhrase
+
+Speaks a prompt macro using the FreeSwitch say macro API.
+
+Usage:
+
+session.sayPhrase(macro_name [,macro_data] [,language] [,dtmf_callback] [,dtmf_callback_args]);
+
+Arguments:
+
+* macro\_name - (string) The name of the say macro to speak
+* macro\_data - (string) Optional. Data to pass to the say macro
+* language - (string) Optional. Language to speak macro in (ie. "en" or "fr"). Defaults to "en".
+* dtmf\_callback - (function) DTMF callback function name (don't enclose it in quotes!).
+* dtmf\_callback\_args - (string) Optional. DTMF callback args to pass to the callback function when it is called.
+
+Callback return values and meanings:
+
+* true or "true" - Causes prompts to continue speaking.
+* Any other value interrupts the prompt and returns the value from the dtmf\_callback function
+
+Macros should be placed in conf/lang\_XX.xml.
+
+**sayPhrase example** Espandi fonte 
+
+```js
+  var dtmf_digits = "";
+  
+  function on_dtmf(session, type, obj, arg)
+  {
+     if (type == "dtmf") {
+       console_log("on_dtmf got digit: " + obj.digit + "\n");
+       dtmf_digits += obj.digit;
+     }
+     return(true);
+  }
+  
+  /* Speaks a menu and waits for a single digit press. If the user does not enter a selection */
+  /* then the menu is repeated up to 3 times. */
+  function sayivrmenu(ivrsession, menuname, validdigits, timeout) {
+      var repeat = 0;
+  
+      console_log("sayivrmenu: menu=[" + menuname + "] validdigits=[" + validdigits + "]\n");
+  
+      session.flushDigits();
+      dtmf_digits = "";
+  
+      while (ivrsession.ready() && dtmf_digits == "" && repeat < 3) {
+          /* play phrase - if digit keyed while playing callback will catch them*/
+          ivrsession.sayPhrase(menuname, validdigits, "en", on_dtmf, "");
+  
+          /* if caller still here and has not entered any selection yet - wait for a selection*/
+          if (ivrsession.ready() && dtmf_digits == "") {
+              dtmf_digits = ivrsession.getDigits(1, "", timeout);
+              /* if still no selection repeat menu */
+              if (dtmf_digits == "") {
+                  repeat++;
+              }
+          }
+      }
+      return(dtmf_digits);
+  }
+  
+  
+  var menuselection = "";
+  
+  /** Let's answer our call **/
+  session.answer();
+  
+  /** Play our Main Menu prompt (options 0, 1, 2, 3 and #) **/
+  menuselection = sayivrmenu(session, "mainmenu", "0123#", 6000);
+  
+  if (session.ready()) {
+      session.execute("phrase", "saydigits," + menuselection);
+  } 
+```
+
+## Session.speak
+
+Uses the TTS engine to say a phrase. You must have a TTS module loaded for this to work.
+
+Usage:
+
+speak(engine,voice,phrase,timer)
+
+Arguments:
+
+* engine - the engine to use
+* voice - the name of the voice to use
+* phrase - what you want it to say
+* timer - optional timer to use (eg "soft")
+
+In Cepstral, 'phrase' can include SSML tags as well. See <http://www.cepstral.com/cgi-bin/support?page=faq&type=ssml> for more info.
+
+In Cepstral, if 'phrase' starts with / it will open the file specified and read its contents instead of a string; need windows specifics on path information
+
+**speak example**
+
+```js
+session.speak("cepstral","David","Hello from FreeSwitch");
+```
+
+Example with callback:
+
+**speak callback example**
+
+```js
+function my_dtmf_callback(dtmf_str, digits, args)
+{
+    console_log("debug", "you dialed the following " + dtmf_str + " + digits + "\n");
+    return true;
+}
+ 
+//invoke thus
+session.speak("cepstral", "david", '<break time="500ms"/>Hello this is a test of the break tag', my_dtmf_callback); 
+```
+
+Be sure not to put the name of the callback function in quotes.
+
+  
+Example of reading a file:
+
+**speak file read example**
+
+```js
+session.speak("cepstral","David","/etc/passwd"); 
+```
+
+  
+# setGlobalVariable
+
+SPIDERMONKEY V8 UNVERIFIED 
+
+Global variables can be used to share information between all channels. You can save anything in a global variable.
+
+This is not to be confused with a property of the global scope object.
+
+**setGlobalVariable usage**
+
+```js
+var wasSet = setGlobalVariable(varName, varValue[, valCheck]);
+```
+
+* `varName` (`String`) - the name of the global variable
+* `varValue` (`String, Object, Number`) - the desired new value to be stored in the global variable
+* `valCheck` (`String, Object, Number`) - the expected old value of the global variable, used to determine if another process has since modified the value
+
+Returns: `wasSet` (`Boolean`) - was the operation successful
+
+## Notes
+
+The ([defacto](https://brendaneich.com/2007/02/threads-suck/)) single-process model for JavaScript engines is not honored in FreeSWITCH. This means that multiple channels can access/change the information in a variable as others are accessing. You need to take care when changing data.
+
+For instance, this is example of a typical scenario in multi-threaded environments introduced by this deviation:
+
+* Global var `isExtensionFree` is `true`
+* Channel 1 reads the var and checks if it's `true`.
+* Channel 2 reads the var and checks if it's `true`.
+* Channel 1 saves value `false` and transfers the call to destination (since variable was `true`)
+* Channel 2 does the same thing since it read the var before Channel 1 managed to change it.
+
+To avoid this problem, use `valCheck`. The `valCheck` parameter will be used to validate that no changes have been made since the `getGlobalVariable` call (pass the variable that you read).
+
+* If `valCheck` agrees with the current value of the global variable, the global variable will be changed to `varValue` and the routine will return `true`.
+* If `valCheck` does not agree with the current value of the global variable, the global variable's value will not be changed and the routine will return `false`.
+* If the global variable does not exist and `valCheck` is not a zero length string, the global variable will not be set and the function will return `false`.
+* If the global variable exists, `varValue` is a zero length string, and `valCheck` agrees with the current value of the global variable, the global variable will be deleted, and the function will return `true`.
+
+If you do not specify `valCheck`, no concurrency validation will be made.
+
+* The global variable `varName` will be set to `varValue`  
+   * If `varValue` is a zero length string, the global variable `varName` will be deleted.
+* `wasSet` will always return true.
+
+  
+**getGlobalVariable example**
+
+```js
+var gvClients = getGlobalVariable("clients");
+if (gvClients === true) {
+  if (!setGlobalVariable("clients", false, gvClients))
+  console_log("error", "Someone changed the variable 'clients' between my get/set!");
+}
+
+```
+
+## See Also
+
+* [getGlobalVariable](#getglobalvariable)
+
+# system
+
+Executes an external system command.
+
+Usage:
+
+var return_code = system( command );
+
+Output of the command is not returned. If you need to send or recieve output from the command, see the [File](https://wiki.freeswitch.org/wiki/File "File") object.
+
+**system example**
+
+```js
+system("create_account");
+```
+
+  
+# TeleTone
+
+## TeleTone.addTone
+
+Adds a tone and associates it with a 'digit' which can be alphabetic or numeric and is not limited to what is on a normal DTMF keypad.
+
+Usage:
+
+addTone(digit name, frequency1, frequencyN, 0.0)
+
+* digit name is a character that will be used to identify this tone
+* frequencies are a null terminated list of all the component frequencies that make this tone
+
+  
+**AddTone example**
+
+```js
+use("TeleTone");
+var tts = new TeleTone(session);
+tts.addTone("q", 2600.0, 2400.0, 0.0);
+dtmf = session.((FreeSwitch Javascript Session GetDigits|getDigits))(1, "", 20000, true);
+if (dtmf == "q") {
+  // do something fun here
+}
+```
+
+  
+## TeleTone.generate
+
+Generates a tone of a single or mixed frequencies.
+
+Usage:
+
+generate(TGML)
+
+[TGML](../../../Modules/mod-dptools/mod-dptools:-gentones/TGML_6586573.mdx#lua) is a markup language that describes the component frequencies, duration, volume, decay, and other properties. It is quite powerful and avoids the need to record an audio file to generate tone sequences.
+
+**generate example**
+
+```js
+// play the ITU E.184 'calling card bong'
+use("TeleTone");
+var BONG = "v=4000;>=0;+=2;#(60,0);v=2000;d(940,0)";
+var newtone = new TeleTone(session);
+newtone.generate(BONG); 
+```
+
+  
+## TeleTone.name
+
+Returns the name of this Teletone object.
+
+Usage:
+
+name
+
+  
+**name example**
+
+```js
+var tts = new TeleTone(session);
+console_log(tts.name + "\n"); 
+```
+
+  
+## TeleTone.onDTMF
+
+Causes a callback to be performed when DTMF is received.
+
+Usage:
+
+onDTMF(callback)
+
+callback - The name of the function to call when DTMF is received. It will pass an argument to this callback containing the digits it received.
+
+**onDTMF example**
+
+```js
+use("TeleTone");
+tts = new TeleTone(session);
+function dtmf_test(digits)
+{
+    console_log("you pressed " + digits + "\n");
+    return digits;
+}
+
+tts.onDTMF("dtmf_test"); 
+```
+
+## Comments:
+
+| File class is still **not yet implemented in v1.10**.You must use the FileIO object to operate with files in javascript as described [here](https://lists.freeswitch.org/pipermail/freeswitch-users/2017-June/126601.html). ![](/images/icons/contenttypes/comment_16.png) Posted by Fx at apr 23, 2020 06:32 |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| You're right, using \`new File()\` works if you put \`use('File');\` at the top of your JS script, but if you try to use the methods you'll get \`Exception: Not yet implemented\` ![](/images/icons/contenttypes/comment_16.png) Posted by TBG at lug 05, 2021 05:50                                         |
+
+Document generated by Confluence on nov 11, 2022 04:27

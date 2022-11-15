@@ -1,0 +1,115 @@
+
+# LRN 
+
+ Created by  Késsia Castro, last modified by  John Boteler on 2016.12.23
+
+# About
+
+This document covers information about storing LRN.
+
+Click here to expand Table of Contents
+
+* 1 [Storing Entire LRN data in redis](#storing-entire-lrn-data-in-redis)  
+   * 1.1 [Reasons](#reasons)  
+   * 1.2 [Method](#method)
+* 2 [Import Speed](#import-speed)
+* 3 [Persistence](#persistence)
+
+# Storing Entire LRN data in redis
+
+This is an article written by [avimarcus](https://freeswitch.org/confluence/display/~avimarcus) about storing the entire LRN DB, not about _caching_ entries.
+
+## Reasons
+
+Why not MySQL?
+
+* Storing LRN data in MySQL was very fast to just insert into the database and create a basic key (under 30 mins). However, applying diffs would take a significant amount of time.
+* It is faster with a unique key, but that likewise took a long time.
+* Importing diffs - 210 of them at the time of writing - took over 48 hours.
+* Worse, if using MyISAM importing diffs seemed to lock the table to reads.
+* Using InnoDB with row level locking seemed to take much, much longer to do initial import.
+
+Why not PostgreSQL?
+
+* This author is not that familiar with PG but did attempt. The main issue was using COPY from the file would hit a corrupt line and abort. I didn't even get to test further diff import times.
+
+Why not memcache?
+
+* Memcache supposedly evicts keys randomly even if the memory isn't needed. See #2 in [this article](http://www.sparklewise.com/do-not-use-memcache-as-a-data-store).
+* Also, there's no persistence in memcache.
+
+Why redis?
+
+* redis doesn't evict keys.
+* redis has a pretty good persistence method
+* redis will update keys quickly since it must have a unique index (in sql terms) on each key.
+* redis won't lock out requests when updating keys.
+
+Wait, so why didn't you start with redis?
+
+* redis keeps everything in memory
+* Normal key->value have a large overhead that makes each entry about 90bytes.
+* 480 million records \* 90 bytes = 40.2331352 gigabytes -- that's quite a chunk
+
+## Method
+
+"Method, or How I got storage for 480million records to under 7.5gigabytes"
+
+The redis website suggests a [memory optimization method](http://redis.io/topics/memory-optimization) of batching many entries under a single key.
+
+So instead of storing 3 keys:
+
+```xml
+2011111111 -> 7323330000 (SET 2011111111 7323330000)
+2011111112 -> 7323330000 (SET 2011111112 7323330000)
+2011111113 -> 7182220000 (SET 2011111113 7182220000)
+(retrieve: GET 2011111113)
+each object: encoding:int serializedlength:11
+Total Usage: 400 bytes (3 keys)
+```
+
+Store them in chunk of 100, in a HASH, e.g.
+
+```xml
+20111111 -> 11 -> 7323330000 (HSET 20111111 11 7323330000)
+         -> 12 -> 7323330000 (HSET 20111111 12 7323330000)
+         -> 13 -> 7182220000 (HSET 20111111 13 7182220000)
+(retrieve: HGET 20111111 13)
+debug object 20111111 encoding:zipmap serializedlength:41
+Total Usage: 128 bytes (3 keys)
+```
+
+Here's data from some much large numbers:
+
+Results on a sample dump of 6,060,574 numbers:
+
+* Stored straight up, "SET key val"  
+   * Memory usage of 91 bytes each.
+* Stored in chunks of 100: 148489 keys, approx 40 per key.  
+   * Memory usage: 17.2 bytes per stored number pair.
+* Stored in chunks of 1000: 26535 keys, approx 228 per key.  
+   * Memory usage: 50.2 bytes each -- with default settings.
+* Stored in chunks of 1000: 26535 keys, approx 228 per key.  
+   * Memory usage: 17 bytes each -- with config of "hash-max-ziplist-entries 1000". Only a 1.1% savings.
+
+There's several ways batching like this saves space:
+
+1. Instead of overhead of storing LRU and volatility on each key, it's stored for about 50 keys at a time. (On average, it's 50 keys per 100 grouping, since not all ranges have an LRN entry)
+2. Instead of storing the first 8/10 digits 50 times, it gets stored once. That's a savings of 8 bytes \* 49/50 \* 480million = 3.5 gigabytes
+3. Assumption: npanxxyyyy doesn't fit in a 4 byte INT, it requires an 8 byte INT. However, npanxxyy does fit in a 4 byte int, and the last yy fits into a 1 byte INT. So we went from 8 bytes to 5 bytes. 3 bytes \* 480 million = 1.34 gigabytes
+4. Supposition: Since the overall usage goes down to \~17 bytes per number (despite zipmap overhead?) I think the zipmap is further compressing them. Since in each batch many are LRN'd to the same destination, it's perhaps compressing that, too.
+
+# Import Speed
+
+* I wrote a Node.js script to split the lines up, and send directly over TCP to redis (using a node.js NET connection writable stream.)  
+   * (Using native redis format didn't seem to help, since it bottlenecked on TCP streaming, and native is longer. Simply use "HSET ....." format.)
+* node.js ran at 100% CPU and redis at 80% cpu and imported around 190k keys/second, so a full import should be under 45 minutes.
+* Initial import speed isn't quite so crucial - once it's imported, you don't need to import again until the next new full dump. If you do it on another machine, then you can reload faster from redis' dump.rdb in 1-3 minutes depending on the speed of the machine.
+* Each diff takes just seconds to load and doesn't block the redis DB. (Redis forks and saves a new RDB file if you have that set up.)
+
+# Persistence
+
+* Storage to the dump.rdb file is \~2.6gb, with compression enabled in redis.conf.
+* It takes under 3 minutes (155-165 seconds) to cold-start redis to load into RAM the persistence \[on the machine I tested\]. Do note that redis will not serve anything until the file has finished importing.
+
+Document generated by Confluence on nov 11, 2022 04:29

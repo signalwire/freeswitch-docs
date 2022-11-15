@@ -1,0 +1,150 @@
+
+# DNS 
+
+ Created by  Italo Rossi, last modified by  John Boteler on 2021.02.10
+
+# About
+
+Here we list several types of DNS records that integrate quite nicely with FreeSWITCH and IP communications.
+
+Click here to expand Table of Contents
+
+* 1 [ENUM](#srv)
+* 2 [SRV](#srv)
+* 3 [ITAD (ISN)](#srv)
+* 4 [Updating Records](#updating-records)  
+   * 4.1 [Generating A DNS Key](#generating-a-dns-key)  
+   * 4.2 [nsupdate](#nsupdate)  
+         * 4.2.1 [ENUM](#srv)  
+         * 4.2.2 [ISN](#srv)  
+         * 4.2.3 [NAPTR](#naptr)
+* 5 [Explanation of DNS/SRV/NAPTR](#explanation-of-dnssrvnaptr)
+* 6 [See Also](#see-also)
+
+# [ENUM](../Modules/mod_enum_6587333.mdx#enum)
+
+A way to query E.164 numbers to keep calls "on-net".
+
+# SRV
+
+These records can give you a pseudo redundant network. Allowing failover (or pseudo load-balancing) to other servers in your network.
+
+# ITAD ([ISN](../Installation/Linux/Deprecated-Installation-Instructions/Gentoo/ISN_13173387.mdx#about))
+
+E-Mail style phone numbers that more easily allow cross-domain calls to stay "on-net" without the need for a full keyboard on your telephone (i.e. analog telephones hooked up to analog adapters). A typical number will look similar to 123\*543.
+
+# Updating Records
+
+There are many possible ways to dynamically update records in running DNS zones. Here we list the ones we know.
+
+  
+## Generating A DNS Key
+
+dnssec-keygen -a HMAC-MD5 -b 512 -n USER &lt;NAME_OF_KEY_HERE>
+
+## nsupdate
+
+All of the following commands are input from the nsupdate command line. You should first have a key that you can use for updating a single zone.
+
+### [ENUM](../Modules/mod_enum_6587333.mdx#enum)
+
+  
+update add 3.2.1.enum.org 60 NAPTR 100 10 "u" "E2U+sip" "!^.*$!sip:123@freeswitch.org!" .
+
+If a user dials 123, this will route the call to [123@freeswitch.org](mailto:123@freeswitch.org) provided enum is correctly configured to use your zone.
+
+### [ISN](../Installation/Linux/Deprecated-Installation-Instructions/Gentoo/ISN_13173387.mdx#about)
+
+  
+update add 3.2.1.543.freenum.org 60 NAPTR 100 10 "u" "E2U+sip" "!^.*$!sip:123@freeswitch.org!" .
+
+This would route 123\*543 to [123@freeswitch.org](mailto:123@freeswitch.org)
+
+  
+### NAPTR
+
+for bind find the [example.com](http://example.com) zone file, you should put this near your \_sip.\_udp records.
+
+```xml
+$ORIGIN example.com.
+; NAPTR record for SIP Secure TLS (TCP) example.com
+;     priority: 50  weight: 0
+;     protocol: "SIPS+D2T"  regex: ""  uri: _sips._tcp.example.com
+;     example.com
+@           IN      NAPTR   50 0 "s" "SIPS+D2T" "" _sips._tcp
+; NAPTR record for SIP TCP example.com
+;     priority: 90  weight: 0
+;     protocol: "SIP+D2T"  regex: ""  uri: _sip._tcp.example.com
+;     example.com
+@           IN      NAPTR   90 0 "s" "SIP+D2T" "" _sip._tcp
+; NAPTR record for SIP UDP example.com
+;     priority: 100  weight: 0
+;     protocol: "SIP+D2U"  regex: ""  uri: _sip._udp.example.com
+;
+@           IN      NAPTR   100 0 "s" "SIP+D2U" "" _sip._udp
+
+```
+
+  
+Under Windows Server 2008, SR2 you can also add them. Take note of 'Regex'.
+
+* SIPS or SIP Secure over TLS is represented by SIPS and the transport protocol is always going to be TCP.
+* The "s" denotes SIP and can be used inside a firewall and outside, but if you have a client, like the Cisco EX60 or EX90 terminals, the software reads "s" and sets the connectivity flag in the SIP contact header to "0" or Internal. Setting this to "se" denotes SIP External and set the connectivity flag in the SIP contact header to "1" or External. This is useful if you are using the SIP Provisioning mechanism so that the system can return the proper configuration details.
+* Typically it is preferable to use a secure TLS connection, a less secure but more reliable transport of TCP and lastly use an insecure and less reliable transport of UDP. Setting a priority of the transport methods to 50, 90 & 100 respectively then helps to facilitate the proper use of protocols unless you want to attempt UDP or TCP first and then failover to TLS.
+
+test with
+
+```xml
+host -t naptr example.com
+```
+
+You should get something like this:
+
+```xml
+example.com has NAPTR record 50 0 "S" "SIPS+D2T" "" _sips._tcp.example.com.
+example.com has NAPTR record 90 0 "S" "SIP+D2T" "" _sip._tcp.example.com.
+example.com has NAPTR record 100 0 "S" "SIP+DTU" "" _sip._udp.example.com.
+```
+
+SRV
+
+```xml
+update add sip.example.com 60 SRV 100 10 5060 sip1.example.com
+update add sip.example.com 60 SRV 100 10 5060 sip2.example.com
+```
+
+The preceding will allow load-balancing between [sip1.example.com](http://sip1.example.com) and [sip2.example.com](http://sip2.example.com)
+
+```xml
+update add sip.example.com 60 SRV 10 100 5060 sip1.example.com
+update add sip.example.com 60 SRV 100 100 5060 sip2.example.com
+```
+
+This will keep sip2 on stand-by for use if sip1 fails. This works for User-Agents that properly support SRV.
+
+# Explanation of DNS/SRV/NAPTR
+
+This explanation is from Lawrence Conroy and is part of a mailing list [thread](http://lists.freeswitch.org/pipermail/freeswitch-users/2013-January/091063.html). I found it helpful to read this explanation, even though it is brief.
+
+> I have some sympathy, as the term domain is overloaded within FreeSWITCH.
+
+> A sip address consists of a userpart and a domain part -- e.g., &lt;sip:user@sipdomain> The sip domain is similar to an email domain -- e.g., &lt;&lt;mailto:user@maildomain>\> With email, you need to do a lookup of the MX record in DNS to find the FQDN of the machine that handles mail for the domain. With SIP (see [RFC 3263](https://tools.ietf.org/html/rfc3263)), you do a lookup on the SRV record (at \_sip.\_udp.&lt;sipdomain>) to find the machine that handles SIP registrations/incalls for the domain. That also gives you the port on which that machine is listening. (Yup, you can also have a NAPTR record in the domain to tell you where the SRV record is, but many folks don't bother -- for Best Practice, you should, but ...)
+
+> There IS a "get out" clause in the SIP specs for [RFC 2543](https://tools.ietf.org/html/rfc2543) (AKA legacy) support that means most SIP clients will look for the SRV and, if it can't be found (or there's an IP address rather than a DNS -style domain, in which case the SIP client won't bother hunting the SRV), the client will guess that the domain has a machine (i.e. it will look for an A or AAAA record), and also guess it's listening on 5060 (the default port). Email is the same (mail to [fred@example.com](mailto:fred@example.com), and strictly the sender will do a check for a MX and then look for an A record for [example.com](http://example.com), and try there).
+
+> There IS a wrinkle to this special case: If you have a URL of the form &lt;sip:user@[example.com](http://example.com):5055> the client should NOT look for a NAPTR or SRV, but instead go straight to looking for an A or AAAA for the host [example.com](http://example.com) (i.e., there's a machine called [example.com](http://example.com), and it is handling SIP traffic for that domainpart). Basically, if you see a colon in the domainpart, you're looking for a machine -- otherwise you're looking for a NAPTR (and/or a SRV at \_sip.\_udp.&lt;sipdomain>).
+
+> However, relying on that default "get out" clause is definitely NOT what you should do for BCP. Using the hostname as the sip domain is a kludge -- the FQDN with A record usually works, but it's not what you want to do.
+
+> SO ... get yourself a domain, put a D2U NAPTR at that domain, put a SRV at \_sip.\_udp.&lt;domain>, and you're done. No need for an A record at that domain at all.
+
+> ([RFC 3263](https://tools.ietf.org/html/rfc3263) is not too hard to read, for a change -- it's certainly shorter than [RFC 3261](https://tools.ietf.org/html/rfc3261), and it even has an ASCII art diagram :).
+
+# See Also
+
+[Function\_sofia\_dig](../Configuration/Sofia-SIP-Stack/index.mdx#-sofia-sip-stack-watchdog-)
+
+[Enterprise deployment DNS SRV](../Enterprise-Deployment/Enterprise-deployment-DNS-SRV_13173165.mdx#--)
+
+  
+Document generated by Confluence on nov 11, 2022 04:24

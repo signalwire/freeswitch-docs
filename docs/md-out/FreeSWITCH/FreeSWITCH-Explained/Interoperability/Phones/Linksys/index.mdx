@@ -1,0 +1,261 @@
+
+# Linksys 
+
+ Created by  Mario G on 2014.04.30
+
+* 1 [Linksys Products](#linksys-products)  
+   * 1.1 [Linksys TLS Setup](#linksys-tls-setup)  
+   * 1.2 [Linksys PAP2-NA](#linksys-pap2-na)  
+   * 1.3 [Linksys PAP2 v2](#linksys-pap2-v2)  
+   * 1.4 [Linksys PAP2T](#linksys-pap2t)  
+   * 1.5 [Linksys SPA400 (4 Line FXO)](#linksys-spa400-4-line-fxo)  
+   * 1.6 [Linksys SPA3000(FXS/FXO)](#linksys-spa3000fxsfxo)  
+   * 1.7 [Linksys SPA2102 (FXS)](#linksys-spa2102-fxs)  
+   * 1.8 [Linksys SPA3102(FXS/FXO)](#linksys-spa3000fxsfxo)  
+   * 1.9 [Linksys SPA8000](#linksys-spa8000)  
+   * 1.10 [Linksys SPA901](#linksys-spa901)  
+   * 1.11 [Linksys SPA921](#linksys-spa901)  
+   * 1.12 [Linksys SPA941](#linksys-spa901)  
+   * 1.13 [Linksys SPA942](#linksys-spa901)  
+   * 1.14 [Linksys SPA962](#linksys-spa901)  
+   * 1.15 [Linksys SPA932](#linksys-spa901)  
+   * 1.16 [SPA-2000 and SPA-2100 series](#spa-2000-and-spa-2100-series)  
+   * 1.17 [SPA-2002](#linksys-spa8000)
+
+## Linksys Products
+
+Notes:
+
+* Linksys products from Linksys Voice System line work just fine with FreeSWITCH. Majority of PBX functions made to work with SPA 9000 Linksys PBX can be used with FreeSWITCH. Since newest phone firmware version (6.1.3a), support is added for BLF on 942s and 962s for idle line keys and SRTP per [RFC 4568](https://tools.ietf.org/html/rfc4568) (both tested and working).
+* Most Linksys products has RTP Packet size set to 0.30 by default. Ensure your RTP packet size is set to 0.020 under the SIP -> RTP Parameters tab, as some devices doesn't advertise it's capabilities correctly. In firmware versions 5.2.x, ptime option is advertised correctly (tested with 942s and 962s). FreeSWITCH will complain and try to adjust to this bug, but it is better to fix the settings.  
+```xml  
+<RTP_Packet_Size ua="na" value="0.020" />  
+```
+* On phones series SPA9xx paging works via "&lt;action application="set" data="sip\_h\_Call-Info=&lt;sip:$${domain}>;answer-after=0"/>" before calling the phone.
+* On SPA9xx phones the first extension must be connected to FreeSwitch for paging to work properly. The PBX connected to extension 1 must be powered on to activate paging. For example: If extensions 1-4 are connected to an SPA9000, and 5-6 to FreeSwitch, paging will only work if the SPA9000 is on. If FreeSwitch is the only PBX then extension 1 must be connected to FreeSwitch for paging to work.
+* If you're behind NAT and you get a green line light that turns orange (amber) after a few seconds, set "NAT Keep Alive Enable" to "no" on all lines and move your "Register Expires" interval on all lines to "60" (1 minute). That should fix the problem.
+* linksys name the G.729 codec "G.729A" so most of phone don't process it in bypass media mode, so you need to do:  
+   * go to the phone web admin interface  
+   * click advanced  
+   * select the sip tab  
+   * and rename G.729A codec from G.729A to G.729  
+   * save/reboot it
+* If using the G726-32 codec, the SDP Type Identification needs to be changed. The default is to use 2, which is reserved and can fail with FreeSWITCH.  
+   * go to the phone web admin interface  
+   * click advanced  
+   * select the sip tab  
+   * Change the G726r32 Dynamic Payload from 2 to 102 (or some other dynamic number not in use)  
+   * save/reboot it
+
+### Linksys TLS Setup
+
+Tested with SPA962 and SPA942 handsets running 6.1.3(a) code. Cisco/Linksys signaling and media encryption on SPA handsets are both well tested with FreeSWITCH and very straightforward to configure. You should follow the FreeSWITCH wiki instructions to generate CA and local certificates as well as enable TLS and restart FreeSWITCH prior to following the steps below.
+
+Your FreeSWITCH sofia SIP profile should be configured to support SSL/sRTP as below:
+
+```xml
+<!--No trusted certificate is required.-->
+<param name="tls-version" value="sslv23"/>
+```
+
+  
+Your Cisco/Linksys SPA phone should be configured via the web interface to support SSL/sRTP as below:
+
+```xml
+Extension 1
+-----------
+SIP Transport: TLS
+SIP Port: 5061
+
+SIP
+---
+SRTP Method: s-descriptor
+
+User
+----
+Secure Call Setting: yes
+```
+
+To validate proper operation from the phone, the SPA phone LCD screen will show "$Connected" if your call leg is secured via sRTP. After the call is connected, the phone will locally generate three chirps within 10 seconds to provide audio feedback that the call is secured.
+
+To validate proper operation from FreeSWITCH, you should be able to dial the MOH test at 9664 and hear "This call has been secured". The FreeSWITCH log will show the following entries confirming secure RTP is active:
+
+```xml
+2012-01-14 11:38:29.440826 [INFO] switch_rtp.c:1470 Activating Secure RTP SEND
+2012-01-14 11:38:29.440826 [DEBUG] switch_core_sqldb.c:1486 Secure Type: srtp:AES_CM_128_HMAC_SHA1_32
+2012-01-14 11:38:29.440826 [INFO] switch_rtp.c:1450 Activating Secure RTP RECV
+2012-01-14 11:38:29.440826 [DEBUG] switch_core_sqldb.c:1486 Secure Type: srtp:AES_CM_128_HMAC_SHA1_32
+...
+Dialplan: sofia/internal/1000@10.10.10.10 Regex (PASS) [is_secure] ${sip_via_protocol}(tls) =~ /tls/ break=on-false
+Dialplan: sofia/internal/1000@10.10.10.10 Regex (PASS) [is_secure] ${sip_secure_media_confirmed}(true) =~ /^true$/ break=on-false
+```
+
+### Linksys PAP2-NA
+
+* **Registration:** Works
+* **Caller Id:** Works
+* **Call in/out:** Works
+* **Call waiting:** Works
+* **Transfer calls:** Works
+* **Park calls:** Not Tested
+
+### Linksys PAP2 v2
+
+Unlocked with CYT-Unlocker, PAP2 V2 has no STUN ability!
+
+* **Registration:** Works
+* **Caller Id:** Works
+* **Call in/out:** Works
+* **Call waiting:** Works
+* **Transfer calls:** Not Tested
+* **Park calls:** Not Tested
+
+### Linksys PAP2T
+
+* **Registration:** Works
+* **Caller Id:** Works
+* **Call in/out:** Works
+* **Call waiting:** Unknown
+* **Transfer calls:** Works
+* **Park calls:** Works
+
+### Linksys SPA400 (4 Line FXO)
+
+* **Registration:** Does not work
+* **Caller Id:** Works (incoming calls only obviously)
+* **Call in/out:** Works
+* **Call waiting:** Does not work
+* **Transfer calls:** Attended Transfer: works / Blind Xfer: known to be problematic
+* **Park calls:** Unknown / Untested
+
+[SPA400 HowTo](./SPA400-HowTo_1966969.mdx#spa400-quirks)
+
+### Linksys SPA3000(FXS/FXO)
+
+* **Registration:** works
+* **Caller Id:** works
+* **Call in/out:** works
+* **Call waiting:** unknown
+* **Transfer calls:** unknown
+* **Park calls:** unknown
+
+### Linksys SPA2102 (FXS)
+
+[SPA2102 HowTo](./SPA2102-HowTo_1966974.mdx#self)
+
+### Linksys SPA3102(FXS/FXO)
+
+* **Registration:** works
+* **Caller Id:** unknown
+* **Call in/out:** works
+* **Call waiting:** unknown
+* **Transfer calls:** unknown
+* **Park calls:** unknown
+
+[SPA3102 HowTo](./SPA3102-HowTo_1966971.mdx#security)
+
+Note: If you try to set it up as an outgoing gateway (VoIP-To-PSTN) and get a SIP 503 error (\[CS\_CONSUME\_MEDIA\] \[NORMAL\_TEMPORARY\_FAILURE\]) besides the obvious 'is your IP correct?' and 'is the port correct?' I found you also need to check your line voltage. On the SPA3102 'Info' page I noticed idle line voltage was \~20V, I called in through the SPA3102 and found the line voltage went to 6V-7V. On the PSTN Line configuration 'International Control' section, I changed the 'Line-In-Use Voltage:' from the default 30V to 10V. I believe it just needs to be between the idle usage and in use voltage.
+
+### Linksys SPA8000
+
+* **Registration:** works
+* **Caller Id:** unknown
+* **Call in/out:** works
+* **Call waiting:** unknown
+* **Transfer calls:** unknown
+* **Park calls:** unknown
+
+### Linksys SPA901
+
+* Works very reliably with FreeSWITCH including some advanced features.  
+   * **Registration:** Works  
+   * **Caller Id:** Works  
+   * **Call in/out:** Works  
+   * **Call waiting:** Works  
+   * **Transfer calls:** Works both from phone or FS  
+   * **Park calls:** work using call transfer to 5900 or using valet parking
+
+### Linksys SPA921
+
+Works. Had to manually set the Daylight Saving Time Rule for correct time to be displayed. Note: Has the RTP Packet Size issue.
+
+### Linksys SPA941
+
+* **Registration:** Works
+* **Caller Id:** Works
+* **Call in/out:** Works
+* **Call waiting:** Works
+* **Transfer calls:** Works both from phone or FreeSWITCH
+* **Park calls:** Works
+
+Note: Has the RTP Packet Size issue.
+
+### Linksys SPA942
+
+* **Registration:** Works
+* **Caller Id:** Works
+* **Call in/out:** Works
+* **Call waiting:** Works
+* **Transfer calls:** Works both from phone or FreeSWITCH
+* **Park calls:** Works using park soft key
+* **BLF (Busy Lamp Field)** Works
+
+see also: <http://www.voipspeak.net/2008/setting-up-blf-functions-on-a-linksys-spa-942/>
+
+Note: Has the RTP Packet Size issue.
+
+```xml
+How to configure BLF
+
+In the Line Key (1-4) section, set the options as follows:
+
+Extension: Disabled
+Short Name: 1000 (or to any text you want)
+Share Call Appearance: Shared
+Extended Function: fnc=blf+sd;sub=1000@$PROXY;ext=1000@$PROXY (replace 1000 with the extension you want)
+```
+
+### Linksys SPA962
+
+Works very well. It will advertise the ptime correctly. No need to toy with RTP Packet Size.
+
+### Linksys SPA932
+
+Sidecar for SPA962 with 16 programmable buttons. Since firmware version 5.2.8SC, presence is supported (Server-Type option set to "RFC3265\_4235"). BLF, hold and intercept of ringing extensions work.
+
+Example: fnc=blf+sd+cp;sub=1002@$PROXY
+
+### SPA-2000 and SPA-2100 series
+
+Works very well, after tweaking the following settings.
+
+Ensure your RTP packet size is set to 0.020 under the SIP -> RTP Parameters tab, as the phone doesn't advertise it's ptime capabilities correctly.
+
+Also, if you configure the SPA to use the G726 codec, enable AAL2 bitpacking in the sofia profile in FreeSWITCH if you have audio quality problems. In the default installation, you can uncomment the &lt;param name="bitpacking" value="aal2"/> line in "conf/sip\_profiles/internal.xml".
+
+Note: Under the Line 1 and Line 2 tabs there is a setting called "Block CID Setting". If you set this to "yes", or if you dial \*67 which sets this to yes from the handset, the domain specified to the freeswitch server changes from the name or IP address you specified in the registration information, and becomes "localhost" instead. This may result in an error like:
+
+```xml
+[WARNING] sofia_reg.c:1872 Can't find user [1000@localhost]
+
+ You must define a domain called 'localhost' in your directory and add a user with the id="1000" attribute
+
+ and you must configure your device to use the proper domain in it's authentication credentials.
+```
+
+You can fix this error by changing "Block CID Setting" to "no" or by dialing *68 from the handset.
+
+### SPA-2002
+
+Works very well as a client side UA.
+
+* **Registration:** works
+* **Caller Id:** works
+* **Call in/out:** work
+* **Call waiting:** work
+* **Transfer calls:** works
+* **Park calls:** works
+
+Has the same ptime issues as SPA-2000.
+
+Document generated by Confluence on nov 11, 2022 04:28

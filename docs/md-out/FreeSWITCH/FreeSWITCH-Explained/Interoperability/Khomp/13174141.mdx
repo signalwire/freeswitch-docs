@@ -1,0 +1,122 @@
+
+# Khomp/Bridge application parameters 
+
+ Created by  Italo Monteiro, last modified on 2017.01.13
+
+# About
+
+The **bridge** application is responsible for generating calls from the FreeSWITCH from a dialplan. This application can be used to generate calls from different Endpoints technologies, following a specific format to define destination, dialing options and define the communication _Endpoint_ to be used.
+
+Click here to expand Table of Contents
+
+* 1 [Fields relating to the Khomp Endpoint](#fields-relating-to-the-khomp-_endpoint_)
+* 2 [Policy for channel allocation](#policy-for-channel-allocation)
+* 3 [Grouping channel allocations](#grouping-channel-allocations)
+* 4 [Cyclical and/or fair allocation](#cyclical-andor-_fair_-allocation)
+* 5 [Available options](#-freeswitch--khompbridge-application-parameters-)
+
+## Fields relating to the Khomp _Endpoint_
+
+When used for **Khomp** channels, the _bridge_ _string_ can have two, three or four fields separated by slash (/). Some example strings:
+
+```xml
+<action application="bridge" data="Khomp/B2L0/32625644"/>
+<action application="bridge" data="Khomp/*B2L0/32625644"/>
+<action application="bridge" data="Khomp/S0411/99991234"/>
+<action application="bridge" data="Khomp/Gpstn/99991234"/>
+<action application="bridge" data="Khomp/*Gpstn/99991234"/>
+<action application="bridge" data="Khomp/B2C58/32625644/category=4:orig=4855553232"/>
+<action application="bridge" data="Khomp/b0c9"/>
+<action application="bridge" data="Khomp/b0c1+b0c14"/>
+<action application="bridge" data="Khomp/r304"/>
+```
+
+In the first five examples, three fields have been specified; in the sixth, four fields are used; in the last three examples, just two are used.
+
+The fields description for the Khomp Endpoint:
+
+* **1st** field: **Khomp**: identifying the type of _Endpoint_ in question;
+* **2nd** field: **B2L0**, **S0411**, **Gpstn**, etc: represents the **Policy for channel allocation** (detailed below);
+* **3rd** field: **32625644** and **99991234**: the destination numbers (missing for calls to **KFXS** channels);
+* **4th** field: **category=4:orig=4855553232**: additional options, detailed below.
+
+The _bridge_ allocation string with only two fields is specific to the KFXS boards, where the destination is the channel itself.
+
+## Policy for channel allocation
+
+The policy for allocation of channels on the **Khomp** Endpoint can be specified in the **bridge** string itself or in the **groups** section (inside the configuration file **khomp.conx.conf**). To specify boards, links and channels, the following syntax is available (considering X, Y and Z as any numbers):
+
+* b**X** \-- search the channels on the board **X**, ascending order;
+* b**X**L**Y** \-- search channel on the link **Y** from **X** board, ascending order;
+* b**X**c**Y** \-- try to allocate channel **Y** from board **X**;
+* b**X**c**Y**\-**Z** \-- search for channels starting from channel **Y** to channel **Z** (inclusive) of board **X**, ascending order;
+* B**X**c**Y**\-**Z** \-- same as above, but descending order;
+* s**X** \-- search the channels on the board of serial number **X**, ascending order;
+* s**X**L**Y** \-- search channel on the link **Y** from board of serial number **X**, ascending order;
+* s**X**c**Y** \-- try to allocate channel **Y** from board of serial number **X**;
+* s**X**c**Y**\-**Z** \-- search for channels starting from channel **Y** to channel **Z** (inclusive) from board of serial number **X**, ascending order;
+* S**X**c**Y**\-**Z**\-- same as above, but descending order.
+
+To search for extensions of cards**KFXS** according to the extension number, can be used the following syntax (whereas X and Y valid extension numbers):
+
+* r**X**\- search branch numbered **X**;
+* R**X**\- equivalent to the above;
+* r**X**\-**Y**\- search from branch **X** to **Y**, ascending order;
+* R**X**\-**Y**\- search from branch **X** to **Y**, descending order.
+
+The capitalization of the letter 'B', 'S' or 'R' defines the search order of the channels: if capitalized, order is descending; otherwise, ascending.
+
+As for the allocation of channels across groups, the following syntax is available:
+
+* ggroupname - uses the string defined the group "groupname" in the configuration file (detailed in the configuration section of the Endpoint).
+* Ggroupname - equivalent to the above.
+
+## Grouping channel allocations
+
+There are cases where you need to get more channels for a particular device or particular group of extensions. For this, there is an extension available in string allocation, with respect to the use of token sum (**+**) to concatenate multiple strings_binding_, as follows:
+
+```xml
+<action application="bridge" data="Khomp/B1L0+B2L0/32332933"/>
+<action application="bridge" data="Khomp/*B2+B3+B4/99887766"/>
+<action application="bridge" data="Khomp/S0411+B1L0/99887766"/>
+<action application="bridge" data="Khomp/Gpstn1+Gpstn2/99991234"/>
+<action application="bridge" data="Khomp/*gOperadora1+gOperadora2/98891234"/>
+```
+
+This grouping is available for the _application_ **bridge** and on the specification of groups. The processing of allocation takes place from left to right - except when using cyclic channel allocation, where**all** the specified channels are scanned simultaneously.
+
+## Cyclical and/or _fair_ allocation
+
+Another way for allocation of channels is the cyclic and/or _fair_ allocation, which chooses the channel that has **completed** the the lowest number of **outgoing** calls. This mode of allocation may be used by passing an asterisk (**\***) before the allocation string of channels (as can be seen in the section above, in the second and fifth examples).
+
+When started with an asterisk (**\***), other forms of allocation (increasing, decreasing, etc) are used to decide what channel will be allocated when there are two or more channels with less number of outgoing calls.
+
+**WARNING: The use of fair and/or cyclic is recommended only for analog (KFXO), branches (KFXS) and cellular interface (KGSM) boards**. E1 connections should allocate channels in one way (ascending/descending) from one side and the opposite on the other to avoid problems of double seizure (which may occur in R2/MFC signaling). Fair/cyclic allocation also costs more in memory and processor footprint, which tends to be a higher cost in E1 due to the higher number of channels (30 in each link).
+
+For these reasons, fair/cyclic allocations should only be used on signalizations where it can represent any real difference, like equalizing the charge costs of the lines, the total usage, or the number of connections received by each branch.
+
+## Available options
+
+* **orig**: Sets the originator number, **without changing the variable ${CALLERID(num)}**. That is, the option **orig** serves **only** to pass a number of different source of${origination\_caller\_id\_number}. If FreeSWITCH has already set the variable ${origination\_caller\_id\_number}, which is the default behavior, Endpoint automatically uses this value as a reference to the number of origin, without having to pass any additional options.
+  
+  
+On the boards **KGSM**, is set to **restricted**, omits the number of origin. Example:
+
+```xml
+ <action application="bridge" data="Khomp/b0/99887766/orig=restricted"/>
+```
+
+* **category**: When set to a numeric value, sets the category of outgoing call to this value (available only in R2/MFC signaling);
+* **uui**: When adjusted for a number and a string of text, separated by hash ("#"), sends a "UserToUser" to the other end before making the call - the first value will be the descriptor and the second one will be the message as the text (available only in ISDN signaling);
+* **ring\_cadence**: When set to a cadence name (listed in the **\[cadences\]** section), uses this for ringing FXS channels;
+* **ring**: When set to two numbers separated by a dot ("."), defines the cadences to be used while ringing a FXS channel - the first time is the ringing time, and the second one, the silence time;
+* **ring\_ext**: When set to two numbers separated by a dot ("."), defines the extended cadences to be used while ringing a FXS channel, executed after the **ring** specification - the first time
+* **usr\_xfer**: Defines a group of DTMF digits to initiate a transfer between PBXes (using QSig or FXO FLASH, for instance);
+* **drop\_on**: When set to "message\_box", "human\_answer", "answering\_machine", "carrier\_message", "unknown" or a list them - separated by plus sign ("+") or dot ("." ) - drops the call when detect voice mail box, human answer, answering machine messages, operator messages, or unknown answer pattern - respectively. Available in digital signals (E1 links and boards KGSM). Additionally, the information service is reported to the user in the variable**KCallAnswerInfo**;
+* **answer\_info**: When specified (take no parameters), report answer information to the user through the variable**KCallAnswerInfo**
+* **pre**: When set to a string of DTMF digits, uses these to pre-allocate an output channel in an analog PABX, dial the desired number of B below. Only available for signaling analog (FXO);
+* **pre\_answer**: When set (need no value), answers the channel before the connection is completed - allowing, for instance, DTMF tones to sent (useful for use in a **DISA**);
+* **output\_volume**: Sets the output volume of the link (ranges from -10 to +10);
+* **input\_volume**: Sets the volume of inbound link (ranges from -10 to +10);
+
+Document generated by Confluence on nov 11, 2022 04:28

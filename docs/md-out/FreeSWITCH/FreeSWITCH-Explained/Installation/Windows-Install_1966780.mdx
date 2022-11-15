@@ -1,0 +1,262 @@
+
+# Windows Install 
+
+ Created by  Mario G, last modified by  Brian West on 2022.08.08
+
+# About
+
+Overview of building and installing FreeSWITCH™ on Windows platforms.
+
+Click to expand Table of Contents
+
+* 1 [Deprecated Notes](#deprecated-notes)
+* 2 [Easy Way](#easy-way--)
+* 3 [Install from Source](#install-from-source)  
+   * 3.1 [Prepare](#prepare)  
+   * 3.2 [Git Clients for Windows](#git-clients-for-windows)  
+         * 3.2.1 [mSysGit](#msysgit)  
+         * 3.2.2 [TortoiseGit for Windows GUI Tool](#tortoisegit-for-windows-gui-tool)  
+   * 3.3 [Notes On Building](#notes-on-building)  
+   * 3.4 [Compiling](#compiling)  
+   * 3.5 [Building The Installer](#building-the-installer)
+* 4 [Running FreeSWITCH](#running-freeswitch--)  
+   * 4.1 [Basic Commands](#basic-commands)  
+   * 4.2 [Getting Started and Basic Configuration](#getting-started-and-basic-configuration)  
+   * 4.3 [Path Separator](#path-separator)
+* 5 [Email Voicemail](#email-voicemail)
+
+# Deprecated Notes
+
+See [Windows Install old](https://freeswitch.org/confluence/display/FAH/Windows+Install+old) for very old notes on older releases, retained for historical reference only.
+
+# Easy Way  
+
+**Pre-Built Binaries**
+
+[Freeswitch Installer .msi](https://files.freeswitch.org/windows/installer/x64/)
+
+The binary MSI installer is built for each release. You can also find [sound packages here](https://files.freeswitch.org/windows/installer/x64/sounds/).
+
+  
+---
+
+# Install from Source
+
+## Prepare
+
+Install Visual Studio 2017 (with C++ component) and Windows SDK 8.1\. It's OK to not install the WIX toolset if you don't need msi packages to be produced, just ignore all errors about that.
+
+Source path must not contain spaces!
+
+Windows line endings
+
+Windows uses CR+LF (carriage return plus line feed) to represent the end of text lines, whereas linux uses only LF (line feed). This causes problems when using linux source code on a Windows system, so beware of the notes below about CRLF line endings.
+
+## Git Clients for Windows
+
+To obtain the most up-to-date FreeSWITCH version, a Git client must be installed.
+
+### mSysGit
+
+The [mSysGit](https://msysgit.github.io/index.old.html) Git client for Windows works well and provides both a bash CLI as well as a Windows GUI and shell integration, so you won't need TortoiseGit after all.
+
+Windows vs linux line endings
+
+On Windows you must Select **CheckOut as-is, Commit as-is** in order to Set core.autocrlf = False. 
+
+Verify the core.autocrlf values type on _git config --get-all core.autocrlf_ is false
+
+  
+Once Git is installed, the FreeSWITCH source can be cloned from the Git Bash command line, for instance:
+
+```xml
+git clone https://github.com/signalwire/freeswitch.git C:/FS_GIT/
+```
+
+Consult mSysGit documentation to learn about using the GUI.
+
+### TortoiseGit for Windows GUI Tool
+
+TortoiseGit is an optional Front-End GUI to the Git client previously installed.
+
+[TortoiseGit x64 and x32](https://tortoisegit.org/)
+
+Check the TortoiseGit general settings for the location of the Git client. `msysgit -> Git.exe Path` otherwise set it to the path on your system, for example "`C:\Program Files (x86)\Git\bin"`
+
+Once TortoiseGit is installed, follow these steps:
+
+BE SURE TO VERIFY AUTOCRLF!
+
+* See the screen shot below. To check the actual .gitconfig file select edit global config to verify.
+* If you do not have this properly set the line endings will be incorrect and your build will fail.
+* I've see the GUI not update the actual .gitconfig file so that is why it is good to verify it.
+* Open the Windows Explorer
+* Navigate to a folder to hold the source code (like My Documents\\sources)
+* Create a new folder named "FreeSWITCH"
+* Set autocrlf=false otherwise the gawk scripts will fail!
+* Right-click the "FreeSWITCH" folder and click on "Git Clone"
+* The clone will take several minutes to download the source code.
+
+When the clone is finished, you can check the status by right-clicking and selecting properties on the cloned folder, and selecting the Git tab. You'll see something like:
+
+```xml
+  HEAD:             3c66b497d66ae180de30bffe449d0421f5d16221
+                    S-2784, missing incoming calls to one interfacename
+                    Giovanni Maruzzelli
+                    2010-10-29 01:57:37
+
+  Last Modified:    3c66b497d66ae180de30bffe449d0421f5d16221
+                    skypopen: fix FS-2784, missing incoming calls to one interfacename
+                    Giovanni Maruzzelli
+                    2010-10-29 01:57:37
+```
+
+## Notes On Building
+
+To compile FreeSWITCH on Windows, you will need Visual Studio 2017 (with C++ component) and Windows SDK 8.1
+
+Solution file
+
+See also [Freeswitch.2017.sln.bat](https://github.com/signalwire/freeswitch/blob/master/Freeswitch.2017.sln.bat "Freeswitch.2017.sln.bat") on github
+
+mod managed
+
+NOTE (1): mod\_managed requires C# which might not be included with your Visual Studio build system. In that case, remove it from the build list.
+
+To 'remove' modules from the build, just right click on the module name in the Solution Explorer, select Unload Project. 
+
+  
+mod cepstral
+
+NOTE (2): You will need to 'Remove' mod\_cepstral unless you have the SDK installed.
+
+To 'remove' modules from the build, just right click on the module name in the Solution Explorer, select Unload Project. 
+
+## Compiling
+
+* Open Freeswitch.2017.sln
+* Go to the Main Menu → Build → Configuration Manager -> Select whether you want a Release or Debug build and Win32 or x64
+* Go to the Main Menu → Build → Build Solution (Ctrl + Shift + B)
+
+Note that building for Windows within a tree that has previously been built for a different platform will result in numerous errors and build failures. To resolve, delete the following generated files:
+
+* libs/apr/include/apr.h
+* libs/js/config.h
+* libs/js/src/jsautocfg.h
+* libs/js/nsprpub/pr/include/prcpucfg.h
+* libs/iksemel/include/config.h
+* libs/xmlrpc/xmlrpc\_config.h
+* libs/libsndfile/src/sfconfig.h; also rename libs/win32/libsndfile/config.h to libs/win32/libsndfile/sfconfig.h
+* libs/sofia-sip/libsofia-sip-ua/su/sofia-sip/su\_configure.h
+
+Alternatively, right click on the main Solution node and select Clean. 
+
+Then Rebuild the solution.
+
+You may need to "Enable default libraries" in the properties pane for XML Interfaces\\mod\_xml\_rpc if VS complains of numerous unresolved external symbols, e.g., \_memset, \_strcmp.
+
+You may also have to disable your virus scanner(AVG2011, Avast) in case you have gawk failures (resulting in missing .h files), and remember to turn it back on after!
+
+Building for other platforms
+
+After following the instructions above to build for Windows, you will need to delete "libs/js/nsprpub/pr/include/prcpucfg.h" and rerun "./bootstrap.sh" before building for another platform.
+
+## Building The Installer
+
+The above steps produce a Debug or Release version of FreeSWITCH in the &lt;git dir>/Win32/Release or Debug directories. 
+
+To build the FreeSWITCH install package:
+
+* Use the full VS 2017, Express version will not build the Installer
+* This requires you to install WIX 3.0 or later. [WIX](https://wixtoolset.org/)
+* Set the Solution Configuration to Release and right-click on Setup in the Solution Explorer. This creates the msi files in &lt;git dir>/&lt;Platform>/Release.
+
+---
+
+# Running FreeSWITCH  
+
+Windows Firewall
+
+If you are using the Windows or other firewall you must add FreeSWITCH as an exception, otherwise no incoming SIP connections will work. If you permit an exception for the FreeSWITCH process it will be able to listen on the standard SIP ports as well as ephemeral media ports to allow audio to pass through the firewall.
+
+## Basic Commands
+
+All of the console commands are covered on this wiki page: [Core Commands](../Modules/mod_commands_1966741.mdx#--)
+
+## Getting Started and Basic Configuration
+
+Finally, the [Configuring FreeSWITCH](../Configuration/Configuring-FreeSWITCH/index.mdx#set) wiki page has some useful information to get you started. The default configuration includes 20 endpoint definitions in %FS%\\conf\\directory\\default\\ (1000-1019).xml. More information see the [User Directory](../Directory/index.mdx#about) page where registered endpoints (extensions) are defined.
+
+See here to configure a trunk (gateway) - [Sample Gateway Configuration](../Configuration/Configuring-FreeSWITCH/index.mdx#gateway-configuration) which also shows how to test inbound and outbound calls via your new gateway definition.
+
+## Path Separator
+
+Although Windows generally uses the backslash character as the path separator, all modern versions of Windows support using the forward slash as well. Internally FreeSWITCH uniformly uses the forward slash character for path separation. In your configuration files use the forward slash and not a back slash:
+
+**Use Forward Slash**
+
+```xml
+<action application="playback" data="c:/path/to/soundfile.wav"/>
+```
+
+# Email Voicemail
+
+FreeSWITCH on Windows supports sending email notifications of voicemail via SMTP from Windows.
+
+You'll need to change a value in _prefix_/conf/autoload\_configs/switch\_conf.xml
+
+The parameter, **mailer-app**, defaults to **sendmail**. This needs to be changed to **msmtp**
+
+```xml
+<param name="mailer-app" value="msmtp"/>
+```
+
+You will also need to download a sendmail clone for Windows (msmtp): <http://msmtp.sourceforge.net/index.html>. Download and copy the .exe to %winddir%\\system32\. You'll need to create a small config file for smtp credentials (host name, authentication, tls, etc.) in %USERPROFILE%\\Application Data\\ called "msmtprc.txt". Below is a sample copy of this file:
+
+```xml
+###################################
+# The SMTP server of the provider.
+account provider
+host smtp.myisp.com
+from john@myisp.com
+auth login
+user johndoe
+password mypassword
+
+# Set a default account
+account default : provider
+###################################
+```
+
+If you plan to send email via your Gmail account you'll have to follow a guide similar to this one for configuring Gmail's signed server certificate (you have to use TLS with Gmail).
+
+  
+Once configured your msmtprc.txt file should look something like this one:
+
+```xml
+###################################
+account gmail
+host smtp.gmail.com
+auth on
+user jdoe@gmail.com
+password mypassword
+tls on
+tls_starttls on
+tls_trust_file "C:\Documents and Settings\jdoe\Application Data\ThawtePremiumServerCA_b64.txt"
+
+port 587
+
+from jdoe@gmail.com
+maildomain gmail.com
+account default : gmail
+###################################
+```
+
+  
+## Comments:
+
+| Hello I am trying to install Windows FreeSWITCH, installers do not work .msi.to open the console closes immediately. and compiled with Visual Studio gives me error ![](/images/icons/contenttypes/comment_16.png) Posted by cynttiam at giu 04, 2015 12:55 |
+| ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Please ask on the #freeswitch irc channel or the freeswitch-users mailing list. Sorry you are having trouble. ![](/images/icons/contenttypes/comment_16.png) Posted by boteman at giu 12, 2015 12:00                                                        |
+
+Document generated by Confluence on nov 11, 2022 04:24

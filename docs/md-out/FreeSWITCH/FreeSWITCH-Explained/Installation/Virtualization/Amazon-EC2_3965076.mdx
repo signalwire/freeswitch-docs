@@ -1,0 +1,162 @@
+
+# Amazon EC2 
+
+ Created by  Belaid Areski, last modified by  John Boteler on 2020.10.08
+
+# About 
+
+This page covers how to install and configure FreeSWITCH on [Amazon EC2](http://aws.amazon.com/ec2/). 
+
+  
+Many FreeSWITCH installations have been successfully deployed on virtual environments. Because virtual hosts vary widely in performance and services that they offer and because your application will have its own specific needs, you must test your specific combination of virtual host and FreeSWITCH application. For example, a large video conference server will have different requirements than a voice transit switch. Ask the FreeSWITCH community for guidance and experiences to help you choose.
+
+  
+Click to expand Table of Contents
+
+* 1 [Opening Firewall Ports](#opening-firewall-ports)  
+   * 1.1 [Create Security Group via EC2 Management Console](#create-security-group-via-ec2-management-console)  
+   * 1.2 [Assign new Security group to instance.](#assign-new-security-group-to-instance)
+* 2 [or, do it via aws cli](#or-do-it-via-aws-cli-)  
+   * 2.1 [SIP](#sip)  
+   * 2.2 [RTP](#rtp)  
+   * 2.3 [Additional EC2 NAT Notes](#additional-ec2-nat-notes)
+* 3 [Sofia External IP Config](#sofia-external-ip-config)
+* 4 [FAQ](#faq)  
+   * 4.1 [Q: What distro should I use?](#q-what-distro-should-i-use)  
+   * 4.2 [Q: Can I run this as a production switch?](#q-can-i-run-this-as-a-production-switch)
+
+  
+# Opening Firewall Ports
+
+## Create Security Group via EC2 Management Console
+
+Create a Security Group with the following ports. The ports listed in this snapshot are for Verto Communicator only... Add additional ports for SIP (not listed here).
+
+![](/attachments/3965076/17695679.png)  
+
+## Assign new Security group to instance.
+
+![](/attachments/3965076/16354752.png)
+
+# or, do it via aws cli 
+
+## SIP
+
+```xml
+ec2-authorize default -P udp -p 5060
+```
+
+## RTP
+
+```xml
+ec2-authorize default -P udp -p 16384-32768
+```
+
+The RTP port range given should match your configuration in switch.conf.xml.
+
+## Additional EC2 NAT Notes
+
+For SIP, setup a security group with the following ports enabled (easiest to do with [Elasticfox](http://developer.amazonwebservices.com/connect/entry.jspa?externalID=609)):
+
+```xml
+udp     16384:32768
+udp     4569
+udp     5060
+tcp     5060
+udp     5080
+tcp     5080
+tcp     8000
+udp     8000
+```
+
+Make sure you make the security group, and apply it before you boot the instance. After this, the quick and dirty install guide worked just fine for me. You'll just need to tweak the default dialplan to your needs.
+
+You may also need to make some of the following changes, particularly the external SIP and RTP IPs. The URLs in the commands below retrieves the external IP address of an instance (either the one mapped automatically at instance creation or the Elastic IP attached to the instance.)
+
+**conf/vars.xml**
+
+```xml
+<X-PRE-PROCESS cmd="exec-set" data="bind_server_ip=curl -s http://instance-data/latest/meta-data/public-ipv4"/>
+<X-PRE-PROCESS cmd="exec-set" data="external_rtp_ip=curl -s http://instance-data/latest/meta-data/public-ipv4"/>
+<X-PRE-PROCESS cmd="exec-set" data="external_sip_ip=curl -s http://instance-data/latest/meta-data/public-ipv4"/>
+```
+
+The alternative to the above commands is to hard code the external IP addresses. However, this will require you to customize the vars.xml file for each instance (i.e. each external IP address) to which it is deployed. It will also have to be changed if you map/unmap an Elastic IP to the instance.
+
+```xml
+<X-PRE-PROCESS cmd="set" data="bind_server_ip=[AWS EIP]"/>
+<X-PRE-PROCESS cmd="set" data="external_rtp_ip=[AWS EIP]"/>
+<X-PRE-PROCESS cmd="set" data="external_sip_ip=[AWS EIP]"/>
+```
+
+  
+**conf/autoload\_configs/verto.conf.xml**
+
+  
+```xml
+<param name="ext-rtp-ip" data="[AWS EIP]">
+```
+
+**conf/sip\_profiles/internal.xml**
+
+```xml
+<param name="aggressive-nat-detection" value="true"/>
+<param name="multiple-registrations" value="true"/>
+<param name="ext-rtp-ip" value="$${external_rtp_ip}"/>
+<param name="ext-sip-ip" value="$${external_sip_ip}"/>
+<param name="NDLB-received-in-nat-reg-contact" value="true"/>
+<param name="NDLB-force-rport" value="true"/>
+<param name="NDLB-broken-auth-hash" value="true"/>
+<param name="enable-timer" value="false"/>
+<param name="auth-calls" value="true"/>
+```
+
+**conf/sip\_profiles/external.xml**
+
+```xml
+<param name="aggressive-nat-detection" value="true"/>
+<param name="ext-rtp-ip" value="$${external_rtp_ip}"/>
+<param name="ext-sip-ip" value="$${external_sip_ip}"/>
+<param name="NDLB-force-rport" value="true"/>
+```
+
+**conf/autoload/switch.conf.xml**
+
+```xml
+<param name="rtp-start-port" value="16384"/>
+<param name="rtp-end-port" value="32768"/>
+```
+
+# Sofia External IP Config
+
+You shouldn't have to make any changes to the Sofia profile. The FreeSWITCH [Auto NAT](https://wiki.freeswitch.org/wiki/Auto%5FNAT "Auto NAT") feature will take care of this automatically. However, if you want to do this manually, edit the sip\_profiles/internal.xml file and replace auto-nat with the external IP address in the ext-rtp-ip and ext-sip-ip parameters.
+
+# FAQ
+
+## Q: What distro should I use?
+
+Debian 10 Buster is the recommended distribution to use for FreeSWITCH™ 1.10 and later. See [Installation](../index.mdx#about) for more details.
+
+## Q: Can I run this as a production switch?
+
+A small instance is not recommended for running FreeSWITCH in production, however you should be happy with a High CPU Medium instance.
+
+Experiences:
+
+* **From Cfurmori in May 2009:** I wouldn't recommend running FreeSWITCH in production on Amazon EC2\. I purchased a 1 year instance of a small server setup and used a base CentOS 5.3 image 32-bit x86\. Built FreeSWITCH from the latest snapshot and it worked great for dev and testing purposes but the call quality was pretty bad at times. I spent a fair amount of time tuning / testing / watching resource utilizations running a 4 person conference and I would see an average of 0.5 to 1.0 second audio delay. I tried with direct SIP phone registrations and through a SIP trunk provider, same results. EC2 is a great dev/test platform but I would say your best to run a realtime voice application on a physical server. You can virtualize voice systems but they need to be designed and engineered by someone that knows what they are doing.
+* **A mailing list user said in March 2010:** "We run FreeSWITCH on AWS' EC2\. A medium EC2 instance is happily supporting 100 Polycom users, conference bridges etc. Been running for over a year. We also use FlowRoute as our PSTN->SIP Interface, and also Skype Business SIP. Our users are scattered across the globe - so having the box sitting on AWS' network infrastructure is key to avoiding issues with latency, jitter, packet loss (i.e. I don't think we could afford the connectivity AWS gives us if we had to provision this in-house)."
+
+## Attachments:
+
+![](/images/icons/bullet_blue.gif) [image2018-2-16 8:44:48.png](/attachments/3965076/16354746.png) (image/png)  
+![](/images/icons/bullet_blue.gif) [image2018-2-16 8:50:31.png](/attachments/3965076/16354749.png) (image/png)  
+![](/images/icons/bullet_blue.gif) [image2018-2-16 9:22:11.png](/attachments/3965076/16354752.png) (image/png)  
+![](/images/icons/bullet_blue.gif) [aws\_inbound\_rules.png](/attachments/3965076/17695679.png) (image/png)  
+
+## Comments:
+
+| why is multiple-registrations required? ![](/images/icons/contenttypes/comment_16.png) Posted by at giu 17, 2014 14:52                                          |
+| -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Why not? In internal context all users are verified. You can comment this. ![](/images/icons/contenttypes/comment_16.png) Posted by denis at feb 02, 2015 05:13 |
+
+Document generated by Confluence on nov 11, 2022 04:24

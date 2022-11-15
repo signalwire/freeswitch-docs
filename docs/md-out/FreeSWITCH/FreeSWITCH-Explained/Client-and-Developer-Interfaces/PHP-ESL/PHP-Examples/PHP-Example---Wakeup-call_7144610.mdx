@@ -1,0 +1,375 @@
+
+# PHP Example - Wakeup call 
+
+ Created by  Belaid Areski, last modified on 2015.04.10
+
+# About
+
+Here I will describe how to configure FreeSwitch to make a simple Wakeup call GUI. The process of scheduling the wakeup call can be programmed using a web browser. Using this method, calls can be scheduled without the need to build tables in a database because it is based on the built in schedule API.
+
+What makes this script special is the use of an IVR based snooze feature that lets the user chose how long they wish to snooze.
+
+While I edit this page, you can see a post I made in a discussion forum: [\[1\]](http://www.richardsmrt.com/cgi-bin/phpBB3/viewtopic.php?f=7&t=18)
+
+What you will need: - web server running php - inbound Event Sockets enabled in FS - javascripts enabled in FS
+
+First, make a blank text document on your PHP server, and name it "wake\_up\_call\_set.php".
+
+Paste the following code in the document:
+
+**wake\_up\_call\_set.php** Espandi fonte 
+
+```php
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<html>
+<head>
+<title></title>
+<meta http-equiv="Content-Type" content="text/html; charset=iso-8859-1">
+<meta name="keywords" content="">
+<meta name="description" content="FreeSWITCH Wakeup Call">
+
+</head>
+<body>
+
+<font size="5">Wakeup Call</font>      
+<?php 
+
+// This script uploaded by Richard Smrt (www.RichardSmrt.com) for FreeSwitch
+// To edit this file, just change the host (in this example sip.richardsmrt.com) to match your freeswitch server IP or domain.
+// The default password and port are used here
+// The cmd at the bottom of the php script is where you enter the API command
+// See www.guayal.com for the original code enabled me to get this script working.
+
+ $password = "ClueCon";
+ $port = "8021";
+ $host = "sip.richardsmrt.com";
+ 
+ function event_socket_create($host, $port, $password) {
+     $fp = fsockopen($host, $port, $errno, $errdesc) 
+       or die("Connection to $host failed");
+     socket_set_blocking($fp,false);
+     
+     if ($fp) {
+         while (!feof($fp)) {
+            $buffer = fgets($fp, 1024);
+            usleep(100); //allow time for reponse
+            if (trim($buffer) == "Content-Type: auth/request") {
+               fputs($fp, "auth $password\n\n");
+               break;
+            }
+         }
+         return $fp;
+     }
+     else {
+         return false;
+     }           
+ }
+ 
+ function event_socket_request($fp, $cmd) {
+    
+     if ($fp) {    
+         fputs($fp, $cmd."\n\n");    
+         usleep(100); //allow time for reponse
+         
+         $response = "";
+         $i = 0;
+         $contentlength = 0;
+         while (!feof($fp)) {
+            $buffer = fgets($fp, 4096);
+            if ($contentlength > 0) {
+               $response .= $buffer;
+            }
+            
+            if ($contentlength == 0) { //if contentlenght is already don't process again
+                if (strlen(trim($buffer)) > 0) { //run only if buffer has content
+                    $temparray = split(":", trim($buffer));
+                    if ($temparray[0] == "Content-Length") {
+                       $contentlength = trim($temparray[1]);
+                    }
+                }
+            }
+            
+            usleep(100); //allow time for reponse
+            
+            //optional because of script timeout //don't let while loop become endless
+            if ($i > 10000) { break; } 
+            
+            if ($contentlength > 0) { //is contentlength set
+                //stop reading if all content has been read.
+                if (strlen($response) >= $contentlength) {  
+                   break;
+                }
+            }
+            $i++;
+         }
+         
+         return $response;
+     }
+     else {
+       echo "no handle";
+     }
+ }
+// This is the first schedule API command that schedules an "originate" to bridges a user with the wakeup call extension. 
+// Users will input the information in to the Form Boxes below. See below.
+ if (isset($_POST['timestamp1']) && isset($_POST['phone1']) && isset($_POST['phone2']))  
+{  
+        $timestamp1 = $_POST['timestamp1'];  
+        $phone1 = $_POST['phone1'];  
+        $phone2 = $_POST['phone2'];   
+        
+ $fp = event_socket_create($host, $port, $password);
+ $cmd = "api sched_api " . $timestamp1 . " none originate {absolute_codec_string=PCMU,origination_caller_id_name=WakeUP,origination_caller_id_number=WakeUP}user/" . $phone1 . " " . $phone2;  ;
+ $response = event_socket_request($fp, $cmd);
+ echo $response; 
+ fclose($fp);  
+} 
+
+// This is the second schedule API command that schedules an "originate" to bridges a gateway extension (such as a cell phone number) with the wakeup call extension. 
+// Users will input the information in to the Form Boxes below. See below.
+ if (isset($_POST['phone5']) && isset($_POST['phone6']))  
+{  
+        $timestamp1 = $_POST['timestamp1'];  
+        $phone1 = $_POST['phone5'];  
+        $phone2 = $_POST['phone6'];  
+        
+ $fp = event_socket_create($host, $port, $password);
+ // the "ignore_early_media=true" will connect to "$phone2" AFTER phone1 has answered.
+ $cmd = "api sched_api " . $timestamp1 . " none originate {ignore_early_media=true,absolute_codec_string=PCMU,origination_caller_id_name=sip.richardsmrt.com,origination_caller_id_number=15059089989}sofia/gateway/vitelity-outbound/" . $phone1 . " " . $phone2;  ;
+ $response = event_socket_request($fp, $cmd);
+ echo $response; 
+ fclose($fp);  
+} 
+?>
+<br>
+Here you can automatically set a wake up call.
+<table width="681" border="1">
+  <tr>
+<!-- This is the first user input box that bridges a gateway extension (such as a cell phone number) with the wakeup call extension. -->
+<!-- Notice how "phone1" and "phone2" match the php "$phone = $_POST" function above. -->
+<!-- Just to get this workinkg, the action="" must match the name of the .php file containing this form. In this example the file name is "wake_up_call_set.php" -->
+<td width="333" valign="top"><form name="schedule" action="wake_up_call_set.php" method="POST">  
+Call Extension:                   
+<input type="text" name="phone1" value="1000" /><br/>  
+Bridge with Extension:        
+<input type="text" name="phone2" value="6980" /><br/>   
+Enter Wakeup Timestamp: <input type="text" name="timestamp1" value="" />
+<br/>  
+<input type="submit" value="Set Now!" >
+<br>
+</form>
+
+
+</td>
+<!-- This is the first user input box that bridges a user with the wakeup call extension. -->
+<!-- Notice how "phone1" and "phone2" match the php "$phone = $_POST" function above. -->
+<td width="332" valign="top"><form name="schedule" action="wake_up_call_set.php" method="POST">  
+Call Phone Number:           
+<input type="text" name="phone5" value="15051112222" /><br/>  
+Bridge with Extension:        
+<input type="text" name="phone6" value="6980" /><br/>   
+Enter Wakeup Timestamp: <input type="text" name="timestamp1" value="" />
+<br/>  
+<input type="submit" value="Set Now!" >
+</form>
+
+
+</td>
+  </tr>
+  <tr>
+    <td valign="top"><font size="2">Usage:  Enter the unix timestamp (calculated below), or "+<time>" indicates the number of seconds to wait before executing the command. Example: +10 (wait 10 seconds)</font>.</td>
+    <td valign="top"><font size="2">API code example: sched_api +12 none originate user/1001 6980</font><br>
+      <font size="2">List the scheduled tasks here: <a href="http://sip.richardsmrt.com:8010/webapi/show?tasks">Show Tasks</a></font>
+      </p></td>
+  </tr>
+</table>
+<p> </p>
+<p><font size="5">Calculating the timestamp</font><br>
+</p>
+<!-- The schedule API command uses a unix timestamp, so here you can convert the time to a unix time stamp. See the php function below -->
+<!-- Here I entered some example values to make entering the time faster. -->
+<form name="form1" method="post" action="wake_up_call_set.php">
+        <p> <font face="Courier New, Courier, mono"> 
+Date:
+<input name="y" type="text" id="y" size="4" maxlength="4" value="2010"> (y) / 
+
+    <select name="m" id="m">
+      <option value="1">1</option>
+      <option value="2">2</option>
+      <option value="3">3</option>
+      <option value="4">4</option>
+      <option value="5">5</option>
+      <option value="6">6</option>
+      <option value="7">7</option>
+      <option value="8" selected>8</option>
+      <option value="9">9</option>
+      <option value="10">10</option>
+      <option value="11">11</option>
+      <option value="12">12</option>
+    </select>
+(m) / 
+
+    <select name="d" id="d">
+      <option value="1" selected>1</option>
+      <option value="2">2</option>
+      <option value="3">3</option>
+      <option value="4">4</option>
+      <option value="5">5</option>
+      <option value="6">6</option>
+      <option value="7">7</option>
+      <option value="8">8</option>
+      <option value="9">9</option>
+      <option value="10">10</option>
+      <option value="11">11</option>
+      <option value="12">12</option>
+      <option value="13">13</option>
+      <option value="14">14</option>
+      <option value="15">15</option>
+      <option value="16">16</option>
+      <option value="17">17</option>
+      <option value="18">18</option>
+      <option value="19">19</option>
+      <option value="20">20</option>
+      <option value="21">21</option>
+      <option value="22">22</option>
+      <option value="23">23</option>
+      <option value="24">24</option>
+      <option value="25">25</option>
+      <option value="26">26</option>
+      <option value="27">27</option>
+      <option value="28">28</option>
+      <option value="29">29</option>
+      <option value="30">30</option>
+      <option value="31">31</option>
+    </select>
+(d) @ 
+<input name="hours" type="text" id="hours" size="2" maxlength="2" value="11">
+:<input name="min" type="text" id="min" size="2" maxlength="2" value="30">
+:<input name="sec" type="text" id="sec" value="0" size="2" maxlength="2">
+(24h:min:sec) </font></p>
+<input type="submit" name="Submit" value="      Convert      ">
+          </font> </p>
+</form> 
+<table width="681" border="1">
+  <tr>
+    <td width="333" valign="top"><strong> Unix Timestamp Output:</strong><br>
+      <?php
+if (isset($_POST['m']) && isset($_POST['d']) && isset($_POST['y']) && isset($_POST['hours']) && isset($_POST['min']) && isset($_POST['sec']))  
+{  
+        $m = $_POST['m'];  
+        $d = $_POST['d'];   
+        $y = $_POST['y'];  
+        $hours = $_POST['hours'];  
+        $min = $_POST['min'];
+        $sec = $_POST['sec'];
+}  
+// mktime ( $hour, $minute, $second, $month, $day, $year, $is_dst );
+# $is_dst : 1 = daylight savings time (DST), 0 = no DST ,  -1 (default) = auto    
+echo mktime($hours,$min,$sec,$m,$d,$y); 
+?></td>
+    <td width="332" valign="top"><p><strong>Current time: </strong>
+        <br>
+        <?php
+// Here you will print the current date and time. This will let you know what the php time is.
+echo date("m/d/y : H:i:s", time())
+?>
+        <br>
+        <strong>Current unix Timestamp:</strong> <br>
+        <?php
+// Here you will print the current unix timestamp.
+echo time();
+?>
+    </p>    </td>
+  </tr>
+</table>
+<p></p>
+</body>
+</html>
+```
+
+Then, you must decide what the user will experience when he/she gets the wakeup call. In this optional example, we will create an IVR to play a customized message for the user. This example uses TTS, so when the wakeup call is answered, you will hear "This is your wake up call".
+
+Here is a sample from my ivr.conf.xml file:
+
+```xml
+<menu name="Wakeup_IVR_1"
+greet-long="say:Hello, this is your wake up call.
+To snooze for 10 minutes, 'press 1'. 
+To snooze for 20 minutes, 'press 2'.
+To snooze for 30 minutes, 'press 3'.
+To snooze for 60 minutes, 'press 6'.
+To repeat this menu, press 9."
+greet-short="say:
+To snooze for 10 minutes, 'press 1'. 
+To snooze for 20 minutes, 'press 2'.
+To snooze for 30 minutes, 'press 3'.
+To snooze for 60 minutes, 'press 6'.
+To repeat this menu, press 9."
+invalid-sound="ivr/ivr-that_was_an_invalid_entry.wav"
+timeout="4000"
+inter-digit-timeout="1000"
+max-failures="3"
+max-timeouts="3"
+digit-len="4"
+tts-engine="cepstral"
+tts-voice="callie">
+<entry action="menu-exec-app" digits="1" param="transfer snooze_10 XML default"/> 
+<entry action="menu-exec-app" digits="2" param="transfer snooze_20 XML default"/> 
+<entry action="menu-exec-app" digits="3" param="transfer snooze_30 XML default"/> 
+<entry action="menu-exec-app" digits="6" param="transfer snooze_60 XML default"/> 
+<entry action="menu-top" digits="9"/>
+</menu>
+```
+
+Note: You will notice the snooze commands. The snooze commands are optional and will use the dial plan. See the final section below to enable these "snooze" scenarios.
+
+Next you must create a dialplan for the wakeup call. In the above example, I use extension "6980" to call the Wakeup IVR.
+
+```xml
+<extension name="Wakeup_IVR_1">
+<condition field="destination_number" expression="^6980$">
+<action application="set" data="transfer_ringback=$${hold_music}"/>
+<action application="answer"/>
+<action application="sleep" data="1000"/>
+<action application="ivr" data="Wakeup_IVR_1"/>
+</condition>
+</extension>
+```
+
+Finally, if you want to create a "snooze" button. See the steps below. Just dont spoil yourself too much with these LONG "power snooze" functions.
+
+1.) Put this in your dial plan:
+
+```xml
+<extension name="wake_up_call_snooze_10">
+<condition field="destination_number" expression="^snooze_10$">
+<action application="javascript" data="api_wake_up_call_snooze_10.js"/>
+</condition>
+</extension>
+<extension name="wake_up_call_snooze_20">
+<condition field="destination_number" expression="^snooze_20$">
+<action application="javascript" data="api_wake_up_call_snooze_20.js"/>
+</condition>
+</extension>
+<extension name="wake_up_call_snooze_30">
+<condition field="destination_number" expression="^snooze_30$">
+<action application="answer"/>
+<action application="javascript" data="api_wake_up_call_snooze_30.js"/>
+</condition>
+</extension>
+<extension name="wake_up_call_snooze_60">
+<condition field="destination_number" expression="^snooze_60$">
+<action application="answer"/>
+<action application="javascript" data="api_wake_up_call_snooze_60.js"/>
+</condition>
+</extension>
+```
+
+2.) You must manually create the javascript files mentioned in the above dialplan.
+
+For example to make a 10 minute snooze: Make the file "api\_wake\_up\_call\_snooze\_10.js" in the FS "scripts" directory, and have that .js file contain the apiExecute command (below).
+
+```xml
+apiExecute("sched_api", "+600 none originate user/1000,user/1001 6980");
+```
+
+Document generated by Confluence on nov 11, 2022 04:27

@@ -1,0 +1,204 @@
+
+# mod_watson 
+
+ Created by  Joshua Young, last modified on 2018.08.10
+
+# About
+
+This is will cover the purchase, installation, and configuration of our commercial module mod\_watson. This is a mod to interface with IBM's Watson TTS and ASR interfaces.  
+Out-of-the-box this package is **ONLY** Available on Debian 8, when FreeSWITCH is installed from packages. See below for further instruction how to install on compiled FreeSWITCH
+
+Click here to expand Table of Contents
+
+* 1 [(PAGE UNDER CONSTRUCTION)](#page-under-construction)
+* 2 [1) Purchase the module](#1-purchase-the-module)
+* 3 [2) Install the deb file](#2-install-the-deb-file)
+* 4 [3) Run the commercial module validator](#3-run-the-commercial-module-validator)
+* 5 [4) Unzip the resulting zip file you received from validator](#4-unzip-the-resulting-zip-file-you-received-from-validator)
+* 6 [5) Place unzipped &lt;hex>.conf file /etc/freeswitch directory](#5-place-unzipped-hexconf-file-etcfreeswitch-directory)
+* 7 [6) Start the FreeSWITCH License Server](#6-start-the-freeswitch-license-server)
+* 8 [Modify watson.xml to match your api settings.](#modify-watsonxml-to-match-your-api-settings)
+* 9 [Load the module from fs\_cli](#load-the-module-from-fs_cli)
+* 10 [Add an ./autoload\_config/modules.conf.xml entry](#add-an-autoload_configmodulesconfxml-entry)
+* 11 [Usage Examples](#usage-examples)  
+      * 11.1.1 [#TODO: show more examples for dialplan and ESL](#todo-show-more-examples-for-dialplan-and-esl)  
+   * 11.2 [Dialplan TTS example](#dialplan-tts-example)  
+   * 11.3 [Lua TTS example](#lua-tts-example)  
+   * 11.4 [Lua ASR exmple](#lua-asr-exmple)  
+   * 11.5 [Javascript usage example](#javascript-usage-example)
+* 12 [How to manually install mod\_watson on a compiled FreeSWITCH](#how-to-manually-install-mod_watson-on-a-compiled-freeswitch)
+
+# (PAGE UNDER CONSTRUCTION)
+
+# 1) Purchase the module
+
+<https://freeswitch.com/index.php/modules-more/>
+
+Scroll down the page to find the the Watson product
+
+# 2) Install the deb file
+
+```xml
+dpkg -i freeswitch-mod-watson.deb
+```
+
+# 3) Run the commercial module validator
+
+```xml
+/usr/sbin/validator 
+```
+
+input your 32 character hex code license number provided with your purchase code when prompted
+
+# 4) Unzip the resulting zip file you received from validator
+
+```xml
+unzip licenses.zip
+```
+
+# 5) Place unzipped &lt;hex>.conf file /etc/freeswitch directory
+
+```xml
+cp <HEX>.conf /etc/freeswitch
+```
+
+# 6) Start the FreeSWITCH License Server
+
+```xml
+/usr/sbin/freeswitch_licence_server
+```
+
+You can restart the license server if needed in future
+
+```xml
+pkill -HUP freeswitch_licence_server
+```
+
+# Modify watson.xml to match your api settings.
+
+```xml
+emacs /etc/freeswitch/autoload_configs/watson.xml
+```
+
+#TODO: show more detailed examples of how this is done
+
+![](/attachments/16352039/17694839.png)  
+
+# Load the module from fs_cli
+
+```xml
+load mod_watson
+```
+
+# Add an ./autoload_config/modules.conf.xml entry
+
+```xml
+<load module="mod_watson"/>
+```
+
+# Usage Examples
+
+### #TODO: show more examples for dialplan and ESL
+
+## Dialplan TTS example
+
+```xml
+<action application="speak" data="watson_ws|en-US_LisaVoice|Please hold while we connect you to the conference"/>
+```
+
+you find using "watson" will cache files  
+&lt;action application="speak" data="watson|en-US\_LisaVoice|Please hold while we connect you to the conference"/>  
+  
+mod\_watson.c:368 found cached file \[/tmp/watson-en-US\_LisaVoice-ebad4a40ba900909e04f28c13ea8a862-8000.wav\]  
+  
+and "watson\_ws" does not cache files  
+&lt;action application="speak" data="watson\_ws|en-US\_LisaVoice|Please hold while we connect you to the conference"/>  
+  
+This is working as designed. Additional functionality will require a Feature Request
+
+## Lua TTS example
+
+```xml
+session:set_tts_params("watson_ws", "en-US_LisaVoice");
+session:speak("freeswitch can do professional sounding TTS with mod_watson");
+```
+
+## Lua ASR exmple
+
+```xml
+function onInput(s, type, obj)
+        if type == "event" then
+                s:consoleLog("INFO", obj:serialize())
+        end
+        if obj:getHeader("Speech-Type") == "detected-speech" then
+                session:execute("detect_speech", "resume")
+        end
+        return ""
+end
+session:answer()
+session:setInputCallback("onInput");
+session:execute("detect_speech", "watson default default default")
+session:streamFile("silence_stream://90000000")
+```
+
+## Javascript usage example
+
+\---> must have mod\_v8 installed &lt;---
+
+```xml
+function onInput(s, type, obj)
+{
+        if (type == "event") {
+                console_log("DEBUG", obj.serialize());
+        }
+        if (obj.getHeader("Speech-Type") == "detected-speech") {
+                session.execute("detect_speech", "resume");
+                var text = ""
+                var body = obj.getBody()
+                var json = JSON.parse(body);
+                for (i = 0; i < json.results.length; i++) {
+                        console_log("DEBUG", json.results[i].alternatives[0].confidence)
+                        text += json.results[i].alternatives[0].transcript;
+                }
+                console_log("INFO", text)
+        }
+        return true
+}
+session.answer();
+session.execute("detect_speech", "watson default default default");
+session.streamFile("silence_stream://90000000", onInput);
+```
+
+# How to manually install mod_watson on a compiled FreeSWITCH
+
+```xml
+#This script assumes you did NOT specify "--prefix" when doing "./configure", thus have the default non-FHS layout (a.k.a /usr/local/freeswitch directory structure)
+
+#You will need to have user "freeswitch" on your system as the license server switches to that user once started.
+adduser --quiet --system --home /usr/local/freeswitch --gecos "FreeSWITCH" --ingroup freeswitch freeswitch --disabled-password
+
+#You will need /etc/freeswitch to exist, it's a hard coded path the freeswitch_licence_server will scan for license conf files
+mkdir /etc/freeswitch
+
+#Extract .deb to tmp directory
+dpkg -x freeswitch-mod-watson.deb /tmp/watson
+
+#Place watson.xml into autoload_configs.
+cp /tmp/watson/etc/freeswitch/autoload_configs/watson.xml /usr/local/freeswitch/conf/autoload_configs/
+
+#Place mod_watson.so into your mods folder
+cp /tmp/watson/usr/lib/freeswitch/mod/mod_watson.so /usr/local/freeswitch/mod/
+
+#Place the validator and license server in /usr/sbin
+cp /tmp/watson/usr/sbin/freeswitch_licence_server /usr/sbin/
+cp /tmp/watson/usr/sbin/validator /usr/sbin/
+
+# Follow step 2-6 above to complete activation
+```
+
+## Attachments:
+
+![](/images/icons/bullet_blue.gif) [image2018-3-16 16:56:52.png](/attachments/16352039/16354952.png) (image/png)  
+![](/images/icons/bullet_blue.gif) [watson.png](/attachments/16352039/17694839.png) (image/png)  
+
+Document generated by Confluence on nov 11, 2022 04:27

@@ -1,0 +1,123 @@
+
+# mod_voicemail_callpage 
+
+ Created by  francisco evangilo on 2017.01.13
+
+# About
+
+This module is used to perform an originate automatically when a new voice message is left in a mailbox. By default the module will originate the first call after X seconds (set by page-first-wait) and a new call every X seconds (set by page-wait) as long as there is a new message in the mailbox or until the limit (set by page-attempts) is met. If "page-end-on-answer" is set to true and the call is answered it will not perform any more originates for that new voice message.
+
+Click here to expand Table of Contents
+
+* 1 [Configuration](#module-configuration)  
+   * 1.1 [Module configuration](#module-configuration)  
+   * 1.2 [FreeSWITCH directory configuration](#freeswitch-directory-configuration)
+* 2 [API usage](#-freeswitch--mod_voicemail_callpage-)  
+   * 2.1 [Example usage](#example-usage)
+
+# Configuration
+
+## Module configuration
+
+Sample configuration, voicemail\_callpage.conf:
+
+```xml
+<section name="configuration" description="FreeSWITCH Configuration">
+   <configuration name="voicemail_callpage.conf" description="voicemail_callpage">
+      <settings>
+         <param name="odbc-dsn" value="db:user:pass"/>
+      </settings>
+      <profiles>
+         <profile name="default">
+            <param name="page-dial-string" value="loopback/18885550800"/>
+            <param name="page-timeout" value="10"/>
+            <param name="page-wait" value="5"/>
+            <!-- default is 1 -->
+            <param name="page-attempts" value="1"/>
+            <param name="page-transfer" value="5 XML default"/>
+            <param name="page-parse-variables" value="user_context,accountcode,default_areacode,max_calls,toll_allow,lcr_profile,mailbox,domain_name"/>
+            <param name="page-first-wait" value="5"/>
+            <!-- default is true -->
+            <param name="page-enabled" value="true"/>
+            <!-- default is false -->
+            <param name="page-end-on-answer" value="false"/>
+            <!-- default is 0000000000 -->
+            <param name="page-caller-name" value="Voicemail Call Page"/>
+         </profile>
+      </profiles>
+   </configuration>
+</section>
+```
+
+## FreeSWITCH directory configuration
+
+If you want to use settings from a voicemail\_callpage profile make sure you have the "vm-page-profile" parameter set to the profile name like &lt;param name="vm-page-profile" value="default"/> Please note, all of the module settings will be overridden by the FS directory parameters. Just prepend the voicemail\_callpage param name with "vm-"
+
+Directory configuration example
+
+```xml
+<section name="directory" description="FreeSWITCH Directory">
+   <domain name="domain01.local">
+      <params>
+         <param name="allow-empty-password" value="false"/>
+         <param name="vm-page-timeout" value="20"/>
+      </params>
+      <variables>
+         <variable name="user_context" value="domain01.local"/>
+         <variable name="accountcode" value="12"/>
+         <variable name="default_areacode" value="888"/>
+         <variable name="max_calls" value="5"/>
+         <variable name="toll_allow" value="local,domestic,tollfree"/>
+         <variable name="lcr_profile" value="2"/>
+         <variable name="domain_name" value="domain01.local"/>
+      </variables>
+      <groups>
+         <group name="default">
+            <users>
+               <user id="1000" cacheable="true">
+                  <params>
+                     <param name="MWI-Account" value="1000@domain01.local"/>
+                     <param name="dial-string" value="{force_transfer_context=domain01.local,sip_invite_domain=domain01.local,presence_id=1000@domain01.local}${sofia_contact(1000@domain01.local)},pickup/1000@domain01.local"/>
+                     <param name="password" value="1234"/>
+                     <param name="vm-password" value="user-choose"/>
+                     <param name="vm-mailto" value=""/>
+                     <param name="vm-email-all-messages" value="true"/>
+                     <param name="vm-keep-local-after-email" value="true"/>
+                     <param name="vm-attach-file" value="true"/>
+                     <param name="vm-cc" value=""/>
+                     <param name="vm-page-dial-string" value="loopback/18887778888"/>
+                     <param name="vm-page-attempts" value="2"/>
+                     <param name="vm-page-wait" value="20"/>
+                     <param name="vm-page-profile" value="default"/>
+                  </params>
+                  <variables>
+                     <variable name="mailbox" value="1000"/>
+                     <variable name="effective_caller_id_name" value="1000"/>
+                     <variable name="effective_caller_id_number" value="1000"/>
+                     <variable name="outbound_caller_id_name" value=""/>
+                     <variable name="outbound_caller_id_number" value="18885551468"/>
+                     <variable name="directory_full_name" value=""/>
+                  </variables>
+               </user>
+            </users>
+         </group>
+      </groups>
+   </domain>
+</section>
+```
+
+# API usage
+
+```xml
+freeswitch@default> vm_callpage load|unload|reload [profile name]
+```
+
+## Example usage
+
+```xml
+freeswitch@default> vm_callpage load default  
+freeswitch@default> vm_callpage unload default  
+freeswitch@default> vm_callpage reload default  
+```
+
+Document generated by Confluence on nov 11, 2022 04:27

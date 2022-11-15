@@ -1,0 +1,231 @@
+
+# Polycom 
+
+ Created by  Mario G, last modified by  John Boteler on 2014.07.22
+
+# About
+
+Configuring Polycom devices for use with FreeSWITCH™. If you have corrections or improvements for this documentation, please tell us in the comments at the bottom, the IRC channel, or the freeswitch-users mailing list.
+
+Click to expand Table of Contents
+
+* 1 [Generic Polycom issues](#generic-polycom-issues)
+* 2 [Polycom TLS Provisioning](#polycom-tls-provisioning)  
+   * 2.1 [Polycom Firmware 3.X](#polycom-firmware-4x)  
+   * 2.2 [Polycom Firmware 4.X](#polycom-firmware-4x)
+* 3 [Multiple registrations](#multiple-registrations)
+* 4 [NAT Issues](#generic-polycom-issues)  
+   * 4.1 [Polycom IP 431](#polycom-ip-431)  
+   * 4.2 [Polycom IP 320](#polycom-ip-431)  
+   * 4.3 [Polycom IP 501](#polycom-ip-431)  
+   * 4.4 [Polycom IP 550/650](#polycom-ip-550650)  
+   * 4.5 [Polycom VVX1500](#polycom-vvx1500)
+
+# Generic Polycom issues
+
+See detailed configuraiton files examples in [Polycom Configuration](./Polycom-Configuration_1967052.mdx#fonts)
+
+I found a bug [\[1\]](http://community.polycom.com/t5/VoIP/IP550-Loses-Registration-as-soon-as-I-try-to-make-a-call/td-p/21372) that causes the Polycom to lose registration when using TLS. It seems that when the Polycom sends both SAVP and AVP in SDP, the SSL thread on the phone crashes. After much trial and error, I found that if I reduced the size of the SDP in the INVITE by disabling two codecs, the problem went away.
+
+# Polycom TLS Provisioning
+
+Polycom phones support either TLS or clear mode, but not both at the same time.
+
+  
+TLS support was added in SIP 2.X Software. Tested w/ SoundPointIP 501, known to work w/ other models. **Not** supported on 300/500\. You must also add == untrusted == CA certs to the phone in the Menu->Advanced Settings->Admin Settings->SSL Security->Install CA Certificate. You also may (depending on firmware) need to select **Custom** or **All** Certificates under Menu->Advanced Settings->Admin Settings->SSL Security->Configure CA Certs
+
+On train version 3 add the following you your local-phone1.cfg:
+
+**local-phone1.cfg**
+
+```xml
+<device device.set="1" device.sec.SSL.certList.set="1" device.sec.SSL.certList="custom" device.sec.SSL.customCert.set="1" device.sec.SSL.customCert="Your-cerificate" />
+```
+
+Replace the Your-certificate with the contents of /usr/local/freeswitch/conf/ssl/cafile.pem, while removing the lines of "=== BEGIN ===" and "END", and concatanate all other lines to one long string without spaces.
+
+In the Polycom file where you define the registration add:
+
+**Polycom Registration**
+
+```xml
+<reg reg.1.server.1.address="freeswitch.server.address" reg.1.server.1.register="1" reg.1.serverFeatureControl.cf="0" reg.1.server.1.transport="TLS"/>
+```
+
+## Polycom Firmware 3.X 
+
+Using MAC-phone.cfg method ([Polycom Configuration#MAC-phone.cfg](./Polycom-Configuration_1967052.mdx#_mac_-phonecfg))
+
+This was tested and only works on Polycom firmware 3.X
+
+Replace Your-certificate with the contents of `/usr/local/freeswitch/conf/ssl/cafile.pem`, while removing the lines of "=== BEGIN ===" and "END", and concatanate all other lines to one long string without spaces.
+
+**MAC-phone.cfg**
+
+```xml
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<PHONE_CONFIG>
+  <ALL
+    voIpProt.SIP.specialEvent.checkSync.alwaysReboot="1"
+    voIpProt.SIP.serverFeatureControl.cf="0"
+    voIpProt.SIP.serverFeatureControl.dnd="0"
+    voIpProt.server.1.address="fs.domain.local"
+    voIpProt.server.1.transport="TLS"
+    tcpIpApp.keepalive.tcp.sip.tls.enable="1"
+    tcpIpApp.sntp.address="us.pool.ntp.org"
+    tcpIpApp.sntp.gmtOffset="-18000"
+    dialplan.digitmap="**xx.T|*xx.T|[9]11|0T|011xxx.T|xxxxxT|xxxxT|xxxT|xxT|1xxxxxxxxxxT|xxxxxxxxxxT|xxxxxxxT"
+    dialplan.digitmap.timeOut="3|3|3|3|3|4|4|5|5|5|5|5"
+    feature.presence.enabled="1"
+    feature.urlDialing.enabled="0"
+    device.set="1"
+    device.sec.SSL.certList.set="1"
+    device.sec.SSL.certList="custom"
+    device.sec.SSL.customCert.set="1"
+    device.sec.SSL.customCert="Your-cerificate"
+    sec.srtp.enable="1"
+    sec.srtp.offer="1"
+    sec.srtp.require="0"
+    msg.mwi.1.callBack="*1"
+    msg.mwi.1.callBackMode="contact"
+    reg.1.displayName="Ext. 1000"
+    reg.1.label="Ext. 1000"
+    reg.1.address="1000@fs.domain.local"
+    reg.1.type="private"
+    reg.1.auth.userId="1004"
+    reg.1.auth.password="1234"
+    reg.1.bargeInEnabled="1"
+  />
+</PHONE_CONFIG>
+```
+
+`device.set="1"` is required to install the CA initially. According to the Polycom guide, if set to 0, do not use any `device.xxx` fields to set any parameters. Set this to 0 after the initial installation. If set to 1, use the `device.xxx` fields that have `device.xxx.set = 1`. Set this to 1 for the initial installation only.
+
+Wildcard certificates will fail (tested with 3.3.4).
+
+## Polycom Firmware 4.X
+
+Using MAC-phone.cfg method ([Polycom Configuration#MAC-phone.cfg](./Polycom-Configuration_1967052.mdx#_mac_-phonecfg))
+
+This configuration demonstrates enabling TLS + SRTP while disabling two codecs that are enabled by default in order to resolve the bug which causes the phone to unregister. You also need to set the cipherSuite with `sec.TLS.profile.1.cipherSuite="ECDH-ECDSA-AES256-SHA"`
+
+This was tested and works on Polycom firmware 4.X
+
+`sec.TLS.customCaCert.1` should contain the contents of the cafile.pem
+
+**MAC-phone.cfg**
+
+```xml
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<PHONE_CONFIG>
+  <ALL
+    voIpProt.SIP.specialEvent.checkSync.alwaysReboot="1"
+    voIpProt.SIP.serverFeatureControl.cf="0"
+    voIpProt.SIP.serverFeatureControl.dnd="0"
+    voIpProt.server.1.address="fs.domain.local"
+    voIpProt.server.1.transport="TLS"
+    tcpIpApp.sntp.address="us.pool.ntp.org"
+    tcpIpApp.sntp.gmtOffset="-18000"
+    dialplan.digitmap="**xx.T|*xx.T|[9]11|0T|011xxx.T|xxxxxT|xxxxT|xxxT|xxT|1xxxxxxxxxxT|xxxxxxxxxxT|xxxxxxxT"
+    dialplan.digitmap.timeOut="3|3|3|3|3|4|4|5|5|5|5|5"
+    feature.presence.enabled="1"
+    feature.urlDialing.enabled="0"
+    pres.idleSoftkeys="0"
+    sec.TLS.profile.1.cipherSuite="ECDH-ECDSA-AES256-SHA"
+    sec.TLS.profileSelection.SIP="ApplicationProfile1"
+    sec.TLS.customCaCert.1="keystuffgoeshereformattedasintheinstructions"
+    sec.srtp.offer="1"
+    sec.srtp.offer.HMAC_SHA1_32="1"
+    sec.srtp.offer.HMAC_SHA1_80="0"
+    sec.srtp.resumeWithNewKey="0"
+    voice.codecPref.G729_AB="0"
+    voice.codecPref.G711_A="0"
+    msg.mwi.1.callBack="*1"
+    msg.mwi.1.callBackMode="contact"
+    reg.1.displayName="Ext. 1000"
+    reg.1.label="Ext. 1000"
+    reg.1.address="1000@fs.domain.local"
+    reg.1.type="private"
+    reg.1.auth.userId="1004"
+    reg.1.auth.password="1234"
+    reg.1.bargeInEnabled="1"
+  />
+</PHONE_CONFIG>
+```
+
+The server name must be the same as the name given with -cn and -alt when creating the certificate.
+
+# Multiple registrations
+
+To register to two different servers both registrations must include the full info. What I ended up with was:
+
+**Multiple Servers**
+
+```xml
+<reg
+  reg.1.displayName="Thorhallur" reg.1.address="405"  reg.1.label="Toti"
+  reg.1.auth.userId="405" reg.1.auth.password="4096"
+  reg.1.outboundProxy.address="10.11.1.20" reg.1.outboundProxy.port="5060"
+  reg.1.server.1.address="10.11.1.20" reg.1.server.1.port="5060"
+  reg.1.server.1.register="1" reg.1.lineKeys="1"
+
+  reg.2.displayName="FreeSwitch" reg.2.address="1005" reg.2.label="FreeSwitch"
+  reg.2.auth.userId="1005" reg.2.auth.password="1234"
+  reg.2.outboundProxy.address="freeswitch.server.address" reg.2.outboundProxy.port="6060"
+  reg.2.server.1.address="freeswitch.server.address" reg.2.server.1.port="6060"
+  reg.2.server.1.register="1" reg.2.lineKeys="1"
+/>
+```
+
+# NAT Issues  
+
+We could get only ONE phone to register at a time through our FIOS (NAT) Router. We were able to get multiple phones to work by setting each phone's local SIP port to a unique number. This way, the port address translation knew which phone on the private side to route packets to. These are edited through the web interface menus - SETTINGS => SIP local port # and SETTINGS => NETWORK => NAT SIP signaling port. They should match each other.
+
+## Polycom IP 431
+
+basic registration and calling in and out works, haven't tested any other functionality yet
+
+## Polycom IP 320
+
+* **Registration:** works
+* **Caller Id:** works
+* **Call in/out:** works
+* **Call waiting:** works
+* **Transfer calls:** work
+* **TLS:** works (tested 3.3.4)
+* **SRTP:** works (tested 3.3.4)
+
+[Polycom Presence Setup](./Polycom-Presence-Setup_1967070.mdx#about)
+
+## Polycom IP 501
+
+* **Registration:** works
+* **Caller Id:** works
+* **Call in/out:** works
+* **Call waiting:** works
+* **Transfer calls:** work
+* **TLS:** works (must install custom CA cert from the phone and force it to use the cafile.pem)
+* **SRTP:** works.
+
+## Polycom IP 550/650
+
+* **Registration:** works
+* **Caller Id:** works
+* **Call in/out:** works
+* **Call waiting:** works
+* **Transfer calls:** work
+* **TLS:** works (must install custom CA cert from the phone and force it to use the cafile.pem)
+* **SRTP:** works.
+
+## Polycom VVX1500
+
+* **Registration:** works
+* **Caller Id:** works
+* **Call in/out:** works
+* **Call waiting:** works
+* **Transfer calls:** work
+* **TLS:** not tested
+* **SRTP:** not tested.
+* **Video:** work
+
+Document generated by Confluence on nov 11, 2022 04:28

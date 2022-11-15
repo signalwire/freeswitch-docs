@@ -1,0 +1,223 @@
+
+# ENUM Caller ID lookup 
+
+ Created by  John Boteler, last modified on 2016.04.27
+
+# About
+
+Performing CNAM dips with ENUM/E.164 and [mod\_perl ](../Modules/mod_perl_1048930.mdx#about)This is a simple example of how to perform ENUM Caller-Name (CNAM) dips via the e164.org service. This was written as a proof-of-concept and comes with no support, warranty, guarantee, or implication of ease of use. This example is provided so that you may either improve upon it, or determine how to implement your own solution. The example provides the functionality of obtaining the caller name, along with the extraction of address information from the lookup.
+
+You can call it from your dial plan with a line similar to.
+
+**ENUM E.164 Dialplan Example**
+
+```xml
+<action application="perl" data="/opt/freeswitch/scripts/get_cnam.pl"/>
+```
+
+Change the path to the script in the above dialplan example to the location where your FreeSWITCH scripts are stored.
+
+**get\_cnam.pl**
+
+```perl
+#!/usr/bin/perl -w
+use strict;
+
+#########################################################################################
+########## IMPORTANT IMPORTANT IMPORTANT IMPORTANT IMPORTANT IMPORTANT IMPORTANT#########
+#########################################################################################
+### Folks, you will need to make sure that your freeswitch is compiled with mod_perl enabled.
+### you will also need to have the following perl module installed:
+### Net::DNS
+###
+### If this breaks, and you don't have all that stuff installed, then please consider
+### buying the Perl book.  It's worth learning...  And it "almost" works right in Windows. ;-)
+###
+### (c) 2009-2012 Karl J. Vesterling / kjv@ken-ton.com - Permission for use with freeswitch is granted.
+### If you make money with it, consider donating to Freeswitch.
+### If you modify it, send me a copy or post it back here on the wiki. 
+### No warranty expressed or implied. (Script tested on Ubuntu 11.04 AMD64 / FreeSwitch 1.06)
+#########################################################################################
+########## If you know perl, then you should be able to modify this to work with other e164 CNAM providers.
+########## If you don't know perl, or lack IT staff that can code in Perl, call your HR department.
+#########################################################################################
+###
+### Generally it's bad practice to hard-code things easily configured, however since this
+### is an example, feel free to make your own improvements and share with the FS community
+#########################################################################################
+########## IMPORTANT IMPORTANT IMPORTANT IMPORTANT IMPORTANT IMPORTANT IMPORTANT###########
+#########################################################################################
+
+## Consider e164.org as an option.
+use Net::DNS::RR;
+
+our $session;
+
+sub fprint($) {
+	my ($msg) = @_;
+	freeswitch::consoleLog("CRIT",$msg . "\n");
+}
+## Set up the callerinfo hash.
+my %callerinfo = ();
+
+## For the sake of simplicity and sanity...  There is some serious room for improvement here, but
+## you never really know what you are going to get from an inbound call if you're accepting
+## non-authenticated calls as one would be with e164/enum.  There are some really INTERESTING
+## SIP implementations out there.  Essentially we're stripping the "+" from the callerid (num/name) provided
+## to us.
+my $callidnum = "";
+my $callidname = "";
+if ( $session->getVariable("caller_id_number") =~ /\+/ ) {
+	$callidnum = $session->getVariable("caller_id_number");
+	$callidnum =~ s/^\+//;
+	fprint(sprintf("====get_cnam.pl====Stripping non-numeric characters from callerid %s is changed to %s\n",$session->getVariable("caller_id_number"),$callidnum));
+	$session->execute("export","sip_cid_type=rpid");
+	$session->setVariable("caller_id_number",$callidnum);
+	$session->setVariable("origination_caller_id_number",$callidnum);
+	$session->execute("export","origination_caller_id_number=" . $callidnum);
+	$session->execute("export","caller_id_number=" . $callidnum);
+}
+if ( $session->getVariable("caller_id_name") =~ /\+/ ) {
+        $callidname = $session->getVariable("caller_id_name");
+        $callidname =~ s/^\+//;
+        fprint(sprintf("====get_cnam.pl====Stripping non-numeric characters from callerid %s is changed to %s\n",$session->getVariable("caller_id_name"),$callidname));
+        $session->execute("export","sip_cid_type=rpid");
+        $session->setVariable("caller_id_name",$callidname);
+        $session->setVariable("origination_caller_id_name",$callidname);
+        $session->execute("export","origination_caller_id_name=" . $callidname);
+        $session->execute("export","caller_id_name=" . $callidname);
+}
+
+if ( $session->getVariable("effective_caller_id_number") =~ /\+/ ) {
+	$callidnum = $session->getVariable("effective_caller_id_number");
+	$callidnum =~ s/^\+//;
+	fprint(sprintf("====get_cnam.pl====Stripping non-numerics from effective_callerid %s is changed to %s\n",$session->getVariable("effective_caller_id_number"),$callidnum));
+	$session->setVariable("sip_cid_type","rpid");
+	$session->execute("export","effective_caller_id_number=" . $callidnum);
+	$session->setVariable("effective_caller_id_number",$callidnum);
+}
+### If we don't get a name, and only a number we need to correct this crazy wild-west nonsense
+## There doesn't seem to be any "standard" as in 1NXXNXXXXXX, or +1NXXNXXXXXX or NXXNXXXXXX so we look for all three conditions.
+if ($session->getVariable("caller_id_name") eq "" || $session->getVariable("caller_id_name") =~ m/^\?1{0,1}(\d{10})$/ || $session->getVariable("caller_id_name") =~ m/^(\d{10})$/ || $callidname == $callidnum) {
+		if ($session->getVariable("caller_id_number") =~ m/^?1{0,1}(\d{10})$/) #make sure we did still get a valid number to lookup, otherwise its pointless
+		{
+		    my $number = $session->getVariable("caller_id_number");
+			fprint(sprintf("====get_cnam.pl====Caller Name for %s is being requested:\n",$number));
+			$session->execute("privacy","no");
+			## Check to see if it's a US number, and that the leading (1) is there.
+			if ( length($number) == 10 ) {
+			    if ( $number =~ m/^[2-9]/ ) {
+				## We seem to have a caller id from the US without a leading 1 in front of it.
+				$number = sprintf("1%s",$number);
+			    }
+			}
+		    ### The first step in this cocophany of code is to get the number formatted corretly for querying.
+                    ### The assumption below is that this is a PSTN telephone number.  If you have your own e164/enum
+                    ### zone for your organization, you'll probably have to change a few things below to reflect the
+                    ### numbering scheme for your organization.
+		    if ( $callerinfo{name} eq "" ) {
+			    my $x = 0;
+			    my $querynumber = "";
+			    if ( $number =~ m/^[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]$/)  {
+				    $number=sprintf("1%s",$number);
+				}
+			    while ( $x < length($number) ) {
+				if ( $x > 0 ) {
+				    $querynumber = sprintf("%s.%s",substr($number,$x,1),$querynumber);
+				} else {
+				    $querynumber = sprintf("%s",substr($number,$x,1));
+				}
+				$x++;
+			    }
+                            ### If you're using someone other than e164.org, you will need to change what's below
+                            ### from e164.org to reflect the e164/enum CNAM provider you are working with.
+			    $querynumber = sprintf("%s.e164.org",$querynumber);
+			    fprint(sprintf("====get_cnam.pl====querying e164.org for:%s\n",$querynumber));
+
+                            ############################################################################
+                            #### This will use whatever DNS Servers the host is configured for.
+                            #### See below for another option.
+			    my $DNS = Net::DNS::Resolver->new;
+                            ############################################################################
+                            ### Below is an example of how to customize which DNS Servers you query
+                            ### Some enum CNAM providers have their own custom DNS servers.  You will
+                            ### probably also have to change the zone you query below as well from
+                            ### e164.org to be whatever their DNS zone happens to be.
+                            ##my $DNS = Net::DNS::Resolver->new(
+  	                    ##      nameservers => [qw(10.1.1.128 10.1.2.128)],
+  	                    ##      recurse     => 0,
+  	                    ##      debug       => 1,
+                            ##      );
+                            ## You might want to disable debug once you know it's working...
+
+			    my $DNSquery = $DNS->query($querynumber, "NAPTR");
+			    #print Dumper $DNSquery;
+		    
+			    if ($DNSquery) {
+				foreach my $rr ($DNSquery->answer) {
+				    #print $rr->type, "\n";
+				    next unless $rr->type eq "NAPTR";
+				    #$rr->print;
+				    my $recordinfo = $rr->string;
+				    if ( $recordinfo =~ m/E2U\+X\-ADDRESS/ ) {
+					### Houston, we might have an address.
+					### Here's where it gets ugly since Net::DNS doesn't have a ->naptr method that I know of.
+					my @e164array = split(/CN=/,$recordinfo);
+					my $infoholder = $e164array[1];
+					@e164array = split(/;/,$infoholder);
+					if ($e164array[0] ne "") {
+					    ### Folks we seem to have a name.
+					    $callerinfo{name}=$e164array[0];
+					}
+					if ($e164array[1] =~ m/^STREET=/ ) {
+					    ### Folks we seem to have a street.
+					    $callerinfo{address}=$e164array[1];
+					    $callerinfo{address} =~ s/^STREET=//;
+					}
+					if ($e164array[2] =~ m/^L=/ ) {
+					    ### Folks we seem to have a city.
+					    $e164array[2] =~ s/^L=//;
+					    $e164array[2] =~ s/\s+$//;
+					    $callerinfo{address} = sprintf("%s, %s",$callerinfo{address}, $e164array[2]);
+					    
+					}
+					if ($e164array[3] =~ m/^ST=/ ) {
+					    ### Folks we seem to have a state.
+					    $e164array[3] =~ s/^ST=//;
+					    $e164array[3] =~ s/\s+$//;
+					    $callerinfo{address} = sprintf("%s, %s",$callerinfo{address}, $e164array[3]);
+					}
+					if ($e164array[4] =~ m/^C=/ ) {
+					    ### Folks we seem to have a country.
+					    $e164array[4] =~ s/^C=//;
+					    $e164array[4] =~ s/\!\"//;
+					    $e164array[4] =~ s/\!\"//;
+					    $e164array[4] =~ s/\s+.$//;
+					    $callerinfo{address} = sprintf("%s, %s",$callerinfo{address}, $e164array[4]);
+					}
+				    }
+				    
+				    fprint(sprintf("====get_cnam.pl====Found in e164.org: Name: %s\nAddress: %s",$callerinfo{name},$callerinfo{address}));
+				}
+			    }
+			    if ( $callerinfo{name} ne "" ) {
+				fprint(sprintf("====get_cnam.pl==== Setting Callerid to Name: %s\nAddress: %s",$callerinfo{name},$callerinfo{address}));
+				$session->setVariable("effective_caller_id_name", $callerinfo{name});
+				$session->setVariable("caller_id_name", $callerinfo{name});
+				$session->execute("export","origination_caller_id_name=" . $callerinfo{name});
+                                $session->execute("export","caller_id_name=" . $callerinfo{name});
+                                $session->execute("export","effective_callerid_name=" . $callerinfo{name});
+			    } else {
+				fprint(sprintf("====get_cnam.pl====Did not obtain a result for %s in e164.org",$number));
+			    }
+		    }
+		}
+} else {
+	fprint(sprintf("====get_cnam.pl====Strange, caller_id_name is :%s: and caller_id_number is :%s:\n",$session->getVariable("caller_id_name"), $session->getVariable("caller_id_number")));
+}
+
+### Return true.
+1;
+```
+
+ Document generated by Confluence on nov 11, 2022 04:28

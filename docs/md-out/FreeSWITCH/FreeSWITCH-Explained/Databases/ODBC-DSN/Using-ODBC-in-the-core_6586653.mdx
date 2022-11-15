@@ -1,0 +1,433 @@
+
+# Using ODBC in the core 
+
+ Created by  Gabriel de Medeiros Galvão, last modified by  Italo Rossi on 2017.07.21
+
+# 
+
+Click to expand Table of Contents
+
+* 1 [Click to expand Table of Contents](#odbc-not-available)
+* 2 [Setup unixODBC](#setup-unixodbc)  
+   * 2.1 [Ubuntu](#ubuntu)  
+         * 2.1.1 [Install unixODBC](#install-unixodbc)  
+         * 2.1.2 [Install the unixODBC driver](#install-the-unixodbc-driver)  
+         * 2.1.3 [Configure odbc.ini and odbcinst.ini](#configure-odbcini-and-odbcinstini)  
+         * 2.1.4 [Testing your connection](#testing-your-connection)  
+         * 2.1.5 [Compile Freeswitch and Set Modules to Use ODBC](#compile-freeswitch-and-set-modules-to-use-odbc)  
+   * 2.2 [PostgreSQL 8.4 on Debian Squeeze](#postgresql-84-on-debian-squeeze)  
+   * 2.3 [CentOS 5.2](#centos-52)  
+   * 2.4 [FreeBSD](#freebsd)
+* 3 [Create the FreeSWITCH Database](#create-the-freeswitch-database)  
+   * 3.1 [MySQL Client 4.x and MySQL Server 5.x](#mysql-client-4x-and-mysql-server-5x)
+* 4 [Compile FreeSWITCH with ODBC support](#compile-freeswitch-with-odbc-support)  
+   * 4.1 [ODBC DSN Format](#odbc-dsn-format)
+* 5 [Problems](#problems)  
+   * 5.1 [ODBC not available](#odbc-not-available)  
+   * 5.2 [Idle in transaction](#idle-in-transaction)
+
+# About
+
+FreeSWITCH can be configured to use ODBC to connect to a remote database instead of using the default SQLite databases.
+
+PostgreSQL is natively supported since FreeSWITCH 1.2.5, see [PostgreSQL in the core](../PostgreSQL-in-the-core_6586757.mdx#dt) to learn more
+
+In other words: if you use PostgreSQL and FreeSWITCH >= 1.2.5, you no longer need the guide below.
+
+MySQL is not supported natively, you still need ODBC and this how-to ([No native Support of MySQL is planned for the close future](http://lists.freeswitch.org/pipermail/freeswitch-users/2012-November/089196.html))
+
+Click here to expand Table of Contents
+
+* 1 [Click to expand Table of Contents](#odbc-not-available)
+* 2 [Setup unixODBC](#setup-unixodbc)  
+   * 2.1 [Ubuntu](#ubuntu)  
+         * 2.1.1 [Install unixODBC](#install-unixodbc)  
+         * 2.1.2 [Install the unixODBC driver](#install-the-unixodbc-driver)  
+         * 2.1.3 [Configure odbc.ini and odbcinst.ini](#configure-odbcini-and-odbcinstini)  
+                  * 2.1.3.1 [/etc/odbc.ini for MySQL](#etcodbcini-for-mysql)  
+                  * 2.1.3.2 [/etc/odbcinst.ini for MySQL](#etcodbcinstini-for-mysql)  
+                  * 2.1.3.3 [/etc/odbc.ini for PostgreSQL](#etcodbcini-for-postgresql)  
+                  * 2.1.3.4 [/etc/odbcinst.ini for PostgreSQL](#etcodbcinstini-for-postgresql)  
+         * 2.1.4 [Testing your connection](#testing-your-connection)  
+         * 2.1.5 [Compile Freeswitch and Set Modules to Use ODBC](#compile-freeswitch-and-set-modules-to-use-odbc)  
+   * 2.2 [PostgreSQL 8.4 on Debian Squeeze](#postgresql-84-on-debian-squeeze)  
+         * 2.2.1 [Fake libodbcinstq1c2-package with equivs](#fake-libodbcinstq1c2-package-with-equivs)  
+         * 2.2.2 [odbc-configuration](#odbc-configuration)  
+   * 2.3 [CentOS 5.2](#centos-52)  
+   * 2.4 [FreeBSD](#freebsd)
+* 3 [Create the FreeSWITCH Database](#create-the-freeswitch-database)  
+   * 3.1 [MySQL Client 4.x and MySQL Server 5.x](#mysql-client-4x-and-mysql-server-5x)
+* 4 [Compile FreeSWITCH with ODBC support](#compile-freeswitch-with-odbc-support)  
+   * 4.1 [ODBC DSN Format](#odbc-dsn-format)
+* 5 [Problems](#problems)  
+   * 5.1 [ODBC not available](#odbc-not-available)  
+   * 5.2 [Idle in transaction](#idle-in-transaction)
+
+# Setup unixODBC
+
+To use unixODBC you will need to install:
+
+* unixODBC >= 2.3
+* An ODBC driver for your chosen database.
+
+Several popular databases are supported including MySQL, PostgreSQL and others.
+
+## Ubuntu
+
+Before you begin you will need to install and configure your chosen database ensuring you've set the correct permissions for access.
+
+For additional help configuring your database, see:
+
+* [PostgreSQL on Ubuntu](http://help.ubuntu.com/10.04/serverguide/C/postgresql.html)
+* [MySQL on Ubuntu](http://help.ubuntu.com/10.04/serverguide/C/mysql.html)
+
+Note - the following configuration has been tested on Ubuntu 10.04 LTS Server (64-bit) with PostgreSQL 8.4/9.1 and MySQL 5.1.
+
+### Install unixODBC
+
+```xml
+sudo apt-get install unixodbc-dev
+```
+
+### Install the unixODBC driver
+
+You will need to obtain the ODBC driver for your chosen database. Instructions for obtaining the drivers for MySQL or PostgreSQL are provided below.
+
+For MySQL:
+
+```xml
+sudo apt-get install libmyodbc
+```
+
+For PostgreSQL
+
+```xml
+sudo apt-get install odbc-postgresql
+```
+
+### Configure odbc.ini and odbcinst.ini
+
+Add the following with the correct information into your odbc.ini file located at /etc/odbc.ini
+
+##### /etc/odbc.ini for MySQL
+
+If you are running on a 32-bit linux installation, use the following configuration, but change all occurrences of `/usr/lib64/` to `/usr/lib/` in the examples provided.
+
+```xml
+[freeswitch]
+Driver = /usr/lib64/odbc/libmyodbc.so
+SERVER = localhost
+PORT = 3306
+DATABASE = freeswitch 
+OPTION = 67108864
+USER = root 
+PASSWORD = password 
+```
+
+##### /etc/odbcinst.ini for MySQL
+
+```xml
+[MySQL]
+Description = MySQL driver
+Driver = /usr/lib64/odbc/libmyodbc.so
+Setup = /usr/lib64/odbc/libodbcmyS.so
+UsageCount = 1
+FileUsage = 1
+Threading = 0
+```
+
+If it is available on your system, you **must** use `Driver = /usr/lib64/odbc/libmyodbc**_r**.so` in your odbcinst.ini.
+
+Also note, (see bug below on bottom of page); If you are using the FreeSWITCH pooled resources, then you definitely need Threading = 0 for high call volume. What this does is it "disables a global mutex in the ODBC core that only allows 1 concurrent operation per process regardless of the concurrent connections." (i.e. It slows down when you have too many connections trying at one time)
+
+As far as has been tested, when making changes to the odbcinst.ini, you do not need to restart FreeSWITCH to effect the changes.
+
+##### /etc/odbc.ini for PostgreSQL
+
+Important If you are running on a 32-bit Linux installation, use the following configuration, but change all references to /usr/lib64/ in to /usr/lib/ in the examples provided.
+
+```xml
+[freeswitch]
+; WARNING: The old psql odbc driver psqlodbc.so is now renamed psqlodbcw.so
+; in version 08.x. Note that the library can also be installed under an other
+; path than /usr/local/lib/ following your installation.
+Driver = /usr/lib64/odbc/psqlodbcw.so
+Description=Connection to LDAP/POSTGRESQL
+Servername=localhost 
+Port=5432 
+Protocol=6.4
+FetchBufferSize=99
+Username=postgres 
+Password=password 
+Database=freeswitch 
+ReadOnly=no
+Debug=0
+CommLog=0
+```
+
+##### /etc/odbcinst.ini for PostgreSQL
+
+```xml
+[PostgreSQL]
+Description = PostgreSQL driver for Linux & Win32
+Driver = /usr/lib64/odbc/psqlodbcw.so
+```
+
+### Testing your connection
+
+Once you've set up the .ini files and have your ODBC drivers installed, you can test whether your ODBC connection is working correctly by entering:
+
+```xml
+isql -v freeswitch
+```
+
+If a connection is successfully established you should see something similar to: 
+
+```xml
++---------------------------------------+
+| Connected!                            |
+|                                       |
+| sql-statement                         |
+| help [tablename]                      |
+| quit                                  |
+|                                       |
++---------------------------------------+
+SQL> 
+```
+
+### Compile Freeswitch and Set Modules to Use ODBC
+
+You will need to compile/recompile FreeSWITCH so that ODBC is detected and included within the installation. You will then need to edit the freeswitch configuration to utilize the ODBC connection you just defined.
+
+See [Compile FreeSWITCH with ODBC Support](https://freeswitch.org/confluence/pages/editpage.action?pageId=6586653#UsingODBCinthecore-CompileFreeSWITCHwithODBCsupport) below for more information.
+
+## PostgreSQL 8.4 on Debian Squeeze
+
+**Note**: We've experienced some major stability issues with the unixODBC-debian-package 2.2.14p2-1 from the repository. FreeSWITCH would die anywhere between a few days to weeks. Upgrading to a manually compiled unixODBC 2.3.0-pre fixed this problem and has been tested stable for the last 2 months. --\[\[User:Peletiah|Peletiah\]\] 13:04, 4 February 2012 (UTC)''
+
+Install PostgreSQL and ODBC
+
+```xml
+apt-get install postgresql unixodbc odbc-postgresql
+```
+
+You also have to install '''unixodbc-dev''', which by default depends on [libodbcinstq1c2](http://packages.debian.org/squeeze/libodbcinstq1c2) which would install x11-common and other packages for GUI-Support. To avoid this, you have to create a fake libodbcinstq1c2-package, see instructions below. If you don't care, do ''apt-get install unixodbc-dev'' and continue with [odbc-configuration](#odbc-configuration).
+
+##### Fake libodbcinstq1c2-package with equivs
+
+If you don't want to install X11 on a headless server, create a fake-libodbcinstq1c2-package with [equivs](http://www.debian.org/doc/manuals/apt-howto/ch-helpers.en.html). Please read the documentation at <http://www.debian.org/doc/manuals/apt-howto/ch-helpers.en.html> to make sure you don't damage your system.
+
+```xml
+install equivs:
+apt-get install equivs
+cd /tmp
+```
+
+create a control-file for the fake-package:
+
+```xml
+equivs-control libodbcinstq1c2
+```
+
+edit the control-file so it looks like this:
+
+```xml
+Section: libs
+Priority: optional
+# Homepage: <enter URL here; no default>
+Standards-Version: 3.6.2
+
+Package: libodbcinstq1c2
+Version: 2.2.14p2-1
+Description: Qt-based ODBC configuration library
+This package contains the libodbcinstQ library, a library used by
+some Qt-based GUI configuration tools for managing ODBC drivers
+and ODBC DSNs. NOT NEEDED FOR UNIXODBC-DEV
+```
+
+build the fake-package:
+
+```xml
+equivs-build libodbcinstq1c2
+install the package that has been created: 
+dpkg -i libodbcinstq1c2_2.2.14p2-1_all.deb
+and finally, install unixodbc-dev without X11 :-)
+apt-get install unixodbc-dev
+```
+
+##### odbc-configuration
+
+Create /etc/odbcinst.ini by command
+
+```xml
+odbcinst -i -d -f /usr/share/psqlodbc/odbcinst.ini.template
+```
+
+Create /etc/odbc.ini Like this
+
+```xml
+[freeswitch]
+Description = PostgreSQL Unicode
+Driver = PostgreSQL Unicode
+Trace = No
+TraceFile = /tmp/psqlodbc.log
+Database = freeswitch
+Servername = 127.0.0.1
+UserName =
+Password =
+Port = 5432
+ReadOnly = Yes
+RowVersioning = No
+ShowSystemTables = No
+ShowOidColumn = No
+FakeOidIndex = No
+ConnSettings =
+```
+
+Edit /etc/odbcinst.ini
+
+```xml
+[PostgreSQL ANSI] 
+Description = PostgreSQL ODBC driver (ANSI version)
+Driver = /usr/lib/odbc/psqlodbca.so
+Setup = /usr/lib/odbc/libodbcpsqlS.so
+Debug = 0
+CommLog = 0
+UsageCount = 0
+Threading = 0
+
+[PostgreSQL Unicode]
+Description = PostgreSQL ODBC driver (Unicode version)
+Driver = /usr/lib/odbc/psqlodbcw.so
+Setup = /usr/lib/odbc/libodbcpsqlS.so
+Debug = 0
+CommLog = 0
+UsageCount = 0
+Threading = 0
+MaxLongVarcharSize=65536
+```
+
+In order to not have postgres log everything it does change CommLog to 0
+
+Test the connection with
+
+```xml
+isql freeswitch
+```
+
+## CentOS 5.2
+
+Install unixODBC and the MySQL ODBC Connector
+
+```xml
+yum install unixODBC-devel mysql-connector-odbc
+```
+
+* Make symlink from `/usr/lib[64]/[libmyodbc3.so](http://libmyodbc3.so)` to `/usr/lib[64]/[libmyodbc.so](http://libmyodbc.so)`
+* Run `odbcinst -j`. This will show you list of config files.
+* Uncomment the MySQL sample driver confirguration in `/etc/odbcinst.ini`.
+
+* Add the following with the correct information into your odbc.ini file located at `/etc/odbc.ini`
+
+```xml
+[freeswitch]
+Driver = MySQL
+SERVER = localhost
+PORT = 3306
+DATABASE = myDatabase
+OPTION = 67108864
+Socket = /var/lib/mysql/mysql.sock
+```
+
+**Note:** If you are connecting your freeswitch server to a remote MySQL database, you can take out the last line from the above setting. Take off the "Socket = /var/lib/mysql/mysql.sock" line.
+
+**Note**: OPTION allows you to set client specific FLAGS, in the example 67108864 (FLAG\_MULTI\_STATEMENTS) is set - See \[<http://dev.mysql.com/doc/refman/5.0/en/connector-odbc-configuration-connection-parameters.html>\] for all flags. The number represents the addition of all flag numbers that you want enabled.
+
+**Note**: On CentOS it is OPTION (without S), instead of OPTIONS.
+
+For some tips on setting up your dsn up in unixODBC see \[\[Mod\_spidermonkey\_odbc#unixodbcc\]\]
+
+* Test your ODBC setup by running the utility `isql`
+
+* * `isql maxpowersoft_odbc myUser myPass`
+
+## FreeBSD
+
+Install the following ports and follow instructions as detailed within the CentOS section
+
+* `/usr/ports/databases/mysql-connector-odbc`
+
+* `/usr/ports/databases/unixODBC`
+
+Go to \[\[Mod\_spidermonkey\_odbc#General\_Configuration\]\] for instructions to configure unixODBC
+
+# Create the FreeSWITCH Database
+
+1. Create a database in mysql or pgsql (Note: Do NOT use utf8\_bin collation! Especially important with [IP failover configurations](../../Configuration/High-Availability/index.mdx#about))
+2. Create a user
+3. Do not worry about creating the actual tables. FreeSWITCH will take care of this part itself if they do not exist.
+
+## MySQL Client 4.x and MySQL Server 5.x
+
+If you're getting an error about authentication method not being supported, use old password format in db.
+
+```xml
+UPDATE mysql.user
+SET password=OLD_PASSWORD('somepassword')
+WHERE user='someuser'
+AND host='somehost';
+```
+
+# Compile FreeSWITCH with ODBC support
+
+UnixODBC support will be autodetected by ./configure, and if found, will be compiled into FreeSWITCH.
+
+## ODBC DSN Format
+
+See [ODBC DSN](./index.mdx#about)
+
+# Problems
+
+## ODBC not available
+
+Message: `"mod_sofia: ODBC IS NOT AVAILABLE!" `means` "FreeSWITCH is compiled without ODBC support."`
+
+Message: `"[unixODBC][Driver Manager] Data source name not found, and no default driver specified"`
+
+Either:
+
+a) Double check that the name of the \[dsn\] is exactly the same in your config files
+
+\- OR -
+
+b) Try linking your ODBC config files to your FreeSWITCH install directory.
+
+**Link ini files to FreeSWITCH Directory**
+
+```xml
+mkdir /usr/local/freeswitch/etc
+ln -s /etc/odbcinst.ini /usr/local/freeswitch/etc/odbcinst.ini
+ln -s /etc/odbc.ini /usr/local/freeswitch/etc/odbc.ini
+```
+
+## Idle in transaction
+
+There's a known issue with PostgreSQL and ODBC where processes hang due to [locking](http://www.postgresql.org/docs/8.3/interactive/view-pg-locks.html)
+
+When this happens (calls appear "hanging", FS-console doesn't respond), "ps ax" will show PostgreSQL processes in limbo:
+
+`root@localhost:~# ps ax|grep postgres|grep free `  
+**`15753 ? Ss 0:00 postgres: freeswitch_db freeswitch_db 127.0.0.1(43846) idle in transaction`**  
+` 15759 ? Ss 0:00 postgres: freeswitch_db freeswitch_db 127.0.0.1(43847) idle `  
+**`15760 ? Ss 0:00 postgres: freeswitch_db freeswitch_db 127.0.0.1(43848) UPDATE waiting`**
+
+A known workaround is to add the following parameters to ''odbcinst.ini'' in the respective driver-sections(ANSI, Unicode - see [odbc-configuration](#odbc-configuration) above for a full example):
+
+```xml
+Threading = 0
+MaxLongVarcharSize=65536
+```
+
+See [Bug #3693](http://jira.freeswitch.org/browse/FS-3693) for additional information
+
+Document generated by Confluence on nov 11, 2022 04:24

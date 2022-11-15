@@ -1,0 +1,1212 @@
+
+# SPA3102 HowTo 
+
+ Created by  Mario G, last modified by  Bipin on 2016.05.19
+
+Click here to expand Table of Contents
+
+* 1 [SPA3102 Intro](#spa3102-intro)
+* 2 [SPA3102 "SIP/2.0 401 Unauthorized" Issue](#spa3102-sip20-401-unauthorized-issue)
+* 3 [SPA3102 HowTo ASSUMPTIONS](#spa3102-howto-assumptions)
+* 4 [SPA3102 DEVICE CONFIGURATION](#spa3102-device-configuration)
+* 5 [FreeSwitch CONFIGURATION](#freeswitch-configuration)
+* 6 [SECURITY](#security)
+* 7 [Alternative Method](#alternative-method)  
+   * 7.1 [Linksys 3102 side](#linksys-3102-side)
+* 8 [Broken PSTN to VoIP Caller ID](#broken-pstn-to-voip-caller-id)
+
+## SPA3102 Intro
+
+This is a minimal how-to configuration on setting up a SPA3102 with FreeSwitch so incoming calls will be forwarded to FreeSwitch extension 1001 and will show the incoming call as FreeSwitch extension 1000\. Any rule that does not match the dialed number will be dialed on the SPA3102 (aka: not ext 5000, 9999, 1000-1019 ...).
+
+## SPA3102 "SIP/2.0 401 Unauthorized" Issue
+
+If your device is unable to register with FreeSWITCH, changing 'Advanced' > 'Voice' > 'Line 1' > 'SIP Transport' to 'TCP' from 'UDP' did the trick for me. I believe this is a bug in the SPA and CISCO has been at least made aware of it: <https://supportforums.cisco.com/thread/2021647>.
+
+## SPA3102 HowTo ASSUMPTIONS
+
+You have the default SPA3102 configuration (Factory defaults) with web access enabled
+
+You have the initial FreeSwitch install
+
+## SPA3102 DEVICE CONFIGURATION
+
+NOTE: There is a bug in the default configuration of the SPA-3102 and other Linksys devices that sets the RTP Packet Size to .030, this should be set to .020 to avoid problems.
+
+**admin -> advanced -> Voice -> PSTN Line**
+
+  
+**Proxy and Registration**
+
+Proxy: [FreeSwitch host name or IP]
+
+**Subscriber Information**
+
+Display Name: PSTN Line
+
+_The FreeSwitch user ID_
+
+User ID: 1000
+
+_The FreeSwitch password for the user_
+
+Password: 1234
+
+**Dial Plans**
+
+_If you want a different extension than 1001 to be dialed change it here_
+
+Dial Plan 1: (&lt;:1001>S0)
+
+_(xx.) basically means dial on the phone line of the SPA3102_
+
+Dial Plan 2: (xx.)
+
+**VoIP-To-PSTN Gateway Setup**
+
+_I want incoming VoIP requests to be dialed on the phone line aka: the (xx.) rule_
+
+Line 1 VoIP Caller DP: 2
+
+VoIP Caller Default DP: 2
+
+**FXO Timer Values (sec)**
+
+_I read some place to set this to 3 for caller ID to work, but I just wanted it to instantly forward and start ringing ext 1001_
+
+PSTN Answer Delay: 0
+
+If you do set this value to 2 or 3 (long enough to wait for caller id lookup), any call with a caller ID name which contains commas (or any other character that should be escaped) will cause FS to send a 400: Bad From: Header back to the SPA with very little to show for it, don't even see it on the fs\_cli without cranking sofia debug up. I found it by setting up the SPA to log to a syslog server and getting a TP Parse Error: 32 from the SPA in the logs. The only way I've worked around it thus far is using nfqueue on linux. A script and some tools for doing this are available at: <http://gitorious.org/spa3102-invite-packet-scrubber> \-- Apr 2013 -- latest firmware upgrade (Feb 2012) from cisco/linksys/sipura may fix this bug.
+
+**Inbound PSTN caller ID**
+
+If you have read and understood the above warning about the SPA3102 messing up on any PSTN call with a comma in the CID data but you still want to have PSTN caller ID data passed to FreeSWITCH, change the following setting from its default 'no' to 'yes':
+
+PSTN CID For VoIP CID: yes
+
+This setting is on the same page as the FXO Timer value above. Note that you'll need that 3 second "PSTN answer delay" setting for the SPA3102 to get CID data from the PSTN.
+
+#### Inbound PSTN Caller ID Issues
+
+As stated above, a 3 second delay is required so that the adapter can pickup the caller ID information.
+
+If you still have issues on obtaining caller ID information, check if you hooked up your FXO port to the EXT port of a Fax Machine or TAD. If so, obtain a -3dB splitter and split the phone line directly at the source. Fax machines and TAD's can filter out the necessary CLID information and therefore the SPA3102 may not be able to pick up that required information.
+
+**RTP Packet Size Setting**
+
+When you make outbound call using analog phone attached to the FXS port and the person you call hears choppy voice then you should do the following:
+
+**admin -> advanced -> Voice -> SIP**
+
+RTP Packet Size: 0.02
+
+**DTMF RFC2833 setting**
+
+Cisco/Linksys implementation for RFC2833 is called AVT. To setup RFC2833 for the SPA-3102 set the following:
+
+**admin -> advanced -> Voice -> Line 1**
+
+DTMF Tx Method: AVT
+
+  
+**International Control**
+
+_**Note:**When dialing out if you get a SIP 503 error (\[CS\_CONSUME\_MEDIA\] \[NORMAL\_TEMPORARY\_FAILURE\]) when dialing out check the Voice->info tab for 'Line Voltage'. I have seen reports where it is as high as 48V, but in my case it was 22V idle, and 6V-7V in use. I got the in-use voltage by calling in then checking the info page again. It defaults to 30V, so I assume it thought the line was always in use (though dial-in still worked) so it would give the 503 error. You may or may not need to change this but changing this to 10V fixed my error._
+
+Line-In-Use Voltage: [value between idle and in-use voltage]
+
+## FreeSwitch CONFIGURATION
+
+_The (.\*) will match on any number of numbers, there are many examples on how to limit it_
+
+edit: conf/dialplan/default/00\_spa3102.xml
+
+```xml
+<include>
+  <extension name="To PSTN">
+    <condition field="destination_number" expression="(.*)">
+      <action application="bridge" data="sofia/internal/${destination_number}@[IP address of SPA3102]:5061" />
+    </condition>
+  </extension>
+</include>
+```
+
+If you want to get the caller ID from the PSTN for incoming (PSTN->SPA3102->FreeSwitch) calls, make sure you remove the
+
+```xml
+      <variable name="effective_caller_id_name" value="Extension 1000"/>
+      <variable name="effective_caller_id_number" value="1000"/>
+```
+
+from the extension definition (1000.xml in this example).
+
+**\*\*\*\*\* Now would be a good time to test your setup before securing it \*\*\*\*\***
+
+## SECURITY
+
+I have my SPA3102 in bridge setup on a corporate LAN with over 5000 people and my server only accepts low profile PCI cards which I don't have an extra Ethernet for, so I have a security section here to explain my way of locking it down.
+
+There are 3 ways to lock it down, make it so someone trying to dial out has to put in a PIN, HTTP Digets, and IP restriction. The first way is easy enough to set up, sadly it requires that you wait for 3 beeps, put in your pin, then di the actual dial out. HTTP Digest could be setup if you setup a gateway, after 30 minutes I gave up, but perhaps someone could update this how-to some day. The last method be locking by IP seemed the easiest.
+
+_**NOTE:** I have not tested this IP blocking security, but should work in theory. When I do get around to testing it I will update this page_
+
+**Voice -> PSTN Line**
+
+**SIP Settings**
+
+_This one confused me but found some place that it means to only allow the proxy IP/host to connect to the device_
+
+Restrict Source IP: yes
+
+**VoIP-To-PSTN Gateway Setup**
+
+_Comma separated list of allowed hosts, should not be needed with the Restrict Source IP set to yes_
+
+VoIP Access List: [Freeswitch IP or hostname]
+
+## Alternative Method
+
+I spun around and around trying to work this - so this part is a recipe for inbound pstn calls to go to a group called 200 - it also allows using the Line1 analog phone as a normal extension - in this case 1019
+
+  
+**Freeswitch side**  
+Under dialplan/public create a new file - I've called mine 01-pstn-in.xml
+
+put this in there..
+
+```xml
+<include>
+  <extension name="pstn">
+    <condition field="destination_number" expression="^(500)$">
+      <action application="set" data="domain_name=$${domain}"/>
+      <action application="transfer" data="200 XML default"/>
+    </condition>
+  </extension>
+</include>
+```
+
+Note the dialed number is 500
+
+create directory/default/500.xml as follows
+
+```xml
+<include>
+  <user id="500">
+    <params>
+      <param name="password" value="1234"/>
+      <param name="dial-string" value="${sofia_contact(${dialed_user}@${dialed_domain})}"/>
+    </params>
+    <variables>
+    </variables>
+  </user>
+</include>
+```
+
+this is basically to remove the error when the 3102 tries to register the inbound voip line.
+
+### **Linksys 3102 side**
+
+Now that was the easy bit.. I have used the 3102 provisioning format as its easier than trying to say got to tab PSTN, section blah, field blah..
+
+you provision it by the string
+
+http://192.168.1.5/admin/resync?http://192.168.1.76/provision/3102.xml
+
+where 192.168.1.76 is your handy webserver - in this case also my freeswitch box and provision is simply a directory under htdocs
+
+3102.xml is as follows
+
+```xml
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<flat-profile xmlns="http://www.sipura.net/xsd/SPA3102" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.sipura.net/xsd/SPA3102 http://www.sipura.net/xsd/SPA3102/SPA3102-5-1-7-GW.xsd">
+
+
+  <!-- System Configuration -->
+
+  <Restricted_Access_Domains ua="na" value="" />
+  <Enable_Web_Admin_Access ua="na" value="Yes" />
+  <Admin_Passwd ua="na" value="" />
+  <User_Password ua="rw" value="pombafu" />
+
+  <!-- Internet Connection Settings -->
+
+  <Connection_Type ua="rw" value="Static IP" /> <!-- options: DHCP/Static IP/PPPOE/PPPOE,DHCP/DHCP,PPPOE -->
+
+  <!--  Static IP Settings -->
+
+  <Static_IP ua="rw" value="192.168.1.5" />
+  <NetMask ua="rw" value="255.255.255.0" />
+  <Gateway ua="rw" value="192.168.1.1" />
+
+  <!--  PPPoE Settings -->
+
+  <PPPOE_Login_Name ua="rw" value="" />
+  <PPPOE_Login_Password ua="rw" value="" />
+  <PPPOE_Service_Name ua="rw" value="" />
+
+  <!--  Optional Settings -->
+
+  <HostName ua="rw" value="pstn" />
+  <Domain ua="rw" value="ticm.local" />
+  <Primary_DNS ua="rw" value="192.168.1.76" />
+  <Secondary_DNS ua="rw" value="192.168.1.1" />
+  <DNS_Server_Order ua="na" value="Manual" /> <!-- options: Manual/Manual,DHCP/DHCP,Manual -->
+  <DNS_Query_Mode ua="na" value="Parallel" /> <!-- options: Parallel/Sequential -->
+  <Primary_NTP_Server ua="na" value="192.168.1.76" />
+  <Secondary_NTP_Server ua="na" value="pool.ntp.org" />
+  <DHCP_IP_Revalidate_Timer ua="na" value="0" />
+  <Networking_Service ua="rw" value="NAT" /> <!-- options: NAT/Bridge/Auto -->
+  <Auto_NetService_Private_IP_Ranges ua="rw" value="10.0.0.0-10.255.255.255,192.168.0.0-192.168.255.255,172.16.0.0-172.31.255.255" />
+
+  <!-- LAN Network Settings -->
+
+  <LAN_IP_Address ua="rw" value="192.168.0.1" />
+  <LAN_Subnet_Mask ua="rw" value="255.255.255.0" /> <!-- options: 255.255.255.0/255.255.255.128/255.255.255.192/255.255.255.224/255.255.255.240/255.255.255.248/255.255.255.252 -->
+
+  <!--  -->
+
+  <Enable_DHCP_Server ua="rw" value="No" />
+  <DHCP_Lease_Time ua="rw" value="24" />
+  <DHCP_Client_Starting_IP_Address ua="rw" value="2" />
+  <Number_of_Client_IP_Addresses ua="rw" value="50" />
+
+  <!-- Static DHCP Lease Settings -->
+
+
+  <!-- MAC Clone Settings -->
+
+  <Enable_MAC_Clone_Service ua="rw" value="No" />
+  <Cloned_MAC_Address ua="rw" value="" />
+
+  <!-- Remote Management -->
+
+  <Enable_WAN_Web_Server ua="rw" value="Yes" />
+  <WAN_Web_Server_Port ua="rw" value="80" />
+
+  <!-- QOS Settings -->
+
+  <QOS_Policy ua="na" value="Always On" /> <!-- options: Always On/On When Phone In Use -->
+  <QOS_QDisc ua="rw" value="NONE" /> <!-- options: NONE/TBF -->
+  <Maximum_Uplink_Speed ua="rw" value="128" />
+
+  <!-- VLAN Settings -->
+
+  <Enable_VLAN ua="rw" value="No" />
+  <VLAN_ID ua="rw" value="1" />
+
+  <!-- Miscellaneous Settings -->
+
+  <Syslog_Server ua="na" value="192.168.1.76" />
+  <Debug_Server ua="na" value="192.168.1.76" />
+  <Debug_Level ua="na" value="1" /> <!-- options: 0/1/2/3 -->
+
+  <!-- Product Information -->
+
+
+  <!-- System Status -->
+
+
+  <!-- Configuration Profile -->
+
+  <Provision_Enable ua="na" value="Yes" />
+  <Resync_On_Reset ua="na" value="Yes" />
+  <Resync_Random_Delay ua="na" value="2" />
+  <Resync_Periodic ua="na" value="3600" />
+  <Resync_Error_Retry_Delay ua="na" value="3600" />
+  <Forced_Resync_Delay ua="na" value="14400" />
+  <Resync_From_SIP ua="na" value="Yes" />
+  <Resync_After_Upgrade_Attempt ua="na" value="Yes" />
+  <Resync_Trigger_1 ua="na" value="" />
+  <Resync_Trigger_2 ua="na" value="" />
+  <Resync_Fails_On_FNF ua="na" value="Yes" />
+  <Profile_Rule ua="na" value="http://192.168.1.76/provision/3102.xml" />
+  <Profile_Rule_B ua="na" value="" />
+  <Profile_Rule_C ua="na" value="" />
+  <Profile_Rule_D ua="na" value="" />
+  <Log_Resync_Request_Msg ua="na" value="$PN $MAC -- Requesting resync $SCHEME://$SERVIP:$PORT$PATH" />
+  <Log_Resync_Success_Msg ua="na" value="$PN $MAC -- Successful resync $SCHEME://$SERVIP:$PORT$PATH" />
+  <Log_Resync_Failure_Msg ua="na" value="$PN $MAC -- Resync failed: $ERR" />
+  <Report_Rule ua="na" value="" />
+
+  <!-- Firmware Upgrade -->
+
+  <Upgrade_Enable ua="na" value="Yes" />
+  <Upgrade_Error_Retry_Delay ua="na" value="3600" />
+  <Downgrade_Rev_Limit ua="na" value="" />
+  <Upgrade_Rule ua="na" value="" />
+  <Log_Upgrade_Request_Msg ua="na" value="$PN $MAC -- Requesting upgrade $SCHEME://$SERVIP:$PORT$PATH" />
+  <Log_Upgrade_Success_Msg ua="na" value="$PN $MAC -- Successful upgrade $SCHEME://$SERVIP:$PORT$PATH -- $ERR" />
+  <Log_Upgrade_Failure_Msg ua="na" value="$PN $MAC -- Upgrade failed: $ERR" />
+  <License_Keys ua="na" value="" />
+  <Recovery_URL ua="na" value="" />
+
+  <!-- General Purpose Parameters -->
+
+  <GPP_A ua="na" value="" />
+  <GPP_B ua="na" value="" />
+  <GPP_C ua="na" value="" />
+  <GPP_D ua="na" value="" />
+  <GPP_E ua="na" value="" />
+  <GPP_F ua="na" value="" />
+  <GPP_G ua="na" value="" />
+  <GPP_H ua="na" value="" />
+  <GPP_I ua="na" value="" />
+  <GPP_J ua="na" value="" />
+  <GPP_K ua="na" value="" />
+  <GPP_L ua="na" value="" />
+  <GPP_M ua="na" value="" />
+  <GPP_N ua="na" value="" />
+  <GPP_O ua="na" value="" />
+  <GPP_P ua="na" value="" />
+  <GPP_SA ua="na" value="" />
+  <GPP_SB ua="na" value="" />
+  <GPP_SC ua="na" value="" />
+  <GPP_SD ua="na" value="" />
+
+  <!-- SIP Parameters -->
+
+  <Max_Forward ua="na" value="70" />
+  <Max_Redirection ua="na" value="5" />
+  <Max_Auth ua="na" value="2" />
+  <SIP_User_Agent_Name ua="na" value="$VERSION" />
+  <SIP_Server_Name ua="na" value="$VERSION" />
+  <SIP_Reg_User_Agent_Name ua="na" value="" />
+  <SIP_Accept_Language ua="na" value="" />
+  <DTMF_Relay_MIME_Type ua="na" value="application/dtmf-relay" />
+  <Hook_Flash_MIME_Type ua="na" value="application/hook-flash" />
+  <Remove_Last_Reg ua="na" value="No" />
+  <Use_Compact_Header ua="na" value="No" />
+  <Escape_Display_Name ua="na" value="No" />
+  <RFC_2543_Call_Hold ua="na" value="Yes" />
+  <Mark_All_AVT_Packets ua="na" value="Yes" />
+  <SIP_TCP_Port_Min ua="na" value="5060" />
+  <SIP_TCP_Port_Max ua="na" value="5080" />
+
+  <!-- SIP Timer Values (sec) -->
+
+  <SIP_T1 ua="na" value=".5" />
+  <SIP_T2 ua="na" value="4" />
+  <SIP_T4 ua="na" value="5" />
+  <SIP_Timer_B ua="na" value="32" />
+  <SIP_Timer_F ua="na" value="32" />
+  <SIP_Timer_H ua="na" value="32" />
+  <SIP_Timer_D ua="na" value="32" />
+  <SIP_Timer_J ua="na" value="32" />
+  <INVITE_Expires ua="na" value="240" />
+  <ReINVITE_Expires ua="na" value="30" />
+  <Reg_Min_Expires ua="na" value="1" />
+  <Reg_Max_Expires ua="na" value="7200" />
+  <Reg_Retry_Intvl ua="na" value="30" />
+  <Reg_Retry_Long_Intvl ua="na" value="1200" />
+  <Reg_Retry_Random_Delay ua="na" value="" />
+  <Reg_Retry_Long_Random_Delay ua="na" value="" />
+  <Reg_Retry_Intvl_Cap ua="na" value="" />
+
+  <!-- Response Status Code Handling -->
+
+  <SIT1_RSC ua="na" value="" />
+  <SIT2_RSC ua="na" value="" />
+  <SIT3_RSC ua="na" value="" />
+  <SIT4_RSC ua="na" value="" />
+  <Try_Backup_RSC ua="na" value="" />
+  <Retry_Reg_RSC ua="na" value="" />
+
+  <!-- RTP Parameters -->
+
+  <RTP_Port_Min ua="na" value="16384" />
+  <RTP_Port_Max ua="na" value="16482" />
+  <RTP_Packet_Size ua="na" value="0.020" />
+  <Max_RTP_ICMP_Err ua="na" value="0" />
+  <RTCP_Tx_Interval ua="na" value="0" />
+  <No_UDP_Checksum ua="na" value="No" />
+  <Stats_In_BYE ua="na" value="No" />
+
+  <!-- SDP Payload Types -->
+
+  <NSE_Dynamic_Payload ua="na" value="100" />
+  <AVT_Dynamic_Payload ua="na" value="101" />
+  <INFOREQ_Dynamic_Payload ua="na" value="" />
+  <G726r16_Dynamic_Payload ua="na" value="98" />
+  <G726r24_Dynamic_Payload ua="na" value="97" />
+  <G726r32_Dynamic_Payload ua="na" value="2" />
+  <G726r40_Dynamic_Payload ua="na" value="96" />
+  <G729b_Dynamic_Payload ua="na" value="99" />
+  <EncapRTP_Dynamic_Payload ua="na" value="112" />
+  <RTP-Start-Loopback_Dynamic_Payload ua="na" value="113" />
+  <RTP-Start-Loopback_Codec ua="na" value="G711u" /> <!-- options: G711u/G711a/G726-16/G726-24/G726-32/G726-40/G729a/G723 -->
+  <NSE_Codec_Name ua="na" value="NSE" />
+  <AVT_Codec_Name ua="na" value="telephone-event" />
+  <G711u_Codec_Name ua="na" value="PCMU" />
+  <G711a_Codec_Name ua="na" value="PCMA" />
+  <G726r16_Codec_Name ua="na" value="G726-16" />
+  <G726r24_Codec_Name ua="na" value="G726-24" />
+  <G726r32_Codec_Name ua="na" value="G726-32" />
+  <G726r40_Codec_Name ua="na" value="G726-40" />
+  <G729a_Codec_Name ua="na" value="G729a" />
+  <G729b_Codec_Name ua="na" value="G729ab" />
+  <G723_Codec_Name ua="na" value="G723" />
+  <EncapRTP_Codec_Name ua="na" value="encaprtp" />
+
+  <!-- NAT Support Parameters -->
+
+  <Handle_VIA_received ua="na" value="No" />
+  <Handle_VIA_rport ua="na" value="No" />
+  <Insert_VIA_received ua="na" value="No" />
+  <Insert_VIA_rport ua="na" value="No" />
+  <Substitute_VIA_Addr ua="na" value="No" />
+  <Send_Resp_To_Src_Port ua="na" value="No" />
+  <STUN_Enable ua="na" value="No" />
+  <STUN_Test_Enable ua="na" value="No" />
+  <STUN_Server ua="na" value="" />
+  <TURN_Server ua="na" value="" />
+  <Auth_Server ua="na" value="" />
+  <EXT_IP ua="na" value="" />
+  <EXT_RTP_Port_Min ua="na" value="" />
+  <NAT_Keep_Alive_Intvl ua="na" value="15" />
+
+  <!--  -->
+
+  <Line_Enable_1_ ua="na" value="Yes" />
+
+  <!-- Streaming Audio Server (SAS) -->
+
+  <SAS_Enable_1_ ua="na" value="No" />
+  <SAS_DLG_Refresh_Intvl_1_ ua="na" value="30" />
+  <SAS_Inbound_RTP_Sink_1_ ua="na" value="" />
+
+  <!-- NAT Settings -->
+
+  <NAT_Mapping_Enable_1_ ua="na" value="No" />
+  <NAT_Keep_Alive_Enable_1_ ua="na" value="No" />
+  <NAT_Keep_Alive_Msg_1_ ua="na" value="$NOTIFY" />
+  <NAT_Keep_Alive_Dest_1_ ua="na" value="$PROXY" />
+
+  <!-- Network Settings -->
+
+  <SIP_ToS_DiffServ_Value_1_ ua="na" value="0x68" />
+  <SIP_CoS_Value_1_ ua="na" value="3" />
+  <RTP_ToS_DiffServ_Value_1_ ua="na" value="0xb8" />
+  <RTP_CoS_Value_1_ ua="na" value="6" />
+  <Network_Jitter_Level_1_ ua="na" value="high" /> <!-- options: low/medium/high/very high/extremely high -->
+  <Jitter_Buffer_Adjustment_1_ ua="na" value="up and down" /> <!-- options: up and down/up only/down only/disable -->
+
+  <!-- SIP Settings -->
+
+  <SIP_Transport_1_ ua="na" value="UDP" /> <!-- options: UDP/TCP/TLS -->
+  <SIP_Port_1_ ua="na" value="5060" />
+  <SIP_100REL_Enable_1_ ua="na" value="No" />
+  <EXT_SIP_Port_1_ ua="na" value="" />
+  <Auth_Resync-Reboot_1_ ua="na" value="Yes" />
+  <SIP_Proxy-Require_1_ ua="na" value="" />
+  <SIP_Remote-Party-ID_1_ ua="na" value="Yes" />
+  <SIP_GUID_1_ ua="na" value="No" />
+  <SIP_Debug_Option_1_ ua="na" value="none" /> <!-- options: none/1-line/1-line excl. OPT/1-line excl. NTFY/1-line excl. REG/1-line excl. OPT|NTFY|REG/full/full excl. OPT/full excl. NTFY/full excl. REG/full excl. OPT|NTFY|REG -->
+  <RTP_Log_Intvl_1_ ua="na" value="0" />
+  <Restrict_Source_IP_1_ ua="na" value="No" />
+  <Referor_Bye_Delay_1_ ua="na" value="4" />
+  <Refer_Target_Bye_Delay_1_ ua="na" value="0" />
+  <Referee_Bye_Delay_1_ ua="na" value="0" />
+  <Refer-To_Target_Contact_1_ ua="na" value="No" />
+  <Sticky_183_1_ ua="na" value="No" />
+  <Auth_INVITE_1_ ua="na" value="No" />
+
+  <!-- Call Feature Settings -->
+
+  <Blind_Attn-Xfer_Enable_1_ ua="na" value="No" />
+  <MOH_Server_1_ ua="na" value="" />
+  <Xfer_When_Hangup_Conf_1_ ua="na" value="Yes" />
+
+  <!-- Proxy and Registration -->
+
+  <Proxy_1_ ua="na" value="192.168.1.76" />
+  <Outbound_Proxy_1_ ua="na" value="" />
+  <Use_Outbound_Proxy_1_ ua="na" value="No" />
+  <Use_OB_Proxy_In_Dialog_1_ ua="na" value="No" />
+  <Register_1_ ua="na" value="Yes" />
+  <Make_Call_Without_Reg_1_ ua="na" value="Yes" />
+  <Register_Expires_1_ ua="na" value="3600" />
+  <Ans_Call_Without_Reg_1_ ua="na" value="Yes" />
+  <Use_DNS_SRV_1_ ua="na" value="No" />
+  <DNS_SRV_Auto_Prefix_1_ ua="na" value="No" />
+  <Proxy_Fallback_Intvl_1_ ua="na" value="3600" />
+  <Proxy_Redundancy_Method_1_ ua="na" value="Normal" /> <!-- options: Normal/Based on SRV Port -->
+  <Voice_Mail_Server_1_ ua="na" value="" />
+  <Mailbox_Subscribe_Expires_1_ ua="na" value="2147483647" />
+
+  <!-- Subscriber Information -->
+
+  <Display_Name_1_ ua="na" value="ATA-PSTN" />
+  <User_ID_1_ ua="na" value="1019" />
+  <Password_1_ ua="na" value="1234" />
+  <Use_Auth_ID_1_ ua="na" value="No" />
+  <Auth_ID_1_ ua="na" value="" />
+  <Mini_Certificate_1_ ua="na" value="" />
+  <SRTP_Private_Key_1_ ua="na" value="" />
+
+  <!-- Supplementary Service Subscription -->
+
+  <Call_Waiting_Serv_1_ ua="na" value="Yes" />
+  <Block_CID_Serv_1_ ua="na" value="Yes" />
+  <Block_ANC_Serv_1_ ua="na" value="Yes" />
+  <Dist_Ring_Serv_1_ ua="na" value="Yes" />
+  <Cfwd_All_Serv_1_ ua="na" value="Yes" />
+  <Cfwd_Busy_Serv_1_ ua="na" value="Yes" />
+  <Cfwd_No_Ans_Serv_1_ ua="na" value="Yes" />
+  <Cfwd_Sel_Serv_1_ ua="na" value="Yes" />
+  <Cfwd_Last_Serv_1_ ua="na" value="Yes" />
+  <Block_Last_Serv_1_ ua="na" value="Yes" />
+  <Accept_Last_Serv_1_ ua="na" value="Yes" />
+  <DND_Serv_1_ ua="na" value="Yes" />
+  <CID_Serv_1_ ua="na" value="Yes" />
+  <CWCID_Serv_1_ ua="na" value="Yes" />
+  <Call_Return_Serv_1_ ua="na" value="Yes" />
+  <Call_Redial_Serv_1_ ua="na" value="Yes" />
+  <Call_Back_Serv_1_ ua="na" value="Yes" />
+  <Three_Way_Call_Serv_1_ ua="na" value="Yes" />
+  <Three_Way_Conf_Serv_1_ ua="na" value="Yes" />
+  <Attn_Transfer_Serv_1_ ua="na" value="Yes" />
+  <Unattn_Transfer_Serv_1_ ua="na" value="Yes" />
+  <MWI_Serv_1_ ua="na" value="Yes" />
+  <VMWI_Serv_1_ ua="na" value="Yes" />
+  <Speed_Dial_Serv_1_ ua="na" value="Yes" />
+  <Secure_Call_Serv_1_ ua="na" value="Yes" />
+  <Referral_Serv_1_ ua="na" value="Yes" />
+  <Feature_Dial_Serv_1_ ua="na" value="Yes" />
+  <Service_Announcement_Serv_1_ ua="na" value="No" />
+
+  <!-- Audio Configuration -->
+
+  <Preferred_Codec_1_ ua="na" value="G711u" /> <!-- options: G711u/G711a/G726-16/G726-24/G726-32/G726-40/G729a/G723 -->
+  <Silence_Supp_Enable_1_ ua="na" value="No" />
+  <Use_Pref_Codec_Only_1_ ua="na" value="No" />
+  <Silence_Threshold_1_ ua="na" value="medium" /> <!-- options: high/medium/low -->
+  <G729a_Enable_1_ ua="na" value="Yes" />
+  <Echo_Canc_Enable_1_ ua="na" value="Yes" />
+  <G723_Enable_1_ ua="na" value="Yes" />
+  <Echo_Canc_Adapt_Enable_1_ ua="na" value="Yes" />
+  <G726-16_Enable_1_ ua="na" value="Yes" />
+  <Echo_Supp_Enable_1_ ua="na" value="Yes" />
+  <G726-24_Enable_1_ ua="na" value="Yes" />
+  <FAX_CED_Detect_Enable_1_ ua="na" value="Yes" />
+  <G726-32_Enable_1_ ua="na" value="Yes" />
+  <FAX_CNG_Detect_Enable_1_ ua="na" value="Yes" />
+  <G726-40_Enable_1_ ua="na" value="Yes" />
+  <FAX_Passthru_Codec_1_ ua="na" value="G711u" /> <!-- options: G711u/G711a -->
+  <DTMF_Process_INFO_1_ ua="na" value="Yes" />
+  <FAX_Codec_Symmetric_1_ ua="na" value="Yes" />
+  <DTMF_Process_AVT_1_ ua="na" value="Yes" />
+  <FAX_Passthru_Method_1_ ua="na" value="NSE" /> <!-- options: None/NSE/ReINVITE -->
+  <DTMF_Tx_Method_1_ ua="na" value="Auto" /> <!-- options: InBand/AVT/INFO/Auto/InBand+INFO/AVT+INFO -- Note: AVT is RFC2833 -->
+  <DTMF_Tx_Mode_1_ ua="na" value="Strict" /> <!-- options: Normal/Strict -->
+  <FAX_Process_NSE_1_ ua="na" value="Yes" />
+  <Hook_Flash_Tx_Method_1_ ua="na" value="None" /> <!-- options: None/AVT/INFO -->
+  <FAX_Disable_ECAN_1_ ua="na" value="No" />
+  <Release_Unused_Codec_1_ ua="na" value="Yes" />
+  <FAX_Enable_T38_1_ ua="na" value="Yes" />
+  <FAX_T38_Redundancy_1_ ua="na" value="1" /> <!-- options: 0/1/2/3 -->
+  <FAX_Tone_Detect_Mode_1_ ua="na" value="caller or callee" /> <!-- options: caller or callee/caller only/callee only -->
+  <Symmetric_RTP_1_ ua="na" value="Yes" />
+
+  <!-- Gateway Accounts -->
+
+  <Gateway_1_1_ ua="na" value="" />
+  <GW1_NAT_Mapping_Enable_1_ ua="na" value="No" />
+  <GW1_Auth_ID_1_ ua="na" value="" />
+  <GW1_Password_1_ ua="na" value="" />
+  <Gateway_2_1_ ua="na" value="1019@192.168.1.76" />
+  <GW2_NAT_Mapping_Enable_1_ ua="na" value="No" />
+  <GW2_Auth_ID_1_ ua="na" value="1019" />
+  <GW2_Password_1_ ua="na" value="1234" />
+  <Gateway_3_1_ ua="na" value="" />
+  <GW3_NAT_Mapping_Enable_1_ ua="na" value="No" />
+  <GW3_Auth_ID_1_ ua="na" value="" />
+  <GW3_Password_1_ ua="na" value="" />
+  <Gateway_4_1_ ua="na" value="" />
+  <GW4_NAT_Mapping_Enable_1_ ua="na" value="No" />
+  <GW4_Auth_ID_1_ ua="na" value="" />
+  <GW4_Password_1_ ua="na" value="" />
+
+  <!-- VoIP Fallback To PSTN -->
+
+  <Auto_PSTN_Fallback_1_ ua="na" value="Yes" />
+
+  <!-- Dial Plan -->
+
+  <Dial_Plan_1_ ua="na" value="(<#0:><:@gw0>|1[2-8]xxx.<:@gw2>|001161[2-9]xxxxxxxxS0<:@gw2>|0[2-9]xxxxxxxxS0<:@gw2>|9xxxxxxxS0<:@gw2>|<0011:>xxx.<:@gw2>|61xxxS0|61xxxxS0)" />
+  <Enable_IP_Dialing_1_ ua="na" value="Yes" />
+  <Emergency_Number_1_ ua="na" value="000" />
+
+  <!-- FXS Port Polarity Configuration -->
+
+  <Idle_Polarity_1_ ua="na" value="Forward" /> <!-- options: Forward/Reverse -->
+  <Caller_Conn_Polarity_1_ ua="na" value="Forward" /> <!-- options: Forward/Reverse -->
+  <Callee_Conn_Polarity_1_ ua="na" value="Forward" /> <!-- options: Forward/Reverse -->
+
+  <!-- Call Forward Settings -->
+
+  <Cfwd_All_Dest_1_ ua="rw" value="" />
+  <Cfwd_Busy_Dest_1_ ua="rw" value="" />
+  <Cfwd_No_Ans_Dest_1_ ua="rw" value="" />
+  <Cfwd_No_Ans_Delay_1_ ua="rw" value="20" />
+
+  <!-- Selective Call Forward Settings -->
+
+  <Cfwd_Sel1_Caller_1_ ua="rw" value="" />
+  <Cfwd_Sel1_Dest_1_ ua="rw" value="" />
+  <Cfwd_Sel2_Caller_1_ ua="rw" value="" />
+  <Cfwd_Sel2_Dest_1_ ua="rw" value="" />
+  <Cfwd_Sel3_Caller_1_ ua="rw" value="" />
+  <Cfwd_Sel3_Dest_1_ ua="rw" value="" />
+  <Cfwd_Sel4_Caller_1_ ua="rw" value="" />
+  <Cfwd_Sel4_Dest_1_ ua="rw" value="" />
+  <Cfwd_Sel5_Caller_1_ ua="rw" value="" />
+  <Cfwd_Sel5_Dest_1_ ua="rw" value="" />
+  <Cfwd_Sel6_Caller_1_ ua="rw" value="" />
+  <Cfwd_Sel6_Dest_1_ ua="rw" value="" />
+  <Cfwd_Sel7_Caller_1_ ua="rw" value="" />
+  <Cfwd_Sel7_Dest_1_ ua="rw" value="" />
+  <Cfwd_Sel8_Caller_1_ ua="rw" value="" />
+  <Cfwd_Sel8_Dest_1_ ua="rw" value="" />
+  <Cfwd_Last_Caller_1_ ua="rw" value="" />
+  <Cfwd_Last_Dest_1_ ua="rw" value="" />
+  <Block_Last_Caller_1_ ua="rw" value="" />
+  <Accept_Last_Caller_1_ ua="rw" value="" />
+
+  <!-- Speed Dial Settings -->
+
+  <Speed_Dial_2_1_ ua="rw" value="" />
+  <Speed_Dial_3_1_ ua="rw" value="" />
+  <Speed_Dial_4_1_ ua="rw" value="" />
+  <Speed_Dial_5_1_ ua="rw" value="" />
+  <Speed_Dial_6_1_ ua="rw" value="" />
+  <Speed_Dial_7_1_ ua="rw" value="" />
+  <Speed_Dial_8_1_ ua="rw" value="" />
+  <Speed_Dial_9_1_ ua="rw" value="" />
+
+  <!-- Supplementary Service Settings -->
+
+  <CW_Setting_1_ ua="rw" value="Yes" />
+  <Block_CID_Setting_1_ ua="rw" value="No" />
+  <Block_ANC_Setting_1_ ua="rw" value="No" />
+  <DND_Setting_1_ ua="rw" value="No" />
+  <CID_Setting_1_ ua="rw" value="Yes" />
+  <CWCID_Setting_1_ ua="rw" value="Yes" />
+  <Dist_Ring_Setting_1_ ua="rw" value="Yes" />
+  <Secure_Call_Setting_1_ ua="na" value="No" />
+  <Message_Waiting_1_ ua="rw" value="No" />
+  <Accept_Media_Loopback_Request_1_ ua="na" value="automatic" /> <!-- options: never/automatic/manual -->
+  <Media_Loopback_Mode_1_ ua="na" value="source" /> <!-- options: source/mirror -->
+  <Media_Loopback_Type_1_ ua="na" value="media" /> <!-- options: media/packet -->
+
+  <!-- Distinctive Ring Settings -->
+
+  <Ring1_Caller_1_ ua="rw" value="" />
+  <Ring2_Caller_1_ ua="rw" value="" />
+  <Ring3_Caller_1_ ua="rw" value="" />
+  <Ring4_Caller_1_ ua="rw" value="" />
+  <Ring5_Caller_1_ ua="rw" value="" />
+  <Ring6_Caller_1_ ua="rw" value="" />
+  <Ring7_Caller_1_ ua="rw" value="" />
+  <Ring8_Caller_1_ ua="rw" value="" />
+
+  <!-- Ring Settings -->
+
+  <Default_Ring_1_ ua="rw" value="1" /> <!-- options: 1/2/3/4/5/6/7/8 -->
+  <Default_CWT_1_ ua="rw" value="1" /> <!-- options: 1/2/3/4/5/6/7/8 -->
+  <Hold_Reminder_Ring_1_ ua="rw" value="8" /> <!-- options: 1/2/3/4/5/6/7/8/none -->
+  <Call_Back_Ring_1_ ua="rw" value="7" /> <!-- options: 1/2/3/4/5/6/7/8 -->
+  <Cfwd_Ring_Splash_Len_1_ ua="rw" value="0" />
+  <Cblk_Ring_Splash_Len_1_ ua="rw" value="0" />
+  <VMWI_Ring_Splash_Len_1_ ua="rw" value="0" />
+  <VMWI_Ring_Policy_1_ ua="na" value="New VM Available" /> <!-- options: New VM Available/New VM Becomes Available/New VM Arrives -->
+  <Ring_On_No_New_VM_1_ ua="na" value="No" />
+
+  <!--  -->
+
+  <Line_Enable_2_ ua="na" value="Yes" />
+
+  <!-- NAT Settings -->
+
+  <NAT_Mapping_Enable_2_ ua="na" value="No" />
+  <NAT_Keep_Alive_Enable_2_ ua="na" value="No" />
+  <NAT_Keep_Alive_Msg_2_ ua="na" value="$NOTIFY" />
+  <NAT_Keep_Alive_Dest_2_ ua="na" value="$PROXY" />
+
+  <!-- Network Settings -->
+
+  <SIP_ToS_DiffServ_Value_2_ ua="na" value="0x68" />
+  <SIP_CoS_Value_2_ ua="na" value="3" />
+  <RTP_ToS_DiffServ_Value_2_ ua="na" value="0xb8" />
+  <RTP_CoS_Value_2_ ua="na" value="6" />
+  <Network_Jitter_Level_2_ ua="na" value="high" /> <!-- options: low/medium/high/very high/extremely high -->
+  <Jitter_Buffer_Adjustment_2_ ua="na" value="up and down" /> <!-- options: up and down/up only/down only/disable -->
+
+  <!-- SIP Settings -->
+
+  <SIP_Transport_2_ ua="na" value="UDP" /> <!-- options: UDP/TCP/TLS -->
+  <SIP_Port_2_ ua="na" value="5061" />
+  <SIP_100REL_Enable_2_ ua="na" value="No" />
+  <EXT_SIP_Port_2_ ua="na" value="" />
+  <Auth_Resync-Reboot_2_ ua="na" value="Yes" />
+  <SIP_Proxy-Require_2_ ua="na" value="" />
+  <SIP_Remote-Party-ID_2_ ua="na" value="Yes" />
+  <SIP_GUID_2_ ua="na" value="No" />
+  <SIP_Debug_Option_2_ ua="na" value="All" /> <!-- options: none/1-line/1-line excl. OPT/1-line excl. NTFY/1-line excl. REG/1-line excl. OPT|NTFY|REG/full/full excl. OPT/full excl. NTFY/full excl. REG/full excl. OPT|NTFY|REG -->
+  <RTP_Log_Intvl_2_ ua="na" value="0" />
+  <Restrict_Source_IP_2_ ua="na" value="No" />
+  <Referor_Bye_Delay_2_ ua="na" value="4" />
+  <Refer_Target_Bye_Delay_2_ ua="na" value="0" />
+  <Referee_Bye_Delay_2_ ua="na" value="0" />
+  <Refer-To_Target_Contact_2_ ua="na" value="No" />
+  <Sticky_183_2_ ua="na" value="No" />
+  <Auth_INVITE_2_ ua="na" value="No" />
+
+  <!-- Proxy and Registration -->
+
+  <Proxy_2_ ua="na" value="192.168.1.76" />
+  <Outbound_Proxy_2_ ua="na" value="192.168.1.76" />
+  <Use_Outbound_Proxy_2_ ua="na" value="No" />
+  <Use_OB_Proxy_In_Dialog_2_ ua="na" value="No" />
+  <Register_2_ ua="na" value="Yes" />
+  <Make_Call_Without_Reg_2_ ua="na" value="Yes" />
+  <Register_Expires_2_ ua="na" value="3600" />
+  <Ans_Call_Without_Reg_2_ ua="na" value="Yes" />
+  <Use_DNS_SRV_2_ ua="na" value="No" />
+  <DNS_SRV_Auto_Prefix_2_ ua="na" value="No" />
+  <Proxy_Fallback_Intvl_2_ ua="na" value="3600" />
+  <Proxy_Redundancy_Method_2_ ua="na" value="Normal" /> <!-- options: Normal/Based on SRV Port -->
+
+  <!-- Subscriber Information -->
+
+  <Display_Name_2_ ua="na" value="Local Call" />
+  <User_ID_2_ ua="na" value="500" />
+  <Password_2_ ua="na" value="1234" />
+  <Use_Auth_ID_2_ ua="na" value="No" />
+  <Auth_ID_2_ ua="na" value="" />
+  <Mini_Certificate_2_ ua="na" value="" />
+  <SRTP_Private_Key_2_ ua="na" value="" />
+
+  <!-- Audio Configuration -->
+
+  <Preferred_Codec_2_ ua="na" value="G711u" /> <!-- options: G711u/G711a/G726-16/G726-24/G726-32/G726-40/G729a/G723 -->
+  <Silence_Supp_Enable_2_ ua="na" value="No" />
+  <Use_Pref_Codec_Only_2_ ua="na" value="No" />
+  <Echo_Canc_Enable_2_ ua="na" value="Yes" />
+  <G729a_Enable_2_ ua="na" value="Yes" />
+  <Echo_Canc_Adapt_Enable_2_ ua="na" value="Yes" />
+  <G723_Enable_2_ ua="na" value="Yes" />
+  <Echo_Supp_Enable_2_ ua="na" value="Yes" />
+  <G726-16_Enable_2_ ua="na" value="Yes" />
+  <FAX_CED_Detect_Enable_2_ ua="na" value="Yes" />
+  <G726-24_Enable_2_ ua="na" value="Yes" />
+  <FAX_CNG_Detect_Enable_2_ ua="na" value="Yes" />
+  <G726-32_Enable_2_ ua="na" value="Yes" />
+  <FAX_Passthru_Codec_2_ ua="na" value="G711u" /> <!-- options: G711u/G711a -->
+  <G726-40_Enable_2_ ua="na" value="Yes" />
+  <FAX_Codec_Symmetric_2_ ua="na" value="Yes" />
+  <DTMF_Process_INFO_2_ ua="na" value="Yes" />
+  <FAX_Passthru_Method_2_ ua="na" value="NSE" /> <!-- options: None/NSE/ReINVITE -->
+  <DTMF_Process_AVT_2_ ua="na" value="Yes" />
+  <DTMF_Tx_Method_2_ ua="na" value="Auto" /> <!-- options: InBand/AVT/INFO/Auto/InBand+INFO/AVT+INFO -->
+  <DTMF_Tx_Mode_2_ ua="na" value="Strict" /> <!-- options: Normal/Strict -->
+  <Release_Unused_Codec_2_ ua="na" value="Yes" />
+  <FAX_Process_NSE_2_ ua="na" value="Yes" />
+  <Symmetric_RTP_2_ ua="na" value="Yes" />
+  <FAX_Disable_ECAN_2_ ua="na" value="No" />
+
+  <!-- Dial Plans -->
+
+  <Dial_Plan_1_2_ ua="na" value="(xx.)" />
+  <Dial_Plan_2_2_ ua="na" value="(<+61:0>xx.|<61:0>xx.|0[2-9]xxxxxxxx|9xxxxxxx|1[0-9]xx.|000)" />
+  <Dial_Plan_3_2_ ua="na" value="([#*x].!)" />
+  <Dial_Plan_4_2_ ua="na" value="(xx.)" />
+  <Dial_Plan_5_2_ ua="na" value="(xx.)" />
+  <Dial_Plan_6_2_ ua="na" value="(xx.)" />
+  <Dial_Plan_7_2_ ua="na" value="(xx.)" />
+  <Dial_Plan_8_2_ ua="na" value="(S0<:192.168.1.76>)" />
+
+  <!-- VoIP-To-PSTN Gateway Setup -->
+
+  <VoIP-To-PSTN_Gateway_Enable_2_ ua="na" value="Yes" />
+  <VoIP_Caller_Auth_Method_2_ ua="na" value="HTTP Digest" /> <!-- options: none/PIN/HTTP Digest -->
+  <VoIP_PIN_Max_Retry_2_ ua="na" value="3" />
+  <One_Stage_Dialing_2_ ua="na" value="Yes" />
+  <Line_1_VoIP_Caller_DP_2_ ua="na" value="none" /> <!-- options: none/1/2/3/4/5/6/7/8 -->
+  <VoIP_Caller_Default_DP_2_ ua="na" value="3" /> <!-- options: none/1/2/3/4/5/6/7/8 -->
+  <Line_1_Fallback_DP_2_ ua="na" value="none" /> <!-- options: none/1/2/3/4/5/6/7/8 -->
+  <VoIP_Caller_ID_Pattern_2_ ua="na" value="" />
+  <VoIP_Access_List_2_ ua="na" value="" />
+  <VoIP_Caller_1_PIN_2_ ua="na" value="" />
+  <VoIP_Caller_1_DP_2_ ua="na" value="1" /> <!-- options: none/1/2/3/4/5/6/7/8 -->
+  <VoIP_Caller_2_PIN_2_ ua="na" value="" />
+  <VoIP_Caller_2_DP_2_ ua="na" value="1" /> <!-- options: none/1/2/3/4/5/6/7/8 -->
+  <VoIP_Caller_3_PIN_2_ ua="na" value="" />
+  <VoIP_Caller_3_DP_2_ ua="na" value="1" /> <!-- options: none/1/2/3/4/5/6/7/8 -->
+  <VoIP_Caller_4_PIN_2_ ua="na" value="" />
+  <VoIP_Caller_4_DP_2_ ua="na" value="1" /> <!-- options: none/1/2/3/4/5/6/7/8 -->
+  <VoIP_Caller_5_PIN_2_ ua="na" value="" />
+  <VoIP_Caller_5_DP_2_ ua="na" value="1" /> <!-- options: none/1/2/3/4/5/6/7/8 -->
+  <VoIP_Caller_6_PIN_2_ ua="na" value="" />
+  <VoIP_Caller_6_DP_2_ ua="na" value="1" /> <!-- options: none/1/2/3/4/5/6/7/8 -->
+  <VoIP_Caller_7_PIN_2_ ua="na" value="" />
+  <VoIP_Caller_7_DP_2_ ua="na" value="1" /> <!-- options: none/1/2/3/4/5/6/7/8 -->
+  <VoIP_Caller_8_PIN_2_ ua="na" value="" />
+  <VoIP_Caller_8_DP_2_ ua="na" value="1" /> <!-- options: none/1/2/3/4/5/6/7/8 -->
+
+  <!-- VoIP Users and Passwords (HTTP Authentication) -->
+
+  <VoIP_User_1_Auth_ID_2_ ua="na" value="admin" />
+  <VoIP_User_1_DP_2_ ua="na" value="2" /> <!-- options: none/1/2/3/4/5/6/7/8 -->
+  <VoIP_User_1_Password_2_ ua="na" value="1234" />
+  <VoIP_User_2_Auth_ID_2_ ua="na" value="" />
+  <VoIP_User_2_DP_2_ ua="na" value="1" /> <!-- options: none/1/2/3/4/5/6/7/8 -->
+  <VoIP_User_2_Password_2_ ua="na" value="" />
+  <VoIP_User_3_Auth_ID_2_ ua="na" value="" />
+  <VoIP_User_3_DP_2_ ua="na" value="1" /> <!-- options: none/1/2/3/4/5/6/7/8 -->
+  <VoIP_User_3_Password_2_ ua="na" value="" />
+  <VoIP_User_4_Auth_ID_2_ ua="na" value="" />
+  <VoIP_User_4_DP_2_ ua="na" value="1" /> <!-- options: none/1/2/3/4/5/6/7/8 -->
+  <VoIP_User_4_Password_2_ ua="na" value="" />
+  <VoIP_User_5_ID_Auth_ID_2_ ua="na" value="" />
+  <VoIP_User_5_DP_2_ ua="na" value="1" /> <!-- options: none/1/2/3/4/5/6/7/8 -->
+  <VoIP_User_5_Password_2_ ua="na" value="" />
+  <VoIP_User_6_Auth_ID_2_ ua="na" value="" />
+  <VoIP_User_6_DP_2_ ua="na" value="1" /> <!-- options: none/1/2/3/4/5/6/7/8 -->
+  <VoIP_User_6_Password_2_ ua="na" value="" />
+  <VoIP_User_7_Auth_ID_2_ ua="na" value="" />
+  <VoIP_User_7_DP_2_ ua="na" value="1" /> <!-- options: none/1/2/3/4/5/6/7/8 -->
+  <VoIP_User_7_Password_2_ ua="na" value="" />
+  <VoIP_User_8_Auth_ID_2_ ua="na" value="" />
+  <VoIP_User_8_DP_2_ ua="na" value="1" /> <!-- options: none/1/2/3/4/5/6/7/8 -->
+  <VoIP_User_8_Password_2_ ua="na" value="" />
+
+  <!-- PSTN-To-VoIP Gateway Setup -->
+
+  <PSTN-To-VoIP_Gateway_Enable_2_ ua="na" value="Yes" />
+  <PSTN_Caller_Auth_Method_2_ ua="na" value="none" /> <!-- options: none/PIN -->
+  <PSTN_Ring_Thru_Line_1_2_ ua="na" value="Yes" />
+  <PSTN_PIN_Max_Retry_2_ ua="na" value="3" />
+  <PSTN_CID_For_VoIP_CID_2_ ua="na" value="No" />
+  <PSTN_CID_Number_Prefix_2_ ua="na" value="" />
+  <PSTN_Caller_Default_DP_2_ ua="na" value="8" /> <!-- options: 1/2/3/4/5/6/7/8 -->
+  <Off_Hook_While_Calling_VoIP_2_ ua="na" value="No" />
+  <Line_1_Signal_Hook_Flash_To_PSTN ua="na" value="Disabled" /> <!-- options: Disabled/Double Hook Flash -->
+  <PSTN_CID_Name_Prefix_2_ ua="na" value="92913837" />
+  <PSTN_Caller_ID_Pattern_2_ ua="na" value="" />
+  <PSTN_Access_List_2_ ua="na" value="" />
+  <PSTN_Caller_1_PIN_2_ ua="na" value="" />
+  <PSTN_Caller_1_DP_2_ ua="na" value="1" /> <!-- options: 1/2/3/4/5/6/7/8 -->
+  <PSTN_Caller_2_PIN_2_ ua="na" value="" />
+  <PSTN_Caller_2_DP_2_ ua="na" value="1" /> <!-- options: 1/2/3/4/5/6/7/8 -->
+  <PSTN_Caller_3_PIN_2_ ua="na" value="" />
+  <PSTN_Caller_3_DP_2_ ua="na" value="1" /> <!-- options: 1/2/3/4/5/6/7/8 -->
+  <PSTN_Caller_4_PIN_2_ ua="na" value="" />
+  <PSTN_Caller_4_DP_2_ ua="na" value="1" /> <!-- options: 1/2/3/4/5/6/7/8 -->
+  <PSTN_Caller_5_PIN_2_ ua="na" value="" />
+  <PSTN_Caller_5_DP_2_ ua="na" value="1" /> <!-- options: 1/2/3/4/5/6/7/8 -->
+  <PSTN_Caller_6_PIN_2_ ua="na" value="" />
+  <PSTN_Caller_6_DP_2_ ua="na" value="1" /> <!-- options: 1/2/3/4/5/6/7/8 -->
+  <PSTN_Caller_7_PIN_2_ ua="na" value="" />
+  <PSTN_Caller_7_DP_2_ ua="na" value="1" /> <!-- options: 1/2/3/4/5/6/7/8 -->
+  <PSTN_Caller_8_PIN_2_ ua="na" value="" />
+  <PSTN_Caller_8_DP_2_ ua="na" value="1" /> <!-- options: 1/2/3/4/5/6/7/8 -->
+
+  <!-- FXO Timer Values (sec) -->
+
+  <VoIP_Answer_Delay_2_ ua="na" value="0" />
+  <VoIP_PIN_Digit_Timeout_2_ ua="na" value="10" />
+  <PSTN_Answer_Delay_2_ ua="na" value="0" />
+  <PSTN_PIN_Digit_Timeout_2_ ua="na" value="10" />
+  <PSTN-To-VoIP_Call_Max_Dur_2_ ua="na" value="0" />
+  <PSTN_Ring_Thru_Delay_2_ ua="na" value="1" />
+  <VoIP-To-PSTN_Call_Max_Dur_2_ ua="na" value="0" />
+  <PSTN_Ring_Thru_CWT_Delay_2_ ua="na" value="3" />
+  <VoIP_DLG_Refresh_Intvl_2_ ua="na" value="0" />
+  <PSTN_Ring_Timeout_2_ ua="na" value="5" />
+  <PSTN_Dialing_Delay_2_ ua="na" value="1" />
+  <PSTN_Dial_Digit_Len_2_ ua="na" value=".1/.1" />
+  <PSTN_Hook_Flash_Len_2_ ua="na" value=".25" />
+
+  <!-- PSTN Disconnect Detection -->
+
+  <Detect_CPC_2_ ua="na" value="Yes" />
+  <Detect_Polarity_Reversal_2_ ua="na" value="Yes" />
+  <Detect_PSTN_Long_Silence_2_ ua="na" value="No" />
+  <Detect_VoIP_Long_Silence_2_ ua="na" value="No" />
+  <PSTN_Long_Silence_Duration_2_ ua="na" value="30" />
+  <VoIP_Long_Silence_Duration_2_ ua="na" value="30" />
+  <PSTN_Silence_Threshold_2_ ua="na" value="medium" /> <!-- options: very high/high/medium/low/very low -->
+  <Min_CPC_Duration_2_ ua="na" value="0.2" />
+  <Detect_Disconnect_Tone_2_ ua="na" value="Yes" />
+  <Disconnect_Tone_2_ ua="na" value="480@-30,620@-30;4(.25/.25/1+2)" />
+
+  <!-- International Control -->
+
+  <FXO_Port_Impedance_2_ ua="na" value="600" /> <!-- options: 600/900/270+750||150nF/220+820||120nF/370+620||310nF/320+1050||230nF/370+820||110nF/275+780||115nF/120+820||110nF/350+1000||210nF/0+900||30nF/600+2.16uF/900+1uF/900+2.16uF/600+1uF/Global -->
+  <Ring_Frequency_Min_2_ ua="na" value="10" />
+  <SPA_To_PSTN_Gain_2_ ua="na" value="0" />
+  <Ring_Frequency_Max_2_ ua="na" value="100" />
+  <PSTN_To_SPA_Gain_2_ ua="na" value="0" />
+  <Ring_Validation_Time_2_ ua="na" value="256 ms" /> <!-- options: 100 ms/150 ms/200 ms/256 ms/384 ms/512 ms/640 ms/1024 ms -->
+  <Tip_Ring_Voltage_Adjust_2_ ua="na" value="3.5 V" /> <!-- options: 3.1 V/3.2 V/3.35 V/3.5 V -->
+  <Ring_Indication_Delay_2_ ua="na" value="512 ms" /> <!-- options: 0/256 ms/512 ms/ 768 ms/1024 ms/1280 ms/1536 ms/1792 ms -->
+  <Operational_Loop_Current_Min_2_ ua="na" value="10 mA" /> <!-- options: 10 mA/12 mA/14 mA/16 mA -->
+  <Ring_Timeout_2_ ua="na" value="640 ms" /> <!-- options: 0/128 ms/256 ms/384 ms/512 ms/640 ms/768 ms/896 ms/1024 ms/1152 ms/1280 ms/1408 ms/1536 ms/1664 ms/1792 ms/1920 ms -->
+  <On-Hook_Speed_2_ ua="na" value="Less than 0.5 ms" /> <!-- options: Less than 0.5 ms/3 ms (ETSI)/26 ms (Australia) -->
+  <Ring_Threshold_2_ ua="na" value="13.5-16.5 Vrms" /> <!-- options: 13.5-16.5 Vrms/19.35-23.65 Vrms/40.5-49.5 Vrms -->
+  <Current_Limiting_Enable_2_ ua="na" value="No" />
+  <Ringer_Impedance_2_ ua="na" value="High (Normal)" /> <!-- options: High (Normal)/Synthesized (Poland,S.Africa,Slovenia) -->
+  <Line-In-Use_Voltage_2_ ua="na" value="30" />
+
+  <!-- PSTN-To-VoIP Selective Call Forward Settings -->
+
+  <Cfwd_Sel1_Caller_2_ ua="rw" value="" />
+  <Cfwd_Sel1_Dest_2_ ua="rw" value="" />
+  <Cfwd_Sel2_Caller_2_ ua="rw" value="" />
+  <Cfwd_Sel2_Dest_2_ ua="rw" value="" />
+  <Cfwd_Sel3_Caller_2_ ua="rw" value="" />
+  <Cfwd_Sel3_Dest_2_ ua="rw" value="" />
+  <Cfwd_Sel4_Caller_2_ ua="rw" value="" />
+  <Cfwd_Sel4_Dest_2_ ua="rw" value="" />
+  <Cfwd_Sel5_Caller_2_ ua="rw" value="" />
+  <Cfwd_Sel5_Dest_2_ ua="rw" value="" />
+  <Cfwd_Sel6_Caller_2_ ua="rw" value="" />
+  <Cfwd_Sel6_Dest_2_ ua="rw" value="" />
+  <Cfwd_Sel7_Caller_2_ ua="rw" value="" />
+  <Cfwd_Sel7_Dest_2_ ua="rw" value="" />
+  <Cfwd_Sel8_Caller_2_ ua="rw" value="" />
+  <Cfwd_Sel8_Dest_2_ ua="rw" value="" />
+
+  <!-- PSTN-To-VoIP Speed Dial Settings -->
+
+  <Speed_Dial_2_2_ ua="rw" value="" />
+  <Speed_Dial_3_2_ ua="rw" value="" />
+  <Speed_Dial_4_2_ ua="rw" value="" />
+  <Speed_Dial_5_2_ ua="rw" value="" />
+  <Speed_Dial_6_2_ ua="rw" value="" />
+  <Speed_Dial_7_2_ ua="rw" value="" />
+  <Speed_Dial_8_2_ ua="rw" value="" />
+  <Speed_Dial_9_2_ ua="rw" value="" />
+
+  <!-- PSTN Ring Thru Line 1 Distinctive Ring Settings -->
+
+  <Ring1_Caller_2_ ua="rw" value="" />
+  <Ring2_Caller_2_ ua="rw" value="" />
+  <Ring3_Caller_2_ ua="rw" value="" />
+  <Ring4_Caller_2_ ua="rw" value="" />
+  <Ring5_Caller_2_ ua="rw" value="" />
+  <Ring6_Caller_2_ ua="rw" value="" />
+  <Ring7_Caller_2_ ua="rw" value="" />
+  <Ring8_Caller_2_ ua="rw" value="" />
+
+  <!-- PSTN Ring Thru Line 1 Ring Settings -->
+
+  <Default_Ring_2_ ua="rw" value="1" /> <!-- options: 1/2/3/4/5/6/7/8/Follow Line 1 -->
+
+  <!-- Call Progress Tones -->
+
+  <Dial_Tone ua="na" value="350@-19,440@-19;10(*/0/1+2)" />
+  <Second_Dial_Tone ua="na" value="420@-19,520@-19;10(*/0/1+2)" />
+  <Outside_Dial_Tone ua="na" value="420@-16;10(*/0/1)" />
+  <Prompt_Tone ua="na" value="520@-19,620@-19;10(*/0/1+2)" />
+  <Busy_Tone ua="na" value="480@-19,620@-19;10(.5/.5/1+2)" />
+  <Reorder_Tone ua="na" value="480@-19,620@-19;10(.25/.25/1+2)" />
+  <Off_Hook_Warning_Tone ua="na" value="480@-10,620@0;10(.125/.125/1+2)" />
+  <Ring_Back_Tone ua="na" value="440@-19,480@-19;*(2/4/1+2)" />
+  <Confirm_Tone ua="na" value="600@-16;1(.25/.25/1)" />
+  <SIT1_Tone ua="na" value="985@-16,1428@-16,1777@-16;20(.380/0/1,.380/0/2,.380/0/3,0/4/0)" />
+  <SIT2_Tone ua="na" value="914@-16,1371@-16,1777@-16;20(.274/0/1,.274/0/2,.380/0/3,0/4/0)" />
+  <SIT3_Tone ua="na" value="914@-16,1371@-16,1777@-16;20(.380/0/1,.380/0/2,.380/0/3,0/4/0)" />
+  <SIT4_Tone ua="na" value="985@-16,1371@-16,1777@-16;20(.380/0/1,.274/0/2,.380/0/3,0/4/0)" />
+  <MWI_Dial_Tone ua="na" value="350@-19,440@-19;2(.1/.1/1+2);10(*/0/1+2)" />
+  <Cfwd_Dial_Tone ua="na" value="350@-19,440@-19;2(.2/.2/1+2);10(*/0/1+2)" />
+  <Holding_Tone ua="na" value="600@-19;*(.1/.1/1,.1/.1/1,.1/9.5/1)" />
+  <Conference_Tone ua="na" value="350@-19;20(.1/.1/1,.1/9.7/1)" />
+  <Secure_Call_Indication_Tone ua="na" value="397@-19,507@-19;15(0/2/0,.2/.1/1,.1/2.1/2)" />
+  <VoIP_PIN_Tone ua="na" value="600@-10;*(0/1/1,.1/.1/1,.1/.1/1,.1/.5/1)" />
+  <PSTN_PIN_Tone ua="na" value="600@-10;*(0/.7/1,.2/.1/1,.2/.1/1,.2/.5/1)" />
+  <Feature_Invocation_Tone ua="na" value="350@-16;*(.1/.1/1)" />
+
+  <!-- Distinctive Ring Patterns -->
+
+  <Ring1_Cadence ua="na" value="60(2/4)" />
+  <Ring2_Cadence ua="na" value="60(.8/.4,.8/4)" />
+  <Ring3_Cadence ua="na" value="60(.4/.2,.4/.2,.8/4)" />
+  <Ring4_Cadence ua="na" value="60(.3/.2,1/.2,.3/4)" />
+  <Ring5_Cadence ua="na" value="1(.5/.5)" />
+  <Ring6_Cadence ua="na" value="60(.2/.4,.2/.4,.2/4)" />
+  <Ring7_Cadence ua="na" value="60(.4/.2,.4/.2,.4/4)" />
+  <Ring8_Cadence ua="na" value="60(0.25/9.75)" />
+
+  <!-- Distinctive Call Waiting Tone Patterns -->
+
+  <CWT1_Cadence ua="na" value="30(.3/9.7)" />
+  <CWT2_Cadence ua="na" value="30(.1/.1, .1/9.7)" />
+  <CWT3_Cadence ua="na" value="30(.1/.1, .1/.1, .1/9.7)" />
+  <CWT4_Cadence ua="na" value="30(.1/.1,.3/.1,.1/9.3)" />
+  <CWT5_Cadence ua="na" value="1(.5/.5)" />
+  <CWT6_Cadence ua="na" value="30(.1/.1,.3/.2,.3/9.1)" />
+  <CWT7_Cadence ua="na" value="30(.3/.1,.3/.1,.1/9.1)" />
+  <CWT8_Cadence ua="na" value="2.3(.3/2)" />
+
+  <!-- Distinctive Ring/CWT Pattern Names -->
+
+  <Ring1_Name ua="na" value="Bellcore-r1" />
+  <Ring2_Name ua="na" value="Bellcore-r2" />
+  <Ring3_Name ua="na" value="Bellcore-r3" />
+  <Ring4_Name ua="na" value="Bellcore-r4" />
+  <Ring5_Name ua="na" value="Bellcore-r5" />
+  <Ring6_Name ua="na" value="Bellcore-r6" />
+  <Ring7_Name ua="na" value="Bellcore-r7" />
+  <Ring8_Name ua="na" value="Bellcore-r8" />
+
+  <!-- Ring and Call Waiting Tone Spec -->
+
+  <Ring_Waveform ua="na" value="Trapezoid" /> <!-- options: Sinusoid/Trapezoid -->
+  <Ring_Frequency ua="na" value="20" />
+  <Ring_Voltage ua="na" value="85" />
+  <CWT_Frequency ua="na" value="440@-10" />
+
+  <!-- Control Timer Values (sec) -->
+
+  <Hook_Flash_Timer_Min ua="na" value=".1" />
+  <Hook_Flash_Timer_Max ua="na" value=".9" />
+  <Callee_On_Hook_Delay ua="na" value="0" />
+  <Reorder_Delay ua="na" value="5" />
+  <Call_Back_Expires ua="na" value="1800" />
+  <Call_Back_Retry_Intvl ua="na" value="30" />
+  <Call_Back_Delay ua="na" value=".5" />
+  <VMWI_Refresh_Intvl ua="na" value="0" />
+  <Interdigit_Long_Timer ua="na" value="10" />
+  <Interdigit_Short_Timer ua="na" value="3" />
+  <CPC_Delay ua="na" value="2" />
+  <CPC_Duration ua="na" value="0" />
+
+  <!-- Vertical Service Activation Codes -->
+
+  <Call_Return_Code ua="na" value="*69" />
+  <Call_Redial_Code ua="na" value="*07" />
+  <Blind_Transfer_Code ua="na" value="*98" />
+  <Call_Back_Act_Code ua="na" value="*66" />
+  <Call_Back_Deact_Code ua="na" value="*86" />
+  <Call_Back_Busy_Act_Code ua="na" value="*05" />
+  <Cfwd_All_Act_Code ua="na" value="*72" />
+  <Cfwd_All_Deact_Code ua="na" value="*73" />
+  <Cfwd_Busy_Act_Code ua="na" value="*90" />
+  <Cfwd_Busy_Deact_Code ua="na" value="*91" />
+  <Cfwd_No_Ans_Act_Code ua="na" value="*92" />
+  <Cfwd_No_Ans_Deact_Code ua="na" value="*93" />
+  <Cfwd_Last_Act_Code ua="na" value="*63" />
+  <Cfwd_Last_Deact_Code ua="na" value="*83" />
+  <Block_Last_Act_Code ua="na" value="*60" />
+  <Block_Last_Deact_Code ua="na" value="*80" />
+  <Accept_Last_Act_Code ua="na" value="*64" />
+  <Accept_Last_Deact_Code ua="na" value="*84" />
+  <CW_Act_Code ua="na" value="*56" />
+  <CW_Deact_Code ua="na" value="*57" />
+  <CW_Per_Call_Act_Code ua="na" value="*71" />
+  <CW_Per_Call_Deact_Code ua="na" value="*70" />
+  <Block_CID_Act_Code ua="na" value="*67" />
+  <Block_CID_Deact_Code ua="na" value="*68" />
+  <Block_CID_Per_Call_Act_Code ua="na" value="*81" />
+  <Block_CID_Per_Call_Deact_Code ua="na" value="*82" />
+  <Block_ANC_Act_Code ua="na" value="*77" />
+  <Block_ANC_Deact_Code ua="na" value="*87" />
+  <DND_Act_Code ua="na" value="*78" />
+  <DND_Deact_Code ua="na" value="*79" />
+  <CID_Act_Code ua="na" value="*65" />
+  <CID_Deact_Code ua="na" value="*85" />
+  <CWCID_Act_Code ua="na" value="*25" />
+  <CWCID_Deact_Code ua="na" value="*45" />
+  <Dist_Ring_Act_Code ua="na" value="*26" />
+  <Dist_Ring_Deact_Code ua="na" value="*46" />
+  <Speed_Dial_Act_Code ua="na" value="*74" />
+  <Secure_All_Call_Act_Code ua="na" value="*16" />
+  <Secure_No_Call_Act_Code ua="na" value="*17" />
+  <Secure_One_Call_Act_Code ua="na" value="*18" />
+  <Secure_One_Call_Deact_Code ua="na" value="*19" />
+  <Conference_Act_Code ua="na" value="" />
+  <Attn-Xfer_Act_Code ua="na" value="" />
+  <Modem_Line_Toggle_Code ua="na" value="*99" />
+  <FAX_Line_Toggle_Code ua="na" value="#99" />
+  <Media_Loopback_Code ua="na" value="*03" />
+  <Referral_Services_Codes ua="na" value="" />
+  <Feature_Dial_Services_Codes ua="na" value="" />
+
+  <!-- Vertical Service Announcement Codes -->
+
+  <Service_Annc_Base_Number ua="na" value="" />
+  <Service_Annc_Extension_Codes ua="na" value="" />
+
+  <!-- Outbound Call Codec Selection Codes -->
+
+  <Prefer_G711u_Code ua="na" value="*017110" />
+  <Force_G711u_Code ua="na" value="*027110" />
+  <Prefer_G711a_Code ua="na" value="*017111" />
+  <Force_G711a_Code ua="na" value="*027111" />
+  <Prefer_G723_Code ua="na" value="*01723" />
+  <Force_G723_Code ua="na" value="*02723" />
+  <Prefer_G726r16_Code ua="na" value="*0172616" />
+  <Force_G726r16_Code ua="na" value="*0272616" />
+  <Prefer_G726r24_Code ua="na" value="*0172624" />
+  <Force_G726r24_Code ua="na" value="*0272624" />
+  <Prefer_G726r32_Code ua="na" value="*0172632" />
+  <Force_G726r32_Code ua="na" value="*0272632" />
+  <Prefer_G726r40_Code ua="na" value="*0172640" />
+  <Force_G726r40_Code ua="na" value="*0272640" />
+  <Prefer_G729a_Code ua="na" value="*01729" />
+  <Force_G729a_Code ua="na" value="*02729" />
+
+  <!-- Miscellaneous -->
+
+  <Set_Local_Date__mm_dd_ ua="na" value="" />
+  <Set_Local_Time__HH_mm_ ua="na" value="" />
+  <Time_Zone ua="na" value="GMT-08:00" /> <!-- options: GMT-12:00/GMT-11:00/GMT-10:00/GMT-09:00/GMT-08:00/GMT-07:00/GMT-06:00/GMT-05:00/GMT-04:00/GMT-03:30/GMT-03:00/GMT-02:00/GMT-01:00/GMT/GMT+01:00/GMT+02:00/GMT+03:00/GMT+03:30/GMT+04:00/GMT+05:00/GMT+05:30/GMT+05:45/GMT+06:00/GMT+06:30/GMT+07:00/GMT+08:00/GMT+09:00/GMT+09:30/GMT+10:00/GMT+11:00/GMT+12:00/GMT+13:00 -->
+  <FXS_Port_Impedance ua="na" value="600" /> <!-- options: 600/900/600+2.16uF/900+2.16uF/270+750||150nF/220+820||120nF/220+820||115nF/200+600||100nF -->
+  <Daylight_Saving_Time_Rule ua="na" value="start=4/1/7;end=10/-1/7;save=1" />
+  <FXS_Port_Input_Gain ua="na" value="-3" />
+  <FXS_Port_Output_Gain ua="na" value="-3" />
+  <DTMF_Playback_Level ua="na" value="-16" />
+  <DTMF_Playback_Length ua="na" value=".1" />
+  <Detect_ABCD ua="na" value="Yes" />
+  <Playback_ABCD ua="na" value="Yes" />
+  <Caller_ID_Method ua="na" value="Bellcore(N.Amer,China)" /> <!-- options: Bellcore(N.Amer,China)/DTMF(Finland,Sweden)/DTMF(Denmark)/ETSI DTMF/ETSI DTMF With PR/ETSI DTMF After Ring/ETSI FSK/ETSI FSK With PR(UK)/DTMF(Denmark) With PR -->
+  <Caller_ID_FSK_Standard ua="na" value="bell 202" /> <!-- options: bell 202/v.23 -->
+  <Feature_Invocation_Method ua="na" value="Default" /> <!-- options: Default/Sweden -->
+  <More_Echo_Suppression ua="na" value="No" />
+
+  <!-- Port Forwarding Settings -->
+
+
+  <!-- DMZ Settings -->
+
+  <Enable_DMZ ua="rw" value="No" />
+  <DMZ_Host_IP_Address ua="rw" value="0" />
+
+  <!-- Miscellaneous Settings -->
+
+  <Multicast_Passthru ua="rw" value="Disabled" /> <!-- options: Disabled/Inbound Only/Outbound Only/Inbound and Outbound -->
+
+  <!-- System Reserved Ports Range -->
+
+  <Starting_Port ua="rw" value="50000" />
+  <Num_of_Ports_Reserved ua="rw" value="256" /> <!-- options: 256/512/1024 -->
+
+  <!--  -->
+
+  <Protect_IVR_FactoryReset ua="na" value="No" />
+
+</flat-profile>
+```
+
+## Broken PSTN to VoIP Caller ID
+
+Since this device is eol, Linksys stopped giving out firmware updates on it and the latest firmware seems to have an issue with passing illegal characters in caller id name field when PSTN to VoIP gateway is setup with PSTN CID For VoIP CID is set to yes. In the case when PSTN provider doesn't send any caller id name or sends a broken name, the device seems to pass it to FreeSwitch without putting it in "" and this results in FreeSwitch not accepting any calls, to get over this there is a patch I came up with posted in [FS-7542](https://freeswitch.org/jira/browse/FS-7542)  
+
+  
+## Comments:
+
+| regarding the TP Parse error i have uploaded a diff file which would allow FS to accept packets with cid name field without quotes and with illegal characters [FS-7542](https://freeswitch.org/jira/browse/FS-7542?src=confmacro)  \-[Autentica](https://freeswitch.org/confluence/plugins/servlet/applinks/oauth/login-dance/authorize?applicationLinkID=c4b15fa3-ad57-3c05-af05-8c167cb92266) per visualizzare i dettagli del problema ![](/images/icons/contenttypes/comment_16.png) Posted by xbipin at mag 19, 2015 02:37 |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+
+Document generated by Confluence on nov 11, 2022 04:28

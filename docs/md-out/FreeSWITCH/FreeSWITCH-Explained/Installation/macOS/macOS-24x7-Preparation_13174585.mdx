@@ -1,0 +1,606 @@
+
+# macOS 24x7 Preparation 
+
+ Created by  Mario G, last modified on 2020.09.24
+
+# About
+
+This section describes how to prepare macOS for running FreeSWITCH™ 24x7\. It is part of the FreeSWITCH™ [macOS](./index.mdx#about) documentation.
+
+* 1 [Why 24x7 Operation?](#why-24x7-operation)
+* 2 [Create Dummy Command File](#create-dummy-command-file)
+* 3 [Create the FreeSWITCH™ Command Script](#create-the-freeswitch-command-script)
+* 4 [Automatic Startup and Shutdown](#automatic-startup-and-shutdown)  
+   * 4.1 [Autostart Using Login Items](#autostart-using-login-items)  
+         * 4.1.1 [Setup macOS Account to Autostart FreeSWITCH™](#setup-macos-account-to-autostart-freeswitch)  
+   * 4.2 [Autostart Using Launchd](#autostart-using-launchd)  
+         * 4.2.1 [Create the FreeSWITCH™ plist](#create-the-freeswitch-plist)  
+         * 4.2.2 [Test the FreeSWITCH™ plist](#create-the-freeswitch-plist)  
+   * 4.3 [Shutdown Using Launchd](#shutdown-using-launchd)  
+         * 4.3.1 [Create Shutdown Script](#create-shutdown-script)  
+         * 4.3.2 [Create Shutdown plist](#create-shutdown-plist)  
+   * 4.4 [Diagnosing plist Problems](#diagnosing-plist-problems)
+* 5 [Create A freeswitch-CLI Command Script](#create-a-freeswitch-cli-command-script)
+* 6 [Log Segmentation and Clearing](#log-segmentation-and-clearing)  
+   * 6.1 [Automatic Log Segmentation](#automatic-log-segmentation)  
+         * 6.1.1 [Create Log Segment Script](#create-log-segment-script)  
+         * 6.1.2 [Create Log Segment plist](#create-log-segment-plist)  
+   * 6.2 [Automatic Log Clearing](#automatic-log-clearing)  
+         * 6.2.1 [Create Log Clear Script](#create-log-clear-script)  
+         * 6.2.2 [Create Log Clear plist](#create-log-clear-plist)  
+   * 6.3 [Automatic Log Rename at Login](#automatic-log-rename-at-login)  
+         * 6.3.1 [Create Rename Script](#create-rename-script)  
+         * 6.3.2 [Setup macOS Account to Run the Rename Script](#setup-macos-account-to-run-the-rename-script)
+* 7 [Power Failure Recovery](#power-failure-recovery)  
+   * 7.1 [Uninterruptible Power Supply](#uninterruptible-power-supply)  
+   * 7.2 [Auto Power Up After Failure](#auto-power-up-after-failure)
+
+# Why 24x7 Operation?
+
+Once all of the FreeSWITCH™ configuration is completed and phones are in place, macOS must be prepared so that FreeSWITCH™ is always started and kept running. If the Mac is restarted intentionally, or macOS is restarted for any reason, such as a crash, you'll want the phone system up and running as fast as possible. These instructions illustrate how to prepare macOS so that FreeSWITCH™ is _automatically_ restarted under those conditions.
+
+You can perform all editing using Textedit, however, you should become familiar with the Xcode editor. Its advantage is that it displays [XML](http://en.wikipedia.org/wiki/XML) code colorized so you can find syntax errors quickly. This is ideal for editing FreeSWITCH™ XML configuration files.
+
+# Create Dummy Command File
+
+  
+Some steps in this section require a command script file. This is a file that you can double click to run in the Terminal application. More importantly, these files are also used for automatic startup functions.
+
+Command files are text files containing Terminal commands with the file's permission changed to become executable. Rather than repeat this process for each file, create a dummy command file that will serve as a skeleton and retain its permissions when copied. The files are saved in /usr/local/freeswitch-scripts but you can place them anywhere. Once a command text file is created it can be opened and saved in Textedit or Xcode, whatever is your preference, without any extra steps.
+
+* Create the /usr/local/freeswitch-scripts directory:  
+```xml  
+   mkdir /usr/local/freeswitch-scripts  
+```
+1. Start Textedit
+2. Paste the two lines below into the empty document:  
+```xml  
+#!/bin/bash  
+exit 0  
+```
+
+Make sure they are saved as text:
+
+1. Pull down the Format menu
+2. Select Make Plain Text, if the default for saving text is already Plain Text, this step is not needed.
+3. Save the file in /usr/local/freeswitch-scripts as dummy.command. While the file window is open press command+shift+.(period) to view hidden files.
+4. You may see examples with #!/bin/sh as the first line, either will work in any of these scripts.
+
+  
+Start the Terminal application, switch to the new directory and enter the chmod command to make the file executable:
+
+```xml
+  cd /usr/local/freeswitch-scripts
+  chmod +x dummy.command
+```
+
+# Create the FreeSWITCH™ Command Script
+
+The command to start FreeSWITCH™ is /usr/local/freeswitch/bin/freeswitch -parm1 -parm2…. You can start the freeswitch program using this command. However, it's much better to use a [bash](http://en.wikipedia.org/wiki/Bash%5F%28Unix%5Fshell%29) [script](http://en.wikipedia.org/wiki/Script%5F%28computing%29) which starts FreeSWITCH™.
+
+Consider these requirements for a 24x7 phone system:
+
+* Should start automatically when the computer powers up
+* Should restart itself due to a failure such as program crash
+* Should restart in case it was accidentally manually shutdown
+* Should not restart if available resources such as TCP ports are not available
+* Write messages to the console so problems can be determined easily
+* Allow easy updating of startup parameters without requiring a reboot
+
+These are all accomplished using the instructions and script below. You can change or add parameters such as -nonat or -nc. However, the -nc option is required to run freeswitch as a [background process](http://en.wikipedia.org/wiki/Background%5Fprocess) from the bash script.
+
+From the new directory, enter the command below to create the freeswitch.command file, it can be placed anywhere but you must change the Launchd plist to match the location.
+
+```xml
+  cp dummy.command freeswitch.command
+```
+
+  
+Open the freeswitch.command file in the editor and replace the two lines with the following bash script:
+
+  
+Click here to view the entire script...
+
+#!/bin/sh
+#set -xv # For debugging
+set -f     # Turn off globbing due to the "*" returned by the netstat command
+#
+# Internal functions
+#
+function writelog () {
+  syslog -s -k Facility com.apple.console \
+            -k Level notice \
+            -k Message "$1"
+
+  printf "%b\n" "freeswitch-startup - $1"    # &lt;- echo does not put NL back in and displays bunched up on terminal
+}
+
+# Test to see if freeswitch is still running, should never occur
+function check_fs () {
+  local a=( $(ps axo pid,command | grep "/bin/[f]reeswitch") )   # place pid in array - /bin excludes finding freeswitch-cli
+  if [[ $a = "" ]] ; then
+    return 0
+  fi
+  pid=${a[0]}    # Pass first element (pid number)
+  return 1
+}
+
+function check_tcp () {
+# Test if macOS just started and TCPIP is ready, otherwise FS wont connect to gateways
+  while : ; do
+     local a=$(/usr/sbin/netstat -a -p tcp)
+     writelog "${a}"
+     if [[ "$a" = *ESTABLISHED* ]] ; then
+       writelog "freeswitch-startup - TCPIP is available"
+       writelog "${a}"
+       break
+     fi
+     writelog "freeswitch-startup - Waiting for TCPIP, retry in 3 seconds"
+     sleep 3
+  done
+}
+
+function check_sip {
+  while : ; do
+     local a=$(/usr/sbin/netstat -a -p $1)
+     writelog "${a}"
+     if [[ "$a" != *sip* ]] ; then
+       writelog "freeswitch-startup - SIP is clear on $1"
+       break
+     fi
+     writelog "freeswitch-startup Port 5060 still in use by $1 - retry in 3 seconds"
+     sleep 3
+  done
+}
+
+# Main flow starts here
+# Test to see if freeswitch is still running, should never occur under normal operation at this point
+while : ; do
+  check_fs
+  rc=$?
+  if [[ $rc = 0 ]]; then
+    break
+  fi
+  writelog "freeswitch-startup - freeswitch process $pid is still running, retry in 3 seconds"
+  sleep 3
+done
+
+check_tcp      # Make sure TCPIP is up
+
+# If FS is shutdown and started quickly, must wait for SIP port to clear or FS profile "internal" fails to start.
+# Test TCP and UDP separately since plain netstat may contain "sip" characters elsewhere.
+check_sip tcp
+check_sip udp
+   
+OS_Version=$(sw_vers -productVersion | sed "s:.[[:digit:]]*.$::g")
+if [[ ${OS_Version} == 10.7 ]] | [[ ${OS_Version} == 10.8 ]] | [[ ${OS_Version} == 10.9 ]]; then   # Bug in 10.789 causes netstat to show ports clear but they are not - Mario G 2012-03-26
+  writelog "freeswitch-startup - FreeSwitch waiting for 60 seconds due to 10.8 bug"
+  sleep 60
+fi
+# Start freeswitch - do NOT use nohup and & since FS starts a new pid and the wrong one would be returned in check_fs
+writelog "freeswitch-startup - FreeSwitch is being started, script will wait until FreeSwitch is stopped"
+/usr/local/freeswitch/bin/freeswitch  -nc -nonat
+# Now wait for freeswitch to end, otherwise Launchd will restart this script when it ends
+check_fs
+writelog "freeswitch-startup - Waiting for FreeSwitch process $pid to terminate"
+while [ $(ps -p $pid -o 'pid=') ]; do sleep 15; done
+writelog "freeswitch-startup - script has ended"
+exit 0
+
+  
+Save the file, remember it's already executable. You can use this to manually start FreeSWITCH™ anytime once security has been set.
+
+Set Security and Test
+
+The command file MUST be included in the macOS security settings. Make sure FreeSWITCH™ is not running and double click the file to test and start FreeSWITCH™. It will fail the first time due to security. Open Settings–>Security & Privacy, unlock the lock at the bottom, and allow the command name to run. The setting will be permanent.
+
+# Automatic Startup and Shutdown
+
+Although there are a few ways to automatically start programs on macOS, only two are covered here. Both are the current recommended methods for automatically starting programs on macOS. If you depend on FreeSWITCH™ running 24x7 be sure to start the script using [Launchd](http://wiki.freeswitch.org/wiki/Installation%5Fand%5FSetup%5Fon%5FOS%5FX#Startup%5FUsing%5FLaunchd) method below since it has many advantages.
+
+## Autostart Using Login Items
+
+This technique starts FreeSWITCH™ as a "foreground" Terminal application. This is useful for testing FreeSWITCH™ when it's automatically started after a reboot and you require all console messages easily viewable. Starting FreeSWITCH™ in a Terminal window has one serious disadvantage: Terminal stores the console messages in memory. Once memory becomes full the Mac will slow down and may not respond. Consequently you would have to restart FreeSWITCH™ regularly depending on the number of messages. This is not useful for running a normal production system.
+
+### Setup macOS Account to Autostart FreeSWITCH™
+
+This runs the command file every time the user logs in manually or automatically. If FreeSWITCH™ is shutdown using this startup process, it will _not_ automatically restart.
+
+1. Start System Preferences
+2. Click Accounts
+3. Click Logon Items
+4. Check "+"
+5. Navigate to the freeswitch.command file and click Add.
+
+## Autostart Using Launchd
+
+The macOS [Launchd](http://en.wikipedia.org/wiki/Launchd) daemon can be used to start FreeSWITCH™ when macOS starts or preferably when the user logs on. We'll cover how to automatically start FreeSWITCH™ when the user logs on. If FreeSWITCH™ is shutdown using this startup process, it _will_ automatically restart.
+
+### Create the FreeSWITCH™ plist
+
+First, we create a "property list" file, also known as a ["plist"](http://en.wikipedia.org/wiki/Plist) that will:
+
+* Start FreeSWITCH™ when the user logs on or is auto logged on
+* Restart FreeSWITCH™ as soon as it stops for any reason including manual or auto shutdown and crashes
+1. Start Textedit
+2. Paste the lines below into the empty document
+3. Pull down the Format menu
+4. Select Make Plain Text
+5. Save the file in /users/yourid/Library/LaunchAgents as org.freeswitch.freeswitch.plist, yourid is the user home directory
+
+```xml
+ <?xml version="1.0" encoding="UTF-8"?>
+ <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" 
+ "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+ <plist version="1.0">
+ <dict>
+      <key>RunAtLoad</key>
+            <true/>
+      <key>KeepAlive</key>
+           <true/>
+      <key>ProcessType</key>
+           <string>Interactive</string>
+      <key>Label</key>
+           <string>org.freeswitch.freeswitch</string>
+      <key>ProgramArguments</key>
+      <array>
+           <string>/usr/local/freeswitch-scripts/fs-startup.command</string>
+      </array>
+ </dict>
+ </plist>
+
+```
+
+  
+Although FreeSWITCH™ is started via the script, the freeswitch program could be executed directly from this plist, that is not recommended.
+
+### Test the FreeSWITCH™ plist
+
+Make sure FreeSWITCH™ is down. Then in Terminal execute the follow command:
+
+```xml
+  launchctl load ~/Library/LaunchAgents/org.freeswitch.freeswitch.plist
+```
+
+Now check if FreeSWITCH™ is running by either:
+
+1. Test your phones
+2. Launch Activity Monitor
+3. In Terminal, run /usr/local/freeswitch/bin/freeswitch-cli
+
+If FreeSWITCH™ is running, you can shut it down by issuing:
+
+```xml
+  launchctl unload ~/Library/LaunchAgents/org.freeswitch.freeswitch.plist
+```
+
+  
+Or from Terminal either of these commands would work from the freeswitch/bin directory:
+
+```xml
+  freeswitch -stop
+  freeswitch-cli -x shutdown
+```
+
+## Shutdown Using Launchd
+
+The macOS Launchd daemon can be also be used to shutdown FreeSWITCH™. This is not needed during macOS shutdown because macOS sends shutdown signals to all of the running programs. However, you may find it desirable to automatically recycle FreeSWITCH™ for problem determination. Or you may just feel more comfortable knowing FreeSWITCH™ is recycled at a set day and time.
+
+### Create Shutdown Script
+
+Start Terminal and enter this command to create the freeswitch-shutdown.command file in directory freeswitch-scripts:
+
+```xml
+  cp dummy.command freeswitch-shutdown.command
+```
+
+  
+Open the file in the editor and add the following line as the second line of the file (between the existing two lines):
+
+```xml
+/usr/local/freeswitch/bin/freeswitch-cli -x "shutdown"
+```
+
+  
+Save the file, remember it's already executable.  
+Make sure FreeSWITCH™ is up and double click the file to test it and set the one time security setting. If FreeSWITCH™ shuts down then proceed with the next steps.
+
+Set Security and Test
+
+The command file MUST be included in the macOS security settings. Double click the file to test, it will fail the first time due to security. Open Settings–>Security & Privacy, unlock the lock at the bottom, and allow the command name to run. The setting will be permanent.
+
+  
+### Create Shutdown plist
+
+Next, create the plist file for Launchd:
+
+1. Start Textedit
+2. Paste the lines below into the empty document
+3. Pull down the Format menu
+4. Select Make Plain Text
+5. Change yourid to the id of the home directory and change the time shutdown will occur if needed (the example below is set for 2am each Sunday morning)
+6. Save the file in /users/yourid/Library/LaunchAgents as org.freeswitch.shutdown.plist, yourid is the user home directory
+
+```xml
+   <?xml version="1.0" encoding="UTF-8"?>
+   <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" 
+   "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+   <plist version="1.0">
+   <dict>
+        <key>Label</key>
+             <string>org.freeswitch.shutdown</string>
+        <key>ProgramArguments</key>
+        <array>
+             <string>/usr/local/freeswitch-scripts/freeswitch-shutdown.command</string>
+        </array>
+        <key>RunAtLoad</key>
+             <false/>
+        <key>StartCalendarInterval</key>
+        <dict>
+             <key>Weekday</key>
+                  <integer>7</integer>
+             <key>Hour</key>
+                  <integer>2</integer>
+             <key>Minute</key>
+                  <integer>0</integer>
+        </dict>
+   </dict>
+   </plist>
+
+```
+
+  
+You can either restart the Mac or issue the following command to activate the plist:
+
+```xml
+  launchctl load ~/Library/LaunchAgents/org.freeswitch.freeswitch-shutdown.plist
+```
+
+## Diagnosing plist Problems
+
+If you receive the following message: launchctl: no plist was returned for:…..plist it usually means there was some type of error in the format of the plist. Open the macOS Console application in the Applications/Utilities folder to view messages.
+
+# Create A freeswitch-CLI Command Script
+
+Once FreeSWITCH™ is running in background mode you will need to use freeswitch-cli to communicate with it. Rather than starting Terminal and having to type the path to freeswitch-cli you can simply double click an icon to launch directly to freeswitch-cli.
+
+Create the freeswitch-cli.command file in directory freeswitch-scripts:
+
+```xml
+  cp dummy.command freeswitch-cli.command
+```
+
+  
+Next, add a line containing the command needed to start freeswitch-cli. Edit the new file and add the following line as the second line of the file (between the existing two lines):
+
+```xml
+/usr/local/freeswitch/bin/freeswitch-cli
+```
+
+Since it's already executable just double click the icon while FreeSWITCH™ is running and freeswitch-cli will communicate with it. You may want to place an alias of the script on the Desktop for easy access.
+
+Set Security and Test
+
+The command file MUST be included in the macOS security settings. Double click the file to test, it will fail the first time due to security. Open Settings–>Security & Privacy, unlock the lock at the bottom, and allow the command name to run. The setting will be permanent.
+
+  
+# Log Segmentation and Clearing
+
+FreeSWITCH™ has a lot of [logging options](http://wiki.freeswitch.org/wiki/Mod%5Flogfile) and the log files can become quite large. This section illustrates how to make macOS automatically trigger events to control logging.
+
+## Automatic Log Segmentation
+
+By default, the freeswitch.log file is appended to each time FreeSWITCH™ starts, and segments when its size reaches about 10 megabytes. This can be changed. However, FreeSWITCH™ does not have a mechanism to segment by time or day. By creating two files in macOS we can accomplish day and time controlled segmentation.
+
+##### Create Log Segment Script
+
+Start Terminal and enter this command to create the freeswitch-logseg.command file in directory freeswitch-scripts:
+
+```xml
+  cp dummy.command freeswitch-logseg.command
+```
+
+  
+Open the file in the editor and add the following line as the second line of the file (between the existing two lines).
+
+```xml
+kill -HUP `cat /usr/local/freeswitch/run/freeswitch.pid`
+```
+
+Save the file, remember it's already executable.
+
+Make sure FreeSWITCH™ is up and double click the file to test it. View the /usr/local/freeswitch/log directory, if the log was segmented proceed with the next steps.
+
+Set Security and Test
+
+The command file MUST be included in the macOS security settings. Double click the file to test, it will fail the first time due to security. Open Settings–>Security & Privacy, unlock the lock at the bottom, and allow the command name to run. The setting will be permanent.
+
+  
+##### Create Log Segment plist
+
+Next, the plist file Launchd requires is created:
+
+1. Start Textedit
+2. Paste the lines below into the empty document
+3. Pull down the Format menu
+4. Select Make Plain Text
+5. Change yourid to the id of the home directory and change the time segmentation will occur if needed (23:59 is right before midnight)
+6. Save the file in /users/yourid/Library/LaunchAgents as org.freeswitch.logseg.plist, yourid is the user home directory
+
+```xml
+   <?xml version="1.0" encoding="UTF-8"?>
+   <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" 
+   "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+   <plist version="1.0">
+   <dict>
+        <key>Label</key>
+              <string>org.freeswitch.logseg</string>
+        <key>ProgramArguments</key>
+        <array>
+             <string>/usr/local/freeswitch-scripts/freeswitch-logseg.command</string>
+        </array>
+        <key>RunAtLoad</key>
+             <false/>
+        <key>StartCalendarInterval</key>
+        <dict>
+             <key>Hour</key>
+                  <integer>23</integer>
+             <key>Minute</key>
+                  <integer>59</integer>
+        </dict>
+   </dict>
+   </plist>
+
+```
+
+  
+You can either restart the Mac or issue the following command to activate the plist:
+
+```xml
+  launchctl load ~/Library/LaunchAgents/org.freeswitch.freeswitch-logseg.plist
+```
+
+## Automatic Log Clearing
+
+Most likely you will want to erase old FreeSWITCH™ logs to free up disk space. This procedure will run periodically to delete files older than the number of days specified in a script.
+
+##### Create Log Clear Script
+
+Start Terminal and enter this command to create the freeswitch-logclr.command file in directory freeswitch-scripts:
+
+```xml
+  cp dummy.command freeswitch-logclr.command
+```
+
+  
+Open the file in the editor and add the following line as the second line of the file (between the existing two lines). Notice that mtime is set so files older than 14 days are deleted. You can change this to any valid mtime value.
+
+```xml
+/usr/bin/find /usr/local/freeswitch/log -name "freeswitch.log.*" -mtime +14 -delete
+```
+
+Save the file, remember it's already executable.
+
+Make sure FreeSWITCH™ is up and double click the file to test it. View the /usr/local/freeswitch/log directory, if old logs were cleared proceed with the next steps.
+
+Set Security and Test
+
+The command file MUST be included in the macOS security settings. Double click the file to test, it will fail the first time due to security. Open Settings–>Security & Privacy, unlock the lock at the bottom, and allow the command name to run. The setting will be permanent.
+
+  
+##### Create Log Clear plist
+
+Next, the plist file Launchd requires is created:
+
+1. Start Textedit
+2. Paste the lines below into the empty document
+3. Pull down the Format menu
+4. Select Make Plain Text
+5. Change yourid to the id of the home directory and change the time clearing will occur if needed (day 0 00:00 is Sunday midnight)
+6. Save the file in /users/yourid/Library/LaunchAgents as org.freeswitch.logclr.plist, yourid is the user home directory
+
+```xml
+   <?xml version="1.0" encoding="UTF-8"?>
+   <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" 
+   "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+   <plist version="1.0">
+   <dict>
+        <key>Label</key>
+              <string>org.freeswitch.logclr</string>
+        <key>ProgramArguments</key>
+        <array>
+             <string>/usr/local/freeswitch-scripts/freeswitch-logclr.command</string>
+        </array>
+        <key>RunAtLoad</key>
+             <false/>
+        <key>StartCalendarInterval</key>
+        <dict>
+             <key>Day</key>
+                  <integer>0</integer>
+             <key>Hour</key>
+                  <integer>0</integer>
+             <key>Minute</key>
+                  <integer>0</integer>
+    </dict>
+   </dict>
+   </plist>
+```
+
+  
+You can either restart the Mac or issue the following command to activate the plist:
+
+```xml
+  launchctl load ~/Library/LaunchAgents/org.freeswitch.freeswitch-logclr.plist
+```
+
+## Automatic Log Rename at Login
+
+FreeSWITCH™ does not segment the log file when it is shutdown and restarted, it simply appends to the previous log file. Use this procedure to rename the last log file before FreeSWITCH™ starts at login. This is especially useful when restarting FreeSWITCH™ frequently for testing purposes, since you can double click the script to run it manually when needed.
+
+##### Create Rename Script
+
+A command file must be created containing the bash script statements to perform the rename function.
+
+Start Terminal and enter this command to create the freeswitch-logren.command file in directory freeswitch-scripts:
+
+```xml
+  cp dummy.command freeswitch-logren.command
+```
+
+  
+Open the file in an editor and replace the text with the following lines that will obtain the log file modification date and time, and add it to the file name:
+
+```xml
+  #!/bin/sh
+  logfile="/usr/local/freeswitch/log/freeswitch.log"
+  mdate=$(GetFileInfo -m $logfile)
+  newname=$logfile"-"${mdate:6:4}"-"${mdate:0:2}"-"${mdate:3:2}"-"${mdate:11:2}"-"${mdate:14:2}"-last"
+  mv $logfile $newname
+  exit 0
+```
+
+  
+Save the file, remember it's already executable.
+
+FreeSWITCH™ can be running to test but it's preferable to shut it down so it comes up with a new log file. Double click the icon to test and check the log directory for the name change.
+
+Set Security and Test
+
+The command file MUST be included in the macOS security settings. Double click the file to test, it will fail the first time due to security. Open Settings–>Security & Privacy, unlock the lock at the bottom, and allow the command name to run. The setting will be permanent.
+
+##### Setup macOS Account to Run the Rename Script
+
+This runs the command file every time the Desktop user logs in.
+
+1. Start System Preferences
+2. Click Accounts
+3. Click Logon Items
+4. Check "+"
+5. Navigate to the freeswitch-logren.command file and click Add.
+
+# Power Failure Recovery
+
+Most likely, you are using FreeSWITCH™ on a 24x7 Mac. In case of a power failure there are two things that should be done to maintain FreeSWITCH™ availability:
+
+## Uninterruptible Power Supply
+
+The Mac should be connected to a "smart" UPS that has a USB connection. This allows macOS to automatically perform a clean shutdown when there is not enough battery power to continue. macOS supports major UPS units that do not require additional software to be installed, these units are highly recommended. Once you connect the UPS via a USB cable:
+
+1. Start System Preferences
+2. Click Energy Saver
+3. Click UPS
+4. Set desired Computer and Screen sleep options. FreeSWITCH™ seems to do fine with sleep set.
+5. Click Shutdown Options
+6. Set the desired options based on your UPS backup time.
+
+## Auto Power Up After Failure
+
+If you don't have a UPS, or your UPS runs out of battery power, the Mac will shut off. If there is no one around to restart it and you want it to restart automatically follow these steps:
+
+1. Start System Preferences
+2. Click Energy Saver
+3. Check "Start up automatically after power failure"
+4. Click UPS
+5. Check "Start up automatically after power failure"
+
+Document generated by Confluence on nov 11, 2022 04:24

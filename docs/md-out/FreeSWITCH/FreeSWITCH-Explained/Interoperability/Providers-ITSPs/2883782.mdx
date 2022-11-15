@@ -1,0 +1,97 @@
+
+# Provider MyNetFone (Australia) 
+
+ Created by  Mario G, last modified on 2014.05.31
+
+Last update: 21 April 2014
+
+* 1 [MyNetFone.com.au](#mynetfonecomauhttpmynetfonecomau)
+* 2 [Gateway config](#-freeswitch--provider-mynetfone-australia-)
+* 3 [Dialplan Examples](#dialplan-examples)  
+   * 3.1 [Local/State numbers (Missing area/country codes)](#localstate-numbers-missing-areacountry-codes)
+* 4 [National numbers (Area codes supplied)](#national-numbers-area-codes-supplied)
+* 5 [References](#-freeswitch--provider-mynetfone-australia-)
+
+### [MyNetFone.com.au](http://mynetfone.com.au)
+
+### Gateway config
+
+Incoming and outgoing calls work. In conf/sip\_profiles/outbound/ create a mynetfone.xml file with the following contents:
+
+```xml
+  <include>
+  <gateway name="MyNetFone">
+    <param name="username" value="xxxxxxxx"/>
+    <param name="password" value="xxxxxxxx"/>
+    <param name="realm" value="sip00.mynetfone.com.au"/>
+    <param name="proxy" value="sip00.mynetfone.com.au"/>
+    <param name="register" value="true"/>
+  </gateway>
+</include>
+```
+
+Quick note that it looks likely you will need to define the 'Outbound Caller ID Number' in the extension making the outbound call.
+
+Accounts > Extensions > \[Users Extension\] > Edit. Locate 'Outbound Caller ID Number' and enter the MNF number. (Its possible you can use your DID too. I cant test this - if it works, can you update this entry to confirm!)
+
+(**NOTE**: Im sure there is a more effective method, the above solution works, but is probably generally unsuitable for some implementations.)
+
+Update: Found this reference to FusionPBX and setting the Outbound Caller ID [FreeSWITCH User mailimg list posting](http://lists.freeswitch.org/pipermail/freeswitch-users/2011-April/071551.html)
+
+### Dialplan Examples
+
+To get started, the following dial plans will suffice for capturing local and national calls. Please note that these XML snippets were taken from a FusionPBX system and some of the actions may not apply. Important bits are the 'condition field' expression and the bridge action. Refer: [Wikipedia - Telephone Numbers in Australia](http://en.wikipedia.org/wiki/Telephone%5Fnumbers%5Fin%5FAustralia)
+
+GTW: _Please note that I built these from virtually no experience with Regular Expressions. I would appreciate feedback/suggestions for improvements to these!_
+
+#### Local/State numbers (Missing area/country codes)
+
+NOTE: The bridge will have the Country Code and (in this example) the NSW Area Code appended.
+
+NOTE2: ${outbound\_caller\_id\_number} should be set to your 09xxxxxx number, exactly the same as your SIP username (not DID or MNF web login) that you put in the sip\_profiles MNF gateway config. [\[1\]](https://wiki.freeswitch.org/wiki/Provider%5FConfiguration:%5FMyNetFone#cite%5Fnote-mnfid-1)
+
+```xml
+ <extension name="MyNetFone-local_fixed_line" >
+   <condition field="destination_number" expression="^([2-9]{1}[0-9]{7})$">
+       <action application="set" data="sip_h_X-accountcode=${accountcode}"/>
+       <action application="set" data="call_direction=outbound"/>
+       <action application="set" data="hangup_after_bridge=true"/>
+       <action application="set" data="effective_caller_id_name=${outbound_caller_id_name}"/>
+       <action application="set" data="effective_caller_id_number=${outbound_caller_id_number}"/>
+       <action application="bridge" data="sofia/gateway/MNF-Primary/612$1"/>
+   </condition>
+</extension>
+```
+
+### National numbers (Area codes supplied)
+
+NOTE: Will the bridge will have the Country Code appended.
+
+```xml
+<extension name="MyNetFone-national_fixed_line" >
+   <condition field="destination_number" expression="^(0|61|\+61)?([2?|3-9]{1}[0-9]{8})$">
+       <action application="set" data="sip_h_X-accountcode=${accountcode}"/>
+       <action application="set" data="call_direction=outbound"/>
+       <action application="set" data="hangup_after_bridge=true"/>
+       <action application="set" data="effective_caller_id_name=${outbound_caller_id_name}"/>
+       <action application="set" data="effective_caller_id_number=${outbound_caller_id_number}"/>
+       <action application="bridge" data="sofia/gateway/MNF-Primary/61$2"/>
+   </condition>
+</extension> 
+```
+
+### References
+
+[FreeSWITCH Wiki - Home PBX Example](http://wiki.freeswitch.org/wiki/Home%5FPBX%5FExample)
+
+[FreeSWITCH Wiki - Dialplan Regex examples](http://wiki.freeswitch.org/wiki/Regex#NANPA%5F.2B1NxxNxxXXXX%5FE.164%5FDialstring)
+
+[Regular Expression Validator tool](http://erik.eae.net/playground/regexp/regexp.html)
+
+[MyNetFone Snom300 Sample config](https://www.mynetfone.com.au/media/support/downloads/snom300/Snom%20Whitepaper.pdf)
+
+[FreeSWITCH Wiki - Anatomy of the XML Dialplan](http://wiki.freeswitch.org/wiki/Dialplan%5FXML#Anatomy%5Fof%5Fthe%5FXML%5FDialplan)
+
+1. [↑](https://wiki.freeswitch.org/wiki/Provider%5FConfiguration:%5FMyNetFone#cite%5Fref-mnfid%5F1-0) [MNF now requires "from" in the SIP/SDP header must match exactly the Remote-Party-ID](http://forums.whirlpool.net.au/forum-replies.cfm?t=1635784&p=2#r30)
+
+Document generated by Confluence on nov 11, 2022 04:28

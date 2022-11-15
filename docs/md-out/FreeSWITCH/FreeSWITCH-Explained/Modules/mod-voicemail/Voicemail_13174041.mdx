@@ -1,0 +1,165 @@
+
+# Voicemail 
+
+ Created by  Italo Monteiro on 2017.01.13
+
+# About
+
+About text.
+
+Click here to expand Table of Contents
+
+* 1 [Voicemail](#voicemail)  
+      * 1.1.1 [IVR engine overview](#ivr-engine-overview)  
+      * 1.1.2 [IVR XML configuration file](#ivr-xml-configuration-file)  
+   * 1.2 [Example, send a call, coming into a DID, to voicemail](#example-send-a-call-coming-into-a-did-to-voicemail)  
+   * 1.3 [Another Dialplan to send unanswered calls to voicemail](#another-dialplan-to-send-unanswered-calls-to-voicemail)  
+   * 1.4 [Recipes](#voicemail)  
+   * 1.5 [How can I disable remote login/access to voicemail?](#retrieve-calls-in-voicemail)
+
+# Voicemail
+
+"Voicemail" is actually several things within FreeSWITCH, having morphed over time. Because of this, presentation is scatter-brained- bits and pieces here and there. Here is my in-plain-English attempt to gather together good notes, practical examples and info, etc., into a 'grand central' of info on voicemail. As I learn them I'll talk about 'best practices' and I hope others will be inspired to help in this 'mere mortal' approach to explaining HOW to get things going most quickly and simply.
+
+It appears there was a way before 1.0.6 and a way after. This file is started 23 Dec 2011, after 1.0.6 . Here's a [**great article**](http://www.packtpub.com/article/freeswitch-utilizing-the-built-in-ivr-engine) by Anthony Minesalle about voicemail, the IVR system, etc.
+
+>> ### IVR engine overview
+>> 
+>> Unlike many applications within FreeSWITCH which are built as modules, IVR is considered the core functionality of FreeSWITCH. It is used anytime a prompt is played and digits are collected. Even if you are not using the IVR application itself from your Dialplan, you will see IVR-related functions being utilized from various other applications. As an example, the voicemail application makes heavy use of IVR functionality when playing messages, while awaiting digits to control deleting, saving, and otherwise managing voicemails.
+>> 
+>> In this section, we will only be reviewing the IVR functionality that is exposed from within the ivr Dialplan application. This functionality is typically used to build an auto-attendant menu, although other functions are possible as well.
+>> 
+>> ### IVR XML configuration file
+>> 
+>> FreeSWITCH ships with a sample IVR menu are typically invoked by dialing 5000 from the sample Dialplan. When you dial 5000, you will hear a greeting welcoming you to FreeSWITCH, and presenting your menu options. The menu options consist of calling the FreeSWITCH conference, calling the echo extension, hearing music on hold, going to a sub menu, or listening to screaming monkeys. We will start off reviewing the XML that powers this example.
+
+* [mod\_voicemail](../mod_voicemail_6587070.mdx#--) \- lots of great info here, channel vars, faq
+* [mod\_voicemail\_ivr](../mod_voicemail_ivr_6587067.mdx#--) \- something new: "The VoiceMail IVR application is a new prototype voicemail IVR engine that allows great flexibility for future improvement. The goal was to make its configuration flexible and yet not be restricted in terms of features we can implement in the different interfaces."
+
+Check conf/autoload\_configs/modules.conf.xml to ensure mod\_voicemail is being loaded.
+
+Most settings are in conf/autoload\_configs/voicemail.conf.xml
+
+Default storage location for voicemail recording files is $BASE/storage/voicemail/domain/ext/&lt;file.wav>
+
+## Example, send a call, coming into a DID, to voicemail
+
+Here's one way. Incoming call (to 301-555-1212) rings desk phone (configured as extension 1021 in a multi-tenant situation, under context named "multitenant\_domain") 4 times (per call\_timeout=20, as in 20 seconds), then per "hangup\_after\_bridge" sends to voicemail. Note the commented-out options. Also note that, as of 2011-12-23, application="voicemail" presently means the same as application="mod\_voicemail", so for more info see [mod\_voicemail](../mod_voicemail_6587070.mdx#--)
+
+In conf/dialplan/public/3015551212.xml
+
+```xml
+<include>
+<extension name="did-3015551212">
+<condition field="destination_number" expression="^(1{0,1}3015551212)$">
+<!--
+    If you're hosting multiple domains you will want to set the
+    target_domain on these calls so they hit the proper domain after you
+    transfer the caller into the default context.
+
+    $${domain} is the default domain set from vars.xml but you can set it
+    to any domain you have setup in your user directory.
+-->
+<!--
+<action application="set" data="domain_name=$${domain}"/>
+<action application="set" data="skip_greeting=true" />
+<action application="set" data="skip_instructions=true" />
+
+-->
+    <action application="set" data="domain_name=multitenant_domain"/>
+    <action application="set" data="target_domain=multitenant_domain"/>
+
+    <action application="set" data="hangup_after_bridge=true" />
+    <action application="set" data="call_timeout=20"/>
+
+    <action application="bridge" data="sofia/multitenant_domain/1021%${domain_name}" />
+    <action application="voicemail" data="default multitenant_domain 1021" />
+
+</condition>
+</extension>
+</include>
+```
+
+Note that the "bridge" above makes it so the dialplan for 1021 does not run (because 1021 was not dialed, 3015551212 was). If you want the dialplan to run for 1021, use "transfer" instead of "bridge".
+
+## Another Dialplan to send unanswered calls to voicemail
+
+In conf/dialplan/public/3015551212.xml
+
+```xml
+<extension name="public_did">
+  <condition field="destination_number" expression="^(3015551212)$">
+    <action application="set" data="call_timeout=20″/>
+    <action application="set" data="continue_on_fail=true"/>
+    <action application="set" data="hangup_after_bridge=true"/>
+    <action application="bridge" data="sofia/switch.gruntnet/1000,sofia/switch.gruntnet/1001″/>
+    <action application="answer"/>
+    <action application="voicemail" data="default $${domain} 1000″/>
+  </condition>
+</extension>
+```
+
+In this plan, when someone calls 3015551212 (my DID, from VoIP provider) we set timeout to 20 seconds, so if it's not answered before then, it goes to voicemail.
+
+continue\_on\_fail means if the bridge fails for whatever reason, one being no one answered it, continue processing the rest of the plan so the call goes to voicemail.
+
+hangup\_after\_bridge means if someone answered the phone within the 20 seconds, then stop processing the rest of the plan when the call terminates, ie, don't send it to voicemail.
+
+I'm sending the call to two phones in parallel, 1000 and 1001\. If neither of them pickup the call, FreeSWITCH answers the call, and launches the voicemail application, sending the call to voicemail box 1000
+
+&lt;param name="vm-email-all-messages" value="true" /> in conf/directory/default/1000.xml because I haven't setup email yet. Plus if you do enable that option, the messages aren't saved on FreeSWITCH, they get emailed and deleted.
+
+Call \*98 then dial 1000 to access voicemail and set up a greeting.
+
+  
+Feedback: "The method you did with bridge is an option but there are easier ways. If you do a transfer instead of the bridge it automatically will go to voicemail if the call is not answered or registered. A transfer runs through the dialplan and would be picked up by Local\_Extension and it would have all the settings to send the call to voicemail as expected. Another easy approach would be to send the call to a hunt group and make the timeout option go to voicemail."
+
+Note: to invoke any changes you make while testing, in the fs\_cli tool, or inside the FreeSWITCH console, type `reloadxml`.
+
+## Recipes
+
+#### Retrieve Calls in voicemail
+
+(snagged from the \[[ML](http://lists.freeswitch.org/pipermail/freeswitch-users/2012-March/081336.html)\])
+
+Just before the call diverts to VM it inserts a hash. The user can then dial # to retrieve(intercept) the call from the VM system. The VM loopback hangsup at the time the call is intercepted. Note that in this instance, any extension can retrieve the call by dialling # (this is the main number which rings on all phones).
+
+```xml
+<extension name="inbound_calls">
+        <condition field="destination_number" expression="^(200)$">
+                <action application="set" data="ringback=${au-ring}"/>
+                <action application="set" data="call_timeout=25"/>
+                <action application="set" data="hangup_after_bridge=true"/>
+                <action application="set" data="continue_on_fail=true"/>
+                <action application="bridge"
+                        data="{ignore_early_media=true}sofia/internal/302%${domain_name},sofia/internal/301%${domain_name}"/>
+                <action application="answer"/>
+                <action application="sleep" data="1000"/>
+                <action application="hash" data="insert/${domain_name}-retrieve_vm/global/${uuid}"/>
+                <action application="bridge" data="loopback/app=voicemail:default ${domain_name} 301"/>
+        </condition>
+</extension>
+
+
+<extension name="retrieve-vm">
+                <condition field="destination_number" expression="^(\#)$">
+                        <action application="intercept" data="${hash(select/${domain_name}-retrieve_vm/global/${uuid}"/>
+                        <action application="answer"/>
+                        <action application="sleep" data="1000"/>
+                </condition>
+        </extension>
+```
+
+##   
+How can I disable remote login/access to voicemail?
+
+Note, from mod\_voicemail page:
+
+Set the following two params in autoload\_configs/voicemail.conf.xml:
+
+```xml
+<param name="vmain-key" value="a"/> 
+<param name="login-keys" value="a"/>
+```
+
+ Document generated by Confluence on nov 11, 2022 04:27

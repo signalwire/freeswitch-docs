@@ -1,0 +1,530 @@
+
+# Javascript Example - Say IVR OfficeHours 
+
+ Created by  Pat Beirne on 2015.10.07
+
+# About
+
+IVR with holiday, after-hours and weekday detection
+
+Click here to expand Table of Contents
+
+**ivrmenuofficehours.js**
+
+```js
+ //IVR with Holiday, AfterHours, and Weekday detection
+  
+  var dtmftimeout = 4000;
+  var domain = "192.168.1.7"; //by default this is the ipv4 address of FreeSWITCH used for transfer to voicemail
+  var OpenforBusiness = 1; //default to open
+  var digitmaxlength = 0;
+  objdate = new Date();
+  var Hours = objdate.getHours();
+  var Mins = objdate.getMinutes();
+  var Seconds = objdate.getSeconds();
+  var Month = objdate.getMonth() + 1;
+  var Date = objdate.getDate();
+  var Year = objdate.getYear()
+  var Day = objdate.getDay()+1;
+  
+  function mycb( session, type, data, arg ) {
+     if ( type == "dtmf" ) {
+       //console_log( "info", "digit: "+data.digit+"\n" );
+       if ( data.digit == "#" ) {
+         //console_log( "info", "detected pound sign.\n" );
+         return( true );   
+       }
+       dtmf.digits += data.digit;
+       
+       if ( dtmf.digits.length < digitmaxlength ) {
+         return( true );
+       }
+     }
+     return( false );
+  } //end function mycb
+  
+  function isholiday( Month, Date ) {
+      var Holiday = 0; //default false
+      if (Month == "12" && Date == "25") {
+        Holiday = 1; //true
+      }
+      if (Month == "7" && Date == "4") {
+        Holiday = 1; //true
+      }
+      if (Month == "1" && Date == "1") {
+        Holiday = 1; //true
+      }
+      if (Holiday == 1) {
+        return true;    
+      }
+      else {
+        return false;
+      }
+  }  
+  
+  function isweekday( Day ) {
+      if (Day > 1 && Day < 7) {
+          return true;
+      }
+      else {
+          return false;
+      }
+  }
+  
+  function isweekend( Day ) {
+      if (Day > 1 && Day < 7) {
+          return false;
+      }
+      else {
+          return true;
+      }
+  }
+  
+  function isofficehours( Hours ) {
+      if (Hours >= 9 && Hours < 17) {
+          return true;
+      }
+      else {
+          return false;
+      }
+  }
+  
+  function isafterhours( Hours ) {
+      if (Hours >= 9 && Hours < 17) {
+          return false;
+      }
+      else {
+          return true;
+      }
+  }
+  
+      
+  //Holiday?
+  if (isholiday( Month, Date )) {
+      console_log( "info", "holiday\n" );
+      OpenforBusiness = 0; //closed
+  }
+  
+  //Weekend?
+  if (isweekend( Day )) {
+      console_log( "info", "weekend\n" );
+      OpenforBusiness = 0; //closed
+  }
+  
+  // After Hours?
+  if (isafterhours( Hours )) {
+      console_log( "info", "after hours\n" );
+      OpenforBusiness = 0; //closed
+  }
+  
+  
+  if (OpenforBusiness == 1) {
+      //console_log( "info", "office hours\n" );
+      session.execute("transfer", "500 XML default"); //transfer to any extension, phone number, IVR, and more during office hours
+  }
+  else {
+      
+      //console_log( "info", "After hours\n" );
+  
+      var dtmf = new Object( );
+      dtmf.digits = "";
+      if ( session.ready( ) ) {
+          session.answer( );
+          
+          digitmaxlength = 1;
+          session.streamFile( "/usr/local/freeswitch/sounds/custom/afterhours.wav", mycb, "dtmf 2000" );
+          session.collectInput( mycb, dtmf, dtmftimeout );
+          //console_log( "info", "IVR Digit Pressed: " + dtmf.digits + "\n" );
+          
+          if ( dtmf.digits == "1" ) {
+              session.execute("transfer", "501 XML default"); //transfer to extension 501
+          } else if ( dtmf.digits == "2" ) {
+              session.execute("transfer", "5551234 XML default"); //transfer to external number
+          } else if ( dtmf.digits == "3" ) {
+              session.execute("transfer", "9999 XML default"); //transfer to 9999 music on hold
+          } else if ( dtmf.digits == "4" ) {
+              session.execute("transfer", "5000 XML default"); //transfer to example IVR extension
+          } else {
+              //transfer to voicemail
+              session.execute("voicemail", "default "+domain+" 500"); //transfer to extension 500's voicemail
+          }
+          
+      } //end if session.ready   
+      
+  } //end if OpenforBusiness
+```
+
+Added Holidays through the year 2020
+
+**alternate ivrmenuofficehours.js**
+
+```js
+//IVR with Holiday, AfterHours, and Weekday detection
+ 
+ var dtmftimeout = 4000;
+ var domain = "192.168.2.1"; //by default this is the ipv4 address of FreeSWITCH used for transfer to voicemail
+ var OpenforBusiness = 1; //default to open
+ var digitmaxlength = 0;
+ objdate = new Date();
+ var Hours = objdate.getHours();
+ var Mins = objdate.getMinutes();
+ var Seconds = objdate.getSeconds();
+ var Month = objdate.getMonth() + 1;
+ var Date = objdate.getDate();
+ var Year = objdate.getYear()
+ var Day = objdate.getDay()+1;
+ 
+ function mycb( session, type, data, arg ) {
+    if ( type == "dtmf" ) {
+      //console_log( "info", "digit: "+data.digit+"\n" );
+      if ( data.digit == "#" ) {
+        //console_log( "info", "detected pound sign.\n" );
+        return( true );   
+      }
+      dtmf.digits += data.digit;
+      
+      if ( dtmf.digits.length < digitmaxlength ) {
+        return( true );
+      }
+    }
+    return( false );
+ } //end function mycb
+ 
+ function isholiday( Month, Date ) {                  // recurring holidays on same day regardless of year
+     var Holiday = 0; //default false
+     if (Month == "12" && Date == "25") {
+       Holiday = 1; //true
+     }
+     if (Month == "7" && Date == "4") {
+       Holiday = 1; //true
+     }
+     if (Month == "1" && Date == "1") {
+       Holiday = 1; //true
+     }
+     if (Holiday == 1) {
+       return true;    
+     }
+     else {
+       return false;
+     }
+ }      
+ 
+
+function isholiday( Year, Month, Date) {                             // holidays that change dates by year
+     var Holiday = 0; //default false
+     if (Year == 2008 && Month == "9" && Date == "1") {              // 2008
+       Holiday = 1; //true
+     }
+     if (Year == 2008 && Month == "11" && Date == "27") {
+       Holiday = 1; //true
+     }
+
+
+     if (Year == 2009 && Month == "5" && Date == "25") {              //2009
+       Holiday = 1; //true
+     }
+     if (Year == 2009 && Month == "7" && Date == "3") {
+       Holiday = 1; //true
+     }
+     if (Year == 2009 && Month == "9" && Date == "7") {
+       Holiday = 1; //true
+     }
+
+    if (Year == 2009 && Month == "11" && Date == "26") {
+       Holiday = 1; //true
+     }
+
+
+    if (Year == 2010 && Month == "5" && Date == "31") {             //2010
+       Holiday = 1; //true
+     }
+
+
+    if (Year == 2010 && Month == "7" && Date == "5") {
+       Holiday = 1; //true
+     }
+ 
+
+    if (Year == 2010 && Month == "9" && Date == "6") {
+       Holiday = 1; //true
+     }
+
+    if (Year == 2010 && Month == "11" && Date == "25") {
+       Holiday = 1; //true
+     }
+
+    if (Year == 2010 && Month == "12" && Date == "24") {
+       Holiday = 1; //true
+     }
+
+    if (Year == 2010 && Month == "12" && Date == "31") {            //New Years Day observed
+       Holiday = 1; //true
+     }
+
+
+   if (Year == 2011 && Month == "5" && Date == "30") {               //2011
+       Holiday = 1; //true
+     }
+
+   if (Year == 2011 && Month == "9" && Date == "5") {               
+       Holiday = 1; //true
+     }
+
+   if (Year == 2011 && Month == "11" && Date == "24") {               
+       Holiday = 1; //true
+     }
+
+   if (Year == 2011 && Month == "12" && Date == "26") {               
+       Holiday = 1; //true
+     }
+
+
+   if (Year == 2012 && Month == "1" && Date == "2") {              //2012 
+       Holiday = 1; //true
+     }
+
+
+   if (Year == 2012 && Month == "5" && Date == "28") {              
+     }
+
+
+   if (Year == 2012 && Month == "9" && Date == "2") {              
+       Holiday = 1; //true
+     }
+
+
+   if (Year == 2012 && Month == "11" && Date == "22") {              
+       Holiday = 1; //true
+     }
+
+
+  if (Year == 2013 && Month == "5" && Date == "27") {              //2013 
+       Holiday = 1; //true
+     }
+
+
+  if (Year == 2013 && Month == "9" && Date == "2") {              
+       Holiday = 1; //true
+     }
+
+
+  if (Year == 2013 && Month == "11" && Date == "28") {              
+       Holiday = 1; //true
+     }
+
+
+ if (Year == 2014 && Month == "5" && Date == "28") {              //2014 
+       Holiday = 1; //true
+     }
+
+
+  if (Year == 2014 && Month == "9" && Date == "1") {              
+       Holiday = 1; //true
+     }
+
+
+  if (Year == 2014 && Month == "11" && Date == "27") {              
+       Holiday = 1; //true
+     }
+
+
+ if (Year == 2015 && Month == "5" && Date == "25") {              //2015 
+       Holiday = 1; //true
+     }
+
+
+  if (Year == 2015 && Month == "9" && Date == "7") {              
+       Holiday = 1; //true
+     }
+
+
+  if (Year == 2015 && Month == "11" && Date == "26") {              
+       Holiday = 1; //true
+     }
+
+
+   if (Year == 2016 && Month == "5" && Date == "30") {               //2016
+       Holiday = 1; //true
+     }
+
+   if (Year == 2016 && Month == "9" && Date == "5") {               
+       Holiday = 1; //true
+     }
+
+   if (Year == 2016 && Month == "11" && Date == "24") {               
+       Holiday = 1; //true
+     }
+
+   if (Year == 2016 && Month == "12" && Date == "26") {               
+       Holiday = 1; //true
+     }
+
+
+   if (Year == 2012 && Month == "1" && Date == "2") {              //2017 
+       Holiday = 1; //true
+     }
+
+
+   if (Year == 2012 && Month == "5" && Date == "29") {              
+     }
+
+
+   if (Year == 2012 && Month == "9" && Date == "4") {              
+       Holiday = 1; //true
+     }
+
+
+   if (Year == 2012 && Month == "11" && Date == "23") {              
+       Holiday = 1; //true
+     }
+
+
+  if (Year == 2018 && Month == "5" && Date == "28") {              //2018 
+       Holiday = 1; //true
+     }
+
+
+  if (Year == 2018 && Month == "9" && Date == "3") {              
+       Holiday = 1; //true
+     }
+
+
+  if (Year == 2018 && Month == "11" && Date == "22") {              
+       Holiday = 1; //true
+     }
+
+
+  if (Year == 2019 && Month == "5" && Date == "27") {              //2019 
+       Holiday = 1; //true
+     }
+
+
+  if (Year == 2019 && Month == "9" && Date == "2") {              
+       Holiday = 1; //true
+     }
+
+
+  if (Year == 2019 && Month == "11" && Date == "28") {              
+       Holiday = 1; //true
+     }
+
+
+  if (Year == 2020 && Month == "5" && Date == "25") {              //2020
+       Holiday = 1; //true
+     }
+
+ if (Year == 2020 && Month == "7" && Date == "3") {              
+       Holiday = 1; //true
+     }
+
+  if (Year == 2020 && Month == "9" && Date == "7") {              
+       Holiday = 1; //true
+     }
+
+ if (Year == 2020 && Month == "11" && Date == "26") {              
+       Holiday = 1; //true
+     }
+
+
+    if (Holiday == 1) {
+       return true;    
+     }
+     else {
+       return false;
+     }
+ }      
+
+ function isweekday( Day ) {
+     if (Day > 1 && Day < 7) {
+         return true;
+     }
+     else {
+         return false;
+     }
+ }
+ 
+ function isweekend( Day ) {
+     if (Day > 1 && Day < 7) {
+         return false;
+     }
+     else {
+         return true;
+     }
+ }
+ 
+ function isofficehours( Hours ) {
+     if (Hours >= 9 && Hours < 17) {
+         return true;
+     }
+     else {
+         return false;
+     }
+ }
+ 
+ function isafterhours( Hours ) {
+     if (Hours >= 9 && Hours < 17) {
+         return false;
+     }
+     else {
+         return true;
+     }
+ }
+ 
+     
+ //Holiday?
+ if (isholiday( Month, Date )) {
+     console_log( "info", "holiday\n" );
+     OpenforBusiness = 0; //closed
+ }
+ 
+ //Weekend?
+ if (isweekend( Day )) {
+     console_log( "info", "weekend\n" );
+     OpenforBusiness = 0; //closed
+ }
+ 
+ // After Hours?
+ if (isafterhours( Hours )) {
+     console_log( "info", "after hours\n" );
+     OpenforBusiness = 0; //closed
+ }
+ 
+ 
+ if (OpenforBusiness == 1) {
+     //console_log( "info", "office hours\n" );
+     session.execute("transfer", "500 XML default"); //transfer to any extension, phone number, IVR, and more during office hours
+ }
+ else {
+     
+     //console_log( "info", "After hours\n" );
+ 
+     var dtmf = new Object( );
+     dtmf.digits = "";
+     if ( session.ready( ) ) {
+         session.answer( );
+         
+         digitmaxlength = 1;
+         session.streamFile( "/usr/local/freeswitch/sounds/custom/afterhours.wav", mycb, "dtmf 2000" );
+         session.collectInput( mycb, dtmf, dtmftimeout );
+         //console_log( "info", "IVR Digit Pressed: " + dtmf.digits + "\n" );
+         
+         if ( dtmf.digits == "1" ) {
+             session.execute("transfer", "501 XML default"); //transfer to extension 501
+         } else if ( dtmf.digits == "2" ) {
+             session.execute("transfer", "5551234 XML default"); //transfer to external number
+         } else if ( dtmf.digits == "3" ) {
+             session.execute("transfer", "9999 XML default"); //transfer to 9999 music on hold
+         } else if ( dtmf.digits == "4" ) {
+             session.execute("transfer", "5000 XML default"); //transfer to example IVR extension
+         } else {
+             //transfer to voicemail
+             session.execute("voicemail", "default "+domain+" 500"); //transfer to extension 500's voicemail
+         }
+         
+     } //end if session.ready   
+     
+ } //end if OpenforBusiness
+```
+
+  
+Document generated by Confluence on nov 11, 2022 04:27

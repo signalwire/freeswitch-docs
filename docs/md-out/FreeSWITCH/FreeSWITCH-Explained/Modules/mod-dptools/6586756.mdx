@@ -1,0 +1,206 @@
+
+# mod_dptools: detect_speech 
+
+ Created by  Maximiliano Guerra de Medeiros, last modified by  livem Chan on 2019.01.16
+
+# About
+
+Implements speech recognition.
+
+Click here to expand Table of Contents
+
+* 1 [Usage](#-freeswitch--mod_dptools-detect_speech-)
+* 2 [Examples](#-freeswitch--mod_dptools-detect_speech-)  
+   * 2.1 [Speech Recognition Via the Event Socket](#speech-recognition-via-the-event-socket)  
+   * 2.2 [Playing Prompts](#playing-prompts)  
+   * 2.3 [Detecting Multiple Phrases](#detecting-multiple-phrases)
+* 3 [See Also](#-freeswitch--mod_dptools-detect_speech-)
+
+# Usage
+
+```xml
+detect_speech <mod_name> <gram_name> <gram_path> [<addr>]
+detect_speech grammar <gram_name> [<path>]
+detect_speech grammaron <gram_name>
+detect_speech grammaroff <gram_name>
+detect_speech grammarsalloff
+detect_speech nogrammar <gram_name>
+detect_speech param <name> <value>
+detect_speech pause
+detect_speech resume
+detect_speech start_input_timers
+detect_speech stop
+```
+
+# Examples
+
+## Speech Recognition Via the Event Socket
+
+Start the recognizer and select a grammar in one shot:
+
+```xml
+SendMsg e2d1c628-f32c-4497-b813-7474ce406317
+call-command: execute
+execute-app-name: detect_speech
+execute-app-arg:pocketsphinx yesno yesno
+```
+
+You should see DETECTED\_SPEECH events with "Speech-Type: begin-speaking" when the recognizer notices the start of speech. For example: (using "plain" events)
+
+```xml
+Content-Length: 1605
+Content-Type: text/event-plain
+ 
+Event-Name: DETECTED_SPEECH
+Core-UUID: 6213bbdd-5801-4aeb-b1db-b94a47b0188d
+FreeSWITCH-Hostname: vm1
+FreeSWITCH-IPv4: 192.168.1.241
+FreeSWITCH-IPv6: %3A%3A1
+Event-Date-Local: 2010-03-09%2010%3A39%3A48
+Event-Date-GMT: Tue,%2009%20Mar%202010%2015%3A39%3A48%20GMT
+Event-Date-Timestamp: 1268149188380725
+Event-Calling-File: switch_ivr_async.c
+Event-Calling-Function: speech_thread
+Event-Calling-Line-Number: 2430
+Speech-Type: begin-speaking
+Channel-State: CS_EXECUTE
+Channel-State-Number: 4
+Channel-Name: sofia/internal/sip%3A1000%40192.168.1.104
+Unique-ID: e2d1c628-f32c-4497-b813-7474ce406317
+Call-Direction: outbound
+Presence-Call-Direction: outbound
+Channel-Presence-ID: 1000%40192.168.1.241
+Answer-State: answered
+Channel-Read-Codec-Name: PCMU
+Channel-Read-Codec-Rate: 8000
+Channel-Write-Codec-Name: PCMU
+Channel-Write-Codec-Rate: 8000
+Caller-Username: 1001
+Caller-Dialplan: inline
+Caller-Caller-ID-Name: Extension%201001
+Caller-Caller-ID-Number: 1001
+Caller-Network-Addr: 192.168.1.104
+Caller-ANI: 1001
+Caller-Destination-Number: 1000
+Caller-Unique-ID: e2d1c628-f32c-4497-b813-7474ce406317
+Caller-Source: mod_sofia
+Caller-Context: default
+Caller-Channel-Name: sofia/internal/sip%3A1000%40192.168.1.104
+Caller-Profile-Index: 2
+Caller-Profile-Created-Time: 1268149185069331
+Caller-Channel-Created-Time: 1268149168974894
+Caller-Channel-Answered-Time: 1268149169744923
+Caller-Channel-Progress-Time: 1268149169164940
+Caller-Channel-Progress-Media-Time: 0
+Caller-Channel-Hangup-Time: 0
+Caller-Channel-Transfer-Time: 0
+Caller-Screen-Bit: true
+Caller-Privacy-Hide-Name: false
+Caller-Privacy-Hide-Number: false
+```
+
+If recognition is successful, you should also see a DETECTED\_SPEECH event with "Speech-Type: detected-speech" and some XML describing what was detected. For example:
+
+```xml
+Content-Length: 1791
+Content-Type: text/event-plain
+ 
+Event-Name: DETECTED_SPEECH
+Core-UUID: 6213bbdd-5801-4aeb-b1db-b94a47b0188d
+FreeSWITCH-Hostname: vm1
+FreeSWITCH-IPv4: 192.168.1.241
+FreeSWITCH-IPv6: %3A%3A1
+Event-Date-Local: 2010-03-09%2010%3A39%3A49
+Event-Date-GMT: Tue,%2009%20Mar%202010%2015%3A39%3A49%20GMT
+Event-Date-Timestamp: 1268149189731224
+Event-Calling-File: switch_ivr_async.c
+Event-Calling-Function: speech_thread
+Event-Calling-Line-Number: 2430
+Speech-Type: detected-speech
+Channel-State: CS_EXECUTE
+Channel-State-Number: 4
+Channel-Name: sofia/internal/sip%3A1000%40192.168.1.104
+Unique-ID: e2d1c628-f32c-4497-b813-7474ce406317
+Call-Direction: outbound
+Presence-Call-Direction: outbound
+Channel-Presence-ID: 1000%40192.168.1.241
+Answer-State: answered
+Channel-Read-Codec-Name: PCMU
+Channel-Read-Codec-Rate: 8000
+Channel-Write-Codec-Name: PCMU
+Channel-Write-Codec-Rate: 8000
+Caller-Username: 1001
+Caller-Dialplan: inline
+Caller-Caller-ID-Name: Extension%201001
+Caller-Caller-ID-Number: 1001
+Caller-Network-Addr: 192.168.1.104
+Caller-ANI: 1001
+Caller-Destination-Number: 1000
+Caller-Unique-ID: e2d1c628-f32c-4497-b813-7474ce406317
+Caller-Source: mod_sofia
+Caller-Context: default
+Caller-Channel-Name: sofia/internal/sip%3A1000%40192.168.1.104
+Caller-Profile-Index: 2
+Caller-Profile-Created-Time: 1268149185069331
+Caller-Channel-Created-Time: 1268149168974894
+Caller-Channel-Answered-Time: 1268149169744923
+Caller-Channel-Progress-Time: 1268149169164940
+Caller-Channel-Progress-Media-Time: 0
+Caller-Channel-Hangup-Time: 0
+Caller-Channel-Transfer-Time: 0
+Caller-Screen-Bit: true
+Caller-Privacy-Hide-Name: false
+Caller-Privacy-Hide-Number: false
+Content-Length: 165
+ 
+<?xml version="1.0"?>
+<result grammar="holdr">
+<interpretation grammar="yesno" confidence="98">
+<input mode="speech">YES</input>
+</interpretation>
+</result>
+```
+
+Note: The XML body at the end there with our result has a Content-Length of 165\. That is included as part of the overall count of 1791 at the beginning.
+
+## Playing Prompts
+
+It is common to play prompts while detecting speech. Making a change like this to the media will pause the recognizer. For example, if you start to play a file:
+
+```xml
+SendMsg ad375c14-ba41-46c8-b800-4aa2ef295bba
+call-command: execute
+execute-app-name: playback
+execute-app-arg: say-yes-or-no.wav
+```
+
+you should immediately resume the recognizer:
+
+```xml
+SendMsg e2d1c628-f32c-4497-b813-7474ce406317
+call-command: execute
+execute-app-name: detect_speech
+execute-app-arg: resume
+```
+
+Recognition will happen while the file is playing. You will need to have \[\[Mod\_event\_socket#divert\_events|divert\_events\]\] on to receive the ASR events while the file is being played.
+
+## Detecting Multiple Phrases
+
+Each start of the recognizer detects only one phrase so if you want a somewhat continuous recognition, you will need to resume the recognizer after each successful recognition as well.
+
+When you are done, you'll want to stop the recognizer to save precious CPU cycles:
+
+```xml
+SendMsg e2d1c628-f32c-4497-b813-7474ce406317
+call-command: execute
+execute-app-name: detect_speech
+execute-app-arg: stop
+```
+
+# See Also
+
+* [Dialplan](../../Dialplan/index.mdx#0-about)
+* [mod\_dptools: play\_and\_detect\_speech](./6586714.mdx#lua)
+
+Document generated by Confluence on nov 11, 2022 04:27

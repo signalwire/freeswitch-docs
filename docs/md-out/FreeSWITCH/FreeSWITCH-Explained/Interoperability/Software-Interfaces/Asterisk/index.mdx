@@ -1,0 +1,251 @@
+
+# Asterisk 
+
+ Created by  Mario G, last modified by  John Boteler on 2015.01.16
+
+# About
+
+Configuration instructions for exchanging calls between FreeSWITCH™ and Asterisk using SIP.
+
+Click to expand Table of Contents
+
+* 1 [Connecting FreeSWITCH and Asterisk Using SIP](#connecting-freeswitch-and-asterisk-using-sip)
+* 2 [With ACLs](#with-acls)
+* 3 [Using Authentication](#using-authentication)  
+   * 3.1 [FreeSWITCH Side](#freeswitch-side)  
+   * 3.2 [Asterisk Side](#asterisk-side)
+* 4 [The Easy Way](#the-easy-way)  
+   * 4.1 [FreeSWITCH Side](#freeswitch-side)  
+   * 4.2 [Asterisk Side](#asterisk-side)
+* 5 [A little more advanced](#a-little-more-advanced)
+* 6 [Rosetta Stone](#rosetta-stone)
+
+## Connecting FreeSWITCH and Asterisk Using SIP
+
+## With ACLs
+
+These are the steps and how I did to connect **FreeSWITCH** and **Asterisk**.
+
+I first tried to use auth gateways to do the job, but was VERY tedious to resolve some issues, so I decided to do it using **ACL**s in both ways.
+
+Lets assume you have asterisk box using IP **2.2.2.2** and FS using IP **1.1.1.1**.
+
+You need to add a acl list to **${FREESWITCH\_HOME}**/conf/autoload\_configs/acl.conf.xml
+
+```xml
+<list name="asterisk_box" default="deny">
+  <node type="allow" cidr="2.2.2.2/32"/>
+</list>
+```
+
+In the **\[settings\]** section of **${FREESWITCH\_HOME}**/conf/sip\_profiles/external.xml
+
+```xml
+<param name="apply-inbound-acl" value="asterisk_box"/>
+```
+
+Create the exten in **${FREESWITCH_HOME}**/conf/dialplan/default.xml with the pattern to call asterisk extensions
+
+```xml
+<extension name="ast_extens">
+  <condition field="destination_number" expression="^(2\d{3})$">
+    <action application="set" data="hangup_after_bridge=true"/>
+    <action application="bridge" data="sofia/external/$1@2.2.2.2"/>
+    <action application="hangup"/>
+  </condition>
+</extension>
+```
+
+In the Asterisk box on /etc/asterisk/sip.conf
+
+```xml
+[general]
+
+...
+
+allowguest=no
+
+[freeswitch_1]
+type=peer
+host=1.1.1.1
+port=5080
+disallow=all
+allow=ulaw
+trustrpid=yes
+sendrpid=yes
+; if using elastix you need the following or all phones will ring when a sip call comes in
+context=from-internal
+```
+
+In /etc/asterisk/extensions.conf
+
+```xml
+exten => _1XXX,1,Dial(SIP/freeswitch_1/${EXTEN})
+exten => _1XXX,n,Hangup
+
+exten => _2XXX,1,Dial(SIP/${EXTEN})
+exten => _2XXX,n,Hangup
+
+```
+
+## Using Authentication
+
+This howto is based on FreeSWITCH Version 1.0.trunk (10906) with default configuration. We assume that booth servers have static IPs and don't need to register. To set up the trunk we are going to utilize the use case predefined in default configuration for default gateway.
+
+### FreeSWITCH Side
+
+In **vars.xml** you will find 6 variables which define your default gateway:
+
+```xml
+  <X-PRE-PROCESS cmd="set" data="default_provider=HOSTNAME.DOMAIN.COM"/>
+  <X-PRE-PROCESS cmd="set" data="default_provider_username=USER_NAME"/>
+  <X-PRE-PROCESS cmd="set" data="default_provider_password=BOOTH_WAY_PASSWORD"/>
+  <X-PRE-PROCESS cmd="set" data="default_provider_from_domain=HOSTNAME.DOMAIN.COM"/>
+  <X-PRE-PROCESS cmd="set" data="default_provider_register=false"/>
+  <X-PRE-PROCESS cmd="set" data="default_provider_contact=5000"/>
+```
+
+**Note:** _default\_provider\_password_ is used to authenticate calls from and to Asterisk and _HOSTNAME.DOMAIN.COM_ is the DNS name of Asterisk server.
+
+Those variables are used in two configuration files:
+
+1. **directory/default/example.com.xml** which describes:  
+   * the _user_ for authentication of calls coming from Asterisk to FreeSWITCH. The ID on this user will be the same as value of variable _default\_provider_.  
+   * the _gateway_ for authentication of calls outgoing from FreeSWITCH to Asterisk. The ID of this gateway will be the same as ID of the user.
+2. **dialplan/default//01\_example.com.xml** which contains routes utilizing the gateway. Probably you should customize _expression_ parameter of _&lt;condition field="destination\_number" ... >_ to your needs. Only calls to destination number matching _expression_ will go through the gateway.
+
+Before going further, you should look into **dialplan/public.xml**, this is the file where you'll need to create a rule to route incoming calls in public to default. If the call reach FS console but it doesn't go further, look again at this file, you might have an error. I've include an example to route incoming calls to extension 6969 to default dialplan!
+
+```xml
+    <extension name="public_extensions">
+      <condition field="destination_number" expression="^(6969)$">
+        <action application="transfer" data="$1 XML default"/>
+      </condition>
+    </extension>
+```
+
+After setting variables and tuning routes_(see above)_ type on FS console **sofia profile restart all reloadxml** to activate changes.
+
+### Asterisk Side
+
+You have to define sip peer and dialplan extension.
+
+In sip.conf add:
+
+```xml
+[freeswitch]
+type=peer
+host=IP_ADDRESS_OF_FREESWITCH_SERVER
+username=HOSTNAME.DOMAIN.COM
+port=5080
+fromdomain=IP_ADDRESS_OF_FREESWITCH_SERVER
+secret=BOOTH_WAY_PASSWORD
+```
+
+In extensions.conf, probably in your internal context, add:
+
+```xml
+exten => _1XXX,1,Dial(SIP/${EXTEN}@freeswitch)
+```
+
+So you will be able to call to default phones (1000-1019) configured on FS.
+
+One Asterisk console type: **sip reload** and **extensions reload** to activate changes.
+
+## The Easy Way
+
+Assume 10.1.1.1 is FreeSWITCH with extensions of 1000-1019 and 10.1.1.2 is Asterisk with extensions in the range 2000-2019.
+
+### FreeSWITCH Side
+
+We need to route calls made on freeswitch to the 2000-2019 extensions to the asterisk box, we'll use our external sip profile for this but internal should work, as well.
+
+Create **$FREESWITCH\_HOME/conf/dialplan/default/00\_asterisk\_extensions.xml**:
+
+```xml
+<extension name="to_asterisk">
+  <condition field="destination_number" expression="^(20[01]\d)$">
+    <action application="set" data="hangup_after_bridge=true"/>
+    <action application="bridge" data="sofia/external/$1@10.1.1.2"/>
+  </condition>
+</extension>
+```
+
+Now we have to handle calls coming from asterisk, which by default hit the 'public' dialplan.
+
+Create **$FREESWITCH\_HOME/conf/dialplan/public/00\_from\_asterisk.xml**:
+
+```xml
+<extension name="from_asterisk">
+  <condition field="network_addr" expression="10.1.1.2" />
+  <condition field="destination_number" expression="^(10[01]\d)$">
+    <action application="transfer" data="$1 XML default" />
+  </condition>
+</extension>
+```
+
+### Asterisk Side
+
+We'll make freeswitch a peer in asterisk Add an entry in **/etc/asterisk/sip.conf**:
+
+```xml
+[freeswitch_1]
+type=peer
+host=10.1.1.1
+port=5080
+deny=0.0.0.0/0.0.0.0
+permit=10.1.1.1/255.255.255.255
+jbenable=no
+disallow=all
+allow=ulaw   
+trustrpid=yes
+sendrpid=yes
+; if using elastix you need the following or all phones will ring when a sip call comes in, in general set this a context where your internal extensions are included
+context=from-internal
+```
+
+And route calls to the appropriate place based on the extension In **/etc/asterisk/extensions.conf**:
+
+```xml
+exten => _10XX,1,Dial(SIP/freeswitch_1/${EXTEN})
+exten => _10XX,n,Hangup
+
+exten => _20XX,1,Dial(SIP/${EXTEN})
+exten => _20XX,n,Hangup
+```
+
+You should now be able to make calls from the 1000s on FreeSWITCH to the 2000s on asterisk, and vice-versa. If that's all you wanted/needed to do between them, you're **Done**!
+
+## A little more advanced
+
+Instead of routing the calls to freeswitch's public dialplan from asterisk and having to create an appropriate transfer to the default XML dialplan, you could instead allow asterisk calls to directly hit the default XML dialplan on freeswitch. There are a few ways to do this, in this case we're just going to make the internal sip profile on freeswitch use the default context instead of the public context, then set an acl to allow asterisk to use that internal sip profile without authenticating.
+
+First the ACL,
+
+Edit **$FREESWITCH\_HOME/conf/autoload\_configs/acl.conf.xml**, adding:
+
+```xml
+<list name="asterisks" default="deny">
+  <node type="allow" cidr="10.1.1.2/32"/>
+</list>
+```
+
+Now, to apply it, In the [settings] section of **$FREESWITCH_HOME/conf/sip_profiles/internal.xml**, add:
+
+```xml
+<param name="apply-inbound-acl" value="asterisks"/>
+```
+
+Also in **$FREESWITCH\_HOME/conf/sip\_profiles/internal.xml**, edit the context to make it default:
+
+```xml
+<param name="context" value="default"/>
+```
+
+Now you can remove the public/00\_from\_asterisk.xml file and change the port from 5080 to 5060 in asterisk's sip.conf and you should be able to call any freeswitch extension that you set a route for in asterisk.
+
+## Rosetta Stone
+
+See Also: [Rosetta Stone](./Rosetta-Stone_1966991.mdx#dialplan)
+
+Document generated by Confluence on nov 11, 2022 04:28

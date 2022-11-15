@@ -1,0 +1,185 @@
+
+# Session streamFile 
+
+ Created by  Pedro Henrique Peixoto, last modified on 2017.01.13
+
+# About
+
+Plays a file to the current channel and optionally calls a function on DTMF events. Blocks until the function returns "false" or the file is finished playing.
+
+Click here to expand Table of Contents
+
+* 1 [Description](#description)
+* 2 [Usage](#usage)
+* 3 [Examples](#examples)
+
+# Description
+
+Streams (plays) the given file to the current channel and optionally calls a function on input events. Return values of the function callback can be used to control file playback position, speed and volume.
+
+The output will be resampled if it doesn't match the channel's existing settings so files that are in the same format as the output channel will significantly reduce CPU overhead.
+
+# Usage
+
+```xml
+session.streamFile(file, <[[Javascript DTMF Callback Function|callback function]]>, <callback_args>, <starting_sample_count>);
+```
+
+* file - Path to the file to play (ie /tmp/file.wav)
+* callback - Which function to fire when a dtmf digit is pressed. (optional)
+* callback\_args - arguments to pass to the callback function if called (optional)
+* starting\_sample\_count - sample count offset to start playing. (optional)
+
+Callback return values and meanings:
+
+* seek - +1000 or -1000 will seek 1000 milliseconds forward or backwards in the source file, seek 0 will start the file over, seek 1000 will start 1000 milliseconds into the file.
+* volume - +1,-1 or 0 for normal volume. (valid ranges are +1,+2,+3,+4, 0 or -1,-2,-3,-4)
+* speed - +1,-1 or 0 for normal speed. (valid ranges are +1,+2, 0 or -1,-2)
+* pause - toggles pause and play modes on the file.
+* false - stops playback on the file.
+
+8Khz, Mono, 16bit is most efficient for wav files. 16Khz, Mono, 16bit wav files can be used for wideband capable devices.
+
+You can have resampled versions of the files at every rate with wav files by making a dir 8000 and 16000\. If you try to play /tmp/foo.wav and there is a such thing as /tmp/8000/foo.wav it would favor that on an 8k call
+
+MP3 files can also be played as long as [mod\_shout](../../../Modules/mod_shout_3965531.mdx#21-play) is installed.
+
+You can also return arbitrary values and act on them as you wish.
+
+# Examples
+
+In its most simple form, streamFile can be used to play a file. In this example, we answer the call and play "sounds/message.wav". If the user hasn't hung up by the time the file is finished playing, we hang up the call.
+
+```xml
+if ( session.ready( ) ) {
+  session.answer( );
+  session.streamFile( "sounds/message.wav" );
+  if ( session.ready( ) ) {
+    session.hangup( );
+
+  }
+}
+```
+
+In this example we play "sounds/message.wav" over and over until the caller presses the "#" key. Note: because we return true on all but the "#" key, the playing of "sounds/message.wav" will not be interrupted with each key press unless it is a "#".
+
+```xml
+var exit = false;
+
+function onInput( session, type, data, arg ) {
+  if ( type == "dtmf" ) {
+    console_log( "info", "Got digit " + data.digit + "\n" );
+    if ( data.digit == "#" ) {
+      exit = true;
+      return( false );
+
+    }
+
+  }
+  return( true );
+
+}
+
+if ( session.ready( ) ) {
+  session.answer( );
+  while ( session.ready( ) && ! exit ) {
+    session.streamFile( "sounds/message.wav", onInput );
+
+  }
+  if ( session.ready( ) ) {
+    session.hangup( );
+
+  }
+
+}
+```
+
+In this (similar) example, "sounds/message.wav" is played over and over. Pressing "1" will skip back 500 samples, pressing "2" will pause and unpause the recording while pressing "3" will skip forward 500 samples. Additionally, pressing "0" will start the recording over at the beginning.
+
+Note: The sample rate is in "source file" units. Keep that in mind when resampling is active. For simplicity and lower CPU usage, always use files with the same sample rate as the outgoing channel.
+
+```xml
+var exit = false;
+
+function onInput( session, type, data, arg ) {
+  if ( type == "dtmf" ) {
+    console_log( "info", "Got digit " + data.digit + "\n" );
+    if ( data.digit == "*" ) {
+      exit = true;
+      return( false );
+
+    }
+    else if ( data.digit == "0" ) {
+      return( "seek:0" );
+
+    }
+    else if ( data.digit == "1" ) {
+      return( "seek:-500" );
+
+    }
+    else if ( data.digit == "2" ) {
+      return( "pause" );
+
+    }
+    else if ( data.digit == "3" ) {
+      return( "seek:+500" );
+
+    }
+    return( true );
+
+  }
+
+}
+
+if ( session.ready( ) ) {
+  session.answer( );
+  while ( session.ready( ) && ! exit ) {
+    session.streamFile( "sounds/message.wav", onInput );
+
+  }
+  if ( session.ready( ) ) {
+    session.hangup( );
+
+  }
+
+}
+```
+
+To play a prompt that gets interrupted at the first keypress yet still waits around for either a terminator key or a timer to expire, you might include session.collectInput( ) as in this example:
+
+```xml
+var allDigits = "";
+var exit = false;
+
+function onDtmf( session, type, digits, arg ) {
+  // the arg is used as the return value. "true" continues 
+  // the wait while false interrupts it
+  if ( digits.digit == "#" ) {
+    exit = true;
+    return allDigits;
+
+  }
+  else {
+    allDigits += digits.digit;
+    return arg;
+
+  }
+
+}
+
+if ( session.ready( ) ) {
+  session.answer( );
+  session.streamFile( "sounds/prompt.wav", onDtmf, false );
+  if ( ! exit ) {
+    session.collectInput( onDtmf, true, 8000 );
+
+  }
+  console_log( "info", "+++ digits are " + allDigits + "\n" );
+  session.hangup( );
+
+}
+```
+
+Example: [dtmfcallback.js](../Javascript-Examples/Javascript-Example---DTMF-Callback_7144571.mdx#0-about)
+
+Document generated by Confluence on nov 11, 2022 04:27

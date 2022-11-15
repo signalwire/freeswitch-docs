@@ -1,0 +1,134 @@
+
+# Configuring AudioCodes MP-114/118 
+
+ Created by  Pat Beirne on 2015.10.05
+
+# About
+
+Click here to expand Table of Contents
+
+Originally I really completely over thought this one and made far it more complex than needed be. Failed, of course. Then I went super simple with it. Worked! I hope I don’t get flamed for poor design, but it works!. I needed to create an unauthenticated extension in the directory (extensions for asterisk users). This could be dicey /unsafe, but it is internal.
+
+We need to allow accept blind registration from the AudioCodes in /usr/local/freeswitch/conf/sip\_profiles/internal.xml
+
+&lt;!-- this lets anything register -->
+&lt;!--  comment the next line and uncomment one or both of the other 2 lines for call authentication -->
+&lt;param name="accept-blind-reg" value="true"/>
+&lt;!-- accept any authentication without actually checking (not a good feature for most people) -->
+&lt;param name="accept-blind-auth" value="false"/>
+
+Allow our Public Line to connect.
+
+**/usr/local/freeswitch/conf/directory/default/pstn.xml**
+
+&lt;include>
+  &lt;user id="pstn"  ip="192.168.xxx.xxx">             &lt;!—MP-114 IP Address -->
+    &lt;!-- params-->
+      &lt;!--param name="password" value="1234"/-->
+    &lt;!--/params-->
+    &lt;variables>
+      &lt;variable name="effective_caller_id_number" value="Your Telephone Number"/>
+    &lt;/variables>
+  &lt;/user>
+&lt;/include>
+
+**Now for the dialplan settings that make it actually work. There are two place under the dialplan directory I needed to edit public.xml to let FreeSWITCH know we have a number for the public to reach.** 
+
+**/usr/local/freeswitch/conf/dialplan/public.xml**
+
+&lt;!-- http://wiki.freeswitch.org/wiki/Dialplan_XML -->
+&lt;include>
+  &lt;context name="public">
+   &lt;extension name="public_did">
+      &lt;condition field="destination_number" expression="^(Your Telephone Number here)$">
+        &lt;action application="transfer" data="$1 XML default"/>
+      &lt;/condition>
+    &lt;/extension>
+  &lt;/context>
+&lt;/include>
+
+Make sure the DID is in the default dialplan so FreeSWITCH knows how to handle the calls.
+
+**/usr/local/freeswitch/conf/dialplan/default.xml**
+
+First let’s receive calls.
+
+&lt;!-- Inbound calls handled first - You will want to configure one or            -->
+      &lt;!-- If you have a number of similar DID's and they get the same call treatment -->
+      &lt;extension name="Inbound-PSTN">
+    &lt;!-- EDIT: change the DID to your inbound DID (DN) number     -->
+    &lt;condition field="destination_number" expression="^Your Telephone Number$">
+        &lt;!-- Set the maximum amount of time you want to ring the extensions (seconds) -->
+     &lt;action application="set" data="call_timeout=20"/>
+     &lt;!-- Sample single extension bridge -->
+     &lt;action application="answer" />
+     &lt;action application="sleep" data="1000" />
+          &lt;action application="bridge" data="sofia/default/1001%FreeSwitch IP address"/>
+    &lt;/condition>
+   &lt;/extension>
+
+Now let's make calls. This is for 7 digit calls, but would apply to long distance also.
+
+&lt;!-- Dial any 7 digit number (3334444) as 10 digit dialing  but pass to a local itsp -->
+   &lt;extension name="Local Dial">
+&lt;!—this is a regular expression for a 7 digit number --> 
+    &lt;condition field="destination_number" expression="^([0-9]{7})$">    
+     &lt;!-- Set your outgoing caller ID name here -->
+     &lt;!-- action application="set" data="effective_caller_id_name=John Freeswitch"/ -->
+     &lt;!-- Your SIP provider probably expects a phone number or username
+       for this setting. It is used in the from URL phonenumber@mysipprovider.com -->
+     &lt;action application="set" data="effective_caller_id_number=Your Telephone Number"/>
+                        &lt;!-- EDIT:  Your Audio Codes IP                          -->
+          &lt;action application="bridge" data="sofia/default/$1@192.168.xxx.xxx"/>
+&lt;!-- action application="bridge" data="openzap/2/2/$1"/ -->
+    &lt;/condition>
+   &lt;/extension>
+
+The AudioCodes box requires a continuous RTP stream otherwise it will time out after 10 seconds. Normally this isn't a problem, except when the call gets transferred to voice mail, where FreeSwitch normally doesn't send RTP while the message is being recorded. So if you want voice mails longer than 10 seconds you must add the following to vars.xml:
+
+  &lt;!-- AudioCodes wants us to send RTP even while someone is
+       leaving us a VM... So we have to enable this waste resources flag.
+  -->
+  &lt;X-PRE-PROCESS cmd="set" data="record_waste_resources=true"/>
+
+AudioCodes Setup.
+
+Quick Setup ->
+IP configuration: ip address
+SIP parameters->
+Gateway Name: I use it’s IP address so no dns issues.
+Working with Proxy = Yes
+Proxy IP address= the IP of the Freeswitch box.
+Proxy  Name= the IP of the Freeswitch box.
+Protocol  Management:
+Protocol Definition ->  
+General Parameters:  
+Channel Select Mode=Ascending
+And make sure SIP ports are set for 5060
+Proxy and Registration:
+ Proxy Name and Proxy IP Address= Freeswitch Server
+Enable Registration: I didn’t . 
+ Gateway Name and Registration Name:  MP-114 IP address
+Subscription and Registration Mode: Per Gateway (don’t remember if this matters).
+Coders: make sure ulaw’s there
+DTMF & Dialing:  Max digits-> put a high number like  32
+Routing Tables:
+Tel -> IP routing and IP-> Tel routing = I used 
+ Dest IP/Phone Prefix =*      
+ Source IP/Phone Prefix =*
+ Dest/Source IP Address = Freeswitch  IP  Address
+Endpoint Phone Numbers: Match channels to phone numbers.
+Channels= 1 -4  
+Phone numbers = your phone numbers
+Hunt Group Settings:
+I used  Cyclical Ascending
+End  Point Settings:
+Automatic Dialing: Destination Phone Numbers should match the numbers
+you have in inbound context in extensions.conf or public.xml  
+In our example &lt;condition field="destination_number" expression="^Your Telephone Number$">
+Advanced Applications:
+FXO Settings:  Dialing Mode should be set to One Stage.
+
+That should get you up and running. Although little differences in setups can cause major headaches and frustrations, I hope that this gives you a good starting reference point.
+
+Document generated by Confluence on nov 11, 2022 04:28

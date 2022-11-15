@@ -1,0 +1,144 @@
+
+# Lua: send SMS via Flowroute when voicemail is received 
+
+ Created by  sean, last modified on 2016.08.29
+
+Brought to you by Steven Schoch on the FreeSwitch mailing list in June 2016.
+
+**Assuming Lua is already installed on your system and configured with FreeSwitch.** 
+
+If you don't have an account with flowroute.com, sign up and enable the developer account needed. At the current time, this can be found under Preferences > API control.
+
+You may need to visit <https://developer.flowroute.com/> to setup the credentials. You will also need to purchase a DID from Flowroute so you can actually send SMS messages.
+
+Here's the script that does the actual processing. As you may have guessed, load this to **/usr/local/freeswitch/scripts** and read below for the rest of the configuration needed. Add your user and password in the url section.
+
+**voicemail-event.lua**
+
+```bash
+--[[
+     This script is called by configuration in autoload_configs/lua.conf.xml.
+     It is called on a "vm:maintenance" event.
+]]
+
+-- The following is specifc to the Flowroute SMS API,
+-- documented at https://developer.flowroute.com/docs/messaging
+url = "https://user:password@api.flowroute.com/v2/messages"
+
+action = event:getHeader("VM-Action")
+if action ~= "leave-message" then return end
+user = event:getHeader("VM-User")
+domain = event:getHeader("VM-Domain")
+caller_id_name = event:getHeader("VM-Caller-ID-Name")
+caller_id_number = event:getHeader("VM-Caller-ID-Number")
+--[[ We don't care about these:
+file_path = event:getHeader("VM-File-Path")
+flags = event:getHeader("VM-Flags")
+folder = event:getHeader("VM-Folder")
+uuid = event:getHeader("VM-UUID")
+--]]
+message_len = event:getHeader("VM-Message-Len")
+timestamp = event:getHeader("VM-Timestamp")
+api = freeswitch.API();
+from = api:execute("user_data", user .. "@" .. domain ..  " var outbound_caller_id_number")
+to = api:execute("user_data", user .. "@" .. domain .. " param vm-notify-sms")
+if to == "" then return end
+
+if caller_id_name == ''
+        or caller_id_name == 'UNKNOWN'
+        or caller_id_name == 'UNASSIGNED'
+        or caller_id_name == 'WIRELESS CALLER'
+        or caller_id_name == 'TOLL FREE CALL'
+        or caller_id_name == 'Anonymous'
+        or caller_id_name == 'Unavailable'
+        then caller_id_name = nil end
+if caller_id_number == ''
+        then caller_id_number = nil end
+message = "Voicemail "
+if caller_id_name
+        then message = message .. "from " .. caller_id_name .. " (" ..  caller_id_number .. ")"
+        elseif caller_id_number
+        then message = message .. "from " .. caller_id_number end
+message = message .. " at " .. os.date("%a %H:%M", timestamp)
+message = message .. " length " .. message_len .. " seconds"
+message = message .. " to box " .. user
+message = message .. "."
+-- Add JSON string escapes to the message
+message = string.gsub(message, "([\\\"'])", "\\%1")
+-- Send the text
+data = '{ "to": "' .. to .. '", "from": "' .. from .. '", "body": "' .. message .. '"}'
+api:execute("curl", url .. " content-type application/json post '" .. data .. "'")
+```
+
+Edit **/usr/src/freeswitch/modules.conf** and enable applications/curl:
+
+**modules.conf**
+
+```bash
+applications/mod_curl
+```
+
+Compile FreeSwitch as usual:
+
+**Build FreeSWITCH**
+
+```bash
+make
+make install
+# Or if you're following master:
+make current
+```
+
+Now you will need to have mod\_curl load when you start FreeSwitch. Edit **/usr/local/freeswitch/conf/autoload\_configs/modules.conf.xml:** 
+
+**modules.conf.xml:**
+
+```bash
+<load module="mod_curl"/>
+```
+
+Uncomment mod\_curl and make it look like the above.
+
+Add the line below to your extension, such as **/usr/local/freeswitch/conf/directory/default/1001.xml**:
+
+**1001.xml**
+
+```bash
+<param name="vm-notify-sms" value="1202478xxxx"/>
+```
+
+Be sure to add this within the &lt;params> tag and not &lt;variables>.
+
+This will be the telephone number where you want to receive the alert. Replace it with a legitimate phone number.
+
+In the same file, you will need to consider adding your Flowroute number that you purchased. You must send from a Flowroute phone number that's associated with your account.
+
+**Caller ID**
+
+```bash
+<variable name="outbound_caller_id_number" value="1468856xxxx"/>
+```
+
+You can also edit /usr/local/freeswitch/conf/vars.xml and have a global caller ID, if desired.
+
+Add this line to **/usr/local/freeswitch/conf/autoload\_configs/lua.conf.xml**:
+
+**lua.conf.xml**
+
+```bash
+<hook event="CUSTOM" subclass="vm::maintenance" script="voicemail-event.lua"/>
+```
+
+Ensure this is somewhere between the beginning and ending &lt;settings> tags.
+
+**TEST:**
+
+fs\_cli to the Freeswitch server, make a call and look for something like this after the voicemail is processed:
+
+2016-07-01 04:48:02.930006 \[DEBUG\] mod\_lua.cpp:459 lua event hook: execute 'voicemail-event.lua'
+
+Check the device the SMS was sent to and you'll see a message like the following:
+
+Voicemail from Extension 1000 (1000) at Fri 04:48 length 6 seconds to box 1001.
+
+Document generated by Confluence on nov 11, 2022 04:27

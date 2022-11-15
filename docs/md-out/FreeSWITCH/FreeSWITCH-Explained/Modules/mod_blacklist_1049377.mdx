@@ -1,0 +1,196 @@
+
+# mod_blacklist 
+
+ Created by  John Boteler, last modified on 2014.06.17
+
+# About
+
+The blacklist module is a tool designed to be called from a dialplan or script which returns a boolean value of 'true' or 'false'. The bulk of this wiki content is paraphrased from [mazilo's post](http://www.dslreports.com/forum/r26341351-FreeSWITCH-vs.-mod-blacklist) on DSLreports.
+
+* [Configuration](#configuration)  
+   * [Dialplan Example](#dialplan-example)
+* [API Commands](#-api-commands)  
+   * [add](#add)  
+   * [check](#check)  
+   * [del](#del)  
+   * [reload](#reload)  
+   * [save](#save)  
+   * [help](#help)
+
+# Configuration
+
+1\. Edit **autoload\_configs/modules.conf.xml** and uncomment the line below to enable the load of **mod\_blacklist** or add the line to it if the entry is nonexistent.
+
+```xml
+<load module="mod_blacklist"/>
+```
+
+2\. Edit the **autoload\_configs/blacklist.conf.xml** file to un-comment the list and make the necessary changes to the list as shown below. You **cannot** use an include-like statement with a wildcard to include all files in a directory. Each list must be defined individually.
+
+```xml
+<configuration name="mod_blacklist.conf" description="Blacklist module">
+  <lists>
+    <list name="blocked" filename="/usr/local/freeswitch/blacklists/blocked.list"/>
+  </lists>
+</configuration>
+```
+
+3\. Create a directory accordingly, i.e. **mkdir -p /usr/local/freeswitch/blacklists**
+
+4\. Make sure freeswitch has permissions to read and write to the files, without which freeswitch will be unable to read numbers from the list nor will it be able to write to it in the event you need to add a number to the block list. Assuming the user and group "freeswitch" both exist, the easiest way to do this is.
+
+```bash
+chown -R freeswitch:freeswitch /usr/local/freeswitch/blacklists
+```
+
+(or choose the user:group under which your freeswitch user runs)
+
+5\. Edit the list by editing the file or using the API. Number entries are delimited by new lines.
+
+The "Calling from the Dialplan" example archived below does not work. Use "Working Dialplan" instead!
+
+## Dialplan Example
+
+When \*98 is dialed along with the subsequent number you'd like to blacklist (\*9818135551212) the \*98 is stripped and the remaining digits are added to the blacklist "blocked". Follow the instructions on this page for adding the file to store blacklisted numbers. The API is then called with the application "set". Fake is just a fake variable. In the prev example below a 1 was prepended. In my example I choose to only add exactly what was dialed. You could do it either way and is your preference. Note the file being played back is a custom wav file. You'll need to create this or use a default message of some sort. Finally the list is saved.
+
+**Adding to Blacklist** Espandi fonte 
+
+```xml
+<extension name="blacklist_add" >
+  <condition field="destination_number" expression="^\*98(\d+)$" >
+      <action application="answer" />
+      <action application="set" data="fake=${blacklist(add blocked $1)}" />
+      <action application="playback" data="/usr/local/freeswitch/recordings/blk_item_saved.wav" />
+      <action application="event" data="${blacklist(save blocked)}" />
+  </condition>
+</extension>
+```
+
+**Checking the Blacklist** Espandi fonte 
+
+```xml
+<extension name="blacklist_check" >
+  <condition field="destination_number" expression="^\*97(\d+)$" >
+      <action application="answer" />
+      <action application="set" data="blacklist_result=${blacklist(check blocked $1)}" inline="true"/>
+  </condition>
+  <condition field="${blacklist_result}" expression="^true$" break="always" >
+      <action application="playback" data="/usr/local/freeswitch/recordings/blk_item_exists.wav" />
+      <anti-action application="playback" data="/usr/local/freeswitch/recordings/blk_not_found.wav"/>
+  </condition>
+</extension>
+```
+
+**Delete Blacklist Item** Espandi fonte 
+
+```xml
+<extension name="blacklist_delete" >
+  <condition field="destination_number" expression="^\*99(\d+)$" >
+      <action application="answer" />
+      <action application="set" data="fake=${blacklist(del blocked $1)}" />
+      <action application="playback" data="/usr/local/freeswitch/recordings/blk_item_deleted.wav" />
+      <action application="event" data="${blacklist(save blocked)}" />
+  </condition>
+</extension>
+```
+
+The below uses regex to remove the "+" from the caller id. You may already do this somewhere else in your dialplan. Or you may need to translate the inbound caller id in some other fashion. However this will give you the idea and point you in the correct direction. You could also stack conditions if you only want it to apply to a specific trunk or something. Note that "monkeys.wav" doesn't exist, it is there just as a placeholder sound filename.
+
+**Blacklist Inbound Call By CallerID** Espandi fonte 
+
+```xml
+<extension name="blacklisted" >
+  <condition field="${blacklist(check blocked ${regex(${caller_id_number}|^\+([0-9]+)$|%1)})}" expression="^true$" >
+      <action application="playback" data="misc/monkeys.wav" />
+      <action application="hangup" />
+  </condition>
+</extension>
+```
+
+Archived In Place
+
+(This is archived here to show a little history however it did not working properly. In fact in the log I was getting "Invalid Application Blacklist". This is because Blacklist is an API. To correct this use the above dialplan instead. Left it also in case there is something I'm missing. If not please remove.)
+
+The following can be used to add a number to a specific blacklist named 'blocked'.
+
+&lt;extension name="blacklist_add"> &lt;condition field="destination_number" expression="^\*25625(\d{10})$">
+  &lt;action application="blacklist" data="add blocked 1$1"/>
+  &lt;action application="sleep" data="1000"/>
+  &lt;action application="blacklist" data="save blocked"/>
+&lt;/extension>
+
+Line by line, the first defines the 'feature code' used to call it, you can call \*25625 plus ten digits. The next, calls the blacklist application and adds a one to the ten digit number saved to $1 then adds it to the blocked list. The third line is a sleep, not sure if this is necessary but I want to make sure there's ample time to the application to respond. The fourth line is optional, and will write any added numbers via API calls to the actual file.
+
+The following is intended to be put near the top of the dialplan for a given profile. Checks for blacklisted number from list 'blocked' then sends it to our friendly spam averter, Lenny!
+
+&lt;extension name="blacklist_check">
+  &lt;condition field="${blacklist(check blocked ${destination_number})}" expression="^true$">
+    &lt;action application="bridge" data="sofia/external/sip:lenny@sip.itslenny.com:5060"/>
+ &lt;/condition>
+&lt;/extension>
+
+#  API Commands
+
+**Console Output**
+
+```xml
+ freeswitch@internal> blacklist help
+ blacklist add <listname> <item>
+ blacklist check <listname> <item> 
+ blacklist del <listname> <item>
+ blacklist reload
+ blacklist save <listname>
+ blacklist help
+ +OK
+```
+
+## add
+
+Adds a number to a specified list.
+
+blacklist add blocked 1234567890
+
+## check
+
+Queries a list for an item. Returns 'true', 'false', or 'Wrong syntax'.
+
+blacklist check blocked 2024561000
+
+Bad syntax returns:
+
+[DEBUG] mod_blacklist.c:190 Wrong syntax
+
+Unknown list returns:
+
+[ERR] mod_blacklist.c:199 Unknown blacklist [listname]
+
+To fix this you need to check your configuration in `blacklist.conf.xml` (see above).
+
+## del
+
+Deletes a number from the specified list. Does not delete the list itself, you'll have to manually delete the file and reload the lists to purge a list.
+
+blacklist del blocked 7035911635
+
+## reload
+
+Reloads current lists. This will **not** load new lists if you have changed blacklist.conf.xml. This will also not reload anything you've not written to the list by using 'blacklist save'.
+
+blacklist reload
+
+## save
+
+Writes data entered to corresponding lists via API commands to the file.
+
+blacklist save blocked
+
+## help
+
+Displays the help message defined in [API Commands](#-api-commands) 
+
+## Comments:
+
+| I'm a "edit while reading" wiki user type, please allow me to edit things like the reference to monkeys.wav away ![](/images/icons/contenttypes/comment_16.png) Posted by yellow at mag 25, 2016 16:29 |
+| ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+
+Document generated by Confluence on nov 11, 2022 04:27

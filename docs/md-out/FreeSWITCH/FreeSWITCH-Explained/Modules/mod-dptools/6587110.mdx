@@ -1,0 +1,277 @@
+
+# mod_dptools: record_session 
+
+ Created by  Luan Fonseca de Farias, last modified by  livem Chan on 2018.10.31
+
+# About
+
+Records an entire phone call or session.
+
+Multiple media bugs can be placed on the same channel.
+
+Click here to expand Table of Contents
+
+* 1 [File Formats](#-freeswitch--mod_dptools-record_session-)
+* 2 [Examples](#-freeswitch--mod_dptools-record_session-)  
+   * 2.1 [Dialplan](#-freeswitch--mod_dptools-record_session-)  
+   * 2.2 [Record Calls To Extensions](#record-calls-to-extensions)  
+   * 2.3 [Record Calls From Extensions](#record-calls-from-extensions)  
+   * 2.4 [Controlling When Recording Begins](#controlling-when-recording-begins)  
+   * 2.5 [Recording a Call On Demand](#recording-a-call-on-demand)  
+   * 2.6 [Continue Recording on Transfer](#continue-recording-on-transfer)  
+   * 2.7 [Activating via DTMF](#activating-via-dtmf)  
+   * 2.8 [Activating via SIP INFO](#activating-via-sip-info)
+* 3 [Post Processing Recordings in the Dialplan](#post-processing-recordings-in-the-dialplan)
+* 4 [See also](#-freeswitch--mod_dptools-record_session-)
+
+# File Formats
+
+Simply set the file extension to define the recorded file's format. Use the console command `show file` to display available formats.
+
+`record_session /tmp/test.gsm` will produce a GSM encoded voice file which is raw data and is not in any container (e.g. wav, ogg, etc.). The sampling rate can not be influenced by the filename.
+
+`record_session /tmp/test.mp3` will produce an MP3 file if [mod\_shout](../mod_shout_3965531.mdx#21-play) is loaded.
+
+You can use an external application like [sox](http://sox.sourceforge.net/) or [lame](http://lame.sourceforge.net/) to resample and manipulate the recorded file.
+
+```xml
+lame -b 32 --resample 8 -m s $file <$file_new>
+-b is bitrate
+--resample is the sampling rate, e.g. 8khz
+-m s for simple stereo. m to mix to mono.
+(if you leave out $file_new it will simply append .mp3)
+use lame to convert all the files in the directory:
+find /usr/local/freeswitch/recordings -exec lame -b 32 --resample 8 -m s {} \;
+```
+
+# Examples
+
+## Dialplan
+
+```xml
+record_session /tmp/test.gsm
+```
+
+The following example, once added to your [dialplan](../../Dialplan/index.mdx#0-about), will accept a call on extension 666, enable recording for the session, and bridge the call to the toll-free PSTN number through a VoIP provider. Under default FreeSWITCH installations, recordings through the extension below will be saved to `/usr/local/freeswitch/recordings/`
+
+```xml
+<extension name="ext-666">
+  <condition field="destination_number" expression="^666$">
+    <action application="set" data="RECORD_TITLE=Recording ${destination_number} ${caller_id_number} ${strftime(%Y-%m-%d %H:%M)}"/>
+    <action application="set" data="RECORD_COPYRIGHT=(c) 1980 Factory Records, Inc."/>
+    <action application="set" data="RECORD_SOFTWARE=FreeSWITCH"/>
+    <action application="set" data="RECORD_ARTIST=Ian Curtis"/>
+    <action application="set" data="RECORD_COMMENT=Love will tear us apart"/>
+    <action application="set" data="RECORD_DATE=${strftime(%Y-%m-%d %H:%M)}"/>
+    <action application="set" data="RECORD_STEREO=true"/>
+    <action application="record_session" data="$${recordings_dir}/${strftime(%Y-%m-%d-%H-%M-%S)}_${destination_number}_${caller_id_number}.wav"/>
+    <action application="set" data="ringback=${us-ring}"/>
+    <action application="bridge" data="sofia/external/18007842433@sip.voip-provider.com"/>
+  </condition>
+</extension>
+```
+
+## Record Calls To Extensions
+
+To record all phone calls between extensions do the following. Make a directory under freeswitch/recordings/archive/. Then edit Local\_Extension in dialplan in conf/dialplan/default.xml
+
+```xml
+<extension name="Local_Extension">
+    <condition field="destination_number" expression="^(10[01][0-8])$">
+```
+
+Then add the following actions.
+
+```xml
+<action application="set" data="RECORD_TITLE=Recording ${destination_number} ${caller_id_number} ${strftime(%Y-%m-%d %H:%M)}"/>
+<action application="set" data="RECORD_COPYRIGHT=(c) 2011"/>
+<action application="set" data="RECORD_SOFTWARE=FreeSWITCH"/>
+<action application="set" data="RECORD_ARTIST=FreeSWITCH"/>
+<action application="set" data="RECORD_COMMENT=FreeSWITCH"/>
+<action application="set" data="RECORD_DATE=${strftime(%Y-%m-%d %H:%M)}"/>
+<action application="set" data="RECORD_STEREO=true"/>
+<action application="record_session" data="$${recordings_dir}/archive/${strftime(%Y-%m-%d-%H-%M-%S)}_${destination_number}_${caller_id_number}.wav"/>
+```
+
+## Record Calls From Extensions
+
+Add the following in /usr/local/freeswitch/conf/dialplan/default/
+
+```xml
+<extension name="flowroute.com.11.digits">
+    <condition field="destination_number" expression="^(\d{11})$">
+        <action application="set" data="RECORD_TITLE=Recording ${destination_number} ${caller_id_number} ${strftime(%Y-%m-%d %H:%M)}"/>
+        <action application="set" data="RECORD_COPYRIGHT=(c) 2009"/>
+        <action application="set" data="RECORD_SOFTWARE=FreeSwitch"/>
+        <action application="set" data="RECORD_ARTIST=FreeSwitch"/>
+        <action application="set" data="RECORD_COMMENT=FreeSwitch"/>
+        <action application="set" data="RECORD_DATE=${strftime(%Y-%m-%d %H:%M)}"/>
+        <action application="set" data="RECORD_STEREO=true"/>
+        <action application="record_session" data="$${recordings_dir}/archive/${strftime(%Y-%m-%d-%H-%M-%S)}_${destination_number}_${caller_id_number}.wav"/>
+        <action application="bridge" data="sofia/gateway/flowroute.com/$1"/>
+    </condition>
+ </extension>
+```
+
+## Controlling When Recording Begins
+
+Recording normally starts as soon as the bridge application is called -- often times this isn't desired. You can force the recording to start after the call is actually answered by setting the channel variable [media\_bug\_answer\_req](../../Introduction/Variables/index.mdx#2-show-variables).
+
+```xml
+<action application="set" data="media_bug_answer_req=true"/>
+```
+
+  
+Another way to record calls when the call is answered
+
+```xml
+<action application="export" data="execute_on_answer=record_session $${recordings_dir}/${strftime(%Y%m%d%H%M%S)}_${caller_id_number}.wav"/>
+```
+
+  
+If you happen to be using [group\_confirm\_key](../../Introduction/Variables/index.mdx#2-show-variables)/[group\_confirm\_file](../../Introduction/Variables/index.mdx#2-show-variables) as part of your bridge, you may want to delay the start of the recording until the confirm action is completed. This can be accomplished through use of [bridge\_pre\_execute\_bleg\_app](../../Introduction/Variables/index.mdx#0-about)/[bridge\_pre\_execute\_bleg\_data](../../Introduction/Variables/index.mdx#0-about):
+
+```xml
+<action application="set" data="bridge_pre_execute_bleg_app=record_session"/>
+<action application="set" data="bridge_pre_execute_bleg_data=$${recordings_dir}/${strftime(%Y-%m-%d-%H-%M-%S)}_${destination_number}_${caller_id_number}.wav"/> 
+```
+
+## Recording a Call On Demand
+
+If your sip client supports a record key or free function keys which allow sending DTMF you can activate server based recording during the call. Recording starts with activating the recording, so not the complete call is recorded.
+
+There are at least two ways to do this: via DTMF or via SIP INFO.
+
+## Continue Recording on Transfer
+
+If you want the call recording to continue after transferring, set the [recording\_follow\_transfer](https://wiki.freeswitch.org/wiki/Variable%5Frecording%5Ffollow%5Ftransfer "Variable recording follow transfer") variable to true.
+
+```xml
+<action application="set" data="recording_follow_transfer=true"/>
+```
+
+## Activating via DTMF
+
+Recording on demand via DTMF is done via dptools' "bind\_meta\_app" application as shown in the default dialplan which ships with FreeSWITCH.
+
+Here is an example dialplan:
+
+```xml
+<extension name="Local_Extension">
+    <condition field="destination_number" expression="^(10[01][0-9])$">
+        <!-- bind_meta_app can have these args <key> [a|b|ab] [a|b|o|s] <app> -->
+        <action application="export" data="RECORD_STEREO=true"/>
+        <action application="export" data="RECORD_TOGGLE_ON_REPEAT=true"/>
+        <action application="bind_meta_app" data="2 b s record_session::$${recordings_dir}/${caller_id_number}.${strftime(%Y-%m-%d-%H-%M-%S)}.wav"/>
+        <action application="bridge" data="user/$1@${domain_name}"/>
+    </condition>
+</extension>
+```
+
+Lastly, configure your SIP client to send "\*2" as DTMF within dialog. When that SIP client is called and the call is established it can activate recording by pressing the configured key one time. Pressing it a second time it stops the recording. The other party doesn't hear the DTMFs but possibly its comfort noise generation (CNG) might stop momentarily. The above dialplan example is set to allow the SIP client to turn recording on and off when it is the recipient of a call (i.e. it is the B leg). Change the bind\_meta\_app settings if you want the originating leg (i.e. the A leg) also to be able to record the call:
+
+```xml
+<action application="bind_meta_app" data="2 ab s record_session::$${recordings_dir}/${caller_id_number}.${strftime(%Y-%m-%d-%H-%M-%S)}.wav"/>
+```
+
+bind\_meta\_app in this example is listening on both the a and b legs.
+
+## Activating via SIP INFO
+
+Recording on demand via SIP INFO messages seems to be independent from "bind\_meta\_app" but obey the RECORD... channel variables. Either the caller or the called party can initiate recording by sending a SIP INFO message with the "Record: on" header. In fact, both parties may initiate recording simultaneously, so be sure to make the record-template such that two sessions will not try to simultaneously record to the same file.
+
+  
+Set in your SIP profile the following parameter:
+
+```xml
+<param name="record-template" value="$${recordings_dir}/${caller_id_number}.${strftime(%Y-%m-%d-%H-%M-%S)}.wav"/>
+```
+
+  
+Now your SIP client can send a SIP INFO message within the call to activate the recording similar to the following:
+
+```xml
+INFO sip:mod_sofia@x.x.x.x:5060;transport=udp SIP/2.0
+Via: SIP/2.0/UDP a.a.a.a:1024;branch=z9hG4bK-suzjmey8ta9k;rport
+From: "AAA" <sip:AAA@x.x.x.x>;tag=8b2lmzjiwj
+To: <sip:BBB@x.x.x.x;user=phone>;tag=8rN3KaBrZ0QvQ
+Call-ID: 3c26a74322b8-zls28ao7ygpg
+CSeq: 7 INFO
+Max-Forwards: 70
+Contact: <sip:AAA@a.a.a.a:1024;line=bldz828o>;reg-id=1
+User-Agent: snom370/7.3.14
+Record: '''on'''
+Content-Length: 0
+```
+
+  
+To stop recording your SIP client should send a SIP INFO message within the call similar to the following:
+
+```xml
+INFO sip:mod_sofia@x.x.x.x:5060;transport=udp SIP/2.0
+Via: SIP/2.0/UDP a.a.a.a:1024;branch=z9hG4bK-oiwe2puuvbuk;rport
+From: "AAA" <sip:AAA@8x.x.x.x>;tag=8b2lmzjiwj
+To: <sip:BBB@x.x.x.x;user=phone>;tag=8rN3KaBrZ0QvQ
+Call-ID: 3c26a74322b8-zls28ao7ygpg
+CSeq: 8 INFO
+Max-Forwards: 70
+Contact: <sip:AAA@a.a.a.a:1024;line=bldz828o>;reg-id=1
+User-Agent: snom370/7.3.14
+Record: '''off'''
+Content-Length: 0
+```
+
+The way of activating this seems to be changed:
+
+You can start or stop recording a session via SIP-INFO messages from a SIP phone. To get this working you need to set "recordings\_dir" in vars.xml. In your sip-profile you have to add this:
+
+```xml
+<param name="record-path" value="$${recordings_dir}"/>
+<param name="record-template" value="${caller_id_number}.${destination_number}.${strftime(%Y-%m-%d-%H-%M-%S)}.wav"/>
+```
+
+It seems that the bind\_meta\_app options are not accessible to this way of session recording...
+
+If the Sofia profile that the SIP INFO message is received by has no record-template defined, FreeSWITCH will respond with "488 Recording not enabled". Through the absence of the record-template config option, you can effectively disable SIP INFO recording on selected Sofia profiles (eg. public-facing profiles, such as "external").
+
+This is tested with FreeSWITCH Version 1.0.head (17097:17188M) and Snom 370, 820 and 870 FW 8.2+
+
+# Post Processing Recordings in the Dialplan
+
+* **record\_post\_process\_exec\_api**
+* **record\_post\_process\_exec\_app**
+
+These two variables allow the post–processing of recorded audio. The reason this is required is if the A leg hangs up first in a call, the dialplan stops being processed, and then you aren't able to take action on the file that was recorded. These variables take the form of:
+
+```xml
+<action application="set" data="record_post_process_exec_api=some_api_app:api_app args" />
+<action application="set" data="record_post_process_exec_app=some_app:app args" />
+```
+
+# See also
+
+* [Stop Record Session](./6587156.mdx#about)
+* [mod\_dptools: record](./6587041.mdx#0-about)
+* [Dialplan XML](../../Dialplan/XML-Dialplan-archive_6586601.mdx#why)
+* [\_\_Channel Variables](../../Dialplan/Variables-Archive/x__Channel-Variables_1048892.mdx#--)
+* [Working\_With\_Sound\_Files](https://wiki.freeswitch.org/wiki/Working%5FWith%5FSound%5FFiles "Working With Sound Files")
+* [RECORD\_APPEND](../../../Channel-Variables-Catalog/RECORD_APPEND_16353876.mdx#record_append)
+* [RECORD\_BRIDGE\_REQ](../../../Channel-Variables-Catalog/RECORD_BRIDGE_REQ_16353879.mdx#record_bridge_req)
+* [RECORD\_TITLE](../../../Channel-Variables-Catalog/RECORD_TITLE_16352865.mdx#record_title)
+* [RECORD\_COPYRIGHT](../../../Channel-Variables-Catalog/RECORD_COPYRIGHT_16352868.mdx#record_copyright)
+* [RECORD\_SOFTWARE](../../../Channel-Variables-Catalog/RECORD_SOFTWARE_16352871.mdx#record_software)
+* [RECORD\_ARTIST](../../../Channel-Variables-Catalog/RECORD_ARTIST_16352874.mdx#record_artist)
+* [RECORD\_COMMENT](../../../Channel-Variables-Catalog/RECORD_COMMENT_16352877.mdx#record_comment)
+* [RECORD\_DATE](../../../Channel-Variables-Catalog/RECORD_DATE_16352880.mdx#record_date)
+* [record\_rate](https://wiki.freeswitch.org/wiki/Variable%5Frecord%5Frate "Variable record rate")[Activating via DTMF](https://freeswitch.org/confluence/pages/createpage-entervariables.action?templateId=4489217&spaceKey=FREESWITCH&title&newSpaceKey=FREESWITCH&fromPageId=1970333#mod%5Fdptools:DialplanToolsrecordsession-ActivatingviaDTMF)
+* [record\_waste\_resources](https://wiki.freeswitch.org/wiki/Variable%5Frecord%5Fwaste%5Fresources "Variable record waste resources")
+* [media\_bug\_answer\_req](https://wiki.freeswitch.org/wiki/Variable%5Fmedia%5Fbug%5Fanswer%5Freq "Variable media bug answer req")
+* [record\_min\_sec](https://wiki.freeswitch.org/wiki/Variable%5Frecord%5Fmin%5Fsec "Variable record min sec")
+* [RECORD\_STEREO](../../../Channel-Variables-Catalog/RECORD_STEREO_16352883.mdx#comments)
+* [RECORD\_STEREO\_SWAP](../../../Channel-Variables-Catalog/RECORD_STEREO_SWAP_16353895.mdx#record_stereo_swap)
+* [RECORD\_WRITE\_ONLY](../../../Channel-Variables-Catalog/RECORD_WRITE_ONLY_16354620.mdx#see-also)
+* [RECORD\_READ\_ONLY](../../../Channel-Variables-Catalog/RECORD_READ_ONLY_16353891.mdx#--)
+* [record\_samples](https://wiki.freeswitch.org/wiki/Variable%5Frecord%5Fsamples "Variable record samples")
+* [record\_ms](https://wiki.freeswitch.org/wiki/Variable%5Frecord%5Fms "Variable record ms")
+
+Document generated by Confluence on nov 11, 2022 04:27

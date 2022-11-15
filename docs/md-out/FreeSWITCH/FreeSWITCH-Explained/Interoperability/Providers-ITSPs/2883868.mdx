@@ -1,0 +1,185 @@
+
+# Provider Vitelity (USA) 
+
+ Created by  Mario G, last modified on 2014.05.31
+
+Last update: 20 November 2012
+
+* 1 [www.vitelity.com](#wwwvitelitycomhttpwwwvitelitycom)  
+   * 1.1 [Network Configuration](#network-configuration)  
+   * 1.2 [Vitelity Web Portal Setting](#vitelity-web-portal-setting)  
+   * 1.3 [vitelity.xml](#vitelityxml)  
+   * 1.4 [public.xml](#vitelityxml)  
+   * 1.5 [default.xml](#vitelityxml)  
+   * 1.6 [Finish Up](#finish-up)
+* 2 [Registration Method](#registration-method)
+* 3 [Notes](#-freeswitch--provider-vitelity-usa-)
+
+## [www.vitelity.com](http://www.vitelity.com)
+
+This method uses the static ip address of your FreeSWITCH configuration. Changes must be made to your account at [vitelity.com](http://vitelity.com) and also to local FreeSWITCH files. Follow this guide for complete instructions.
+
+### Network Configuration
+
+Before setting up the vitelity gateways be sure ports 5060-5061 and 5080 are not blocked on your FreeSWITCH server. You may have to configure port forwarding on your router to make this work correctly. For a quick and dirty setup place your FreeSWITCH server outside your firewall; know that this can be a security threat.
+
+### Vitelity Web Portal Setting
+
+Login to your vitelity account at [vietlity.com](http://vietlity.com). You will see the new version 2 interface.
+
+Click DIDs along the top tabs, then click sub accounts. Scroll to the bottom where you see IP address authentication. This is important! Enter your public ip address and port number 5080\. Save it.
+
+Click the top support tab and then the setup wizard link.
+
+```text
+Choose Asterisk PBX Server > Go
+  Read the text > Next
+  Do you have a static IP address choose YES > Go
+  Enter your IP address > GO
+  You will end up on the configuration page. Stay here.
+```
+
+On the configuration page copy down the host for \[vitel-inbound\] (should be something like inbound#.[vitelity.net](http://vitelity.net). Also copy down the host for \[vitel-outbound\] (should be something like [outbound.vitelity.net](http://outbound.vitelity.net))
+
+We now need to find out the password to your vitelity gateway. This is also called a secret. Click the top support tab. Choose switchvox configuration. A new page will open. Copy the password from the new screen. It will be some random set of letters and numbers.
+
+You should have the following information:
+
+```text
+  vitel-inbound host
+  vitel-outbound host
+  vitelity password (secret) - not the same password you log into your account with.
+```
+
+### vitelity.xml
+
+Create a new file /usr/local/freeswitch/conf/sip\_profiles/external/vitelity.xml
+
+Copy and paste the following code to vitelity.xml. Adjust the setting to reflect the vitelity settings you just found. Reference the vitelity web portal configuration section above if you need help finding your credentials. Proxy values are the are the same as the hosts.
+
+```xml
+	<include>
+	<gateway name="vitelity-outbound">
+           <!--/// account username *required* ///-->
+           <param name="username" value="username"/>
+           <!--/// auth realm: *optional* same as gateway name, if blank ///-->
+           <param name="realm" value="vitel-outbound"/>
+           <!--/// account password *required* ///-->
+           <param name="password" value="password"/>
+           <!--/// extension for inbound calls: *optional* same as username, if blank ///-->
+           <param name="extension" value="default"/>
+           <!--/// proxy host: *optional* same as realm, if blank ///-->
+           <param name="proxy" value="outbound1.vitelity.net"/>
+           <!--/// expire in seconds: *optional* 3600, if blank ///-->
+           <param name="expire-seconds" value="600"/>
+           <!--/// register: *optional* true, if blank ///-->
+           <param name="register" value="false" />
+         </gateway>
+	</include>
+
+
+	<include>
+	<gateway name="vitelity-inbound">
+           <!--/// account username *required* ///-->
+           <param name="username" value="your-username"/>
+           <!--/// auth realm: *optional* same as gateway name, if blank ///-->
+           <param name="realm" value="vitel-inbound"/>
+           <!--/// account password *required* (do not include allow=all) ///-->
+           <param name="password" value="your-password"/>
+           <!--/// extension for inbound calls: *optional* same as username, if blank ///-->
+           <param name="extension" value="default"/>
+           <!--/// proxy host: *optional* same as realm, if blank ///-->
+           <param name="proxy" value="inbound18.vitelity.net"/>
+           <!--/// expire in seconds: *optional* 3600, if blank ///-->
+           <param name="expire-seconds" value="600"/>
+           <param name="context" value="inbound"/>
+           <!--/// register: *optional* true, if blank ///-->
+           <param name="register" value="true" />
+         </gateway>
+	</include>
+```
+
+### public.xml
+
+Add this to freeswitch/conf/dialplan/public.xml
+
+Changing data="1000 ..." to a different number will change the extension to which the call is directed to.
+
+```xml
+  <extension name="vitel-inbound">   
+   <condition field="destination_number" expression="">  
+      <action application="transfer" data="1000 XML default"/>
+   </condition>
+  </extension>
+```
+
+### default.xml
+
+Add this to freeswitch/conf/dialplan/default.xml Replace the efective\_caller\_id\_number=18001234567 with your phone number
+
+```xml
+ <extension name="vitel-outbound">
+   <condition field="destination_number" expression="^(1{0,1}\d{10})$">
+     <action application="set" data="effective_caller_id_number=18001234567"/>
+     <action application="bridge" data="sofia/gateway/vitelity-outbound/$1"/>
+    </condition>
+  </extension>
+```
+
+### Finish Up
+
+You'll need to do a rescan to load the new gateway.
+
+```xml
+sofia profile external rescan
+```
+
+From the command line will do, it will even reload the dialplan at the same time.
+
+  
+Try calling your vitelity DID. If a sip phone is registered to extension 1000 the phone should ring. If a phone is not registerd the call should go to voicemail.
+
+Try calling out from extension 1000\. Dial with a leading 1 and the area code. Also try dialing with just the area code. Both should work.
+
+Credit goes to the FreeSWITCH wiki and IRC channel. I've just pieced everything together.
+
+If you have any questions please feel to try and find me on the IRC channel. Name: jch.
+
+## Registration Method
+
+This seems to work easier. No acl's to mess with, and add inbound/outbound routes as normal. Also better integration with FusionPBX if that's your flavor.
+
+Log into the web portal and set/get the following info.
+
+1. set a username/password  
+   * DIDs -> Sub Accounts  
+   * Create a new login and set a password.
+2. Route to your Registered Account  
+   * My Account -> Routing  
+   * Select Set default route to the account 'wwwusername\_somethingyouset'
+3. Get the Proxy and Outbound proxy servers
+4. Support -> Generic SIP
+
+vim /usr/local/freeswitch/conf/sip\_profiles/external/Vitelity.xml
+
+```xml
+<include>
+    <gateway name="yourdomain-Vitelity">
+      <param name="username" value="wwwusername_somethingyouset"/>
+      <param name="password" value="youset"/>
+      <param name="proxy" value="sipYOURNUMBER.vitelity.net"/>
+      <param name="outbound-proxy" value="outbound.vitelity.net"/>
+      <param name="expire-seconds" value="800"/>
+      <param name="register" value="true"/>
+      <param name="retry-seconds" value="60"/>
+      <param name="context" value="public"/>
+    </gateway>
+</include>
+```
+
+## Notes
+
+* **DTMF:** Some of the inbound and outbound SIP gateways/proxies utilize a combination of inband 2833 DTMF as well as did not handle FreeSWITCH's generated 2833 DTMF (for whatever reason). To mitigate this Vitelity assigned us to two different gateways: (Inbound/origination): [inbound21.vitelity.net](http://inbound21.vitelity.net) and (Outbound/termination): [sip22.vitelity.net](http://sip22.vitelity.net). This completely resolved our issues with intermittent DTMF issues on calls to various numbers as well as total non-operation with T-Mobile voicemail, Google Voice interaction, and POTS inband pass-through. Apparently these gateways use different "switches" which "handle DTMF differently." Submit a support ticket and they might move your account to those gateways if you're having issues.
+* **RTP timeout:** Vitelity has a 60-second timeout on the lack of RTP media stream packets (e.g. rtptimeout configuration in sip.conf on Asterisk). This manifests itself as dropped calls when recording audio (e.g. voicemail) after 60 seconds. This is because FreeSWITCH does not send RTP media when recording (to save bandwidth). FreeSWITCH SVN revisions before r13144 could not work around this. FreeSWITCH has a [record\_waste\_resources channel variable](../../Dialplan/Variables-Archive/x__Channel-Variables_1048892.mdx#variable-references) which transmits empty frames during record. Note also that the conference application has similar parameters.
+
+Document generated by Confluence on nov 11, 2022 04:28

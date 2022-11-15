@@ -1,0 +1,188 @@
+
+# Freeswitch for new people 
+
+ Created by  Italo Monteiro, last modified on 2016.12.21
+
+# About
+
+This is a quick introduction to FreeSWITCH in layman's terms. It is assumed you have FreeSWITCH installed (or will soon to apply this introduction), know what XML is, know what regular expressions are, know how to compile something, or at least follow some directions to do so, and you will need a simple file editor. Beyond that, we'll provide everything else.
+
+What this tutorial is not:
+
+1. An introduction to Telephony in general, though we will cover some of the basics of VoIP.
+2. A lesson in developing anything for FreeSWITCH. This is covered elsewhere.
+3. A discussion of specific modules (except those needed for the basic examples).
+4. A lesson in doing anything specific with FreeSWITCH. Our examples are generic and broad.
+
+It's also important to note that this is not meant to be a literally and technically sound document. If we say something like "This is a bear" it may not actually be a bear, but if you think of it as a bear, you'll get a good basis to start from.
+
+Let's start by talking about FreeSWITCH. When you install FreeSWITCH, you will choose certain modules to install with it. The most common ones, such as [mod\_sofia](../Modules/mod_sofia_1048707.mdx#about), are uncommented in modules.conf (which is used in the install, and not the same as the modules.conf.xml used in production). You don't need any modules to run FreeSWITCH. That's because FreeSWITCH is not mod\_sofia, or [mod\_skypiax](../Modules/mod_skypopen_3966336.mdx#-sk-), or [mod\_fifo](../Modules/mod_fifo_3966031.mdx#-add). FreeSWITCH just comes with them.
+
+FreeSWITCH is a software based switch. Specifically, it connects channels of data in a variety of ways, and will do things with them. The ways FreeSWITCH connects to and from things outside its core is through modules. It connects to SIP clients through mod\_sofia. It connects to Skype through mod\_skypiax. These modules tie into FreeSWITCH's APIs and deliver FreeSWITCH what it expects: streams of data and some information about what to do with that data.
+
+This probably isn't what you had in mind for FreeSWITCH, but think about this example. If you had a house with microphones and speakers in each room, and had a module that connected those all somehow, you could have communication throughout that house, and then from a room in that house to any other sort of data channel, like a phone line or a SIP destination. You could use FreeSWITCH to stream music to different rooms in the house. You could use FreeSWITCH to do video connections from one room to the other. FreeSWITCH literally just connects different channels to each other in the best way comparable for those channels, and keeps a lot of information about those channels during their lifetime.
+
+More specifically, you can have a SIP client connect to FreeSWITCH, via mod\_sofia, and have it run to a hard line via a number of other modules, depending on that line's configuration.
+
+This is what makes FreeSWITCH different from most other PBX platforms. FreeSWITCH is not a PBX. It is a software switch. Many people use it to build a PBX (and then some) on top of it. You do this via modules and some configuration data in the form of mostly XML files.
+
+Note that not all modules are for creating channels for FreeSWITCH to use. On the contrary, many, if not most, are for extending functionality of what to do with those channels into other areas. For instance, mod\_fifo creates the ability to setup First In First Out style queuing with calls. Maybe you will use [mod\_conference](../Modules/mod_conference_3965534.mdx#list). Amazingly enough, it sets up conference calls for you to use from other modules.
+
+When setting up FreeSWITCH, you will want to keep in mind what functionality you want in your soft-switch and what functionality you do not. Many users are using mod\_sofia for SIP clients and providers. You don't have to do this. You could easily use FreeSWITCH for analog phones in your home or office connected via some digital card, and have those connect to the telephone system via a Voice T1 attached to another card.
+
+With that under our belts, let's take a look at some of the basics of FreeSWITCH logic.
+
+Click here to expand Table of Contents
+
+* 1 [Variables](#variables)
+* 2 [Directory](#directory)
+* 3 [Dialplan](#dialplan)
+
+### Variables
+
+Certain variables are setup for you automatically in what's called the "example config" or sometimes the "default config." Most of the configuration files you get when you install FreeSWITCH could easily be deleted and you'd be fine. When you installed FreeSWITCH, underneath the directory where you installed it (usually /usr/local/freeswitch/ on Linux machines) there is a file called "freeswitch.xml" that is where FreeSWITCH starts loading its configuration from.
+
+This XML file, as you might guess, is a collection of includes. At the time of this writing, it has a few sections. First, it includes vars.xml. Then it has sections for configuration, dialplan, directory, and phrases. While running FreeSWITCH, you can issue a [reloadxml](FAQ/index.mdx#q-does-reloadxml-reload-all-xml-files) command and it will re-read all the XML for this document, but it can only apply some changes, not all. Most of what isn't refreshed is in vars.xml and module specific configuration files. For example, sofia profile data isn't refreshed, because that's fed to mod\_sofia at startup. To refresh a sofia profile, you have to issue separate commands to sofia itself. We'll get to that later.
+
+The Dialplan and the Directory both get refreshed with whatever is in there. So if you added a user or a new dialplan section, you'll get those with a reloadxml. Live calls or call destinations (like conferences, FIFOs, and active channels) don't. Keep that in mind, as it will cause some confusion in many scenarios. An example is an active conference, which if changed in the config, doesn't get applied those changes until the conference is done. That's not as limiting as you might think, but it does keep you from shooting yourself in the foot with active channels.
+
+The phrases section tells FreeSWITCH what to grab for available speech phrases. You might not use this, so it's not terribly important right now. Just remember it's there for later if you're doing text-to-speech.
+
+The vars.xml file has settings that relate to the switch as a whole. This is especially important when thinking about things like what codecs you want to use by default, what IP address and gateway information do you want there by default, and what **variables** you want populated with what. An **important** piece in here is the default password. This is the password used for your users to register to FreeSWITCH, and is all over the directory in the example configuration. Change it. **Now** please.
+
+A number of things to look at in this file are:
+
+1. domain and domain\_name which are used as the default domain this FreeSWITCH install will be running under. If you possibly can, use a FQDN for these. You can have multiple domains in your configs, but you should define what the default will be where you forget to specify it.
+2. sound\_prefix is where your sound files directory is. It's the base directory for all of your prompts.
+3. global\_codec\_prefs and outbound\_codec\_prefs are just that. Codec preferences for connecting to and from endpoints. Outbound is the codec preferences for channels being opened by FreeSWITCH, as opposed to channels being created **to** FreeSWITCH.
+
+There are a lot more variables set in here that you'll get into later in your more specific forays into FreeSWITCH. The reason we call them variables is because they are used elsewhere in the configuration files. This is important, because you'll need a lot of modules to know things like what IP address they should be looking at, what codecs to negotiate using, etc. You don't want to set those in a million places, you want to set them in as few places as possible. So we have variables that you would use in the dialplan or the directory or the sofia configuration or whatever else. You use them like $${varname} in the rest of the places. Note the two $ symbols. There are other variables called [\_\_Channel Variables](../Dialplan/Variables-Archive/x__Channel-Variables_1048892.mdx#--) that have only one $ and some other syntax differences on occasion. $$ variables get used once by FreeSWITCH as its loading the configuration into memory, and it will re-evaluate them only during a reloadxml event.
+
+So if I have a variable I declare in vars.xml like this:
+
+```xml
+<X-PRE-PROCESS cmd="set" data="my_var=my_data"/>
+```
+
+You should notice two things about this. First, the X-PRE-PROCESS says this is not actual configuration data. This is for FreeSWITCH to evaluate while its building the XML config in memory, either at first startup or at reloadxml. So it stores that "my\_data" string in "my\_var" for the duration of the rest of that process. Then, when I want to use that data elsewhere in the config, I can do this:
+
+```xml
+<extension name="$${my_var}">
+```
+
+Which would set the name of that extension to "my\_data" in the final config running in memory.
+
+A good way to see what most of the XML looks like after you've run FreeSWITCH and it has processed that information is to look in the log directory (usually /usr/local/freeswitch/log/) and open the freeswitch.xml.fsxml file. That file is everything FreeSWITCH sees in the last load to memory.
+
+It would now be a good time to look at the configuration files under the freeswitch/conf/autoload\_configs directory. Just get a feel for what's in there, take a look at modules you find interesting, note which ones you'll want to play with later. Most you won't need to change. For security, you'll probably want to look at acl.conf.xml, and for enabling/disabling other modules from startup, you'll want to look at modules.conf.xml which we discussed earlier. Remember, it's **different** from the modules.conf file from your build. They usually correlate heavily, but they are not the same file, nor do they have the same format.
+
+### Directory
+
+Before we get too much further, we should look at users. Most people will need users before they can start playing with the other facets of the more dynamic configuration. Go ahead and jump into the freeswitch/conf/directory folder. You'll notice a default.xml file and a default directory. That's because the default.xml file (go ahead and open it) will include the .xml files in the default directory under its user section.
+
+Default.xml is well commented, but it uses the term domain again here that you might remember from vars.xml a bit ago. Domain is the grouping under which these users get registered. You should be thinking about a FQDN like in email. [name@domain.com](mailto:name@domain.com) is an email format, and emailing [name@otherdomain.com](mailto:name@otherdomain.com) would usually not go to the same person. The same is true here. Users are grouped under a domain's umbrella, and the domain you specify in vars.xml is the default domain a user is grouped under. You will notice the line:
+
+```xml
+<domain name="$${domain}">
+```
+
+Which uses the 'domain' variable defined in vars.xml to populate this field. You could have separate domains with the same user ids inside them for different companies, different departments, or just users you don't want grouped together for whatever reason. You can think of the id as the "extension" in the traditional sense. If my id is 1003, you'd probably refer to my extension as 1003 when talking to people. It's not, as we'll see, but they could be the same.
+
+In the default directory, you have a number of .xml files for various users. They're separated for organization sake, they don't have to be. Don't make them that way if you don't want to. It helps when maintaining users by hand to be able to create a new file per user, and just deleting a file or renaming it to something other than .xml when you're denying that user's access.
+
+Remember to reloadxml or restart FreeSWITCH when you've made changes to the directory. See the [XML User Directory Guide](../Directory/XML-User-Directory/index.mdx#about) for more in-depth information about the directory and its format.
+
+### Dialplan
+
+Now we come to the part everyone talks about, and everyone experiences frustration with most out of all of FreeSWITCH: The Dialplan.
+
+Actually, we lied, sort of. Remember at the beginning where we said you needed to know what a regular expression is? We weren't kidding. You should before you continue, since the dialplan uses it in many of its dialplan features. If you don't already know enough to get in trouble, we recommend trying [this one](http://www.regular-expressions.info/quickstart.html) really quick. Don't worry, we'll wait right here for you.
+
+The dialplan is, simply put, a collection of routing information. Two things to note before we get too far.
+
+First, the dialplan is 'executed' all at once. What this means is that if you have some variables you set in one extension, like for a time of day logic, and you use that later in the file, it won't work. Both extensions get processed in the same step, so they can't see each other. For that sort of logic, you have to keep all those variables in the same extension, or you have to send the call through the dialplan again with something like a transfer to another extension. Then it's another step and all the variables set in all extensions from the previous step are available to you.
+
+Second, the dialplan is traversed only when FreeSWITCH doesn't know exactly what to do with a call. So if a destination is unknown, it will traverse the dialplan looking for a route. If you tell it to make a call out via a specific sofia gateway, it won't look at the dialplan. If you tell it to go to 1003, it will traverse the dialplan.
+
+This is where that difference between ids in the Directory and extensions is. 1003 is a user. 1003 can also be that user's extension, but it doesn't have to be. You get to decide. You could make it so if someone dials 3, it goes to user 1003\. You could do both 1003 and 3 go to user 1003\. You could do none, and nobody could call user 1003\. Then 1003 can only call out. There are no limitations here.
+
+Extensions get groups in &lt;extension> tags and then inside there's a set of &lt;condition> tags. Condition tags hold &lt;action> tags. How you organize these is up to you, but remember that this is the ultimate in flexibility. When a call comes in, it looks at each extension. In the extension, it looks at the condition tags in order. If the first one doesn't evaluate to true, it leaves that extension and doesn't look back.
+
+#### Example dialplan extension with comments:
+
+```xml
+<!-- This is the extension name, which is mostly for human identification.
+         You could call it 1485284 and FreeSWITCH wouldn't treat it any 
+         differently. Try to be descriptive. -->
+    <extension name="tone_stream">
+      <!-- This is our first condition.  This is the most common condition. 
+           This just checks that the destination is "9198" exactly via a 
+           regular expression. It will not match anything else. -->
+      <condition field="destination_number" expression="^9198$">
+	<!-- If that's true, we answer the phone. -->
+        <action application="answer"/>
+	<!-- Then, continuing on, assuming the caller is still on the line, we
+	     play the tetris.ttml file to them, twice.  We could play a wav
+	     file or somesuch if we wanted, or do anything else, really. -->
+        <action application="playback" data="tone_stream://path=${base_dir}/conf/tetris.ttml;loops=2"/>
+
+      <!-- That's all for this condition tag, and we want to add more to this
+           call flow, so we close our tag in order to check a couple other
+	   conditions and do some stuff. -->
+      </condition>
+      <!-- First, we check a channel variable, which would have to have been 
+           set in a previous dialplan evaluation.  Control will ONLY CONTINUE
+           IF THE CONDITION PASSES. -->
+      <condition field="${sales_campaign_on}" expresion="^true$"/>
+      <!-- Then, if that channel variable matches, we can do something based 
+           on whether or not its in-hours or after-hours. -->
+      <condition wday="2-6" hour="7-17">
+        <!-- If this is and all previous conditions evaluate true, we have done
+	     the previous action set under the desintaion_number condition, and
+             now we want to do some more things. First, we set a channel
+	     variable for later in our dialplan. -->
+        <action application="set" data="business_open=true"/>
+	<!-- Next we transfer them to the sales group destination, which we're
+	     going to call "2000" because it's dialable from elsewhere.  If we
+             didn't want it dialable via numbers, we could call it "sales_group"
+	     if we so chose.  We're telling it to go through the XML dialplan
+	     in the default context. -->
+	<action application="transfer" data="2000 XML default"/>
+	<!-- If that was true, call flow just transferred out of this extension
+	     and went to the sales group.  But, if ALL of the previous conditions
+	     were true, but this last condition, the time of day, is NOT true,
+	     we want it to do something anyway.  So we have an anti-action, which
+	     is the same as an action, but executed on its containing condition's
+	     falsehood.  We first set the same channel variable to false instead
+	     of the true we did before -->
+        <anti-action application="set" data="business_open=false"/>
+	<!-- Then we play our sales message instead of transferring them. Note
+	     that the directory to this file is a full directory.  It doesn't
+	     have to be, but you'd use a variable somewhere like $${base_dir} -->
+	<anti-action application="playback" data="/usr/local/freeswitch/sounds/sales/sales_campaign_135.wav"/>
+	<!-- Technically you don't need to explicitly hangup unless you have a 
+	     continue="true" in your extension.  It's just here to show you.
+	<anti-action application="hangup"/>
+     <!-- Done with the action list, so we'll close that condition tag.
+     </condition>
+    <!-- And we close the extension tag as well -->
+    </extension>
+```
+
+If you have conditions that are true, you eventually run into actions. Actions can be any number of things. You could have a number that checks if you're calling 3485, checks to see if you called from a specific phone number or phone numbers, and then if so, runs a Lua script that makes some toast. After toast is made, the next action tag causes the caller to hear "Toast is ready" and then have yet more condition tags. These condition tags could check if it's morning or afternoon, and either put butter or jam on the toast accordingly. Then it could tell the user "Jam is spread" and then hangs up. It doesn't have to end there either.
+
+An important part of the extension tag is the "continue" parameter.
+
+```xml
+<extension name="Make_Toast" continue="true">
+```
+
+In most cases, you don't have the continue parameter. You leave it off. Continue is 'false' by default, so you don't need it unless you are continuing. If it's true, than the extension gets run until it finishes or the channel gets hung up or destroyed. After the extension is complete, it **continues going through the dialplan** which is very important. This gives you a lot of flexibility about how you run your FreeSWITCH. It could play a message, dependent on the time of day, to every caller regardless of destination, and then go through the rest of the dialplan as normal. It could not. It's all up to you.
+
+---
+
+(Probably need to discuss the concept of profiles, gateways, contexts. In that order? Maybe earlier? Think about that.)
+
+WORK IN PROGRESS!!! Don't use quite yet. Tod Hansmann is still working on it. Feel free to ask him about it in the #freeswitch channel on Freenode. He's TodPunk.
+
+Document generated by Confluence on nov 11, 2022 04:28

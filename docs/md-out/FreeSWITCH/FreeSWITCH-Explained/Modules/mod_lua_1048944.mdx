@@ -1,0 +1,500 @@
+
+# mod_lua 
+
+ Created by  John Boteler, last modified by  Henning Heedfeld on 2022.06.24
+
+# About
+
+Lua is the preferred scripting language for custom applications based on FreeSWITCH.
+
+The Lua API documentation is provided here [Lua API Reference](../Client-and-Developer-Interfaces/Lua-API-Reference/index.mdx#--)
+
+Since FreeSWITCH 1.4, you need to use Lua5.2 (<http://www.lua.org/manual/5.2/>).
+
+For those willing to keep using Lua5.1 for backwards compatibility reasons, there is a mod\_lua available in **legacy** directory \`freeswitch/src/mod/legacy/languages/mod\_lua/\`
+  
+  
+Click here to expand ToC
+
+* 1 [Installation](#installation)
+* 2 [Features](#features)  
+   * 2.1 [Write IVR scripts in Lua](#-write-ivr-scripts-in-lua-)  
+   * 2.2 [Add event hooks in Lua](#-add-event-hooks-in-lua-)  
+   * 2.3 [Serve configs](#serve-configs)  
+   * 2.4 [Make API calls directly from Lua code](#make-api-calls-directly-from-lua-code-)  
+   * 2.5 [Lightweight](#lightweight-)  
+   * 2.6 [Highly Embeddable](#highly-embeddable-)  
+   * 2.7 [Learning Lua](#learning-lua)  
+   * 2.8 [CLI Usage: lua and luarun](#cli-usage-lua-and-luarun-)  
+         * 2.8.1 [Passing Arguments](#passing-arguments-)
+* 3 [Configuring](#configuring)  
+   * 3.1 [Event Hooks](#event-hooks-)  
+         * 3.1.1 [Event Hook Script](#event-hook-script)  
+   * 3.2 [For IVR use](#for-ivr-use)  
+   * 3.3 [For making API calls](#for-making-api-calls)  
+   * 3.4 [To call another Lua script](#to-call-another-lua-script)  
+   * 3.5 [For serving configuration](#for-serving-configuration)  
+   * 3.6 [Lua scripts at startup](#lua-scripts-at-startup-)
+* 4 [Sample Dialplan](#sample-dialplan)  
+   * 4.1 [In-line expansion](#in-line-expansion)
+* 5 [Sample IVR's](#sample-ivrs)
+* 6 [Pattern matching (regular expressions)](#pattern-matching-regular-expressions)  
+   * 6.1 [Regex API Example](#-regex-api-example-)  
+   * 6.2 [Native Lua Pattern Matching](#-native-lua-pattern-matching-)
+* 7 [Misc. Samples](#misc-samples)  
+   * 7.1 [Run a shell command](#-run-a-shell-command-)
+* 8 [FAQ](#-faq)  
+   * 8.1 [Why is mod\_lua not unloadable?](#why-is-mod_lua-not-unloadable)  
+   * 8.2 [Where is my debug information?](#about)  
+   * 8.3 [How can I make it use the "system lua"](#-how-can-i-make-it-use-the-system-lua-)  
+   * 8.4 [How can I get Lua to see my own libraries using "require"](#how-can-i-get-lua-to-see-my-own-libraries-using-require)  
+   * 8.5 [How can I find useful undocumented Functions?](#-how-can-i-find-useful-undocumented-functions-)
+* 9 [Jester Lua Toolkit](#jester-lua-toolkit)
+* 10 [See Also](#see-also-)
+
+# Installation
+
+On Centos 6.x:
+
+```xml
+yum install lua-devel
+```
+
+  
+# Features
+
+##  Write IVR scripts in Lua 
+
+It has a very easy to use syntax, see the [Hello Lua](https://wiki.freeswitch.org/wiki/Mod%5Flua#Hello%5FLua) script.
+
+##  Add event hooks in Lua 
+
+You can define a Lua script to be executed each time a specific event is fired. See: [Mod\_lua#Event\_Hooks](https://wiki.freeswitch.org/wiki/Mod%5Flua#Event%5FHooks "Mod lua")
+
+## Serve configs
+
+Lua can serve configurations for xml\_curl, without requiring a web server, this works in a similar way to mod\_xml\_curl.
+
+See: [Serving Configuration with Lua](./mod-lua/Serving-Configuration-with-Lua_3965134.mdx#xml)
+
+## Make API calls directly from Lua code 
+
+[Examples](https://wiki.freeswitch.org/wiki/Make%5FAPI%5Fcalls%5Fdirectly%5Ffrom%5FLua%5Fcode "Make API calls directly from Lua code")
+
+## Lightweight 
+
+Stripped mod\_lua.so is 272k
+
+## Highly Embeddable 
+
+As far as embeddability goes - Python ranks a 2, Perl ranks a 4, JavaScript is a 5, and Lua is a 10!
+
+## Learning Lua
+
+Here's a comparison on some salient points to Javascript: [\[1\]](http://phrogz.net/lua/LearningLua%5FFromJS.html)
+
+## CLI Usage: lua and luarun 
+
+You can issue a "luarun /path/to/script.lua" and launch a thread which your lua script will run in. The "lua" command is for inline lua like from the dialplan i.e. ${lua(codehere)}. "luarun" will spawn a thread while "lua" will block until the code is complete. A "\~" in front of the argument will run a single line lua command. Note that lua scripts executed with luarun cannot write to the console through [stream:write](http://streamwrite) API as there is no stream.
+
+### Passing Arguments 
+
+Arguments are passed as space-separated values:
+
+```xml
+luarun arg1 arg2 arg3
+```
+
+Arguments are accessed with "argv" like this:
+
+```xml
+my_first_var = argv[1];
+my_next_var = argv[2];
+```
+
+And so on...
+
+```xml
+freeswitch@DVORAK> lua ~print(string.find("1234#5678", "(%d+)#(%d+)"))
+1       9       1234    5678
+freeswitch@DVORAK> luarun ~print(string.find("1234#5678", "(%d+)#(%d+)"))
++OK
+1       9       1234    5678
+freeswitch@DVORAK> luarun ~stream:write("1234#5678")
++OK
+2011-06-20 13:35:35.274782 [ERR] mod_lua.cpp:191 [string "line"]:1: attempt to index global 'stream' (a nil value)
+stack traceback:
+       [string "line"]:1: in main chunk
+freeswitch@DVORAK> lua ~stream:write("1234#5678")
+1234#5678
+```
+
+# Configuring
+
+## Event Hooks 
+
+The following configuration shows how to have the tone\_event.lua script executed each time the DETECTED\_TONE event is fired.
+
+```xml
+<configuration name="lua.conf" description="LUA Configuration">
+  <settings>
+     <param name="script-directory" value="$${base_dir}/scripts/?.lua"/>
+     <hook event="DETECTED_TONE" script="tone_event.lua"/>
+     <hook event="CUSTOM" subclass="conference::maintenance" script="conference.lua"/>
+  </settings>
+</configuration>
+```
+
+### Event Hook Script
+
+This is an example event hook script. getHeader() can be called on the event to get information about the event.
+
+```xml
+local uuid = event:getHeader("Unique-ID")
+local tone = event:getHeader("Detected-Tone")
+freeswitch.consoleLog("info", uuid .. " detected tone: " .. tone .. "\n")
+```
+
+## For IVR use
+
+Nothing should be needed here.
+
+## For making API calls
+
+```xml
+api = freeswitch.API();
+
+digits = api:execute("regex", "testing1234|/(\\d+)/|$1");
+-- The returned output of the API call is stored in the variable if you need it.
+freeswitch.consoleLog("info", "Extracted digits: " .. digits .. "\n")
+```
+
+**Note:** Please take care to **escape** the arguments that you pass, as has been done to the regex string above.
+
+## To call another Lua script
+
+```xml
+api = freeswitch.API();
+reply = api:executeString("luarun another.lua");
+```
+
+## For serving configuration
+
+**mod\_lua** allows you to replace request for configuration data from a lookup in the static XML to your script.
+
+See [Mod\_lua/Serving\_Configuration](./mod-lua/Serving-Configuration-with-Lua_3965134.mdx#xml) for more information.
+
+## Lua scripts at startup 
+
+Here is a minimum configuration file:
+
+```xml
+<configuration name="lua.conf" description="LUA Configuration">
+
+  <settings>
+    <!--
+	The following options identifies a lua script that is launched
+	at startup and may live forever in the background.
+	You can define multiple lines, one for each script you 
+	need to run.
+    -->
+    <!--<param name="startup-script" value="startup_script_1.lua"/>-->
+    <!--<param name="startup-script" value="startup_script_2.lua"/>-->
+  </settings>
+</configuration>
+```
+
+The start-up script values represent lua scripts (located inside the scripts/ directory) that are launched when FreeSWITCH is started. The scripts live in their own thread. You can use them to run simple tasks (and then let them finish) or looping forever, watching (for example) for events, generating calls or whatever you like.
+
+# Sample Dialplan
+
+  
+```xml
+<action application="lua" data="helloworld.lua arg1 arg2"/>
+```
+
+**NOTE:** arguments can be accessed by using argv\[1\] argv\[2\] in your script
+
+**NOTE:** for looking up the location of the helloworld.lua file, it looks in prefix/scripts by default
+
+## In-line expansion
+
+  
+```xml
+e.g.1: <action application="set" data="MY_VAR=${lua(helloworld.lua arv1 arg2)}" />
+e.g.2: <action application="set" data="MY_VAR=${lua(helloworld.lua $1)}" />
+e.g.3: <action application="set" data="MY_VAR=${lua(helloworld.lua $1 ${caller_id_number})}" />
+e.g.4: <action application="set" data="MY_VAR=${lua(helloworld.lua ${caller_id_number})}" inline="true" />
+ 
+e.g.5: <condition field="${lua(helloworld.lua arv1 arg2)}" expression="^Hello World$" >
+```
+
+# Sample IVR's
+
+This is a basic IVR example, in which we answer the call, wait 1 second and play an wav audio file.
+
+```xml
+-- answer the call
+session:answer();
+
+-- sleep a second
+session:sleep(1000);
+
+-- play a file
+session:streamFile("/path/to/blah.wav");
+
+-- hangup
+session:hangup();
+```
+
+# Pattern matching (regular expressions)
+
+##  Regex API Example 
+
+Using this method, you can execute regex conditions from inside your lua scripts.
+
+```xml
+session:execute("set", "some_chan_variable=${regex(" .. destination .. "|^([0-9]{10})$)}")
+```
+
+If destination is a lua variable with your destination number in it, and your regex was ^(\[0-9\]{10})$
+
+the result will be put in "some\_chan\_variable" that you can get thorough a [session:getVariable](http://sessiongetVariable)
+
+You can also do:
+
+```xml
+session:execute("set", "some_chan_variable=${regex(" .. destination .. "|^(0\\|61)([2,3,7,8][0-9]{8})$|$2)}")
+```
+
+To match and return parts of your regex.
+
+##  Native Lua Pattern Matching 
+
+Lua supports a simple but powerful pattern matching syntax. It is less powerful than [PCRE](http://www.pcre.org/) but it handles the majority of pattern matching cases will ever need in a simple script.
+
+The following is a simple script that can be run with "luarun" from fs\_cli and demonstrates the capturing of two values from a data string:
+
+```xml
+-- pattern.lua
+data = "1234#5678";
+_,_,var1,var2 = string.find(data,"(%d+)#(%d+)");
+freeswitch.consoleLog("INFO","\ndata: " .. data .. "\nvar1: " .. var1 .. "\nvar2: " .. var2 .. "\n");
+
+Output:
+freeswitch@internal> luarun pattern.lua
++OK
+
+2011-04-18 08:28:49.242080 [INFO] switch_cpp.cpp:1197 
+data: 1234#5678
+var1: 1234
+var2: 5678
+```
+
+# Misc. Samples
+
+##  Run a shell command 
+
+When using [session:execute()](http://sessionexecute%28%29) and [api:execute()](http://apiexecute%28%29) to execute a shell command (ie: bash script) it will only return the error code integer.
+
+To return the output of a shell command use io.popen(). The following example Lua function is from <http://lua-users.org/wiki/ShellAccess>.
+
+```xml
+ function shell(c)
+   local o, h
+   h = assert(io.popen(c,"r"))
+   o = h:read("*all")
+   h:close()
+   return o
+ end
+```
+
+#  FAQ
+
+## Why is mod_lua not unloadable?
+
+```xml
+freeswitch@baremetal> reload mod_lua
++OK Reloading XML
+-ERR unloading module [Module is not unloadable]
+-ERR loading module [Module already loaded]
+2018-03-14 17:53:22.492225 [CRIT] switch_loadable_module.c:1643 Module is not unloadable.
+2018-03-14 17:53:22.492225 [WARNING] switch_loadable_module.c:1592 Module mod_lua Already Loaded!
+```
+
+Some threads explaining why the decision was made <http://freeswitch-users.2379917.n2.nabble.com/Reload-mod-lua-td7586568.html>
+
+mod_lua was reloadable  but when I found that long-running scripts cannot be  easily stopped the developers changed it to un-reloadable.
+There's also a blog page in Chinese explaining this: http://www.freeswitch.org.cn/2010/03/15/zai-freeswitchzhong-zhi-xing-chang-qi-yun-xing-de-qian-ru-shi-jiao-ben-luayu-yan-li-zi.html
+ 
+(...truncated thread...)
+ 
+The reason being if the module unloads while scripts are still running you're going to be almost guaranteed a segmentation fault - a well meaning admin running a simple command could crash the entire server dropping all calls.
+
+##   
+Where is my debug information? 
+
+Q: When I use static XML or xml\_curl, I see the commands executed in the fs\_cli and in the "application log" section of the xml\_cdr file. However, when I run commands via my lua script, I don't see that information anywhere?
+
+A: When you have an actual call session, you can use session:execute("$application","$data") just like in the static XML - it will then show up in the fs\_cli and the xml\_cdr application log. If you don't have a call session - e.g. if you are running lua as a background application or from the CLI, then you have to use other commands which may not be as easily logged.
+
+##  How can I make it use the "system lua" 
+
+Q: I have Lua installed, but mod\_lua seems to ignore the Lua binary.
+
+A: Lua is so small that the whole ball of wax is statically linked into the module!
+
+## How can I get Lua to see my own libraries using "require"
+
+Q: Can I use the require mechanism for including libraries with the Lua in FreeSWITCH?
+
+A: You may need to alter the LUA\_PATH variable to instruct the embedded Lua inside FreeSWITCH to find your libraries. A simple startup script to do this is:
+
+```xml
+#!/bin/bash
+export LUA_PATH=/usr/local/freeswitch/scripts/?.lua\;\;
+ulimit -s 240
+screen /usr/local/freeswitch/bin/freeswitch
+```
+
+The default path is something like /usr/local/share/lua/5.1/
+
+Another option for common code similar to the "include" directive in many languages is to use **dofile**
+
+eg. dofile("/home/fred/scripts/fredLuaFunctions.lua")
+
+Note that this will just execute the code contained in the file as if it were inline - this is not the same as creating a lua module
+
+##  How can I find useful undocumented Functions? 
+
+There may be times when a function gets added, but not documented. This simple Lua script may help.
+
+```xml
+-- This function simply tells us what function are available in Session
+--   It just prints a list of all functions.  We may be able to find functions
+--   that have not yet been documented but are useful.  I did :)
+function printSessionFunctions( session )
+   metatbl = getmetatable(session)
+   if not metatbl then return nil end
+   local f=metatbl['.fn'] -- gets the functions table
+   if not f then return nil end
+   for k,v in pairs(f) do stream:write(k.."\n") end
+   stream:write("\nEND\n")
+end
+new_session = freeswitch.Session() -- create a blank session
+stream:write("\n***Session Functions***\n")
+printSessionFunctions(new_session)
+new_event = freeswitch.Event("message_waiting");
+stream:write("\n***Event Functions***\n")
+printSessionFunctions(new_event)
+new_api = freeswitch.API();
+stream:write("\n***API Functions***\n")
+printSessionFunctions(new_api)
+```
+
+At freeswitch version FreeSWITCH Version 1.6.17-34-0fc0946\~64bit (-34-0fc0946 64bit) this is the output of the script:
+
+Click here to expand the output of the script
+
+```xml
+***Session Functions***
+playAndGetDigits   
+speak
+setDTMFCallback
+answer
+mediaReady
+__disown
+getVariable
+collectDigits
+streamFile
+setEventData
+sleep
+flushDigits
+setLUA
+setHangupHook
+setInputCallback
+unsetInputCallback
+preAnswer
+consoleLog2
+consoleLog
+run_dtmf_callback
+say
+process_callback_result
+execute
+get_cb_args
+waitForAnswer
+getXMLCDR
+flushEvents
+set_tts_parms
+end_allow_threads
+sendEvent
+getState
+begin_allow_threads
+get_uuid
+setAutoHangup
+getDigits
+getPrivate
+bridged
+recordFile
+destroy
+set_tts_params
+ready
+transfer
+hangupCause
+insertFile
+originate
+sayPhrase
+answered
+read
+hangupState
+hangup
+check_hangup_hook
+setPrivate
+setVariable
+END
+***Event Functions***
+setPriority
+chat_send
+serialize
+getHeader
+getBody
+fire
+delHeader
+__disown
+getType
+addBody
+chat_execute
+addHeader
+END
+***API Functions***
+getTime
+execute
+__disown
+executeString
+END
+```
+
+# Jester Lua Toolkit
+
+Jester is a scripting lua toolkit for FreeSWITCH :[Wiki Jester](../Client-and-Developer-Interfaces/Lua-API-Reference/Lua-Toolkit-Jester_3965246.mdx#help)
+
+# See Also 
+
+* FreeSWITCH [Lua API Reference](../Client-and-Developer-Interfaces/Lua-API-Reference/index.mdx#--)
+* [Lua.org Web site](http://www.lua.org)
+* [Lua Install dependencies](../Client-and-Developer-Interfaces/Lua-API-Reference/Lua-Install-dependencies/index.mdx#about)
+* [Script Language Choice](../Client-and-Developer-Interfaces/Script-Language-Choice_1048942.mdx#about)
+* [FreeSWITCH book](http://www.packtpub.com/freeswitch-1-2/book) pages 149-151
+* <http://www.lua.org/pil/20.2.html> and <http://www.lua.org/pil/20.3.html>
+* <http://www.lua.org/manual/5.1/manual.html#5.4.1>
+
+## Comments:
+
+| Freeswitch on Debian currently depends on libodbc and unixodbc. We have found both of these versions very unstable in high call volume environments. Upgrading to MySQL ODBC driver 5.3.4 with unixODBC 2.3.1 has really improved our stability and we have not seen any crashes since the full rebuild of the environment. ![](/images/icons/contenttypes/comment_16.png) Posted by russell at ott 02, 2014 21:39 |
+| ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| From what I'm reading about LUA, arguments passed from the dialplan into the LUA script will be available as arg\[1\], arg\[2\], etc, not argv\[n\] as stated above. ![](/images/icons/contenttypes/comment_16.png) Posted by tom@tomlynn.com at dic 18, 2014 13:28                                                                                                                                                |
+| Tom, have you tested each form of argument reference in Lua using the current versions of everything since the recent upgrades? I have seen numerous Lua script examples and all use what is documented here. I can't believe that all of them are wrong and nobody has pointed it out yet. ![](/images/icons/contenttypes/comment_16.png) Posted by boteman at gen 06, 2015 20:21                                 |
+| John, as it turns out, I'd been having trouble getting arguments to work at all. Today I see that argv does in fact work. I'd been looking at LUA documentation that seemed to contradict this, though. Thanks. ![](/images/icons/contenttypes/comment_16.png) Posted by tom@tomlynn.com at gen 25, 2015 16:11                                                                                                     |
+| I am using FreeSWITCH 1.10 and Lua 5.3\. But it seems like mod\_lua still use Lua 5.2\. How do I get mod\_lua for Lua 5.3? ![](/images/icons/contenttypes/comment_16.png) Posted by umanda at feb 11, 2020 02:56                                                                                                                                                                                                   |
+
+Document generated by Confluence on nov 11, 2022 04:27

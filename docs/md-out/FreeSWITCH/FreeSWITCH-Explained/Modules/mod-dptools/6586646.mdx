@@ -1,0 +1,138 @@
+
+# mod_dptools: file_string 
+
+ Created by  João Paulo Confessor, last modified by  Attila Gulyas on 2019.12.20
+
+---
+
+Table of Contents (click to expand)
+
+* 1 [0\. About](#0-about)
+* 2 [1\. Rationale](#1-rationale)
+* 3 [2\. Usage](#2-usage)  
+   * 3.1 [2.1 High level method](#21-high-level-method)  
+   * 3.2 [2.2 Low level method](#22-low-level-method)  
+         * 3.2.1 [2.2.1 With mod\_dptools: playback without the playback\_delimiter channel variable](#221-with-mod_dptools-playback6586776html-without-the-playback_delimiter-channel-variable)  
+         * 3.2.2 [2.2.2\. Music-on-hold (MOH)](#222-music-on-hold-moh)  
+         * 3.2.3 [2.2.3\. Used with mod\_dptools: play\_and\_get\_digits](#-freeswitch--mod_dptools-file_string-)  
+         * 3.2.4 [2.2.4 Record a session](#224-record-a-session)
+* 4 [3\. Execution Parameters](#3-execution-parameters)  
+   * 4.1 [3.1 timeout](#31-timeout-)  
+         * 4.1.1 [3.1.1 timeout example](#311-timeout-example)
+
+---
+
+## 0\. About
+
+[mod\_dptools: file\_string](./6586646.mdx#0-about) is a useful way of specifying multiple sound files to be played or written sequentially. It is a convenience feature.
+
+## 1\. Rationale
+
+The idea behind `file_string` is simple: when you have multiple sound files to play sequentially, especially when there are many of them, it is convenient to be able to specify all of those files before initiating the playback.
+
+When access to a file fails (either by trying to read it, or write into it), that file is skipped, and the next filename in the list is processed.
+
+## 2\. Usage
+
+There are two methods of using `file_string`:
+
+* **high level**, core most functions that use switch\_ivr\_playback()  
+TODO Does `switch_ivr_playback()` refers to [mod\_dptools: playback](./6586776.mdx#0-about) (because all the examples below are using that), but it is just referring to the C function `playback` relies on?  
+TODO Below, `switch_ivr_play_file` is mentioned. I assume it's referring to the same function as `switch_ivr_playback` . Figure out from source.
+* **low level**, code that uses direct file handles
+
+You can set up to 128 files in the list.
+
+### 2.1 High level method
+
+[mod\_dptools: playback](./6586776.mdx#0-about) uses `file_string` internally, and the example below shows how:
+
+TODO What other modules are using `file_string` internally?
+
+```xml
+  <!-- Delimiter is set by a var which also enables the parser -->
+  <action application="set" data="playback_delimiter=!"/>
+  <action application="set" data="playback_sleep_val=500"/>
+  <action application="playback" data="/ram/sr8k.wav!/ram/swimp.wav"/> 
+```
+
+See [Channel Variables Catalog](../../../Channel-Variables-Catalog/index.mdx#comments) to learn more about the channel variables `playback_delimiter` and `playback_sleep_val` .
+
+### 2.2 Low level method
+
+The low level method defines its own `file_string://` [URI scheme](../../Introduction/Glossary_13173966.mdx#uri-scheme), and the examples below show how to use it exactly.
+
+When using the `file_string://` [URI scheme](../../Introduction/Glossary_13173966.mdx#uri-scheme), the delimiter is always the `!` character.
+
+#### 2.2.1 With [mod_dptools: playback](./6586776.mdx#0-about) without the `playback_delimiter` channel variable
+
+```xml
+<action application="playback" data="file_string:///ram/sr8k.wav!/ram/swimp.wav"/> 
+```
+
+#### 2.2.2\. Music-on-hold (MOH)
+
+```xml
+<action application="set" data="hold_music=file_string://sounds/holdmusic1.wav!sounds/yourcallisimportant.wav" />
+```
+
+#### 2.2.3\. Used with [mod_dptools: play_and_get_digits](./6586933.mdx#about)
+
+```xml
+<action application="play_and_get_digits" data="7 7 3 30000 # file_string://${sound_prefix}/voicemail/8000/vm-hello.wav!${sound_prefix}/conference/8000/conf-pin.wav /invalid.wav ivrsel \d+"/>
+```
+
+#### 2.2.4 Record a session
+
+If writing to a file fails, the next filename in the list is tried:
+
+```xml
+<action application="record_session" data="file_string://${record_dir}/${record_filename}!${backup_record_dir}/${record_filename}"/>
+```
+
+Note that you have to specify the full path, as sound path expansion is done in switch\_ivr\_play\_file, which is above the level that the file\_string:// protocol operates at.
+
+TODO See TODOs in **2\. Usage** above.
+
+## 3\. Execution Parameters
+
+### 3.1 `timeout` 
+
+There is a `timeout` parameter expressed in milliseconds that limits the duration of the file played.
+
+Use cases:
+
+* Useful for testing new music-on-hold (MOH), prompts, audio levels, etc.
+* Allows for more flexible concatenated audio files.
+
+#### 3.1.1 `timeout` example
+
+In this example, an extension is made that plays all listed files as follows:
+
+1. Announce a number to easily identify the file in the list.
+2. Play the file for 15 seconds. This is long enough to hear the song and take notes if needed.
+
+An answer is required to prevent the call from timing out so any number of files can be played in a single call.
+
+```xml
+   <extension name="testsounds">
+     <condition field="destination_number" expression="^8787$">
+       <action application="answer"/>
+       
+       <action application="say" data="en number pronounced 1"/>
+       <action application="playback" data="{timeout=15000}file_string://${sound_dir}/music/8000/music1.wav"/>
+       <action application="say" data="en number pronounced 2"/>
+       <action application="playback" data="{timeout=15000}file_string://${sound_dir}/music/8000/music2.wav"/>
+       <action application="say" data="en number pronounced 3"/>
+       <action application="playback" data="{timeout=15000}file_string://${sound_dir}/music/8000/music3.wav"/>
+        ...
+       ...
+       <action application="hangup"/>
+     </condition>
+   </extension>
+```
+
+Without the timeout, you would have to listen to entire files.
+
+  
+Document generated by Confluence on nov 11, 2022 04:27

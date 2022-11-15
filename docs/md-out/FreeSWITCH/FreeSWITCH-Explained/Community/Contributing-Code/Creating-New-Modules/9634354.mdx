@@ -1,0 +1,314 @@
+
+# Creating a New Endpoint: Lifecycle of a Session 
+
+ Created by  Pat Beirne, last modified by  Attila Gulyas on 2020.08.04
+
+---
+
+Table of Contents (click to expand)
+
+* [0\. About](#-freeswitch--creating-a-new-endpoint-lifecycle-of-a-session-)
+* [1\. Endpoints](#-freeswitch--creating-a-new-endpoint-lifecycle-of-a-session-)
+* [2\. Sessions](#-freeswitch--creating-a-new-endpoint-lifecycle-of-a-session-)
+* [3\. Channels](#-freeswitch--creating-a-new-endpoint-lifecycle-of-a-session-)  
+   * [3.1 state](#-freeswitch--creating-a-new-endpoint-lifecycle-of-a-session-)  
+   * [3.2 running\_state and callstate](#32-running_state-and-callstate)  
+   * [3.3 caller\_profile](#-freeswitch--creating-a-new-endpoint-lifecycle-of-a-session-)  
+   * [3.4 Variables](#-freeswitch--creating-a-new-endpoint-lifecycle-of-a-session-)
+* [4\. How to Write a FreeSWITCH Endpoint](#4-how-to-write-a-freeswitch-endpoint)
+* [5\. Handling calls from within your module](#5-handling-calls-from-within-your-module)  
+   * [5.1 Common tasks to both incoming and outgoing calls](#51-common-tasks-to-both-incoming-and-outgoing-calls)  
+   * [5.2 Outgoing calls](#-freeswitch--creating-a-new-endpoint-lifecycle-of-a-session-)  
+   * [5.3 Incoming calls](#-freeswitch--creating-a-new-endpoint-lifecycle-of-a-session-)
+* [6\. The Babel tower of the API](#-freeswitch--creating-a-new-endpoint-lifecycle-of-a-session-)
+
+---
+
+## 0\. About
+
+FreeSWITCH endpoints are designed to create, handle, and destroy media streams. This page describes **sessions** and **channels** from the point of view of writing an extension module for FreeSWITCH.
+
+## 1\. Endpoints
+
+FreeSWITCH manages the establishment and destruction of linked **sessions** between entities. For those of us from a telephony background, FreeSWITCH performs the functions of a PBX or central office. The following document is written with respect to voice calls, but the principles apply to the other types of connections that FreeSWITCH can manage.
+
+The voice entities that we're most familiar with are simple telephones. The modules that handles these are called “**endpoints**". The most used **endpoint modules** are [mod\_sofia](../../../Modules/mod_sofia_1048707.mdx#about) (SIP phones) and [mod\_skinny](../../../Modules/mod_skinny_3375354.mdx#docs) (Cisco phones).
+
+As modules, [they must have](./index.mdx#about) the following entry points to be loaded and unloaded:
+
+-module_load()  
+-module_unload()
+
+TODO Couldn't find direct references to `module_load()` and `module_unload()` in [Creating New Modules](./index.mdx#about), so check what this section is referring to.
+
+Usually a module will also implement two interfaces, as arrays of callback functions. This is how FreeSWITCH communicates with the module.
+
+An **endpoint module** deals a lot with **sessions**_._ 
+
+## 2\. Sessions
+
+A FreeSWITCH **session** is equivalent to a **[call-leg](../../../Introduction/Call-Legs_7143972.mdx#0-about)** when the **session**is managed by [mod\_sofia](../../../Modules/mod_sofia_1048707.mdx#about).
+
+A **session**contains a **channel** and **private data**_._
+
+![](/attachments/9634354/9634365.png)
+
+  
+This diagram shows containment, when in fact pointers are used.
+
+A **session** object owns the **channel**_,_ so in a sense the **session** is the parent of the **channel**_._ The **session** also wraps the **channel** in some management overhead, including:
+
+* thread to run the code
+* memory pool
+* array of codecs
+* message queues
+* read/write data buffers
+
+The **session** also owns a **private** object. The author of the module defines what this object contains and what it's used for. In almost all modules, this object is called `session->tech_pvt`. Some common elements of a **`tech_pvt`** are:
+
+* IP addresses involved in the communication channel
+* encryption keys for the communication channel
+* the external codecs involved in the media flow
+
+![](/attachments/9634354/9634366.png)
+
+## 3\. Channels
+
+The **channel** is the basic entity for one end of a FreeSWITCH call. **Channel** objects manage the flow of media to the outside world. **Channels** are where the most interesting things happen. [The **channel** runs through states](../../../Dialplan/Channel-States_7144639.mdx#0-about) that represent the state of call setup, the media flow and the call tear down.
+
+The most interesting members of a **channel** (see [switch\_channel.c](https://github.com/signalwire/freeswitch/blob/5274dd1f9c693dd6032f629befefc636af46ba92/src/switch%5Fchannel.c#L146)) are:
+
+* name
+* uuid
+* direction
+* its **session** (wrapper)
+* state
+* caller\_profile
+* flags
+* variables
+
+### 3.1 `state`
+
+The single most important **channel** member is the `state` variable, **designed to handle the connection status**.  The `state` member is the one that most FreeSWITCH documentation references. This state runs through the sequence `CS_NEW, CS_INIT, CS_ROUTING, CS_EXECUTE, CS_HANGUP, CS_REPORTING and CS_DESTROY`. The transitions from one state to the other are handled gracefully by the internals of FreeSWITCH ([switch\_core\_state\_machine.c](https://github.com/signalwire/freeswitch/blob/master/src/switch%5Fcore%5Fstate%5Fmachine.c)) unless you intercept these transitions. This state describes the highest level connection status of the **channel**_/_**session**.
+
+The `state` variable is not directly what one would normally use in telephony. Because FreeSWITCH can handle many kinds of media, the `state` variable is designed to handle the connection status. You need also look at `CF_RING_READY, CF_EARLY_MEDIA` and `CF_ANSWERED` in order to determine the telephony state.
+
+Here's a table to illustrate some details of the states:
+
+| State               | Normal activities                                                    | Standard processing                                                    | Your module code should….                                                                                                                         |
+| ------------------- | -------------------------------------------------------------------- | ---------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| CS\_NEW             | right after **session** creation                                     | none                                                                   | change to CS\_INIT                                                                                                                                |
+| CS\_INIT            | create any data structures required for the rest of the session/call | changes to CS\_ROUTING                                                 |                                                                                                                                                   |
+| CS\_ROUTING         | inbound: dial tone, accepting digits, ringback                       | inbound: uses the caller\_profile & the dialplan to pick a destination | inbound: your module will get a message SWITCH\_INDICATE\_ANSWERoutbound: your module should call switch\_call\_answer()                          |
+| CS\_CONSUME\_MEDIA  | outbound: ringing                                                    |                                                                        |                                                                                                                                                   |
+| CS\_EXCHANGE\_MEDIA | outbound: talking                                                    |                                                                        |                                                                                                                                                   |
+| CS\_EXECUTE         | inbound: media flows; talking                                        |                                                                        | near\_end release: your module should call switch\_channel\_hangup()far\_end release: your module will get a callback on my\_module\_on\_hangup() |
+| CS\_HANGUP          |                                                                      | Changes to CS\_REPORTING\*                                             |                                                                                                                                                   |
+| CS\_REPORTING       |                                                                      | Changes to CS\_DESTROY\*                                               |                                                                                                                                                   |
+| CS\_DESTROY         | Release any memory                                                   |                                                                        |                                                                                                                                                   |
+
+### 3.2 `running_state` and `callstate`
+
+The **channel** object also has two other state members (`running_state` and `callstate`) which are hardly used at all in the core of FreeSWITCH, and which you probably won't need. The `running_state` is just used in state transitions, usually holds the “previous state". The `callstate` is a more fine-grained version of the state, and it has its own getter and setter. If you chose to use the setter, it will fire an event. `callstate` includes `CCS_DOWN, CCS_DIALING, CCS_RINGING, CCS_EARLY, CCS_ACTIVE and CCS_HANGUP.`
+
+### 3.3 `caller_profile`
+
+Within the **channel** is a single `caller_profile`. This **contains descriptions of both the caller and callee**.
+
+The internal sections of FreeSWITCH only use:
+
+* uuid
+* caller\_id\_name, caller\_id\_number, caller\_extension
+* [dialplan](../../../Dialplan/index.mdx#0-about)
+* destination\_number
+
+The **channel** flags hold extra state information above and beyond the basic 13 states that are held in the `state` variable. The interesting flags are:
+
+| Flag              | Description                              |
+| ----------------- | ---------------------------------------- |
+| CF\_ANSWERED      | Channel is answered                      |
+| CF\_OUTBOUND      | Channel is an outbound channel           |
+| CF\_EARLY\_MEDIA  | Channel is ready for audio before answer |
+| CF\_ORIGINATOR    | Channel is an originator                 |
+| CF\_TRANSFER      | Channel is being transfered              |
+| CF\_HOLD          | Channel is on hold                       |
+| CF\_GEN\_RINGBACK | Channel is generating it's own ringback  |
+| CF\_RING\_READY   | Channel is ready to send ringback        |
+| CF\_BREAK         | Channel should stop what it's doing      |
+
+### 3.4 Variables
+
+A **channel** also has a hash of key-value pairs that can hold all kinds of interesting data related to the **channel**. These are used extensively by [mod\_sofia](../../../Modules/mod_sofia_1048707.mdx#about) to bind things like `sip_user_agent` and `sip_profile_name` to a **channel**. These key-value pairs can be queried by either the dialplan or LUA processing. They can also be a handy way to accumulate data in preparation for issuing a FreeSWITCH event. See [channel variables](../../../Dialplan/Channel-Variables_16352493.mdx#about)_[.](../../../Dialplan/Channel-Variables_16352493.mdx#about)_
+
+## 4\. How to Write a FreeSWITCH Endpoint
+
+First follow the [New Module Checklist](./index.mdx#new-module-checklist). [Earlier directions](./index.mdx#about) suggest using` freeswitch/src/mod/applications/mod_skel` to start off, but for endpoints you're better off starting with` freeswitch/src/mod/endpoints/mod_reference`.
+
+`module_load() `is the first entry point called. Usually at this point you will inform the caller about your module, its callback interface arrays, and register any API extensions. You may also want to create a memory pool. You should [read your config data](./index.mdx#creating-your-module), which by convention is XML, and buried somewhere in `freeswitch/conf`.
+
+## 5\. Handling calls from within your module
+
+See [Life Cycle of a Call](../../../Introduction/Life-Cycle-of-a-Call_1048888.mdx#0-about).
+
+### 5.1 Common tasks to both incoming and outgoing calls
+
+Below is our current understanding. We are not core developers, so all is guessed --Sathieu 11:14, 18 February 2010 (UTC) – PatB 2015-09-25
+
+For both outgoing and incoming calls, you must allocate the **session**. The core of FreeSWITCH will automatically allocate and bind a **channel** to your **session**_._ FreeSWITCH does not create the `caller_profile`_; y_our code must allocate a `caller_profile`_,_ and bind it to the **channel**_. Y_ou probably also want to allocate a **private data** object, and bind it to the **session**_._
+
+Notice that in a normal call, the inbound/originating **channel** ends up in the [CS\_EXECUTE state](../../../Dialplan/Channel-States_7144639.mdx#0-about), and the outbound/called **channel** ends up in the [CS\_EXCHANGE\_MEDIA state](../../../Dialplan/Channel-States_7144639.mdx#0-about). (Once we start playing with 'hold' and 'transfer', this statement gets muddied.)
+
+If your module wants to shut down the call, just use `switch_channel_hangup()`. You will get a callback to your `on_hangup()` entry point and the call will shut down.
+
+If the other end wants to shut down the call, you will get a `SIG_KILL` sent to your `on_channel_kill()` entry point. Shortly thereafter you will get a call to your `on_hangup()` entry point and the call will shut down.
+
+Notes
+
+\[1\] you don't need to create the **channel**_…_.it is created inside the **session**
+
+\[2\] at minimum, you should set the .name member of the **channel**
+
+\[3\] or if you wish to abort, call` switch_channel_hangup(channel)`
+
+\[4\] strangely, you only call `s_c_s_thread_launch`() on incoming calls; it's called automatically for you on outgoing calls (deep in` switch_ivr.c`)
+
+### 5.2 Outgoing calls
+
+Outgoing calls are created either by a call coming through the dialplan routing, or when you use the originate command in the console:
+
+* `your_io_routines.outgoing_channel()` is called  
+   * you get a pointer to the other call half (_session/_ _channel_)
+* create a new **session** (with `switch_core_session_request()`) and _private data_\[1\]
+* parse `outbound_profile->destination_number` to get called number
+* create a `caller_profile`and bind it to the **session**
+* qualify the **session**, attached **channel** and attached **private data** \[2\]
+* the **channel** is currently in `CS_NEW`; change [**channel** state](../../../Dialplan/Channel-States_7144639.mdx#0-about) to `CS_INIT`
+   * make the phone ring (and call `switch_channel_ring_ready()`)
+* `your_state_handler.on_init()` is called  
+   * no need to do anything  
+   * the default handler will change **channel** state to `CS_ROUTING`
+* `your_state_handler.on_routing()` is called  
+   * no need to do anything  
+   * the default handler will change [**channel** state](../../../Dialplan/Channel-States_7144639.mdx#0-about) to `CS_CONSUME_MEDIA`
+* when you decide the call is answered  
+   * call `switch_channel_mark_answered(channel)` \[3\] which will set the [**channel** state](../../../Dialplan/Channel-States_7144639.mdx#0-about) to `CS_EXCHANGE_MEDIA`
+* `your_state_handler.on_exchange_media()` is called  
+   * and the call is up
+
+### 5.3 Incoming calls
+
+Incoming calls are initiated by your code. To start up a call
+
+* create a new **session** _(_with `switch_core_session_request()`) and _private data_ \[1\]  
+   * create a `caller_profile` (with `switch_caller_profile_new()`) and fill in the `->destination_number`  
+   * qualify the **channel** and **private data** \[2\]  
+   * create a `caller_profile `and bind it to the **channel**  
+   * start up the thread that manages the **session** (with `switch_core_session_thread_launch()`) \[4\]  
+   * change [**channel** state](../../../Dialplan/Channel-States_7144639.mdx#0-about) from `CS_NEW` to `CS_INIT`
+* `your_state_handler.on_init()` will be called  
+   * no need to do anything  
+   * the default handler will change [**channel** state](../../../Dialplan/Channel-States_7144639.mdx#0-about) to `CS_ROUTING`
+* `your_state_handler.on_routing()` is called  
+   * no need to do anything  
+   * if your `caller_profile->destination_number` has been set, the default handler will search the **dialplan** and start an application; if this is a telephone call, usually the 'bridge' application will start an outbound **session** toward the called party and change change this [**channel** state](../../../Dialplan/Channel-States_7144639.mdx#0-about) to `CS_EXECUTE`
+* when the distant party answers  
+   * `your_state_handler.on_receive_message()` is called  
+         * filter the messages you get for `SWITCH_MESSAGE_INDICATE_ANSWER`  
+         * take any action that you need to start up the call
+
+From the directory that you installed FreeSWITCH, you can simply [type “make mod\_my\_module"](./index.mdx#creating-your-module) to just remake your loadable module. In the FreeSWITCH console, you can enter [load mod\_my\_module](./index.mdx#reloading-your-module) and `unload mod_my_module` as often as you want, fixing bugs between builds.
+
+## 6\. The Babel tower of the API
+
+When trying to learn FreeSWITCH programming, you're going to be overwhelmed by the number of API methods that are available. Here's a list on the one's you're likely to need in **session** and **channel** management.
+
+| switch\_core\_session\_request()                                  | allocate and initialize a new **session**                                                                                                                |
+| ----------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| switch\_core\_session\_get\_channel()                             | given a **session**, get the associated **channel**                                                                                                      |
+| switch\_core\_session\_get\_private()                             | given a **session**, get the **private data**                                                                                                            |
+| switch\_channel\_get/set\_state()                                 | used to coerce a [**channel** state](../../../Dialplan/Channel-States_7144639.mdx#0-about); usually the only one you will do is CS\_NEW→CS\_INIT                                |
+| switch\_core\_session\_alloc()                                    | allocayr space, usually for tech\_pvt                                                                                                                    |
+| switch\_caller\_profile\_clone()                                  | on outgoing, clone the caller's caller\_profile                                                                                                          |
+| switch\_channel\_get /set\_caller\_profile()                      | bind a caller\_profile to a **channel**                                                                                                                  |
+| switch\_channel\_test\_flag() switch\_channel\_set\_flag\_value() | set/test CF\_ANSWERED, CF\_EARLY\_MEDIA, etc                                                                                                             |
+| switch\_channel\_get/set\_name()                                  | give your channel a name, like “superphone/1001"                                                                                                         |
+| |                                                                 |                                                                                                                                                          |
+| switch\_channel\_ring\_ready()                                    | ignored if the **channel** is already answeredif inbound, sends the message SWITCH\_MESSAGE\_INDICATE\_RINGINGcalls switch\_channel\_mark\_ring\_ready() |
+| switch\_channel\_mark\_ring\_ready()                              | set CF\_RING\_READYsends a PROGRESS eventsets callstate=CCS\_RINGINGsends message SWITCH\_MESSAGE\_RING\_EVENT                                           |
+| switch\_channel\_pre\_answer()                                    | ignored if the _channel_ is already answeredif inbound, sends the messageSWITCH\_MESSAGE\_INDICATE\_PROGRESScalls switch\_channel\_mark\_pre\_answer()   |
+| switch\_channel\_mark\_pre\_answer()                              | set CF\_EARLY\_MEDIAsends a PROGRESS\_MEDIA eventsets callstate=CCS\_EARLYsends message SWITCH\_MESSAGE\_PROGRESS\_EVENT                                 |
+| switch\_channel\_answer()                                         | ignores outbound calls or calls already answeredsends message SWITCH\_MESSAGE\_INDICATE\_ANSWERcall switch\_channel\_mark\_answered()                    |
+| switch\_channel\_mark\_answered()                                 | ignores calls already answeredsets CF\_ANSWEREDsends CHANNEL\_ANSWER eventsets callstate=CCS\_ACTIVEsends message SWITCH\_MESSAGE\_ANSWER\_EVENT         |
+| switch\_channel\_hangup()                                         | change channel state to CS\_HANGUPsends the HANGUP eventsends SIG\_KILL(1) to itself                                                                     |
+| switch\_core\_session\_thread\_launch()                           | starts up the state machine; inbound only                                                                                                                |
+| switch\_channel\_direction()                                      | check inbound or outbound                                                                                                                                |
+
+There are several similar calls with the word "`_perform_`" in the name; these are just versions that include the filename/line number for debugging. Don't call those directly.
+
+There are three pairs in the middle, with and without the "`_mark_`" in the name. You call
+
+| switch\_channel\_ring\_ready() |
+| ------------------------------ |
+| switch\_channel\_pre\_answer() |
+| switch\_channel\_answer()      |
+
+when you want to issue the `SWITCH_MESSAGE_INDICATE_`\* messages into the message queue. If you're responding to an `INDICATE` message, you don't need to re-issue that message, so you would call these below:
+
+| switch\_channel\_mark\_ring\_ready() |
+| ------------------------------------ |
+| switch\_channel\_mark\_pre\_answer() |
+| switch\_channel\_mark\_answered()    |
+
+For example, if you just got a `SWITCH_MESSAGE_INDICATE_ANSWER`, you would only call the `switch_channel_mark_answered`() version. If you are working on something else, and you decide the call should be answered, call the non-`_mark_` version `switch_channel_anwer`().
+
+In practice, the standard state code does a pretty good job of managing channel flags, [channel variable](../../../Dialplan/Channel-Variables_16352493.mdx#about), and [**channel** state](../../../Dialplan/Channel-States_7144639.mdx#0-about)s. The only routines that you will probably need to call are
+
+  switch_channel_set_state() // once, during session creation
+
+  switch_channel_mark_answered() // when your device answers
+
+  switch_channel_hangup() // to shut down
+
+  
+---
+
+**Source code for those UML diagrams above:**
+
+using PlantUML syntax
+
+Fig 1
+
+session *-- channel  
+channel *-- caller_profile  
+session *-- tech_pvt
+
+Fig 2
+
+session *-- channel  
+channel *-- caller_profile  
+session *-- tech_pvt
+
+session : thread  
+session : memory pool  
+session : codec[]  
+session: messages[]
+
+channel: name  
+channel: uuid  
+channel: direction  
+channel: flags[]  
+channel: variables[]
+
+caller_profile: destination_number  
+caller_profile: caller_id
+
+tech_pvt: ip addresses  
+tech_pvt: other data that you may need
+
+  
+## Attachments:
+
+![](/images/icons/bullet_blue.gif) [session.png](/attachments/9634354/9634365.png) (image/png)  
+![](/images/icons/bullet_blue.gif) [full\_session.png](/attachments/9634354/9634366.png) (image/png)  
+
+Document generated by Confluence on nov 11, 2022 04:28

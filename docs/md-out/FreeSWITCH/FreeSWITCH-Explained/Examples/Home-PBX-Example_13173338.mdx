@@ -1,0 +1,367 @@
+
+# Home PBX Example 
+
+ Created by  Aline Cristine Freire de Araújo on 2016.12.23
+
+# About
+
+This page documents a simple home PBX using FreeSwitch. It is currently being used at my (mmurdock) home but is a work in progress. I will attempt to add more features as I get them developed or tested.
+
+* Updated 03-20-2007 - Using the new FS sofia.conf.xml configuration
+* Updated 12-28-2006 - The answering machine javascript application is now working and as such I included the call to it on inbound call handling.
+
+Click here to expand Table of Contents
+
+* 1 [Environment](#environment)
+* 2 [Server](#server)
+* 3 [Phones & Adaptors](#phones--adaptors)
+* 4 [Call Handling](#call-handling)
+* 5 [Sofia configuration (sofia.conf.xml)](#sofia-configuration-sofiaconfxml)
+* 6 [Dial Plan Section](#dial-plan-section)
+
+## Environment
+
+* 5 Phones (handsets)  
+   * 3 Pots phones (two wireless, one wired)  
+   * 1 SIP Softphone  
+   * 1 SIP Hardphone
+* 2 SIP providers  
+   * 1 Inbound only (NY DID)  
+   * 1 Inound/Outbound (Local DID)
+
+## Server
+
+* Dell GX240  
+   * 1.5 Ghz P4 CPU  
+   * 512M Ram  
+   * 20GB HD  
+   * (cost $175)
+* OS  
+   * Stock Fedora Core 5  
+   * Init Level 3
+
+## Phones & Adaptors
+
+* SPA 2002SNOM 190 SIP Phone (Extension 101)  
+   * Drives two POTS lines (FXS)  
+         * One line drives Wireless handsets (Extension 105)  
+         * Second Line drives POTS Deskset (Extension 106)
+* XTEN Softphone on Windows (Extension 102)
+
+## Call Handling
+
+* Inbound  
+   * When a call arrives from either DID it is handled as follows.  
+         * Ring all phones in the house for 30 seconds  
+         * If no answer on any line  
+                  * Send caller to the answering machine application  
+                  * Terminate call  
+         * If any extension answers  
+                  * Bridge caller to extension
+* Outbound  
+   * If 3 digits dialed  
+         * If 888 Dialed - Bridge call to Freeswitch Conference via SIP  
+         * Else dial Internal Extension  
+   * If 7 digits dialed  
+         * Prepend areacode and dial via SIP Provider  
+   * If 10 digits dialed  
+         * Dial via SIP Provider  
+   * If 1+ digits dialed  
+         * Dial via SIP Provider
+
+## Sofia configuration (sofia.conf.xml)
+
+This Sofia configuration is provided for example only and specific account settings have been changed. The only changes necessary were made to the gateway settings in order to authenticate with my SIP provider (TELIAX).
+
+[Chris](https://wiki.freeswitch.org/wiki/User:Danielsonchris "User:Danielsonchris") 21:00, 10 May 2008 (EDT) **Please note that this is an outdated demonstration of setting up a SIP Provider**. Please adhere to the the setting specified within the [SIP Provider Examples](https://wiki.freeswitch.org/wiki/SIP%5FProvider%5FExamples "SIP Provider Examples") page. Basically, add in your SIP profiles within the _conf/sip\_profiles/external and internal_ directories location rather than editing the sofia.conf.xml file.
+
+```xml
+<configuration name="sofia.conf" description="sofia Endpoint">
+   <profiles>
+     <profile name="$${domain}">
+       <!-- Outbound Registrations -->
+       <gateways>
+         <gateway name="voip-co3.teliax.com">
+           <!--/// account username *required* ///-->
+           <param name="username" value="myusername"/>
+           <!--/// auth realm: *optional* same as gateway name, if blank ///-->
+           <param name="realm" value="TELIAX"/>
+           <!--/// account password *required* ///-->
+           <param name="password" value="mypassword"/>
+           <!--/// extension for inbound calls: *optional* same as username, if blank ///-->
+           <param name="extension" value="2185553333"/>
+           <!--/// proxy host: *optional* same as realm, if blank ///-->
+           <param name="proxy" value="voip-co3.teliax.com"/>
+           <!--/// expire in seconds: *optional* 3600, if blank ///-->
+           <param name="expire-seconds" value="600"/>
+         </gateway>
+       </gateways>
+       <settings>
+         <param name="debug" value="1"/>
+         <param name="rfc2833-pt" value="101"/>
+         <param name="sip-port" value="5060"/>
+         <param name="dialplan" value="enum,XML"/>
+         <param name="dtmf-duration" value="100"/>
+         <param name="codec-prefs" value="$${default_codecs}"/>
+         <param name="codec-ms" value="20"/>
+         <param name="use-rtp-timer" value="true"/>
+         <param name="rtp-timer-name" value="soft"/>
+         <param name="rtp-ip" value="auto"/>
+         <param name="sip-ip" value="auto"/>
+ 
+         <!--Uncomment to set all inbound calls to no media mode-->
+         <!--<param name="inbound-bypass-media" value="true"/>-->
+ 
+         <!--Uncomment to let calls hit the dialplan *before* you decide if the codec is ok-->
+         <!--<param name="inbound-late-negotiation" value="true"/>-->
+ 
+         <!-- this lets anything register -->
+         <!--  comment the next line and uncomment one or both of the other 2 lines for call authentication -->
+         <param name="accept-blind-reg" value="true"/>
+ 
+         <!--TTL for nonce in sip auth-->
+         <param name="nonce-ttl" value="60"/>
+         <!--Uncomment if you want to force the outbound leg of a bridge to only offer the codec
+             that the originator is using-->
+         <!--<param name="disable-transcoding" value="true"/>-->
+         <!--<param name="auth-calls" value="true"/>-->
+         <!-- on authed calls, authenticate *all* the packets not just invite -->
+         <!--<param name="auth-all-packets" value="true"/>-->
+ 
+         <!-- optional ; -->
+         <!-- <param name="ext-rtp-ip" value="stun:stun.server.com"/>-->
+         <!-- <param name="ext-rtp-ip" value="100.101.102.103"/> -->
+         <!-- VAD choose one (out is a good choice); -->
+         <!-- <param name="vad" value="in"/> -->
+         <!-- <param name="vad" value="out"/> -->
+         <!-- <param name="vad" value="both"/> -->
+         <!--<param name="alias" value="sip:10.0.1.251:5555"/>-->
+       </settings>
+     </profile>
+   </profiles>
+ </configuration>
+```
+
+ ## Dial Plan Section
+
+Don't panic at the size of this section, most of the lines are comments "&lt;!-- this is a comment -->" to explain what is going on or optional stuff you may or may not want.
+
+While Freeswitch supports a number of sources for your dialplan, the default and easiest to configure is the XML Dialplan below. The xml dialplan provides the ability to evaluate a number of fields using regex patterns and based upon those matches take some action. The sample dialplan below is designed for a SOHO PBX but can easily be enhanced to meet more complex needs.
+
+For help constructing a regex pattern try <http://www.quanetic.com/regex.php> or any of the number of sites listed when you search google for "regex test".
+
+```xml
+<!-- DIALPLAN - While Freeswitch supports a number of  sources for your dialplan,            -->
+ <!--            the default and easiest to configure is the XML Dialplan below.              -->
+ <!--            The xml dialplan provides the ability to evaluate a number of fields         -->
+ <!--            using regex patterns and based upon those matches take some action.          -->
+ <!--            The sample dialplan below is designed for a SOHO PBX but can easily          -->
+ <!--            be enhanced to meet more complex needs. More detailed documentation          -->
+ <!--            on the XML Dialplan can be found on the voip-info freeswitch wiki            -->
+ <!--            http://wiki.freeswitch.org/wiki/Dialplan_XML -->
+ <!--            For help constructing a regex pattern try http://www.quanetic.com/regex.php  -->
+ <!--            or any of the number of sites listed when you search google for "regex test" -->
+ 
+ <section name="dialplan" description="Regex/XML Dialplan">
+  <!-- Valid fields in conditions:                                  -->
+  <!-- "dialplan, caller_id_name, ani, ani2, caller_id_number,      -->
+  <!-- rdnis, destination_number, uuid, source, context, chan_name" -->
+  <!-- *NOTE* The special context name 'any' will match any context -->
+  <context name="default">
+   <!-- This extension simply prints out the channel variables that you may   -->
+   <!-- use to determine what action to take. Use this for debugging your     -->
+   <!-- dialplan and comment it out once things are set the way you want them -->
+   <!-- The continue=true parameter causes Freeswitch to continue processing  -->
+   <!-- other dialplan conditions even though this one was a match            -->
+   <extension name="PrintVars" continue="true">
+    <condition field="destination_number" expression="^[0-9]">
+     <action application="info"/>
+    </condition>
+   </extension>
+ 					
+   <!-- Inbound calls handled first - You will want to configure one or            -->
+   <!-- more of these depending upon the ways in which you can receive calls       -->
+   <!-- If you have a number of similar DID's and they get the same call treatment -->
+   <!-- you may want to use Regex pattern matching instead of a hard coded number  -->
+   <extension name="Inbound-3165551212">
+    <!-- EDIT: change the DID to your inbound DID (DN) number     -->
+    <!--       Note - you can use regx pattern matching if needed -->
+    <condition field="destination_number" expression="^3165551212$">
+     <!-- If you are going to ring multiple extensions you should send back -->
+     <!-- a 180 ringing message to the provider.                            -->
+     <action application="ring_ready" />
+ 								
+     <!-- Set the maximum amount of time you want to ring the extensions (seconds) -->
+     <action application="set" data="call_timeout=20"/>
+ 									
+     <!-- Sample: Bridge the call to 100, 101, 102, 103, 104 and 105 extensions. If you                 -->
+     <!-- do not have 5 extensions configured you can remove the extra ones or just leave               -->
+     <!-- them in... it will not cause a problem... just extra log messages.                            -->
+     <!-- Note: use "," between extensions to dial at the same time and "|" to dial sequentially.       -->
+     <!-- Note: No spaces can exist in the data string data="sofia/sip/100%${...},sofia/sip/101%${...}  -->
+     <!-- EDIT: You will also need to change the IP (or domain name) in the URI to that of your server. -->
+     <action application="bridge" data="sofia/sip/100%${server-domain-name},sofia/sip/101%${server-domain-name},sofia/sip/102%${server-domain-name},sofia/sip/103%${server-domain-name},sofia/sip/104%${server-domain-name},sofia/sip/105%${server-domain-name}"/>
+     <!-- No one answered so launch the answering machine application -->
+     <action application="javascript" data="/usr/local/freeswitch/scripts/answermachine.js"/>
+     <!-- Sample single extension bridge -->
+     <!--action application="bridge" data="sofia/sip/100%${server-domain-name}"/-->
+    </condition>
+   </extension>
+ 						
+   <!-- Dial any 3 digit number starting with 1 as a PBX Extension -->
+   <extension name="PBX Extension">
+    <condition field="destination_number" expression="^(1[0-9]{2})$">
+     <!-- This will dial a registered phone at the ip or domain name you set in the globals section -->
+     <!-- (The % indicates it is an internal extension)                                             -->
+     <action application="bridge" data="sofia/sip/$1%${server-domain-name}"/>
+    </condition>
+   </extension>
+ 			
+   <!-- Dial any 7 digit number (3334444) as 10 digit dialing  but pass to a local itsp -->
+   <extension name="Local Dial">
+    <condition field="destination_number" expression="^([0-9]{7})$">
+     <!-- Set your outgoing caller ID name here -->
+     <action application="set" data="effective_caller_id_name=John Freeswitch"/>
+     <!-- Your SIP provider probably expects a phone number or username
+       for this setting. It is used in the from URL phonenumber@mysipprovider.com -->
+     <action application="set" data="effective_caller_id_number=1234567"/>
+     <!-- If your provider does not provide ringback (180 or 183) you may simulate 
+       ringback by uncommenting the following line. -->
+     <!-- action application="ring_ready" /-->
+     <!-- Call the bridge app. Set data to endpoint/profile/[Areacode]$1@mysipprovider.com     -->
+     <!-- in this case, the "profile" is gateway, followed by the name of the specific gateway -->
+     <!-- Note: the area code is getting prepended to the dialstring variable $1               -->
+     <!-- EDIT: Change the area code and domain of your SIP provider.                          -->
+     <action application="bridge" data="sofia/gateway/voip-co3.teliax.com/514$1@switch.asterlink.com"/>
+    </condition>
+   </extension>
+ 			
+   <!-- Dial a tollfree number though a specific gateway -->
+   <extension name="tollfree">
+    <condition field="destination_number" expression="^(18(0{2}|8{2}|7{2}|6{2})\d{7})$">
+     <action application="bridge" data="sofia/sip/$1-freeswitch@voip.trxtel.com"/>
+    </condition>
+   </extension>
+ 			
+   <!-- Dial any 10 digit number (2223334444) or 1+10 number (12223334444) here -->
+   <extension name="Long Distance">
+    <condition field="destination_number" expression="^(1{0,1}\d{10})$">
+     <!-- Set your outgoing caller ID name here -->
+     <action application="set" data="effective_caller_id_name=John Freeswitch"/>
+     <!-- Your SIP provider probably expects a phone number or username
+       for this setting. It is used in the from URL phonenumber@mysipprovider.com -->
+     <action application="set" data="effective_caller_id_number=1234567"/>
+     <!-- If your provider does not provide ringback (180 or 183) you may simulate 
+       ringback by uncommenting the following line. -->
+     <!-- action application="ring_ready" /-->
+     <!-- Call the bridge app. Set data to endpoint/profile/[Areacode]$1@mysipprovider.com -->
+     <!-- EDIT: Change the area code and domain of your SIP provider.                      -->
+     <action application="bridge" data="sofia/gateway/voip-co3.teliax.com/$1@switch.asterlink.com"/>
+    </condition>
+   </extension>
+ 						
+   <!-- The following settings are for example purpose only and not intended to   -->
+   <!-- be a functional part of your pbx. You may comment them out or remove them -->
+   <!-- if you like.                                                              -->
+ 						
+   <!-- Call the FreeSWITCH conference via SIP --> 
+   <extension name="FreeSWITCH Conference SIP">
+    <condition field="destination_number" expression="^888$">
+     <action application="set" data="effective_caller_id_name=Noobee User"/>
+     <action application="bridge" data="sofia/sip/888@conference.freeswitch.org"/>
+    </condition>
+   </extension>
+ 			
+   <!-- Play a sample local sound file when 1111 dialed              -->
+   <!-- Note: You may need to create the freeswitch/sounds directory -->
+   <!-- and download a sample sound file to play                     --> 
+   <extension name="testmusic">
+    <condition field="destination_number" expression="^1111$">
+     <action application="answer"/>
+     <action application="playback" data="/usr/local/freeswitch/sounds/starwars.raw"/>
+    </condition>
+   </extension>
+ 						
+   <!-- Launch a sample JavaScript application if either 2222 or 3333 dialed-->
+   <extension name="javascript test">
+    <condition field="source" expression="mod_sofia"/>
+    <condition field="destination_number" expression="2222|3333">
+     <action application="javascript" data="/usr/local/freeswitch/scripts/testcall.js"/>
+    </condition>
+   </extension>
+ 			
+   <!-- If 4444 dialed play back ring tone and dial a remote music server at            -->
+   <!-- sofia/sip/1234@66.250.68.194. By design, it may take up to 15 seconds to answer -->
+   <extension name="testmusic1">
+    <condition field="destination_number" expression="^4444$">
+     <!-- Request a certain tone/file to be played while you wait for the call to be answered-->
+     <action application="set" data="ringback=${us-ring}"/>
+     <!--<action application="set" data="ringback=/home/ring.wav"/>-->
+     <action application="bridge" data="sofia/sip/1234@conference.freeswitch.org"/>
+    </condition>
+   </extension>
+ 			
+   <!-- If 5555 dialed dial a remote music server at sofia/sip/1235@conference.freeswitch.org -->
+   <extension name="testmusic2">
+    <condition field="destination_number" expression="^5555$">
+     <action application="bridge" data="sofia/sip/1235@conference.freeswitch.org"/>
+    </condition>
+   </extension>
+ 			
+   <!-- 1000 - Enter an existing conference (conferencing must be configured) -->
+   <extension name="1000">
+    <condition field="destination_number" expression="^1000$">
+     <action application="conference" data="freeswitch"/>
+    </condition>
+   </extension>
+ 			
+   <!-- 2000 - Start a dynamic conference and call someone at the same time -->
+   <extension name="2000">
+    <condition field="destination_number" expression="^2000$">
+     <action application="conference" data="bridge:mydynaconf:sofia/sip/1234@conference.freeswitch.org"/>
+    </condition>
+   </extension>
+ 						
+   <!-- extensions starting with 4, all the numbers after 4 form a numeric filename -->
+   <!-- continue="true" means keep looking for more extensions to match             -->
+   <!-- *NOTE* The entire dialplan is parsed ONCE when the call starts              -->
+   <!-- so any call info acquired after the various actions cannot                  -->
+   <!-- be taken into consideration.                                                -->
+ 			
+   <!-- The first match will play a beep and the second one plays -->
+   <!-- the desired file.  This is for demo purposes both actions -->
+   <!-- could have been under the same <extension> tag as well.   -->
+ 						
+   <!--extension name="playsound1" continue="true">
+     <condition field="source" expression="mod_sofia"/>
+     <condition field="destination_number" expression="^4(\d+)">
+       <action application="playback" data="/var/sounds/beep.gsm"/>
+     </condition>
+   </extension-->
+ 			 
+   <extension name="playsound2">
+    <condition field="source" expression="mod_sofia"/>
+    <condition field="destination_number" expression="^4(\d+)">
+     <action application="playback" data="/root/$1.raw"/>
+    </condition>
+   </extension>
+ 			 
+   <!-- Call *MUST* originate from mod_iax and also be dialing ext 9664-->
+   <extension name="9664">
+    <condition field="source" expression="mod_iax"/>
+    <condition field="destination_number" expression="9664">
+     <action application="playback" data="/var/sounds/beep.gsm"/>
+    </condition>
+   </extension>
+ 						
+   <!-- Call the FreeSWITCH conference via IAX -->
+   <!-- extension name="FreeSWITCH Conference IAX">
+     <condition field="destination_number" expression="^8888$">
+       <action application="bridge" data="iax/guest@conference.freeswitch.org/888"/>
+     </condition>
+   </extension -->
+  </context>
+ </section>
+```
+
+ Document generated by Confluence on nov 11, 2022 04:28

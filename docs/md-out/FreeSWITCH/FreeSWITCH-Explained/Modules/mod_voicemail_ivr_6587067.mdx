@@ -1,0 +1,140 @@
+
+# mod_voicemail_ivr 
+
+ Created by  Italo Rossi, last modified by  Jim Lynch on 2018.05.13
+
+# About
+
+mod\_voicemail\_ivr provide a audio navigation system to a backend voicemail system.
+
+Click here to expand Table of Contents
+
+**Errore nella rappresentazione della macro 'toc'**
+
+null
+
+WARNING: Some specs here might change in the next months following discussions (2011-12-24)  
+  
+voicemail_ivr &lt;check> profile domain [id]
+
+For pre-auth: set voicemail_authorized=true  
+  
+## Description
+
+  
+The VoiceMail IVR application is a new prototype voicemail ivr engine that allow great flexibility for future improvement. The goal was to make it configuration flexible and yet not be restricted in term of feature we can implement in the different interfaces.
+
+It currently used the exact argument as mod\_voicemail. Only the check method is implemented at this time.
+
+##   
+Configuration
+
+  
+To get you started, you must have the voicemail\_ivr.conf.xml and the voicemail\_ivr.xml from the default sample file installed. Compile and load the module. You can call it like you call voicemail. You must have mod\_voicemail loaded since it used as the default backend.
+
+##   
+Example
+
+  
+You can check the sample configuration file \[<http://fisheye.freeswitch.org/browse/freeswitch.git/conf/autoload%5Fconfigs/voicemail%5Fivr.conf.xml?hb=true> here\].
+
+Configuration support multiple profiles. Inside those profile, you can configure apis to be used, and menus.
+
+### apis
+
+  
+This is a sample API entry to get the list of message from a mailbox. The msg\_list and other from the sample configuration file are what the actual code lookup to find the correct API to use. Depending of the features you need, you could add new api here and find it inside the code using the name you defined it.  
+&lt;pre>&lt;api name="msg\_list" value="vm\_fsdb\_msg\_list" />&lt;/pre>  
+This is basicly the only way this module do get it informations.
+
+### menus
+
+This define an actual menu key map and phrases name to be used inside your IVR. Now that the menu name is a direct reference to the in code menu. so in this example, std\_navigator actually reference an C function. You cannot just create new menu inside the XML file, you must code the actual scenario inside the module itself. But this method allow for creation of new menu without affecting everyone current implementation. This way, we can add new feature and menu, but if you don't want it, you just never use it.
+
+  
+&lt;menu name="std_navigator">  
+ &lt;phrases>  
+ &lt;phrase name="msg_count" value="message_count@voicemail_ivr" />  
+ &lt;phrase name="say_date" value="say_date_event@voicemail_ivr" />  
+ &lt;phrase name="say_msg_number" value="say_message_number@voicemail_ivr" />  
+ &lt;phrase name="menu_options" value="listen_file_check@voicemail_ivr" />  
+ &lt;phrase name="ack" value="ack@voicemail_ivr" />  
+ &lt;phrase name="play_message" value="play_message@voicemail_ivr" />  
+ &lt;/phrases>  
+ &lt;keys>  
+ &lt;key dtmf="1" action="skip_intro" variable="VM-Key-Main-Listen-File" />  
+ &lt;key dtmf="6" action="next_msg" variable="VM-Key-Main-Next-Msg" />  
+ &lt;key dtmf="4" action="prev_msg" />  
+ &lt;key dtmf="7" action="delete_msg" variable="VM-Key-Main-Delete-File" /> &lt;!-- Same key for undelete if it already deleted -->  
+ &lt;key dtmf="8" action="menu:std_forward" variable="VM-Key-Main-Forward" />  
+ &lt;key dtmf="3" action="save_msg" variable="VM-Key-Main-Save-File" />  
+ &lt;key dtmf="2" action="callback" variable="VM-Key-Main-Callback" />  
+ &lt;key dtmf="5" action="menu:std_preference" />  
+ &lt;key dtmf="#" action="return" /> &lt;!-- TODO Might Conflict with future fast-forward -->  
+ &lt;/keys>  
+&lt;/menu>  
+  
+#### phrases
+
+The phrase are defined like apis above. msg_count in this example is what hardcoded inside the code, but the value is used instead for the actuel playback. This allow to add more phrases inside the default config file to provide different feature, or to have a private feature set, but at the same time not breaking everyone else setup.  
+   
+ &lt;phrase name="msg_count" value="message_count@voicemail_ivr" />  
+  
+#### keys
+
+The keys are what define the different action to be taken while the playback of an IVR.  
+** dtmf - Define the key that an action are associated with.  
+** action - Action to execute when a matching dtmf is pressed. This name is actually check in condition inside the module itself. Using name like this allow to create new functionality at will without breaking other people implementation. So all the action are specific to that particular menu except for the standard actions below.  
+*** Standard actions:  
+**** menu:&lt;menu name> - Used to go inside a new menu  
+**** return - Return to the previous menu  
+** variable - The name you use here will be available inside the phrases and will be populated with the DTMF key.  
+   
+ &lt;key dtmf="8" action="menu:std_forward" variable="VM-Key-Main-Forward" />  
+ 
+# Developer Information
+
+## VoiceMail Backend
+
+mod\_voicemail\_ivr doesn't have any direct access to any type of backend system. All it does is execute API command inside freeswitch to retrieve voicemail information for a user.
+
+### mod_voicemail vm_fsdb API 
+
+  
+This is the standard backend used for development of the module. It allow direct access to standard voice mail store by mod\_voicemail. This method allow simultaneous usage of mod\_voicemail and mod\_voicemail\_ivr.  
+\[<http://wiki.freeswitch.org/wiki/Mod%5Fvoicemail#Advanced%5FAPI> mod\_voicemail vm\_fsdb API reference\]
+
+### IMAP
+
+No imap connector exist at this time, but creating one would be rather trivial. All that is required is to reply to those basic API request.
+
+### VoiceMail IVR Engine
+
+mod\_voicemail\_ivr use custom built ivr interface. This might change in the future depending of technology become available, but for the moment, it what allow the best voicemail experience possible. The reason this interface was written was following the inconstancy of the experience with mod\_voicemail.
+
+The C code across all the different menu are pretty similar and done in the following order  
+\# Initialize the IVR system  
+\# Run initial code that will be static during the whole IVR process  
+\# Begin IVR loop allowing retry support  
+\## Prepare an Event with the content required for playback and and parsing during this loop  
+\## Check if some prompt action need to be executed following an action (This allow playback skipping without discarding the received dtmf key)  
+\## Playback the different phrases  
+\## Check for status of IVR after playback and perform different action  
+\### TIMEOUT : Maximum wait time reached for a DTMF to be entered after the playback of all the phrases  
+\### INVALID : The DTMF isn't part of the list that in the menu configuration  
+\### FOUND : DTMF key match  
+\#### We now lookup the action associated to that DTMF and execute what related to it...
+
+This allow for great flexibility but keep full feature set of FS API.  
+Playback can always be interrupted using a DTMF key and the right option will be executed. For comparison with mod\_voicemail, you can delete lot of message without having to wait for the full prompt of message deleted to playback.
+
+#   
+Missing features
+
+  
+\* Seek support  
+\* IVR for leaving voicemail to a user
+
+\[\[Category:Modules\]\]
+
+Document generated by Confluence on nov 11, 2022 04:27

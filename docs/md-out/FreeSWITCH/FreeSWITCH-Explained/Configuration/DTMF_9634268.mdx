@@ -1,0 +1,103 @@
+
+# DTMF 
+
+ Created by  Belaid Areski, last modified by  livem Chan on 2021.10.27
+
+**Table of Contents**
+
+* [0\. DTMF digits](#0-dtmf-digits)
+* [1\. Mode overview](#1-mode-overview)
+* [2\. Mode descriptions](#2-mode-descriptions)  
+   * [2.1 DTMF passthrough inband](#21-dtmf-passthrough-inband)  
+   * [2.2 DTMF passthrough inband w/ DTMF detection](#22-dtmf-passthrough-inband-w-dtmf-detection)  
+   * [2.3 DTMF intercept w/ DTMF removal](#23-dtmf-intercept-w-dtmf-removal)  
+   * [2.4 DTMF intercept w/ DTMF detection and removal](#24-dtmf-intercept-w-dtmf-detection-and-removal)  
+   * [2.5 DTMF intercept w/ DTMF detection, removal and regeneration](#25-dtmf-intercept-w-dtmf-detection-removal-and-regeneration)
+* [3\. DTMF options](#3-dtmf-options)
+* [4\. DTMF Tools](#4-dtmf-tools)
+* [5\. Other](#5-other)
+
+## 0\. DTMF digits
+
+When writing an application, make sure to handle all valid DTMF tones (with sound clips; copied from the [DTMF wikipedia page](https://en.wikipedia.org/wiki/Dual-tone%5Fmulti-frequency%5Fsignaling##,%5F%2A,%5FA,%5FB,%5FC,%5Fand%5FD)):
+
+  
+| | 1209 Hz | 1336 Hz                                                                                               | 1477 Hz                                                                                        | 1633 Hz                                                                                        |                                                                                                |
+| --------- | ----------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
+| 697 Hz    | [1](https://freeswitch.org//upload.wikimedia.org/wikipedia/commons/b/bf/Dtmf1.ogg "Dtmf1.ogg")        | [2](https://freeswitch.org//upload.wikimedia.org/wikipedia/commons/7/7d/Dtmf2.ogg "Dtmf2.ogg") | [3](https://freeswitch.org//upload.wikimedia.org/wikipedia/commons/2/28/Dtmf3.ogg "Dtmf3.ogg") | [A](https://freeswitch.org//upload.wikimedia.org/wikipedia/commons/d/d5/DtmfA.ogg "DtmfA.ogg") |
+| 770 Hz    | [4](https://freeswitch.org//upload.wikimedia.org/wikipedia/commons/9/9f/Dtmf4.ogg "Dtmf4.ogg")        | [5](https://freeswitch.org//upload.wikimedia.org/wikipedia/commons/1/1c/Dtmf5.ogg "Dtmf5.ogg") | [6](https://freeswitch.org//upload.wikimedia.org/wikipedia/commons/7/7b/Dtmf6.ogg "Dtmf6.ogg") | [B](https://freeswitch.org//upload.wikimedia.org/wikipedia/commons/5/5a/DtmfB.ogg "DtmfB.ogg") |
+| 852 Hz    | [7](https://freeswitch.org//upload.wikimedia.org/wikipedia/commons/9/9f/Dtmf7.ogg "Dtmf7.ogg")        | [8](https://freeswitch.org//upload.wikimedia.org/wikipedia/commons/f/f7/Dtmf8.ogg "Dtmf8.ogg") | [9](https://freeswitch.org//upload.wikimedia.org/wikipedia/commons/5/59/Dtmf9.ogg "Dtmf9.ogg") | [C](https://freeswitch.org//upload.wikimedia.org/wikipedia/commons/9/96/DtmfC.ogg "DtmfC.ogg") |
+| 941 Hz    | [\*](https://freeswitch.org//upload.wikimedia.org/wikipedia/commons/e/e7/DtmfStar.ogg "DtmfStar.ogg") | [0](https://freeswitch.org//upload.wikimedia.org/wikipedia/commons/2/2d/Dtmf0.ogg "Dtmf0.ogg") | [#](https://freeswitch.org//upload.wikimedia.org/wikipedia/commons/c/c4/Dtmf-.ogg "Dtmf-.ogg") | [D](https://freeswitch.org//upload.wikimedia.org/wikipedia/commons/9/99/DtmfD.ogg "DtmfD.ogg") |
+
+The tones `A` , `B` , `C` , and `D` are very rare nowadays but they are still possible to send (e.g., someone has an old device with the extra ABCD column) and thus make sure that you handle them in your app, otherwise they may cause it to crash.
+
+## 1\. Mode overview
+
+In the context of two bridged analog channels, we need to consider 5 possible approaches to DTMF handling per audio path (tx and rx).
+
+DTMF behavior for a single audio path can be captured by a triple of booleans as follows:
+
+Matrix
+
+| Mode        | Suppress | Detect | Regenerate |
+| ----------- | -------- | ------ | ---------- |
+| passthrough | .        | .      | .          |
+| passthrough | .        | X      | .          |
+| intercept   | X        | .      | .          |
+| intercept   | X        | X      | .          |
+| intercept   | X        | X      | X          |
+
+Two such triples would be needed to fully describe the behavior of two bridged channels: one for the rx and one for tx audio path.
+
+## 2\. Mode descriptions
+
+### 2.1 DTMF passthrough inband
+
+Audio passes between the A and B legs without being inspected or modified.
+
+### 2.2 DTMF passthrough inband w/ DTMF detection
+
+Audio passes between the A and B legs without being modified. DTMF detection is done by running Goertzel on each 20ms buffer but NOT dropping frames in which DTMF is detected.
+
+### 2.3 DTMF intercept w/ DTMF removal
+
+DTMF is filtered out. In some implementations this could be a cheaper operation than detect and remove.
+
+### 2.4 DTMF intercept w/ DTMF detection and removal
+
+Detect DTMF using Goertzel and drop samples containing DTMF tones. The opposite leg will hear silence (with or without some bleeding).
+
+### 2.5 DTMF intercept w/ DTMF detection, removal and regeneration
+
+Detect DTMF using Goertzel and drop samples identified as containing DTMF tones. Regenerate the detected DTMF tones on the opposite leg. **This AFAIK is the only DTMF intercept mode supported by FreeSWITCH ATM.**
+
+## 3\. DTMF options
+
+FreeSWITCH attempts to negotiate `rfc2833` DTMF out-of-band transmission.
+
+TODO [RFC 2833](https://tools.ietf.org/html/rfc2833) is obsoleted by [RFC 4733](https://tools.ietf.org/html/rfc4733).
+
+An option to offer `rfc2833` but accept `INFO` was added in GIT [bc7cb400c0d576817b12836012899925dce61cca](http://fisheye.freeswitch.org/changelog/freeswitch.git/?cs=bc7cb400c0d576817b12836012899925dce61cca) on June 23, 2011.
+
+* As a SIP Profile option: [Sofia Configuration Files#liberal-dtmf](./Sofia-SIP-Stack/Sofia-Configuration-Files_7144453.mdx#-liberal-dtmf) and set it to true
+* As a gateway/user variable: sip\_liberal\_dtmf=true (I think, based on the GIT diff?) \~\~
+
+If you are receiving the DTMF inband and FreeSWITCH hasn't automatically started inband detection, use [mod\_dptools: start\_dtmf](../Modules/mod-dptools/6587132.mdx#0-about)
+
+  
+See more: section DTFM in [Sofia Configuration Files](./Sofia-SIP-Stack/Sofia-Configuration-Files_7144453.mdx#--).
+
+## 4\. DTMF Tools
+
+You may want DTMF input to trigger certain actions. These tools will let you do that, e.g. start recording the call or initiate a transfer.
+
+* Watch for digits: [mod\_dptools: bind\_meta\_app](../Modules/mod-dptools/6586418.mdx#about) or the more flexible [mod\_dptools: bind\_digit\_action](../Modules/mod-dptools/6586414.mdx#0-about)
+* Play a prompt to enter digits: [mod\_dptools: play\_and\_get\_digits](../Modules/mod-dptools/6586933.mdx#about)
+
+## 5\. Other
+
+* <http://www.mail-archive.com/freeswitch-dev@lists.freeswitch.org/msg02964.html>
+* <http://www.mail-archive.com/freeswitch-dev@lists.freeswitch.org/msg03039.html>
+
+  
+Document generated by Confluence on nov 11, 2022 04:24

@@ -1,0 +1,297 @@
+
+# Sangoma A200 
+
+ Created by  Italo Monteiro on 2017.01.13
+
+# About
+
+This is a brief description of a FS installation using the Sangoma A200 expandable analog voice card. Mine is a 4 port (2 FXS, 2 FXO) version but it is expandable to 24 ports. I originally was using it with Asterisk but became frustrated when it stopped working and I was unable to get any help from the Asterisk mailing list so I found out about FreeSWITCH and decided to give it a try.
+
+The configuration I'll describe is not necessarily the best nor do I claim to be anything but an informed user. My background is not in telephony and I still have lots of trouble with the concepts. I purchased the FreeSWITCH 1.0.6 book but it does not touch on OpenZAP or FreeTDM other than refering the reader to this wiki (not this page). It was helpful in other ways however. I originally installed the A200 using OpenZAP but switched to FreeTDM with the advice of moy on the #freeswitch IRC channel.
+
+Click here to expand Table of Contents
+
+**Errore nella rappresentazione della macro 'toc'**
+
+null
+
+## Preliminaries
+
+I followed the instructions on <http://wiki.sangoma.com/wanpipe-freeswitch-install> to install the wanpipe drivers and FreeSWITCH with these exceptions:
+
+* Use the latest source (via git) to be sure you've got the latest FreeTDM sources.
+* Be sure to install Wanpipe before FreeSWITCH as the Sangoma wiki says.
+* Before compiling FS edit the modules.conf file in the source root directory and uncomment this line
+
+```xml
+../../libs/freetdm/mod_freetdm
+```
+
+* The /usr/sbin/wancfg utility creates openzap.conf and autoload\_configs/openzap.conf.xml files. The names need to be changed to freetdm.conf and autoload\_configs/freetdm.conf.xml. I suspect this will not be necessary sometime in the near future.
+* Be sure the wanpipe configuration is working OK before compiling FS. Start wanrouter via the '/etc/init.d/wanrouter start' command.
+
+  
+If you are running Freeswitch as a non-root user, the FreeTDM spans may fail to start. This is caused by the /dev/wanpipe\* being owned by root. You need to **chmod 666 /dev/wanpipe\*** to clear this issue
+
+## FreeTDM Files
+
+These are examples of the config files wancfg generated and my additions/edits.   
+freetdm.conf
+
+```xml
+[span wanpipe FXS]
+name => Analog Phone 1
+number =>1100
+fxs-channel => 1:1
+name => Analog Phone 2
+number =>1101
+fxs-channel => 1:2
+
+[span wanpipe FXO]
+name => PTSN line 1
+number => 7707190068
+fxo-channel => 1:3
+name => PTSN line 2
+number => 7707190239
+fxo-channel => 1:4
+```
+
+autoload\_configs/freetdm.conf.xml
+
+```xml
+<configuration name="freetdm.conf" description="FreeTDM Configuration">
+  <settings>
+    <param name="debug" value="0"/>
+    <param name="hold-music" value="$${moh_uri}"/>
+  </settings>
+  <!-- one entry here per freetdm span -->
+  <analog_spans>
+    <span name="FXS">
+      <!-- This is where the calls coming on this span will be directed -->
+      <param name="dialplan" value="XML"/>
+      <param name="context" value="fxs-ports"/>
+      <param name="enable_callerid" value="true"/> <!-- This is the default value anyway -->
+    </span>
+    <span name="FXO">
+      <param name="dialplan" value="XML"/>
+      <param name="context" value="public"/>
+      <!-- Set this to the correct value for your area, to get the
+           correct tones on the phones connected to the FXS ports -->
+      <param name="tonegroup" value="us"/>
+      <param name="enable_callerid" value="true"/>
+    </span>
+  </analog_spans>
+ </configuration>
+```
+
+##   
+FreeSWITCH Files
+
+I wanted to have the following configuration:
+
+* The POTS phones connected to the A200 to be normal extensions and act identical to the SIP phones in my system. This means they will have to follow the same default dialplan with respect to making calls and be available to answer calls from other extensions and/or from the outside lines.
+* The POTS lines connected to the A200 will be available as outbound trunks and as inbound lines, will be directed to a specific extension, which might just be a voicemail drop.
+
+# FXS configuration
+
+Create a file to support the fxs-ports context. I named mine /usr/local/freeswitch/conf/dialplan/00\_freetdm.xml. This file is necessary to make a connection between the A200 POTS phones and FS. Since there appears to be no way to set variables in the FreeTDM config files, we need this intermediate step which sets some necessary variables. Once those are set, control is passed to the default context. Big thanks to Michael Collins who furnished the configuration.
+
+There should be a better way of setting the default\_gateway, but I was unable to figure it out. Michael didn't have anything to do with that line.
+
+00\_freetdm.xml
+
+```xml
+<include>
+  <context name="fxs-ports">
+    <extension name="outbound">
+      <condition field="destination_number" expression="^(.*)$">
+        <action application="set" data="toll_allow=local,domestic,international"/>
+        <action application="set" data="default_gateway=GATEWAY"/>
+        <action application="transfer" data="$1 XML default"/>
+      </condition>
+    </extension>
+  </context>
+</include>
+```
+
+Substitute your gateway for the GATEWAY. If you set a default\_gateway in the vars.xml file, you could use the same value. I wanted my POTS phones that are connected to the A200 to use my sip gateway to dial out. If you don't set a default gateway in the vars.xml file, you can leave out that step. If you want to use one of your A200 ports to dial out, you don't need it either.
+
+I added the following to my dialplan/default.xml file:
+
+```xml
+<extension name="Local_FXS_Extension">
+      <condition field="destination_number" expression="^(1100)$">
+	<action application="set" data="dialed_extension=$1"/>
+	<action application="export" data="dialed_extension=$1"/>
+	<!-- bind_meta_app can have these args <key> [a|b|ab] [a|b|o|s] <app> -->
+	<action application="bind_meta_app" data="1 b s execute_extension::dx XML features"/>
+	<action application="bind_meta_app" data="2 b s record_session::$${recordings_dir}/${caller_id_number}.${strftime(%Y-%m-%d-%H-%M-%S)}.wav"/>
+	<action application="bind_meta_app" data="3 b s execute_extension::cf XML features"/>
+	<action application="set" data="ringback=${us-ring}"/>
+	<action application="set" data="transfer_ringback=$${hold_music}"/>
+	<action application="set" data="call_timeout=10"/>
+	<!-- <action application="set" data="sip_exclude_contact=${network_addr}"/> -->
+	<action application="set" data="hangup_after_bridge=true"/>
+	<!--<action application="set" data="continue_on_fail=NORMAL_TEMPORARY_FAILURE,USER_BUSY,NO_ANSWER,TIMEOUT,NO_ROUTE_DESTINATION"/> -->
+	<action application="set" data="continue_on_fail=true"/>
+	<action application="hash" data="insert/${domain_name}-call_return/${dialed_extension}/${caller_id_number}"/>
+	<action application="hash" data="insert/${domain_name}-last_dial_ext/${dialed_extension}/${uuid}"/>
+	<action application="set" data="called_party_callgroup=${user_data(${dialed_extension}@${domain_name} var callgroup)}"/>
+	<!--<action application="export" data="nolocal:sip_secure_media=${user_data(${dialed_extension}@${domain_name} var sip_secure_media)}"/>-->
+	<action application="hash" data="insert/${domain_name}-last_dial/${called_party_callgroup}/${uuid}"/>
+        <action application="bridge" data="freetdm/1/1"/>
+	<action application="answer"/>
+	<action application="sleep" data="1000"/>
+	<action application="bridge" data="loopback/app=voicemail:default ${domain_name} ${dialed_extension}"/>
+      </condition>
+    </extension>
+```
+
+It's almost the same as the Local\_Extension extension block, except I bridge to freetdm/1/1\. The numbering system is a bit arcane and I don't understand it but I was able to make it work by guessing. If you look at the freetdm.conf file, you'll see my phones are defined as 1:1 and 1:2 and it's almost logical that they would be addressed as freetdm/1/1 and freetdm/1/2\. However if you try to apply that logic to the FXO lines, it doesn't work. 1:3 becomes freetdm/2/1 and 1:4 becomes freetdm/2/2\. Multiple times over the last few years I've tried to nail Sangoma down and explain how that works and they give me information that makes no sense. The last explanation I got was
+
+```xml
+<!-- freetdm/(span number/group)/(channel)/phonenum@g(group)) -->
+```
+
+When I asked where I was supposed to get the info to plug into that template, I was told it's in the config file. However nowhere in the config file can I warp anything into what works.
+
+So you're on your own if your A200 is configured differently from mine, but maybe there's enough info here to extrapolate to a different setup. He also told me to ignore the last part. I could never get him to tell me what the last part was, but now that I have it working, I see the last part starts with the word "channel".
+
+Sorry to be so long winded but this has frustrated me literally for years and I hope it helps others.
+
+I don't currently have a second phone attached to the A200 so I didn't add an extension block, but it should be trivial to duplicate that block, changing the extension number and the bridge line.
+
+With this much in place you should be able to dial up extension 1100 and have it ring.
+
+Also you should be able to dial out over the default gateway.
+
+# FXO configuration
+
+Next we'll want to route the incoming calls from the POTS lines connected to our A200.
+
+I generated the following file, dialplan/public/00\_inbound\_did.xml
+
+```xml
+<include>
+  <extension name="public_did">
+    <condition field="destination_number" expression="^(7707190068)$">
+      <action application="set" data="domain_name=$${domain}"/>
+      <action application="transfer" data="1003 XML default"/>
+    </condition>
+  </extension>
+</include>
+```
+
+This causes all calls to my 7707190068 POTS line to be routed to extension 1003 which is a SIP phone in my office.
+
+Now the last part of the puzzle is how to use the A200 POTS lines to dial out. Actually that's one of the simpler things if you know the secret to addressing the freetdm ports.
+
+This is a section of my dialplan/default.xml file:
+
+```xml
+  <extension name="freetdm.example.com">
+    <condition field="${toll_allow}" expression="local"/>
+    <condition field="destination_number" expression="^9(\d{10})$">
+      <action application="set" data="effective_caller_id_number=${outbound_caller_id_number}"/>
+      <action application="set" data="effective_caller_id_name=${outbound_caller_id_name}"/>
+      <action application="bridge" data="freetdm/2:1/1/$1"/>
+    </condition>
+  </extension>
+```
+
+For testing I wanted to use a slightly different dialing pattern to uniquely address the POTS line. To dial using this path, dial 9 and the 10 digit phone number. In our dialing area local numbers require all 10 digits since we have multiple area codes.
+
+# Another A200D Configuration
+
+After installation on Debian Squeeze with FreeSwitch Git (29/10/2011) and Wanpipe 3.5.23\. Did auto-configuration by wancfg\_ftdm script. I had these two files auto generated. While the files referenced the channels as 1:\[1-4\] it was, as stated above, a little different as they were referenced in the XML dialplan.
+
+ftdm.conf
+
+```xml
+[span wanpipe boostpri]
+
+[span wanpipe FXS]
+name => freetdm
+trunk_type => fxs
+group => grp1
+fxs-channel => 1:1
+
+trunk_type => fxs
+group => grp1
+fxs-channel => 1:2
+
+[span wanpipe FXO]
+name => freetdm
+trunk_type => fxo
+group => grp2
+fxo-channel => 1:3
+
+trunk_type => fxo
+group => grp2
+fxo-channel => 1:4
+```
+
+ftdm.conf.xml
+
+```xml
+<configuration name="freetdm.conf" description="Freetdm Configuration">
+  <settings>
+    <param name="debug" value="0"/>
+  </settings>
+
+	<!--CONFIG_PROFILE_HEADER-->
+		<!--CONFIG_PRI_PROFILE-->
+		<!--CONFIG_BRI_PROFILE-->
+	<!--CONFIG_PROFILE_FOOT-->
+	
+	<boost_spans>	
+	
+	</boost_spans>
+
+	<analog_spans>
+	  	<span name="FXO">
+			<param name="dialplan" value="XML"/>
+			<param name="context" value="public"/>
+		</span>
+
+		<span name="FXS">
+			<param name="dialplan" value="XML"/>
+			<param name="context" value="default"/>
+		</span>
+
+	</analog_spans>
+  
+</configuration>
+```
+
+Here are two very minimal dialplan examples. Also sending the incoming calls from FXO to the IVR worked OK. As more configuration is done this page will be updated.
+
+dialplan/default/01\_ftdm\_bridge\_fxs2fxo.xml
+
+```xml
+<extension name="bridge-FXS-to-FXO">
+  <condition field="destination_number" expression="^.+$" />
+  <condition field="chan_name" expression="FreeTDM/1:[12]/${destination_number}" >
+       <action application="bridge" data="freetdm/2/1/${destination_number}"/>
+  </condition>
+</extension>
+```
+
+dialplan/public/00\_inbound\_did.xml
+
+```xml
+<include>
+  <extension name="public_cid">
+	<!-- TODO: Add something to get CID from call and pass it to SIP Phones  -->
+    <condition field="destination_number" expression=".*" continue="on-true">
+	<action application="set" data="domain_name=$${domain}"/>
+	<!-- Ring the Available FXS Line  -->
+	<action application="bridge" data="freetdm/1/[1:2]"/>
+        <!-- OR Transfer call to Demo IVR  -->
+        <!--<action application="transfer" data="5000 XML default"/> -->
+    </condition>
+  </extension>
+</include>
+```
+
+Document generated by Confluence on nov 11, 2022 04:28

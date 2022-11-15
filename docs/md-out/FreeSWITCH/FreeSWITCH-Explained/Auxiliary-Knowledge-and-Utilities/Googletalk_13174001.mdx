@@ -1,0 +1,182 @@
+
+# Googletalk 
+
+ Created by  Bruno Levy on 2017.01.13
+
+Click here to expand Table of Contents
+
+* 1 [FreeSWITCH and Google Talk](#freeswitch-and-google-talk)
+* 2 [FreeSWITCH – Google Talk – Dingaling – Jingle All The Way](#freeswitch--google-talk--dingaling--jingle-all-the-way)
+
+## FreeSWITCH and Google Talk
+
+One of the reasons I chose to spend time with freeswitch over yate was google talk integration. Was a good choice, I think, for more than just gtalk.
+
+The endpoint that talks to gtalk is mod\_dingaling, and it’s not compiled by default. So to enable it, uncomment #endpoints/mod\_dingaling from modules.conf in your source tree and recompile.
+
+I had to install gnutls-devel to get gtalk working, but check freeswitch.spec for other build packages you might need.
+
+The configuration is pretty straight forward. Make sure in conf/autoload\_configs/modules.conf.xml mod\_dingaling is loaded.
+
+I set it up as a client, I think later I might play around with it as a server. My conf/jingle\_profiles/client.xml looks like this:
+
+```xml
+<include>
+  <!– Client Profile (Original mode) –>
+  <profile type="client">
+    <param name="name" value="gmail.com"/>
+    <param name="login" value="michael.chesterton@gmail.com/gtalk"/>
+    <param name="password" value="bellybutton"/>
+    <param name="server" value="talk.google.com"/>
+    <param name="dialplan" value="XML"/>
+    <param name="context" value="public"/>
+    <param name="message" value="Press Belly Button to Begin"/>
+    <param name="rtp-ip" value="$${bind_server_ip}"/>
+    <param name="ext-rtp-ip" value="$${external_rtp_ip}"/>
+    <param name="auto-login" value="true"/>
+    <!– SASL “plain" or “md5? –>
+    <param name="sasl" value="plain"/>
+    <!– if the server where the jabber is hosted is not the same as the one in the jid –>
+    <!–<param name="server" value="alternate.server.com"/>–>
+    <!– Enable TLS or not –>
+    <param name="tls" value="true"/>
+    <!– disable to trade async for more calls –>
+    <param name="use-rtp-timer" value="true"/>
+    <!– default extension (if one cannot be determined) –>
+    <param name="exten" value="5551212?/>
+    <!– VAD choose one –>
+    <!– <param name="vad" value="in"/> –>
+    <!– <param name="vad" value="out"/> –>
+    <param name="vad" value="both"/>
+    <!–<param name="avatar" value="/path/to/tiny.jpg"/>–>
+  </profile>
+</include>
+```
+
+  
+When editing conf/jingle\_profiles/client.xml, pay attention to the line &lt;profile type="client"> make sure it’s profile , and not x-profile. It comes as x-profile out of the box to stop it from loading. 5551212 is the phone gtalk calls will go to as defined by exten
+
+One other thing is do is add a vcard to your directory entry, I added it to conf/directory/default/1000.xml and directory/default/5551212.xml, mine looks like:
+
+```xml
+<include>
+  <user id="1000? mailbox="1000?>
+    <params>
+      <param name="password" value="1234?/>
+      <param name="vm-password" value="1234?/>
+       <param name="vm-mailto" value="chesty@chesterton.id.au"/>
+<!–
+       <param name="vm-email-all-messages" value="true"/>
+–>
+    </params>
+    <variables>
+      <variable name="user_context" value="default"/>
+      <variable name="ruleset" value="internal" />
+      <variable name="effective_caller_id_name" value="Michael Chesterton"/>
+      <variable name="effective_caller_id_number" value="1000?/>
+    </variables>
+    <vcard xmlns=’vcard-temp’>
+      <FN>Michael Chesterton</FN>
+      <N>
+        <FAMILY>Chesterton</FAMILY>
+        <GIVEN>Michael</GIVEN>
+        <MIDDLE/>
+      </N>
+      <NICKNAME>Michael</NICKNAME>
+      <URL>http://barrang.com.au/</URL>
+      <BDAY>1974-11-21</BDAY>
+      <ORG>
+        <ORGNAME>Barrang</ORGNAME>
+        <ORGUNIT>Barrang</ORGUNIT>
+      </ORG>
+      <TITLE>Owner</TITLE>
+      <ROLE>Engineer</ROLE>
+      <TEL><WORK/><VOICE/><NUMBER>5551212</NUMBER></TEL>
+      <TEL><WORK/><CELL/><NUMBER>614205555</NUMBER></TEL>
+      <TEL><WORK/><FAX/><NUMBER/></TEL>
+      <TEL><WORK/><MSG/><NUMBER/></TEL>
+      <ADR>
+        <WORK/>
+        <EXTADD/>
+        <STREET/>
+        <LOCALITY>Panania</LOCALITY>
+        <REGION>NSW</REGION>
+        <PCODE>2213</PCODE>
+        <CTRY>Australia</CTRY>
+      </ADR>
+      <TEL><HOME/><VOICE/><NUMBER/></TEL>
+      <TEL><HOME/><FAX/><NUMBER/></TEL>
+      <TEL><HOME/><MSG/><NUMBER/></TEL>
+      <ADR>
+        <HOME/>
+        <EXTADD/>
+        <STREET/>
+        <LOCALITY/>
+        <REGION/>
+        <PCODE/>
+        <CTRY/>
+      </ADR>
+      <EMAIL><INTERNET/><PREF/><USERID>michael.chesterton@barrang.com.au</USERID></EMAIL>
+      <JABBERID>michael.chesterton@gmail.com</JABBERID>
+      <DESC>
+        More information about me is located on my
+        personal website: http://barrang.com.au/
+      </DESC>
+    </vcard>
+  </user>
+</include>
+```
+
+That will get you signed in to gtalk ready to receive and make calls. Now we need a dialplan to direct gtalk calls to a SIP phone. Part of my conf/dialplan/public.xml looks like:
+
+```xml
+<extension name="public_did">
+  <condition field="caller_id_number" expression="^([^@]+)" break="never">
+    <action application="set" data="effective_caller_id_number=$1?/>
+  </condition>
+  <condition field="destination_number" expression="^(5551212)$">
+    <action application="set" data="call_timeout=18?/>
+    <action application="set" data="continue_on_fail=true"/>
+    <action application="set" data="hangup_after_bridge=true"/>
+    <action application="bridge" data="sofia/switch.gruntnet/1000,sofia/switch.gruntnet/1001?/>
+    <action application="answer"/>
+    <action application="voicemail" data="default $${domain} 1000?/>
+  </condition>
+</extension>
+```
+
+The first condition field strips out the @ character from the caller id number, my e65 doesn’t like the @ character and rejects the call. Gtalk sets the caller id number as something like [barrang.com@gmail.com](mailto:barrang.com@gmail.com)/Talk.v1047F0FC7A5\. The rest I’ve already talked about here
+
+I’ve only tested setting up a call from an XP vm to my SIP enabled mobile phone, I haven’t tested audio yet. But I’m getting there, I’m waiting for a friend to install gtalk so they can test with me. Then I just need a dialplan entry so I can make gtalk calls from SIP clients.
+
+Related posts:
+
+FreeSWITCH – Google Talk – Dingaling – Jingle All The Way Freeswitch – Softswitch, Softphone, PBX FreeSWITCH and Voicemail Latest FreeSWITCH, PennyTel and Billion 5200N development Freeswitch on Ubuntu Feisty
+
+This entry was written by chesty, posted on December 31, 2007 at 8:29 am.
+
+## FreeSWITCH – Google Talk – Dingaling – Jingle All The Way
+
+I got freeswitch working with google talk. There were a few bugs in mod\_dingaling that were causing segfaults, they’re fixed in the latest update.
+
+I called from gtalk on my XP vm to my e65 via SIP, audio is working. I commented out the line &lt;param name="ext-rtp-ip" value="$${external\_rtp\_ip}"/> from conf/jingle\_profiles/client.xml .
+
+To make calls from the SIP e65 to google talk users, I added to the dialplan conf/dialplan/default.xml
+
+```xml
+<extension name="sip2jingle">
+ <condition field="source" expression="mod_sofia"/>
+ <condition field="destination_number" expression="^gmail\+([^\@]+)\@?(.*)$">
+   <action application="bridge" data="dingaling/gmail.com/$1@gmail.com"/>
+ </condition>
+</extension>
+```
+
+Then from the e65 I dial [gmail+user@switch.gruntn](mailto:gmail+user@switch.gruntn)et .
+
+See FreeSWITCH and Google Talk for the rest of the setup.
+
+I still need to do more testing, and understand how it traverses through the NAT firewall before I give out my google talk address to people. Did I mention the I love freeswitch?
+
+  
+Document generated by Confluence on nov 11, 2022 04:29

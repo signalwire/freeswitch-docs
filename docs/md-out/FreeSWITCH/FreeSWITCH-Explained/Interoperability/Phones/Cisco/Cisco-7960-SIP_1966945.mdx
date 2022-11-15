@@ -1,0 +1,384 @@
+
+# Cisco 7960 SIP 
+
+ Created by  Mario G, last modified by  John Boteler on 2014.06.04
+
+# About
+
+This page discusses the Cisco 796x series phones when used with SIP signaling.
+
+If you intend to use SCCP (skinny protocol) beware of the limitations in outbound dialing from Cisco phones as outlined in [FS-477](https://freeswitch.org/jira/browse/FS-477?src=confmacro)  \-[Autentica](https://freeswitch.org/confluence/plugins/servlet/applinks/oauth/login-dance/authorize?applicationLinkID=c4b15fa3-ad57-3c05-af05-8c167cb92266) per visualizzare i dettagli del problema 
+
+* 1 [About](#about)  
+   * 1.1 [CISCO 7960 / 7960G LAB ENVIRONMENT:](#cisco-7960--7960g-lab-environment)  
+   * 1.2 [CISCO 7960 / 7960G PROVISIONING:](#cisco-7960--7960g-provisioning)  
+   * 1.3 [BLIND XFER (Blind Transfer):](#blind-xfer-blind-transfer)  
+   * 1.4 [Call Parking](#call-parking)  
+   * 1.5 [Conferencing and Intercom](#sip-timers)
+
+## **CISCO 7960 / 7960G LAB ENVIRONMENT:**
+
+**Firmware Revisions:**
+
+* **App Load:** P0S3-08-8-00
+* **Boot Load:** PC030301
+* **DSP Load:** 4.0(2.0)\[A0\]
+
+**Also confirmed as working:**
+
+* **App Load:** P0S3-08-11-00
+* **Boot Load:** PC030301
+* **DSP Load:** 4.0(5.0)\[A0\]
+
+_**\*Note:**_ With previous revisions of the SIP Firmware for this phone it was discovered that NAT traversal was nearly impossible, and calls would mysteriously hang up after 120 seconds, etc.
+
+Firmware Revision Warning
+
+App Load: P0S3-08-11-00
+
+This is confirmed as broken. Weird things happen with this firmware revision. Please consider using P0S3-08-8-00 until a fixed version is released.
+
+Details: The bug in that version of Cisco firmware tends to create massive re-registration attempts, to the point that FS is so busy servicing the registration requests that it has no time to process incoming calls. When you have only a few phones it will handle this without much of a problem, but when you add more you'll notice one-way audio and dropped calls, adding yet more will create a situation whereby we've seen up to 25 seconds before an incoming call is even displayed on the CLI.
+
+This was only noticed when multiple phones were pointed to a production FS instance since, with one phone configured, everything in the test lab worked.
+
+Update 11/19/2008 - This was a compounded problem having to do with a linux kernel bug, and it corrupting the DBD Database in Freeswitch. Oddly enough, this didn't surface until the aforementioned Cisco firmware weirdness above. This bug seems to affect linux 2.6.28.10, but earlier and later versions may also be affected. The workaround was to put the Freeswitch SQLLite database in a RAM disk.
+
+## **CISCO 7960 / 7960G PROVISIONING:**
+
+ASSUMPTIONS:
+
+This HowTo assumes that you have a TFTP Server, have a DHCP Server configured to point the DHCP client devices at the IP address of the TFTP server, and that the Cisco 7960 Firmware listed above is installed properly on the TFTP server. There are many howto's that discuss how to install and/or upgrade the SIP Firmware Images on the TFTP server, so this is not covered in this HowTo.
+
+For ISC DHCPD, you will need to have this line:
+
+```xml
+option tftp-server-name "your.tftp.server.ip";
+```
+
+in your dhcpd.conf
+
+If that option doesn't work, or doesn't exist, try consulting your tftp server documentation for "option 150".
+
+**The Files:**
+
+You will need a **SIPDefault.cnf** file that sets up reasonable defaults for phones, and you will need one file created per phone with the MAC Address of the phone embedded into the filename such as **SIP_0A0B0C0D0E0F_.cnf**
+
+**The File Contents:**
+
+The contents of the SIPDefault.cnf file are listed below as it appears on my server. You may wish to update some items such as the sntp\_server parameter and the date\_format parameter depending on where you are in the world and/or the telnet\_level depending on how secure you want things to be.
+
+The auto\_answer parameter is a bitmap, and as set will set line 6 to be capable of answering the call automatically. This can be useful for an intercom and paging for instance.
+
+**SIPDefault.cnf:**
+
+```xml
+# SIP Default Generic Configuration File
+
+# Image Version
+image_version: P0S3-08-8-00
+
+# Proxy Server
+proxy1_address: ""              ; Can be dotted IP or FQDN
+proxy2_address: ""              ; Can be dotted IP or FQDN
+proxy3_address: ""              ; Can be dotted IP or FQDN
+proxy4_address: ""              ; Can be dotted IP or FQDN
+proxy5_address: ""              ; Can be dotted IP or FQDN
+proxy6_address: ""              ; Can be dotted IP or FQDN
+
+# Proxy Server Port (default - 5060)
+proxy1_port: 5060
+proxy2_port: 5060
+proxy3_port: 5060
+proxy4_port: 5060
+proxy5_port: 5060
+proxy6_port: 5060
+
+# Proxy Registration (0-disable (default), 1-enable)
+proxy_register: 1
+
+# Phone Registration Expiration [1-3932100 sec] (Default - 3600)
+timer_register_expires: 3600
+
+# Codec for media stream (g711ulaw (default), g711alaw, g729a)
+preferred_codec: g711ulaw
+
+# TOS bits in media stream [0-5] (Default - 5)
+tos_media: 5
+
+# Inband DTMF Settings (0-disable, 1-enable (default))
+dtmf_inband: 0
+
+# Out of band DTMF Settings (none-disable, avt-avt enable (default), avt_always - always avt )
+dtmf_outofband: avt_always
+
+# DTMF dB Level Settings (1-6dB down, 2-3db down, 3-nominal (default), 4-3db up, 5-6dB up)
+dtmf_db_level: 3
+
+# SIP Timers
+timer_t1: 500                   ; Default 500 msec
+timer_t2: 4000                  ; Default 4 sec
+sip_retx: 10                    ; Default 10
+sip_invite_retx: 6              ; Default 6
+timer_invite_expires: 180       ; Default 180 sec
+
+####### New Parameters added in Release 2.0 #######
+
+# Dialplan template (.xml format file relative to the TFTP root directory)
+dial_template: dialplan
+
+# TFTP Phone Specific Configuration File Directory
+tftp_cfg_dir: ""                ; Example:  ./sip_phone/
+
+# Time Server (There are multiple values and configurations refer to Admin Guide for Specifics)
+sntp_server: "192.168.21.2"      ; SNTP Server IP Address
+sntp_mode: unicast              ; unicast, multicast, anycast, or directedbroadcast (default)
+time_zone: EST                  ; Time Zone Phone is in
+dst_offset: 01/00               ; Offset from Phone's time when DST is in effect
+dst_start_month: March          ; Month in which DST starts
+dst_start_day: 0                ; Day of month in which DST starts
+dst_start_day_of_week: Sunday   ; Day of week in which DST starts
+dst_start_week_of_month: 8      ; Week of month in which DST starts
+dst_start_time: 02/00           ; Time of day in which DST starts
+dst_stop_month: October         ; Month in which DST stops
+dst_stop_day: 0                 ; Day of month in which DST stops
+dst_stop_day_of_week: Sunday    ; Day of week in which DST stops
+dst_stop_week_of_month: 8       ; Week of month in which DST stops 8=last week of month
+dst_stop_time: 02/00            ; Time of day in which DST stops
+dst_auto_adjust: 1              ; Enable(1-Default)/Disable(0) DST automatic adjustment
+time_format_24hr: 1             ; Enable(1 - 24Hr Default)/Disable(0 - 12Hr)
+
+date_format: M/D/Y
+
+# Do Not Disturb Control (0-off, 1-on, 2-off with no user control, 3-on with no user control)
+dnd_control: 2                  ; Default 0 (Do Not Disturb feature is off)
+
+# Caller ID Blocking (0-disbaled, 1-enabled, 2-disabled no user control, 3-enabled no user control)
+callerid_blocking: 0            ; Default 0 (Disable sending all calls as anonymous)
+
+# Anonymous Call Blocking (0-disabled, 1-enabled, 2-disabled no user control, 3-enabled no user control)
+anonymous_call_block: 0         ; Default 0 (Disable blocking of anonymous calls)
+
+# DTMF AVT Payload (Dynamic payload range for AVT tones - 96-127)
+dtmf_avt_payload: 101           ; Default 101
+
+# Sync value of the phone used for remote reset
+sync: 1                         ; Default 1
+
+####### New Parameters added in Release 2.1 #######
+
+# Backup Proxy Support
+proxy_backup: ""                ; Dotted IP of Backup Proxy
+proxy_backup_port: 5060         ; Backup Proxy port (default is 5060)
+
+# Emergency Proxy Support
+proxy_emergency: ""             ; Dotted IP of Emergency Proxy
+proxy_emergency_port: 5060      ; Emergency Proxy port (default is 5060)
+
+# Configurable VAD option
+enable_vad: 0                   ; VAD setting 0-disable (Default), 1-enable
+
+####### New Parameters added in Release 2.2 ######
+
+# NAT/Firewall Traversal
+nat_enable: 0                   ; 0-Disabled (default), 1-Enabled
+nat_address: ""                 ; WAN IP address of NAT box (dotted IP or DNS A record only)
+voip_control_port: 5060         ; UDP port used for SIP messages (default - 5060)
+start_media_port: 16384         ; Start RTP range for media (default - 16384)
+end_media_port: 32766           ; End RTP range for media (default - 32766)
+nat_received_processing: 0      ; 0-Disabled (default), 1-Enabled
+
+# Outbound Proxy Support
+outbound_proxy: ""              ; restricted to dotted IP or DNS A record only
+outbound_proxy_port: 5060       ; default is 5060
+
+####### New Parameter added in Release 3.0 #######
+
+# Allow for the bridge on a 3way call to join remaining parties upon hangup
+cnf_join_enable : 0             ; 0-Disabled, 1-Enabled (default)
+
+####### New Parameters added in Release 3.1 #######
+
+# Allow Transfer to be completed while target phone is still ringing
+semi_attended_transfer: 1       ; 0-Disabled, 1-Enabled (default)
+
+# Telnet Level (enable or disable the ability to telnet into the phone)
+telnet_level: 2                 ; 0-Disabled (default), 1-Enabled, 2-Privileged
+
+####### New Parameters added in Release 4.0 #######
+
+# XML URLs
+services_url: ""                ; URL for external Phone Services
+directory_url: "http://kjv.homeip.net/cisco/dir.xml"               ; URL for external Directory location
+logo_url: ""                    ; URL for branding logo to be used on phone display
+
+# HTTP Proxy Support
+http_proxy_addr: ""             ; Address of HTTP Proxy server
+http_proxy_port: 80             ; Port of HTTP Proxy Server (80-default)
+
+# Dynamic DNS/TFTP Support
+dyn_dns_addr_1: ""              ; restricted to dotted IP
+dyn_dns_addr_2: ""              ; restricted to dotted IP
+dyn_tftp_addr: ""               ; restricted to dotted IP
+
+# Remote Party ID
+remote_party_id: 1              ; 0-Disabled (default), 1-Enabled
+
+####### New Parameters added in Release 4.4 #######
+
+# Call Hold Ringback (0-disabled, 1-enabled, 2-disabled no user control, 3-enabled no user control)
+call_hold_ringback: 3           ; Default 0 (Disable ringback of held call)
+
+auto_answer: 32
+autocomplete: 0
+dnd_control: 2
+```
+
+The next file that needs to exist is the SIP&lt;macaddress>.cnf file where &lt;macaddress> is the hardware ethernet address of the phone itself. Hence: SIP00DEADBEEF00.cnf would pertain to a phone who's MAC Address is 00:DE:AD:BE:EF:00
+
+You will need to replace host.domain.tld with the hostname or IP address of the SIP Profile you intend to use with the Cisco 7960's.
+
+You will also need to replace the mysecret and 701X numbers with the credentials you created in the Freeswitch Directory. (more on that later).
+
+The messages\_uri is where you would specify the number to be dialed in order to retrieve voice mail. This corresponds directly to the number dialed by pressing the messages button, or the envelope button on the (7960 / 7960G).
+
+**\*\*Be Advised:** The demo dialplan that comes stock with freeswitch seems to expect the extensions to be 1XXX such as 1000, the configuration file below starts at 7010, and therefore you may need to make additional changes to the dialplan before you're able to call any of the provisioned lines on the phone.
+
+**SIP&lt;mac address>.cnf**
+
+```xml
+# SIP Configuration Generic File (start)
+
+
+# Proxy Server
+proxy1_address: "host.domain.tld"
+proxy2_address: "host.domain.tld"
+proxy3_address: "host.domain.tld"
+proxy4_address: "host.domain.tld"
+proxy5_address: "host.domain.tld"
+proxy6_address: "host.domain.tld"
+
+# Line 1 Settings
+line1_name: "7010"                     ; Line 1 Extension\User ID
+line1_displayname: "7010"           ; Line 1 Display Name
+line1_authname: "7010"         ; Line 1 Registration Authentication
+line1_password: "mysecret"         ; Line 1 Registration Password
+
+# Line 2 Settings
+line2_name: "7011"                          ; Line 2 Extension\User ID
+line2_displayname: "7011"                   ; Line 2 Display Name
+line2_authname: "7011"         ; Line 2 Registration Authentication
+line2_password: "mysecret"         ; Line 2 Registration Password
+
+# Line 3 Settings
+line3_name: "7012"                          ; Line 3 Extension\User ID
+line3_displayname: "7012"                   ; Line 3 Display Name
+line3_authname: "7012"         ; Line 3 Registration Authentication
+line3_password: "mysecret"         ; Line 3 Registration Password
+
+# Line 4 Settings
+line4_name: "7013"                          ; Line 3 Extension\User ID
+line4_displayname: "7013"                   ; Line 3 Display Name
+line4_authname: "7013"         ; Line 3 Registration Authentication
+line4_password: "mysecret"         ; Line 3 Registration Password
+
+# Line 5 Settings
+line5_name: "7014"                          ; Line 3 Extension\User ID
+line5_displayname: "7014"                   ; Line 3 Display Name
+line5_authname: "7014"         ; Line 3 Registration Authentication
+line5_password: "mysecret"         ; Line 3 Registration Password
+
+# Line 6 Settings
+line6_name: "7015"                          ; Line 3 Extension\User ID
+line6_displayname: "7015"                   ; Line 3 Display Name
+line6_authname: "7015"         ; Line 3 Registration Authentication
+line6_password: "mysecret"         ; Line 3 Registration Password
+
+
+# Emergency Proxy info
+proxy_emergency: ""
+proxy_emergency_port: "5060"
+
+# Backup Proxy info
+proxy_backup: ""
+proxy_backup_port: "5060"
+
+# Outbound Proxy info
+outbound_proxy: ""
+outbound_proxy_port: "5060"
+
+# NAT/Firewall Traversal
+nat_enable: "1"
+nat_address: ""
+voip_control_port: "5060"
+start_media_port: "16384"
+end_media_port:  "32766"
+nat_received_processing: "0"
+
+# Phone Label (Text desired to be displayed in upper right corner)
+phone_label: "FreeSwitch"            ; Has no effect on SIP messaging
+
+# Time Zone phone will reside in
+time_zone: EST
+
+# Telnet Level (enable or disable the ability to telnet into this phone
+telnet_level: "2"      ; 0-Disabled (default), 1-Enabled, 2-Privileged
+
+# Phone prompt/password for telnet/console session
+phone_prompt: "C7960"                              ; Telnet/Console Prompt
+phone_password: "myphonesecret"                          ; Telnet/Console Password
+
+# Enable_VAD (1-enabled, 0-disabled)
+enable_vad: "0"
+
+# Network Media Type (auto, full100, full10, half100, half10)
+network_media_type: "auto"
+user_info: phone
+
+# URL for external Directory location
+#logo_url: "http://10.0.1.3/10-20logo.bmp"                    ; URL for branding logo to be used on phone display
+
+# SIP Configuration Generic File (stop)
+
+# Insert Extension for voice mail retrieval here, this is what's dialed when they hit the "envelope" key on the phone.
+messages_uri:  ""
+
+# This is a bitmap, and it's supposed to set line 6 for auto-answer.  
+#However it seems that the newer versions won't allow anything above line4 to be set to auto-answer via tftp.
+auto_answer: 32
+autocomplete: 0
+dnd_control: 2
+```
+
+## **BLIND XFER (Blind Transfer):**
+
+While the attended transfer works. the blind transfer exhibited a problem when a call was placed to the telephone as an intercom call where the line was automatically answered.
+
+In my defaut dialplan context I had to add this right at the top in order for the device to properly transfer calls that were placed to it's intercom line:
+
+```xml
+<extension name="Cisco Xfer Fix">
+      <condition field="destination_number" expression="^(auto-answer)$">
+	<action application="set" data="destination_number=${sip_to_user}"/>
+      </condition>
+</extension>
+```
+
+## **Call Parking**
+
+There doesn't seem to be a way to provision the bottom keys on the phone, so parking has been implemented as a blind transfer to a particular extension in my dial plan. Frankly I'm disappointed, but hey it's Cisco.
+
+---
+
+## **[Conferencing and Intercom](https://wiki.freeswitch.org/wiki/Conferencing%5Fand%5FIntercom "Conferencing and Intercom")**
+
+The Cisco 7960 and/or 7960G don't implement a multicast paging group, so there is no paging and intercom. See above link on how to implement it with unicast and a conference bridge.
+
+  
+## Comments:
+
+| I followed the above directions, and this is the error I get when I telnet into a phoneCurrent Phone Status --------------------♥W350 unprovisioned proxy\_backup♥W351 unprovisioned proxy\_emergency♥W310 1 Error(s) Parsing: SIPDefault.cnfE600 REG send failure: REGISTER ☻W250 TFTP Error: Not Found dialplan.xml ☺E102 MISC Error: No time server\*\*\*\*\*\*\*\*\*\*\*\*\*\*\*\*\*\*\*\*\*\*\*\*\*\*\*\*\*\*\*\*\*\*\*\*\*\*\*\*\*\*\*\*\*\*\*\*\*\*\*\*\*\*\*\*\*\*\*\*\*\*\*\*\*\*\*\*\*\*\*\*\*\*\*\*\*\*\*\*\*are these values correct and are they what is causing the error ? \*\*\*\*\*\*\*\*\*\*\*\*\*\*\*\*\*\*\*\*\*\*\*\*\*\*\*\*\*\*\*\*\*\*\*\*\*\*\*\*\*\*\*\*\*\*\*\*\*\*\*\*\*\*\*\*\*\*\*\*\*\*\*\*\*\*\*\*\*\*\*\*\*\*\*\*\*\*\*\# Dialplan template (.xml format file relative to the TFTP root directory) dial_template: dialplan\# TFTP Phone Specific Configuration File Directory tftp_cfg_dir: "./srv/tftp/" ; Example: ./sip_phone/ TFTP Phone Specific Configuration File Directory ![](/images/icons/contenttypes/comment_16.png) Posted by kc6ymp at giu 19, 2016 23:44 |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| this is my question, do I need to write a logical link to the dialplan.xml in freeswitch ? Password :\*\*\*\*\*\*\*\*\*\*\*\*\*Cisco Systems, Inc. Copyright 2000-2005 Cisco IP phone MAC: 0012:7f29:f78c Loadid: SW: P0S3-08-8-00 ARM: PAS3ARM1 Boot: PC030301 DSP: 4.0(2.0)\[A0\]C7960> show statusCurrent Phone Status --------------------♥W350 unprovisioned proxy\_backup♥W351 unprovisioned proxy\_emergency♥W310 2 Error(s) Parsing: SIPDefault.cnfE640 REG msg unsupported: in 403, request failureW250 TFTP Error: Not Found dialplan.xmlC7960> ![](/images/icons/contenttypes/comment_16.png) Posted by kc6ymp at giu 20, 2016 14:40                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+
+Document generated by Confluence on nov 11, 2022 04:28

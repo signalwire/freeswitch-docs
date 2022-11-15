@@ -1,0 +1,205 @@
+
+# Mod ssh 
+
+ Created by  Késsia Castro, last modified on 2016.12.23
+
+# About
+
+This document covers information about mod\_ssh.
+
+Click here to expand Table of Contents
+
+* 1 [mod\_ssh](#mod_ssh)  
+   * 1.1 [Version](#version)  
+   * 1.2 [Introduction](#introduction)  
+   * 1.3 [Status](#status)  
+   * 1.4 [Installation](#installation)  
+   * 1.5 [Configuration](#configuration)  
+   * 1.6 [Usage](#usage)  
+   * 1.7 [Applications](#applications)  
+   * 1.8 [API commands](#api-commands)  
+   * 1.9 [Events](#events)  
+   * 1.10 [Channel Variables](#channel-variables)  
+   * 1.11 [Known Bugs](#known-bugs)
+
+# mod_ssh
+
+This module is still in development, it may or may not work as expected and features may be missing
+
+## Version
+
+This is an external module and not part of the FreeSWITCH package.
+
+## Introduction
+
+mod\_ssh is a Secure-SHell (SSH) remote console module based on (a modified version of) [libssh](http://0xbadc0de.be/wiki/).
+
+  
+**Features:**
+
+* Multiple user accounts
+* Password authentication (public-key method is not supported by libssh at the moment)
+* Passwords stored in cleartext or MD5/SHA1 hashed
+* Basic line-editing capabilities
+* API commands to list accounts, active sessions, kick users and (temporarily) lock accounts
+* Login/Logout events
+
+**ToDo:**
+
+* Command history
+* More advanced line-editing
+* Per-Session threads (mostly done, still experimental, disabled for now)
+* Log output
+* Handle window-resize event
+
+## Status
+
+In development (alpha release coming soon)
+
+## Installation
+
+You need [GIT](http://git.or.cz/) to get the current development snapshot.
+
+```xml
+git clone http://oss.axsentis.de/git/mod_ssh.git
+
+cd mod_ssh
+./bootstrap.sh
+./configure
+make
+make install
+```
+
+## Configuration
+
+The configuration consists of several sections:
+
+* "users" section, containing accounts and their passwords
+* "settings" section for global parameters like bind ip and port
+* "cli-keybindings" section for console keybindings for function keys (F1-F12)
+
+mod\_ssh.conf.xml:
+
+```xml
+<configuration name="ssh.conf" description="SSH Console">
+  <!-- user accounts -->
+  <users>
+  <!--
+    Example: plaintext pw
+    <user name="test" pass="test"/>
+    
+  -->
+  <!--
+    Example: sha1 hashed pw
+    <user name="test" sha1="a94a8fe5ccb19ba61c4c0873d391e987982fbbd3"/>
+    
+  -->
+  <!--
+    Example: md5 hashed pw
+    <user name="test" md5="098f6bcd4621d373cade4e832627b4f6"/>
+    
+  -->
+  <!--
+         Q: How to create hashed passwords?
+         A: Use one of the following methods:
+
+           echo -n mypassword | sha1sum
+           echo -n mypassword | md5sum
+
+           echo -n mypassword | openssl sha1
+           echo -n mypassword | openssl md5
+
+         (Note: the -n (= no newline) parameter to echo is important!)
+    
+  -->
+  </users>
+  <!-- module settings -->
+  <settings>
+    <!-- port and ip to listen on -->
+    <param name="port" value="2222"/>
+    <param name="ip" value="127.0.0.1"/>
+    <!-- connection timeout (seconds) -->
+    <param name="timeout" value="300"/>
+    <!-- generate events? (on user login/logout) -->
+    <param name="events" value="yes"/>
+    <!-- customize terminal prompt -->
+    <param name="prompt" value="freeswitch/%u@%h %%"/>
+    <!--
+         Q: What are the possible format tags for the prompt?
+         A:
+              %h     Hostname (e.g. "fsbox")
+              %d     Date (2008-12-03)
+              %D     Full date including time (2008-12-03 13:35:14)
+              %t     Time (13:35:14)
+              %u     Username (e.g. "test")
+              %p     PID of the freeswitch process (e.g. 1234)
+              %%     Literal %
+
+         Examples:
+
+                      Format                        Final prompt
+
+                "freeswitch/%u@%h %%"  ==>  "freeswitch/test@fsbox %"
+                "%h[%p] %d >"          ==>  "fsbox[1234] 2008-12-03 >"
+    
+    -->
+  </settings>
+
+  <!-- function key bindings -->
+  <cli-keybindings>
+    <key name="1" value="help"/>
+    <key name="2" value="status"/>
+    <key name="3" value="show channels"/>
+    <key name="4" value="show calls"/>
+    <key name="5" value="sofia status"/>
+    <key name="6" value="reloadxml"/>
+    <key name="7" value="console loglevel 0"/>
+    <key name="8" value="console loglevel 7"/>
+    <key name="9" value="sofia status profile internal"/>
+    <key name="10" value="fsctl pause"/>
+    <key name="11" value="fsctl resume"/>
+    <key name="12" value="version"/>
+  </cli-keybindings>
+</configuration>
+```
+
+## Usage
+
+Configure and load the module, then use a ssh client (openssh tested and works) to connect to FreeSWITCH on the configured ip and port.
+
+## Applications
+
+none
+
+## API commands
+
+* **ssh version** \- Display mod\_ssh version string
+* **ssh help** \- List of supported commands
+
+* **ssh account \[list\]** \- Outputs list of configured useraccounts
+* **ssh account disable &lt;account>** \- Lock the specified account (user can not log in)
+* **ssh account enable &lt;account>** \- Unlock the account
+
+* **ssh session \[list\]** \- Lists currently active sessions
+* **ssh session kick &lt;name>** \- Kick session (forced log out)
+
+## Events
+
+If enabled in ssh.conf.xml (parameter "events"):
+
+* **ssh::login** \- after a user successfully logged in
+* **ssh::logout** \- after a user logged out
+
+## Channel Variables
+
+none
+
+## Known Bugs
+
+A session executing a long running command will block other SSH sessions, this will be fixed by the (still experimental) per-session thread support.
+
+Log output is not supported.
+
+Libedit can not be used multiple times in a task (even though it's API seems to be able to), a custom terminal library had to be written, this code is still in an early stage...
+
+Document generated by Confluence on nov 11, 2022 04:28

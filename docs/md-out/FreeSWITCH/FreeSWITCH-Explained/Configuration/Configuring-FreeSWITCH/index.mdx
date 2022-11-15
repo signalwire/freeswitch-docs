@@ -1,0 +1,843 @@
+
+# Configuring FreeSWITCH 
+
+ Created by  Brian West, last modified by  Attila Gulyas on 2020.08.13
+
+# About
+
+  
+[Multi-tenant](../../Examples/Multi-tenant_13173521.mdx#about) How to decide what modules to use? How to configure FreeSWITCH™?
+
+  
+FreeSWITCH™ has a modular design. This design allows it to be extended without breaking functionality or requiring massive recoding efforts. Each module provides specific functionality and often commands that are related are grouped into one module. You will need to enable the modules that you desire, based on their function. By default FreeSWITCH™ comes with a good set of modules loaded, to enable most basic functionality. Read up on the [Default Configuration](../Default-Configuration_6587388.mdx#mod_vp8) for more information on the default configuration itself. See also [Before You Start](../Before-You-Start_7143968.mdx#about) for some good information to consider before putting a system into production.
+
+Because FreeSWITCH™ is developed on Debian linux the developer team has a great deal of expertise with linux which is expressed in this page.
+
+  
+Click here to expand Table of Contents
+
+* [Fundamentals](#fundamentals)  
+   * [Firewall](#running-freeswitch)  
+   * [Configuration Files](#configuration-files)  
+   * [Managing your personal configuration files](#managing-your-personal-configuration-files)
+* [Defaults](#running-freeswitch)  
+   * [vars.xml](#freeswitchxml)  
+         * [Security advice](#security-advice)  
+         * [modules.conf.xml](#modulesconfxml)  
+         * [pre\_load\_modules.conf.xml (stub)](#pre_load_modulesconfxml-stub)  
+         * [sofia.conf.xml](#sofiaconfxml)
+* [SIP Profiles](#configuration-files)  
+   * [Internal](#running-freeswitch)  
+   * [External](#freeswitchxml)  
+   * [Context vs Profile (stub)](#context-vs-profile-stub)
+* [Directory](#running-freeswitch)  
+   * [User Directory Configuration](#user-directory-configuration)
+* [Dialplan](#running-freeswitch)  
+   * [Gateway Configuration](#gateway-configuration)  
+         * [Dialing Out Via Gateway](#dialing-out-via-gateway)  
+         * [Receiving An Inbound Call From Gateway](#receiving-an-inbound-call-from-gateway)
+* [Running FreeSWITCH](#running-freeswitch)  
+   * [Starting in Unix-based Systems](#starting-in-unix-based-systems)  
+   * [Starting in Windows-based Systems](#starting-in-windows-based-systems)  
+   * [Command Line Parameters](#command-line-parameters)  
+   * [Shutting Down FreeSWITCH](#shutting-down-freeswitch)
+* [Test Calls](#running-freeswitch)  
+   * [Basic Calling](#basic-calling)  
+   * [Other Tests](#running-freeswitch)  
+   * [Advanced Calling Features](#advanced-calling-features)  
+   * [Group Assignments](#group-assignments-)  
+   * [Conferencing](#conferencing)  
+   * [Interactive Voice Response](#interactive-voice-response)
+* [Advanced](#running-freeswitch)  
+   * [Preprocessor Commands](#preprocessor-commands)  
+         * [comment](#running-freeswitch)  
+         * [exec](#running-freeswitch)  
+         * [include](#running-freeswitch)  
+         * [set](#running-freeswitch)  
+   * [Commenting Preprocessor](#commenting-preprocessor)  
+   * [freeswitch.xml](#freeswitchxml)  
+         * [How Configuration Files Are Parsed](#how-configuration-files-are-parsed)  
+         * [Example freeswitch.xml](#example-freeswitchxml)  
+   * [Preprocessor Variables](#preprocessor-variables)  
+         * [IP Address](#running-freeswitch)
+* [Multi-Tenant Info / Multiple Company HOWTO](#multi-tenant-info--multiple-company-howto)
+* [SIP Proxy](#running-freeswitch)
+* [Asterisk Migration](#asterisk-migration)
+* [See Also](#running-freeswitch)
+
+# Fundamentals
+
+The following sections will show you each step that you will have to take to build a functional system.
+
+## Firewall
+
+If you are going to route traffic across your network, you need to ensure that you do not have a firewall blocking traffic on the specified network paths. Commonly firewalls are installed at egress points, where your local network connects to the internet. This is not always the case in some corporate environments. If you are not responsible for your network, you may wish to contact the group or individuals who are responsible for it.
+
+Information they may need to enable traffic would include the port numbers. Various protocols use different ports for different things. Some you need bi-directional connectivity, some you only need outbound. Depending on your call scenario you may only need to allow connections that are initiated by your system. **If you have any problems with protocols not working, it is recommended that you disable your firewall to the FreeSWITCH™ system, place a test call, and see if the problem persists.** A misconfigured firewall is responsible for many common problems.
+
+For more information, including the ports which need to be configured, see the [Firewall](../../Networking/Firewall_1048908.mdx#about) page.
+
+## Configuration Files
+
+FreeSWITCH™ configuration data is stored in XML format. These files are located in the conf directory under the FreeSWITCH™ install directory. By default on a Unix-like system this will be /usr/local/freeswitch/conf. There are preprocessor markup tags that tell the configuration parser to perform tasks, such as including other files, which are carried out before the XML is parsed. It might be worth looking at [Default\_Configuration\_Overview](../Default-Configuration_6587388.mdx#mod_vp8) which describes some of the initial default settings. It may be useful to adjust some of them. There are a large number of different configuration files used by FreeSWITCH and fully understanding how they all fit together can take some time.
+
+  
+| Folder            | Description                                                                                                                             |
+| ----------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| autoload\_configs | These configuration files are loaded automatically into FreeSWITCH. They contain configuration information for almost all core modules. |
+| dialplan          | This is the place where you setup your dialplan. There are some examples of how to configure your dialplan included.                    |
+| directory         | The directory contains all users that may register and use freeswitch as their PBX.                                                     |
+| jingle\_profiles  | Jingle is the mod that FS uses to handle XMPP. Profiles tell FS how to use the protocol. Each profile has its own ip port.              |
+| lang              | Tells FS how to say currency etc in different languages                                                                                 |
+| mrcp\_profiles    | MRCP is used to allow FreeSWITCH to use speech recognition and TTS                                                                      |
+| sip\_profiles     | Tells FS how to talk sip. Each profile has it's own port.                                                                               |
+
+## Managing your personal configuration files
+
+You should consider using some version control system for managing the FreeSWITCH™ configuration files. The obvious advantage of this is being able easily to keep track of changes you made to the configuration and being able to easily switch back to some old configuration. Furthermore it would be possible to merge changes from the official git source tree configuration into your own configuration tree.
+
+One versioning control system to consider is git. It is used to manage the official FreeSWITCH™ source tree, too. Though this would not oblige you to use it for your configuration files, it is a smart idea to do so, because once you are familiar with git, you have the skills even to manage the FreeSWITCH™ source tree with it.
+
+To set up your own personal git repository, use this command sequence:
+
+cd freeswitch/conf
+git init
+git add .
+git commit -m "Initial commit."
+
+To view the git log just use command:
+
+git log
+
+After you have edited your configuration, to see the changes made use
+
+git diff
+
+Unfortunately it is not so easy to have git merge the conf subdirectory in the original source tree of FreeSWITCH™ into your running conf directory. There are some approaches for this where the most promising would be to use the git subtree script with a complicated setup.
+
+A workaround would be to create a complete clone of the FreeSWITCH™ git source tree and use the conf directory of the clone as your personal conf while compiling FreeSWITCH™ in a complete other clone of the git source directory tree. You feel the overhead.
+
+# Defaults
+
+This guide aims to explain the default configuration layout and how you configure it to your liking. Read up on the [default config](../Default-Configuration_6587388.mdx#mod_vp8) for more information.
+
+This layout is in no way required, you can minimize the configuration to just one file if needed. The main config file is called freeswitch.xml, you don't need to change it in any way, it just loads all other config files.
+
+## vars.xml
+
+[vars.xml](./vars.xml_7144079.mdx#about) is used to define system-wide variables. See [vars.xml](./vars.xml_7144079.mdx#about) for example.
+
+Commenting out pre-processor directive using X-NO-PRE-PROCESS
+
+Pre-process directives (such as `X-PRE-PROCESS`) lines **cannot** be commented out; they will still be active afterwards. If you would like to leave them in the file (e.g., as a reminder), but do want them to be inert, use the `X-NO-PRE-PROCESS` directive.
+
+```xml
+<!--This is a standard XML comment, but the Pre-Process command WILL be processed-->	
+<!--<X-PRE-PROCESS cmd="set" data="my_global_var='some value'"/>-->
+
+<!--This pre-process command will NOT run-->
+<X-NO-PRE-PROCESS cmd="set" data="my_global_var='some value'"/>
+```
+
+In the default configuration the [vars.xml](./vars.xml_7144079.mdx#about) file is used to define some pre-processor directives. In a first time setup you will most likely want to set the following for use in other portions of the configuration:
+
+**vars.xml**
+
+```xml
+<X-PRE-PROCESS cmd="set" data="outbound_caller_name=FreeSWITCH"/>
+<X-PRE-PROCESS cmd="set" data="outbound_caller_id=8777423583"/>
+<X-PRE-PROCESS cmd="set" data="call_debug=false"/>
+```
+
+The default port of FreeSWITCH is also defined in [vars.xml](./vars.xml_7144079.mdx#about) for instance:
+
+**vars.xml**
+
+```xml
+  <!-- Internal SIP Profile -->
+  <X-PRE-PROCESS cmd="set" data="internal_auth_calls=true"/>
+  <X-PRE-PROCESS cmd="set" data="internal_sip_port=5060"/>
+  <X-PRE-PROCESS cmd="set" data="internal_tls_port=5061"/>
+  <X-PRE-PROCESS cmd="set" data="internal_ssl_enable=false"/>
+
+  <!-- External SIP Profile -->
+  <X-PRE-PROCESS cmd="set" data="external_auth_calls=false"/>
+  <X-PRE-PROCESS cmd="set" data="external_sip_port=5080"/>
+  <X-PRE-PROCESS cmd="set" data="external_tls_port=5081"/>
+  <X-PRE-PROCESS cmd="set" data="external_ssl_enable=false"/>
+
+
+```
+
+  
+### Security advice
+
+Be careful with your passwords. A good idea is to use pre-processor directives for all your passwords, and define them all in a user only readable/writable file [conf](../Default-Configuration_6587388.mdx#mod_vp8)`/PASSWORDS.xml` (FreeSWITCH config top level directory). As a benefit you will have a nice reference file for all your passwords.
+
+To have these passwords read, you need to put an `include` line at the bottom of [vars.xml](./vars.xml_7144079.mdx#about):
+
+**vars.xml**
+
+```xml
+<X-PRE-PROCESS cmd="set" data="default_password=765432"/>
+<!-- ... -->
+<X-PRE-PROCESS cmd="include" data="PASSWORDS.xml"/>
+```
+
+Then you define the loads of password like this:
+
+**PASSWORDS.xml**
+
+```xml
+<include>
+  <X-PRE-PROCESS cmd="set" data="default_password=669933"/>
+</include>
+```
+
+In this example, the `default_password` is defined in [vars.xml](./vars.xml_7144079.mdx#about), but redefined at the end where we include the `PASSWORDS.xml` file containing another default\_password. The redefinition is done so that the [vars.xml](./vars.xml_7144079.mdx#about) can even be shared without the password being compromised.
+
+To check that the override did happen on `fs_cli` :
+
+**fs\_cli**
+
+```text
+freeswitch@host> eval $${default_password}
+669933
+```
+
+Don't forget to restrict access to your `PASSWORDS.xml`:
+
+```bash
+chmod 600 PASSWORDS.xml
+```
+
+You should define all your passwords with a fixed scheme like this:
+
+**PASSWORDS.xml**
+
+```xml
+<X-PRE-PROCESS cmd="set" data="PASSWORD_default_vm=448899"/>
+<X-PRE-PROCESS cmd="set" data="PASSWORD_sipgate_939393=113388"/>
+```
+
+Notice the default passwords go first, they are the first thing to consider changing / abolishing.
+
+You can use your password variables in the dial plan like this (note the double "$"):
+
+```xml
+<param name="password" value="$${PASSWORD_default_vm}"/>
+```
+
+  
+autoload_configs
+
+autoload\_configs is a directory where a lot of the freeswitch configuration resides. This directory is located in conf/autoload\_configs. The default freeswitch.xml preprocesses XML files matched by the glob conf/autoload\_configs/\*.xml
+
+### modules.conf.xml
+
+modules.conf.xml tells freeswitch which modules to load. There are certain modules required for operation so you should not edit this file unless you know that you wish to add or remove a specific module. See [Modules](../../Modules/index.mdx#about) for an example of modules.conf.xml.
+
+### pre_load_modules.conf.xml (stub)
+
+Needed to configure some core modules that cannot be set up from `modules.conf.xml` since FreeSWITCH 1.10, such as `mod_pgsql` .
+
+Only mentioned in [Debian 9 Stretch (Obsolete)](../../Installation/Linux/Deprecated-Installation-Instructions/15139022.mdx#about) installation manual. The only other info is [from Andrey Volk](https://stackoverflow.com/questions/57634856/trying-to-connect-to-a-postgresql-db-via-pgsql-dsn-returns-err-unable-to-ope):
+
+**Andrey Volk**: "_Do not add `modpgsql `to `modules.conf.xml `unless you know what you are doing. Use `preloadmodules.conf.xml`. And if there is any problem with that, create a Jira ticket._"
+
+**toraritte**: "_why would it be an issue to load `modpgsql `in `module.conf.xml`?_"
+
+**Andrey Volk**: "_The difference is that the Core may want to use that database as well. But it's the Core, it loads BEFORE any module. So we need a special place where database modules (just in case one of them is for the Core) are loaded BEFORE any other module type. On the other hand it does not matter what file to use if that database module is not used by the Core. It should just go first. If it's for LUA, load it before LUA. But we don't recommend/document that._
+
+_If `preloadmodules.conf.xml `is not recognized, then it's probably a result of a bad upgrade. Make sure all freeswitch packages were upgraded (including main one)._"
+
+Added in
+
+* [FS-10801: \[core\]](https://github.com/signalwire/freeswitch/commit/07e0d4f90cb6435e4ffe3c02864b98fe4df78c14) (see comments in [src/switch\_loadable\_module.c](https://github.com/signalwire/freeswitch/commit/07e0d4f90cb6435e4ffe3c02864b98fe4df78c14#diff-f8627dbf25dde79e5f6368651995b7c7 "src/switch_loadable_module.c")) and
+* [FS-11880: \[Core,mod\_pgsql\]](https://github.com/signalwire/freeswitch/commit/07e0d4f90cb6435e4ffe3c02864b98fe4df78c14),
+
+but found no discussions regarding the rationale of creating `pre_load_modules.conf.xml` aside from the above chat snippet.
+
+* What other times should it be used? Only for databases?
+* When should an issue be created?
+
+  
+### `sofia.conf.xml`
+
+`mod_sofia` is used to create SIP endpoints in FreeSWITCH. If you are familiar with Asterisk, each SIP Profile in `mod_sofia` is similar to `chan_sip` in Asterisk, though much more powerful.
+
+The `sofia.conf.xml` file contains a `X-PRE-PROCESS` directive that includes other XML files (within, by default, `conf/sip_profiles/`) that define one or more "SIP Profiles". A SIP Profile is a SIP UA (User Agent or an endpoint), which communicates with other SIP endpoints.
+
+In practical terms, files that talk to your service provider should go under `conf/sip_profiles/external/`, named perhaps, `provider_name.com.xml`.
+
+A "User Agent" ("UA") is an application used for running a certain network protocol. A Sofia User Agent uses the SIP protocol.
+
+See [Sofia Configuration Files](../Sofia-SIP-Stack/Sofia-Configuration-Files_7144453.mdx#--) for an example `sofia.conf.xml`.
+
+See also [SIP Network Elements on wikipedia](http://en.wikipedia.org/wiki/Session%5FInitiation%5FProtocol#SIP%5Fnetwork%5Felements).
+
+# SIP Profiles 
+
+The SIP Profiles in FreeSWITCH can lead to confusion. Unlike other softswitches (like Asterisk), FreeSWITCH allows you to handle media (calls, video, etc.) differently based on where the equipment is attached to your network. This assists with security and offers added functionality.
+
+SIP Profiles allow you to define paths to devices or carriers that may live inside or outside your network. A FreeSWITCH profile is defined as a unique combination of IP address and port number. You could have SIP profiles for your internal network, or multiple profiles for each subnet of your internal network, or even completely different protocols like IPv6 as profile definitions. This helps FreeSWITCH identify how to route different types of calls when necessary, and also gives you the flexibility to tailor your dialplans based on the source or destination of a call.
+
+In the Vanilla example configuration there are two default categories for where a SIP Profile can reside, named "internal" and "external", each serving a broad, general purpose.
+
+* External SIP profile is generally used to communicate with your PSTN gateway or "SIP trunk" service provider, such as FlowRoute, CallCentric, or similar company providing telephony service via SIP to you.
+* The Internal SIP profile is used to communicate with devices on your local network that register with FS.
+
+Profile names
+
+The profile names "internal" and "external" are purely arbitrary and only provided as examples. You can name your profiles anything that makes it easier to manage your FreeSWITCH installation. This is particularly useful in multi-tenant and toll switch configurations to identify and control different users groups and carriers. Small test installations might only need a single profile, such as internal.xml in the Vanilla example. Adjust to your needs and experiment. [Multi-tenant](../../Examples/Multi-tenant_13173521.mdx#about)
+
+## Internal
+
+File Location: `conf/sip_profiles/internal.xml`
+
+This profile typically refers to devices that reside on your internal network. Those devices will inherit all configuration options in the internal profile you setup. This is typically your internal phones with extensions. By default, these devices must use SIP authentication.
+
+The Internal (formerly called "default") SIP profile is configured to listen on the primary IP address of the machine (unless you set `$${domain}` to something else in `vars.xml`) on port 5060 (the default SIP port). The internal SIP profile authenticates calls and is not suitable for configuring trunks to providers or outside phones, in most cases. Use the External profile for configuring trunks to providers or outside phones.
+
+The Internal profile should be used if you intend to handle registration for SIP clients (i.e., a SIP registrar). You may wish to skip to the section [Getting\_Started\_Guide#directory](https://wiki.freeswitch.org/wiki/Getting%5FStarted%5FGuide#directory) to configure additional SIP clients.
+
+Authenticated users of this profile are normally set (via the variable `user_context`) to use the dialplan defined in [the default context](https://wiki.freeswitch.org/wiki/Getting%5FStarted%5FGuide#contexts "Getting Started Guide").
+
+See [c](../Default-Configuration_6587388.mdx#mod_vp8)[onf/sip\_profiles/](../Default-Configuration_6587388.mdx#6-configuration-files) in [Default Configuration](../Default-Configuration_6587388.mdx#mod_vp8).
+
+## [External](../Sofia-SIP-Stack/External-Profile_13173235.mdx#about)
+
+File Location: `conf/sip_profiles/external.xml`
+
+This profile generally refers to devices or gateways that reside outside of your network. Generally this is where you define your external trunks/VoIP carriers/etc. Again, those devices will inherit all configuration options in the external profile you setup.
+
+The External (formerly "outbound") profile handles outbound registrations to a SIP provider. The SIP provider sends calls to you, and you send calls to your provider, through the external profile. The external profile allows anonymous calling, which is required as your provider will never authenticate with you to send you a call. 
+
+In order to secure your FreeSWITCH it is wise to link your outbound profile to a dialplan context other than 'default', which in the default configuration is where authenticated users are placed. See **Public Context for Security** note at [c](../Default-Configuration_6587388.mdx#mod_vp8)[onf/sip\_profiles/](../Default-Configuration_6587388.mdx#6-configuration-files) in [Default Configuration](../Default-Configuration_6587388.mdx#mod_vp8).
+
+The default port for external connections is 5080\. This means that if you are trying to connect a remote phone to your FreeSWITCH box, you must set it to connect on port 5080, or change your ports around. As an example, in X-Lite, if you are connecting to FreeSWITCH from the outside, set your server as [my.server.com](http://my.server.com):5080.
+
+See [c](../Default-Configuration_6587388.mdx#mod_vp8)[onf/sip\_profiles/](../Default-Configuration_6587388.mdx#6-configuration-files) in [Default Configuration](../Default-Configuration_6587388.mdx#mod_vp8).
+
+##### Other Profile Concepts
+
+Ideas for other SIP profiles you might end up building:
+
+* Routing IPv6
+* Having multiple profiles for different networks or subnets
+* Having multiple profiles for different remote hosts/endpoints (remote offices, etc.)
+
+  
+## Context vs Profile (stub)
+
+Expand notes ...
+
+From [\[Freeswitch-users\] Context vs. profile?](https://lists.freeswitch.org/pipermail/freeswitch-users/2009-December/051039.html) mailing list thread:
+
+**2009/12/14 05:53:57 PST | Fred-145**
+
+Hello
+
+I'm a bit confused at the difference between those two concepts. Contexts
+are created in the /dialplan, and are refered to by items in /SIP_profiles
+and extensions in /directory.
+
+What purpose do contexts and profiles play?
+
+Thank you.
+
+**2009/12/14 07:29:20 PST | Anthony Minessale**
+
+Profile is a collection of preferences uses by conferences etc.
+In the case of SIP a profile is also the name for the resulting SIP UA
+created by a particular profile.
+
+Context is a narrowed down view of something, in the case of the dialplan a
+context is a set of extensions.  It's like having a dedicated set of
+extensions per distinct context name like parallel universes.  both the foo
+context and the bar context can have extension 2001.
+
+**2009/12/14 09:12:48 PST | Fred-145**
+
+Thanks Anthony for the tip.
+
+Would you say this is a correct representation of things?
+
+"Contexts are a set of extensions in conf/dialplan/ (eg. default, public,
+etc.)
+
+Extensions are configured through files in conf/directory/. Each extension
+maps to a context (&lt;variable name="user_context" value="default"/>).
+
+Profiles refer to contexts in a dialplan (eg. ).
+Profiles are groups of settings used by different parts of the network, eg.
+Internal (private LAN), External (Internet-accessible, public LAN), etc.
+Each profile has a unique IP + port number. "
+
+**2009/12/14 09:21:05 PST | Michael Collins**
+
+> Profile is a collection of preferences uses by conferences etc.
+> In the case of SIP a profile is also the name for the resulting SIP UA
+> created by a particular profile.
+> 
+> Context is a narrowed down view of something, in the case of the dialplan a
+> context is a set of extensions.  It's like having a dedicated set of
+> extensions per distinct context name like parallel universes.  both the foo
+> context and the bar context can have extension 2001.
+
+A classic example of this is with the default dialing range of 1000-1019.
+This range appears in all three contexts that are defined in the default
+configuration:
+conf/dialplan/public.xml in "public_extensions"
+conf/dialplan/features.xml in "please_hold"
+conf/dialplan/default.xml in "Local_Extension"
+
+If a call comes in on the public context and gets routed to 1000 (or 1001,
+1002,...1019) then it gets handled by "public_extensions" in public.xml.
+That extension transfers the call to 1000 in the features context (defined
+in features.xml) which executes a "please hold while I transfer your call"
+kind of operation and then transfers the call to 1000 in the default context
+(which is defined in default.xml).
+
+Check out those three files. You'll see some cool stuff!
+-MC
+
+**2009/12/14 09:57:58 PST | Michael Collins**
+
+On Mon, Dec 14, 2009 at 9:12 AM, Fred-145 &lt;[codecomplete at free.fr](http://lists.freeswitch.org/mailman/listinfo/freeswitch-users)> wrote:
+> _Thanks Anthony for the tip._
+>> _Would you say this is a correct representation of things?_
+>> _"Contexts are a set of extensions in conf/dialplan/ (eg. default, public,_
+> _etc.)_
+>> _Extensions are configured through files in conf/directory/. Each extension_
+> _maps to a context (&lt;variable name="usercontext" value="default"/>)._
+It would be more correct to say that "users are configured in
+conf/directory"
+
+> _Profiles refer to contexts in a dialplan (eg. )._
+> _Profiles are groups of settings used by different parts of the network, eg._
+A better way to say this would be that a "SIP profile defines a SIP *User
+Agent*." (If you don't know what a SIP user agent is that's okay - just know
+that a profile listens for connections on a particular IP + Port and also
+sends outbound traffic via the same IP/port.)
+A SIP profile routes unauth'd incoming calls to a pre-defined dialplan and
+context. Users who have auth'd to the SIP profile have a little more control
+- the user_context can be defined at the user level in the directory.
+(Normally a user will just use the "default" context but it needn't be that
+way - you could have a context for two different entities, e.g. two
+different businesses running on the same FS server.)
+
+Are you typing up something for posterity's sake? If so let me know. I'll be
+happy to proof-read the finished product and offer suggestions.
+-MC
+
+**2009/12/15 03:22:39 PST | Fred-145**
+
+> Are you typing up something for posterity's sake? If so let me know. I'll be
+> happy to proof-read the finished product and offer suggestions.
+
+Thanks much for the clarification. I'm used to writing short documentation
+when I learn a new tool, so 1) it helps me understand how it works, 2) I can
+perform a new install faster, and 3) it helps newbies get a head-start.
+
+So in short:
+- profiles = User Agents ("end points of a phone call", says Wikipedia)
+where each profile listens on a given IP/port so that a single Freeswitch
+server can handle several profiles concurrently, eg. one end-point for
+internal, authenticated users, and another end-point for incoming calls from
+a VoIP provider
+- contexts = tells what a caller can do; a call can go through multiple
+contexts during the length of the call. In a dialplan, contexts = groups of
+extensions
+
+Thank you.
+
+# Directory
+
+See [Config\_directory.xml](../../Directory/index.mdx#about) for a sample configuration.  
+The directory holds authentication credentials for SIP endpoints that will register to FreeSWITCH (most commonly users). The directory configuration default is configured to process the glob conf/directory/default/\*.xml by the configuration included in freeswitch.xml conf/directory/\*.xml.  
+This may seem confusing, but the default will work in most cases. Feel free to look at the examples in: conf/directory/
+
+## User Directory Configuration
+
+See [Config\_1000.xml](../Default-Configuration_6587388.mdx#6-configuration-files) for a simple (1000.xml) configuration of a user (endpoint) which will register to FreeSWITCH.
+
+# Dialplan
+
+The FreeSWITCH dialplan is a full-featured, XML-based call-routing mechanism. (There also exists support for Asterisk-like dialplans as well as really fancy real-time and/or back-end database-driven dialplans).
+
+The best place to get started in learning about the FreeSWITCH dialplan is the [Dialplan](../../Dialplan/index.mdx#0-about) page here on the wiki. It discusses the basics of the FreeSWITCH dialplan. If you need an XML primer, check out the information on the [Basic\_XML](../../Dialplan/XML-Dialplan/index.mdx#why) page which will get you pointed in the right direction. There are two other important resources for you to learn more about the dialplan:
+
+* the small-but-growing [Dialplan\_Recipes](../../Dialplan/Dialplan-Recipes_9634252.mdx#about) page
+* the [default dialplan](../../Dialplan/Default-Dialplan-QRF_9634422.mdx#park) that comes with a standard FreeSWITCH installation.
+
+It is recommended that you compile FreeSWITCH with the default configuration and make sure it works before you start making customizations. Note that the default config files, including the default.xml dialplan, are often updated.
+
+It makes sense to put your custom dialplan entries into the **extensions** subdirectory under conf/dialplan. You may create one or more XML files in this subdirectory, all of which will be included in the dialplan thanks to an "include" directive in the default.xml file. By keeping your customized extensions separate from default.xml you will be able to update default.xml without having to re-enter your custom extensions.
+
+## Gateway Configuration
+
+See [SIP Provider Examples](../../Interoperability/Providers-ITSPs/index.mdx#about) for sample gateway configurations for different providers. 
+
+Outbound registrations to providers can also be made in the outbound profile. See [Clarification:gateways](../Sofia-SIP-Stack/Gateways-Configuration_7144069.mdx#about) for a clarification
+
+### Dialing Out Via Gateway
+
+Add the following included dialplan snippet us11cc.xml (in $FS/conf/dialplan/default/us11cc.xml) for 11 digit dialing (typical in the U.S.) via your newly created gateway configuration above. Remember: the default configuration provided by FreeSWITCH does not include a dialplan rule for outbound calls via the gateway you've defined so it does not know how to route calls to your new gateway. You will need to add something similar to the following.
+
+**us11cc.xml**
+
+```xml
+<include>
+  <extension name="callcentric.com">
+    <condition field="destination_number" expression="^9(1\d{10})$">
+      <!-- $1 will contain the matched string contained inside the parenthesis in the conditional expression above 
+           without the 9 outwards dialing code prefix -->
+      <action application="log" data="INFO ***** CallCentric DESTINATION NUMMER = [$1]  ***** "/>
+      
+      <!-- Some providers require you to send the proper CLID information 
+           this is how you set outbound CLID for all calls through this gateway -->
+      <action application="set" data="effective_caller_id_name=White House"/>
+      <action application="set" data="effective_caller_id_number=2024561000"/>
+      
+      <!-- The "gateway" keyword tells FS to lookup the name "callcentric.com" in an .xml file
+           under sip_profiles and use the credentials and settings contained therein -->
+      <action application="bridge" data="{sip_cid_type=rpid}sofia/gateway/callcentric.com/$1"/>
+    </condition>
+  </extension>
+</include>
+```
+
+The above snippet will be appended into $FS/conf/dialplan/default.xml where the statement
+
+&lt;X-PRE-PROCESS cmd="include" data="default/*.xml"/>
+
+appears. That command will traverse the dialplan directory and the default/ sub-directory and load all properly formatted .xml files that it finds. The `<include>` tags in the snippet make this eligible for inclusion in the parent default.xml dialplan. 
+
+Note that the condition statement tests the destination\_number, which is an internal FS variable, against the template beginning with the digit 9, then the digit 1, then 10 more digits following. But the parenthesis only enclose the 1+10 digits which comprise the dialed digits you will send to the carrier, in this case CallCentric. Leading with digit 9 allows you to have any range of extensions in the 1xxx block without worrying about code collision and is a customary prefix digit for outward dialing in many PBX configurations, so it is familiar. The channel variable $1 will be assigned the contents enclosed by the parenthesis, so that later you can use $1 in the bridge command to form your dial string.  
+
+The log application will print whatever text and variables follow and post it at the INFO log level, equivalent to loglevel=6 so that you may see the destination number printed on the fs\_cli or console.  
+
+### Receiving An Inbound Call From Gateway
+
+Add the following to public.xml (in $FS/conf/dialplan) to receive inbound calls via your newly created gateway. Make sure to change the White House public phone number to your actual inbound DID from your provider. This will transfer all inbound calls to extension 1000 in the context named "default". Remember, you can have multiple endpoints register to one account ( See [Multiple Registrations](../Sofia-SIP-Stack/index.mdx#multiple-registrations) ). You will need to add something similar to the following for each DID number to transfer to the desired FS extension. Please note that this will only transfer the incoming DID call to the dialplan serving the default context; you will also need to ensure that the extension number specified here exists in the default dialplan to bridge with an endpoint/user if that is your desire (See [Dialplan\_XML#Example\_9](https://wiki.freeswitch.org/wiki/Dialplan%5FXML#Example%5F9 "Dialplan XML") ).
+
+**cc\_inbound.xml**
+
+```xml
+<include>
+  <extension name="callcentric_inbound">
+    <!-- Examine siptrace logs to determine which element contains your DID from the carrier 
+         in this case CallCentric uses the SIP To: field -->
+    <condition field="${sip_to_user}" expression="^(12024561000)$">
+      <action application="set" data="domain_name=$${domain}"/>
+      <!-- This example maps the inbound DID to ring 1000 in the default context -->
+      <action application="transfer" data="1000 XML default"/>
+    </condition>
+  </extension>
+</include>
+```
+
+If you want users to register with something other than the number that will reach them, then [contact mapping](../../Directory/XML-User-Directory/Contact-Mapping_7143467.mdx#about) is for you.
+
+Each provider or carrier works differently. We have numerous examples of carrier configurations under [Interop](../../Interoperability/index.mdx#about), but many require updating. If you have updated configurations, please post them in the blog comments at the bottom of the Interop -> Providers page for your carrier. Thanks.
+
+# Running FreeSWITCH
+
+Starting FreeSWITCH™ is done from the command-line. The location of the executable varies depending on your system. If you are starting FreeSWITCH™ for testing or development, note the many command-line switches.
+
+## Starting in Unix-based Systems
+
+Now that you have compiled and configured FreeSWITCH™ its time to place a test call to ensure that everything is working so far. To start FreeSWITCH™ change to the bin directory under the FreeSWITCH™ installation directory, and run FreeSWITCH™. Typically this is:
+
+cd /usr/local/freeswitch/bin
+./freeswitch
+
+Fedora/Red Hat/CentOS Startup Scripts:
+
+cp build/freeswitch.init.redhat /etc/init.d/freeswitch
+chmod 755 /etc/init.d/freeswitch
+
+## Starting in Windows-based Systems
+
+The Visual Studio project runs via an executable located under the _debug_ or _release_ folder of your project's directory tree (depending on how your project was built). On a debug build of the Windows system start FreeSWITCH™ as follows:
+
+cd &lt;PROJECT FOLDER>\debug
+FreeSwitch.exe
+
+The FreeSWITCH™ console will be available after successful loading of the application.
+
+## Command Line Parameters
+
+These are the optional arguments you can pass to freeswitch as displayed by:
+
+freeswitch -help
+
+  
+```xml
+       -waste                 -- allow memory waste
+       -no-auto-stack         -- don't adjust thread stack size
+       -core                  -- dump cores
+       -help                  -- print this message
+       -version               -- print the version and exit
+       -rp                    -- enable high(realtime) priority settings
+       -lp                    -- enable low priority settings
+       -np                    -- enable normal priority settings (system default)
+       -vg                    -- run under valgrind
+       -nosql                 -- disable internal SQL scoreboard
+       -heavy-timer           -- Heavy Timer, possibly more accurate but at a cost
+       -nonat                 -- disable auto NAT detection and UPNP router configuration when FreeSWITCH starts
+       -nonatmap              -- disable auto NAT port mapping
+       -nocal                 -- disable clock calibration
+       -nort                  -- disable clock clock_realtime
+       -stop                  -- stop freeswitch
+       -nc                    -- no console and run in background
+       -ncwait                -- no console and run in background, but wait until the system is ready before exiting (implies -nc)
+       -c                     -- output to a console and stay in the foreground (default behavior)
+
+       UNIX-like only
+       -nf                    -- no forking
+       -u [user]              -- specify user to switch to
+       -g [group]             -- specify group to switch to
+       -ncwait                -- do not output to a console and background but wait until the system is ready before exiting (implies -nc)
+
+       Windows-only
+       -service [name]        -- start freeswitch as a service, cannot be used if loaded as a console app
+       -install [name]        -- install freeswitch as a service, with optional service name
+       -uninstall             -- remove freeswitch as a service
+       -monotonic-clock       -- use monotonic clock as timer source
+
+       Options to control locations of files:
+       -base [basedir]         -- alternate prefix directory
+       -conf [confdir]         -- alternate directory for FreeSWITCH configuration files
+       -log [logdir]           -- alternate directory for logfiles
+       -run [rundir]           -- alternate directory for runtime files
+       -db [dbdir]             -- alternate directory for the internal database
+       -mod [moddir]           -- alternate directory for modules
+       -htdocs [htdocsdir]     -- alternate directory for htdocs
+       -scripts [scriptsdir]   -- alternate directory for scripts
+       -temp [directory]       -- alternate directory for temporary files
+       -grammar [directory]    -- alternate directory for grammar files
+       -recordings [directory] -- alternate directory for recordings
+       -storage [directory]    -- alternate directory for voicemail storage
+       -sounds [directory]     -- alternate directory for sound file
+```
+
+## Shutting Down FreeSWITCH
+
+To exit the FreeSWITCH console, simply type 'shutdown' or '...' (three dots). If you do not wish to shutdown FreeSWITCH when logging out, start the process inside of a "screen" session; In Windows, FreeSWITCH™ may be started as a service. It is not recommended that you start FreeSWITCH™ as a service until you are certain your configuration is valid. Also, if started from a remote login session (i.e. ssh) it is not advised to terminate the connection with FreeSWITCH left in the foreground. Use the automated startup method for your operating system.
+
+# Test Calls  
+
+Test your new FreeSWITCH™ installation by configuring a pair of SIP phones and to place test calls and try out features in the default dialplan. If you're already familiar with Asterisk, you could also start out by [Connecting Freeswitch And Asterisk](https://confluence.freeswitch.org/display/FREESWITCH/Asterisk#Asterisk-ConnectingFreeSWITCHandAsteriskUsingSIP)
+
+Register two phones to FreeSWITCH with two different extension numbers.
+
+Let's assume for this example that you have your SIP phones registered as extensions 1000 and 1001.
+
+The default config provides user directory files for extension numbers 1000 through 1019 with a registration password of 1234; the default voice-mail password is the same number as the extension, e.g. Extension 1000 has its voice-mail password set to 1000
+
+Sample softphone configurations can be seen on the [Softphones](../../Interoperability/Softphones/index.mdx#about) page.
+
+Once you've done that, you can try out a bunch of features already setup in the test dialplan.
+
+## Basic Calling
+
+* Call between 1000 and 1001 by dialing the respective extension.
+* Call 4000 to login to your voicemail box.
+* 870 - Redial last called # from this extension.
+* \*69 - Call back the last person to call this extension.
+* 8+\[ext\] - Place an intercom call to extension \[ext\]. If no answer, it does not go to voicemail but just keeps ringing. Some phones have additional functionality for intercom calls.
+
+## Other Tests
+
+* 9192 - Info test (prints information to the command line interface).
+* 9193 - Video record test (records video to /tmp/testrecord.fsv)
+* 9194 - Video playback test (plays video from /tmp/testrecord.fsv)
+* 9195 - Echo test (5-second delay before returning echo).
+* 9196 - Echo test (real-time).
+* 9197 - Play milliwatt test tone.
+* 9198 - Tetris, synthesized via tone streaming.
+* 9664 - Test Music On Hold out (if you installed sound files).
+
+## Advanced Calling Features
+
+* 88+\[ext\] - Eavesdrop on extension \[ext\] (ex: 881001). That extension must be on an active call. Once connected, you can listen to the call without being heard, or you can...  
+   * Press 1 to barge into the distant party.  
+   * Press 2 to barge into the local party.  
+   * Press 3 to barge into both parties.
+* 5900 - Park a call in a hold queue (First-in-first-out style).
+* 5901 - Pickup a call parked in queue (that was put there via 5900).
+
+## Group Assignments 
+
+The below functions involve the idea of keeping a database/table of which extensions belong to one of 100 groups (numbered 00-99).
+
+* 81+\[group\] - Add this extension to the calling group #\[group\] (can be two digits 00-99). A beep tone confirms that the function worked.
+* 80+\[group\] - Delete this extension from the calling group #\[group\] (can be two digits 00-99). A beep tone confirms that the function worked.
+* 82+\[group\] - Simultaneously ring all extensions in group #\[group\]. The first person to answer will be connected to you automatically.
+
+## Conferencing
+
+* 30+\[conf\] - Join conference #\[conf\] - 8kHz quality.
+* 31+\[conf\] - Join conference #\[conf\] - 16kHz quality.
+* 32+\[conf\] - Join conference #\[conf\] - 32kHz quality.
+* 9888 - Join the conference hosted by the FreeSWITCH team via a SIP Internet connection (8kHz).
+* 91616 - Join the conference hosted by the FreeSWITCH team via a SIP Internet connection (16kHz).
+
+Conference rooms are unique for the bit-level you choose, i.e. 3000 for conference room 00 will not join with participants in 3100 which is also conference room 00\. They are different conferences.
+
+## Interactive Voice Response
+
+* 5000 - IVR demo (if you installed sound files).
+  
+# Advanced
+
+## Preprocessor Commands
+
+The FreeSWITCH™ configuration supports pre–processor commands reminiscent of (but not matching) apache server-side includes:
+
+### comment
+
+Add a simple comment
+
+&lt;X-PRE-PROCESS cmd="comment" data="This is just a comment"/>
+
+### exec
+
+Execute a shell command and parse its output [\[1\]](http://lists.freeswitch.org/pipermail/freeswitch-users/2011-July/074683.html)
+
+&lt;X-PRE-PROCESS cmd="exec" data="echo XML config loaded at `date` >> /var/log/fs_config.log"/>
+
+### include
+
+Include another file
+
+&lt;X-PRE-PROCESS cmd="include" data="vars.xml"/>
+
+### set
+
+Set a global variable
+
+&lt;X-PRE-PROCESS cmd="set" data="my_global_var='some value'"/>
+
+In addition to the pre-processor PIs, which may appear anywhere, the freeswitch.xml file has a root element of "document", and all its children are "section" elements, with "name" attribute values being one of:
+
+Preprocessor commands are included in XML style comment brackets. Even though they appear commented to an XML parser, they are still processed. The comment characters are required or they will not be processed. An example would be:
+
+  &lt;!--#include "switch.conf.xml"-->
+
+## Commenting Preprocessor
+
+DO NOT COMMENT THEM OUT with &lt;!-- --> it's wrong and won't take any affect.
+
+A cool way of comment those directive would be:
+
+```xml
+<Z-PRE-PROCESS cmd="set" data="my_global_var='some value'"/>
+```
+
+Replacing X-PRE-PROCESS with Z-PRE-PROCESS
+
+## freeswitch.xml
+
+This is the main configuration file, and the only one that has a fixed name. When you start FreeSWITCH™ it will locate this file and process it. The default freeswitch.xml file includes other files to allow for easier maintenance of configuration data. The default configuration of most of these files is suitable for first time users, until you become more familiar with FreeSWITCH™ it is advised that you leave them to their default settings.
+
+freeswitch.xml is divided into multiple sections, and each section is used by a different component in FreeSWITCH™. The sections are as follows:
+
+* The "configuration" section has children for [switch.conf](../XML-Switch-Configuration_13173223.mdx#--) and [modules.conf](../../Modules/XML-Modules-Configuration_13173211.mdx#xml-modules-configuration) which are used by the core, as well as a child for each module in use.
+* The [dialplan](../../Dialplan/index.mdx#0-about) section defines which action to invoke when a call arrvies to the switch.
+* The [directory](../../Directory/XML-User-Directory/index.mdx#about) defines the users that can connect to the switch (user agents).
+* The phrases section defines where freeswitch can find the sound files, and if it can use any TTS engines.
+
+The structure below "document" and "section" varies according to the parent. There is currently no dtd/relaxng/xmlschema available to validate the file, though since it does not use xml mechanisms for inclusion that would be an obstacle to true validation (and the limited xml parser used by FreeSWITCH doesn't implement any of the XML standard mechanisms such as external entities or XInclude). XML namespaces are not currently used. There is no application-level versioning within the file.
+
+### How Configuration Files Are Parsed
+
+FreeSWITCH begins with its single, master configuration file (conf/freeswitch.xml). This master config file then loads (via ["globs"](http://en.wikipedia.org/wiki/Glob%5F%28programming%29) e.g. "\*.xml") additional config files. FreeSWITCH 1.0.4 installs with dozens of config files. You may stray daringly far from the stock install and arrange the files (and the loading thereof) however you wish: it's up to you if you want a single, huge config file or a series of config files. Each config file can include none or many other config files. Whatever method you choose, at runtime FreeSWITCH parses all the (one or many) files into a single, huge, resultant "running config" file (located at log/[freeswitch.xml.fsxml](https://wiki.freeswitch.org/wiki/Freeswitch.xml.fsxml "Freeswitch.xml.fsxml")) which mustn't be edited while FreeSWITCH is running as portions are memory-mapped into FreeSWITCH.
+
+Line Numbers
+
+When the FreeSWITCH console reports a configuration error, the line number it gives is the line number in the "running config" file `log/freeswitch.xml.fsxml`, not the line number in any individual included file.
+
+### Example freeswitch.xml
+
+Below is a snippet [freeswitch.xml](/attachments/3375391/17694857.xml) file. Of course, the bulk of the configuration is found in the included files.
+
+**freeswitch.xml**
+
+```xml
+<?xml version="1.0"?>
+<document type="freeswitch/xml">
+  <X-PRE-PROCESS cmd="include" data="vars.xml"/>
+
+  <section name="configuration" description="Various Configuration">
+    <X-PRE-PROCESS cmd="include" data="autoload_configs/*.xml"/>
+  </section>
+
+  <section name="dialplan" description="Regex/XML Dialplan">
+    <X-PRE-PROCESS cmd="include" data="dialplan/*.xml"/>
+  </section>
+
+  <!-- mod_dingaling is reliant on the vcard data in the "directory" section. -->
+  <!-- mod_sofia is reliant on the user data for authorization -->
+  <section name="directory" description="User Directory">
+    <X-PRE-PROCESS cmd="include" data="directory/*.xml"/>
+  </section>
+
+  <!-- phrases section (under development still) -->
+  <section name="phrases" description="Speech Phrase Management">
+    <macros>
+      <X-PRE-PROCESS cmd="include" data="lang/*/*.xml"/>
+    </macros>
+  </section>
+</document>
+```
+
+---
+
+## Preprocessor Variables
+
+For now, do not worry about all of the configuration properties, the defaults get you close to a working FreeSWITCH™ installation. This guide will show you the minimum required to get a running FreeSWITCH™ system. After you get it working you may then modify the system to your needs.
+
+The first thing you should do is review conf/vars.xml and conf/freeswitch.xml noting the preprocessor variables.
+
+```xml
+<X-PRE-PROCESS cmd="set" data="bind_server_ip=auto"/>
+<X-PRE-PROCESS cmd="set" data="global_codec_prefs=G722,PCMU@20i,PCMA@20i"/>
+```
+
+  
+* "bind\_server\_ip" Can be an ip address, a dns name, or "auto".
+* "global\_codec\_prefs" has a default of G.711 u-law. You can probably leave this alone, unless you need to change it to another [codec](../../Codecs-and-Media/index.mdx#about), but most VoIP equipment will support this [codec](../../Codecs-and-Media/index.mdx#about).
+
+If you need to troubleshoot your configuration, the `log/freeswitch.xml.fsxml` file contains the entire pre-processed freeswitch.xml file. (For testing and troubleshooting you could replace the freeswitch.xml file with this copy.) Line numbers in error messages refer to this concatenated file.
+
+### IP Address
+
+If you have a \[[multihomed NIC](http://en.wikipedia.org/wiki/Multihoming)\] (Single Link, Multiple IP address) then remember that you may have to set a pre-process variable in the `vars.xml` file so that FreeSWITCH™ knows what address to listen on.
+
+```xml
+<X-PRE-PROCESS cmd="set" data="local_ip_v4=<your ip address>"/> 
+```
+
+# Multi-Tenant Info / Multiple Company HOWTO
+
+The [Multi-tenant](../../Examples/Multi-tenant_13173521.mdx#about) page gives details regarding running FreeSWITCH to support multiple separate companies. [Multiple Companies](../../Auxiliary-Knowledge-and-Utilities/Multi-home-tutorial/Multiple-Companies_13173524.mdx#about) is a HOWTO that describes setting up two independent companies on FreeSWITCH, where the files go, what they must contain, etc.
+
+# SIP Proxy  
+
+FreeSWITCH is a B2BUA (back-to-back user agent). This means that it actually parses each of the SIP messages that it receives. FreeSWITCH can not act as a proxy, for instance by forwarding SIP registrations to a registrar server. Of course, you could cluster multiple FreeSWITCH servers and share registrations using a shared database.
+
+# Asterisk Migration
+
+[Rosetta stone](../../Interoperability/Software-Interfaces/Asterisk/Rosetta-Stone_1966991.mdx#dialplan) is a page of common Asterisk -> FreeSWITCH translations.
+
+# See Also
+
+* [Dialplan](../../Dialplan/index.mdx#0-about)
+* [Dialplan XML](../../Dialplan/XML-Dialplan/index.mdx#why)
+* [Dialplan Recipes](../../Dialplan/Dialplan-Recipes_9634252.mdx#about)
+* [Dialplan Basics](https://wiki.freeswitch.org/wiki/Dialplan%5FBasics)
+
+Document generated by Confluence on nov 11, 2022 04:24

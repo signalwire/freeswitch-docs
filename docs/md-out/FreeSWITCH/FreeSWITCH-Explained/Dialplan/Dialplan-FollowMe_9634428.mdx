@@ -1,0 +1,238 @@
+
+# Dialplan FollowMe 
+
+ Created by  Pat Beirne, last modified on 2015.10.06
+
+# About
+
+Follow Me is the idea of ringing one or more extensions or gateways when trying to connect a call. Frequently the best example is given as the travelling worker, who may be at his office phone, or at his cell phone, you would like to try his office first before his cell, if he cannot be reached at any it fails and goes on with the dialplan (generally to voicemail). You can also undertake more complex routing decisions, as the examples below show.
+
+Click here to expand Table of Contents
+
+**Errore nella rappresentazione della macro 'toc'**
+
+null
+
+### A word about uuid_bridge_continue_on_cancel
+
+There are occasions where simply using _{ignore\_early\_media=true}_ is insufficient to achieve your desired follow-me goals.
+
+Examples of this include softphones which automatically hangup after ringing for a period of time. If this occurs, FreeSWITCH will no longer try to bridge.
+
+The workaround is simple, add the following to the relevant part of your dial plan spec (normally just before you define the bridge) :
+
+_&lt;action application="set" data="uuid\_bridge\_continue\_on\_cancel=true"/>_
+
+## FollowMe Dialplan Example 1
+
+There are 2 primary variables to worry about with FollowMe, leg\_delay\_start and leg\_timeout. leg\_delay\_start will delay a specific leg for X seconds prior to starting to ring it, if you want to try the workers desk for 10 seconds before ringing his cell phone you would want to use leg\_delay\_start. leg\_delay\_start will start early if all other legs with less of a delay have already declined or are not available. leg\_timeout allows you to terminate a leg after X seconds, this allows you to stop ringing his cell phone after 25 seconds if at 30 seconds his cell phone voicemail would pickup. A somewhat complex example of this would be:
+
+**Complex Action Statement**
+
+```xml
+<action application="bridge" data="user/1000@mydomain.com,[leg_delay_start=5]user/1001@mydomain.com,[leg_delay_start=15,leg_timeout=25]sofia/gateway/flowroute/12345678901" />
+```
+
+Lets say extension 1000 is our users home office desk line, 1001 is the break room, and 2345678901 is our users cell phone. We would ring the desk line, then 5 seconds later we would ring the breakroom also, and finally after 15 seconds we would ring his cell phone. We will disconnect the cell phone line after 25 seconds if not answered to avoid going to the cell phone voicemail. For more details see[Variable\_leg\_delay\_start](https://wiki.freeswitch.org/wiki/Variable%5Fleg%5Fdelay%5Fstart "Variable leg delay start") and [Variable\_leg\_timeout](https://wiki.freeswitch.org/wiki/Variable%5Fleg%5Ftimeout "Variable leg timeout"). Finally you can use group\_confirm if desired to ensure someone confirms a leg before the control is actually transferred to it. See example 4 for more details on this.
+
+## FollowMe Dialplan Example 2
+
+The following example shows how a DID can bridge to multiple extensions or gateways sequentially in a hunt pattern. In Asterisk, this feature is called FollowMe. If none of the bridges are successful the caller is sent to voicemail.
+
+I wanted each target number to have its own call\_timeout value, which is why they are not contained in a single [bridge action](https://wiki.freeswitch.org/wiki/Misc.%5FDialplan%5FTools%5Fbridge "Misc. Dialplan Tools bridge"). This can be used to prevent your cellphone voicemail from answering the call, for example.
+
+**DID bridging to multiple extensions or gateways sequentially in a hunt pattern**
+
+```xml
+ <!-- this is in public.xml.  The number below is my DID ->>
+ <extension name="2531234567">
+  <condition field="destination_number" expression="2531234567">
+   <action application="set" data="hangup_after_bridge=true"/>
+   <action application="set" data="continue_on_fail=true"/>
+   <!-- this is needed to allow call_timeout to work after bridging to a gateway -->
+   <action application="set" data="ignore_early_media=true"/>
+   <!-- ring my desk extension for 10 seconds. -->
+   <action application="set" data="call_timeout=10"/>
+   <action application="bridge" data="sofia/$${domain}/1001"/>
+   <!-- Now try my cell phone, hangup before cellphone voicemail picks up. -->
+   <!-- Dial out through my voicepulse gateway -->
+   <action application="set" data="call_timeout=13"/>
+   <action application="bridge" data="sofia/gateway/voicepulse/16501234567" />
+   <!-- No answer, transfer to voicemail -->
+   <action application="answer"/>
+   <action application="sleep" data="1000"/>
+   <action application="voicemail" data="default $${domain} 1001"/>
+  </condition>
+ </extension>
+```
+
+##  FollowMe Dialplan Example 3
+
+The following example shows how to call multiple targets at the same time. It first tries my VoIP phones/extensions for just a few seconds, and then tries those same extensions again with my cell involved. Using the bind\_meta\_app it is possible for me to transfer the call once it arrives at any of those extensions, or when it arrives on my cell. You can also start recording a call at any time, and more. See [Misc. Dialplan Tools bind meta app](https://wiki.freeswitch.org/wiki/Misc.%5FDialplan%5FTools%5Fbind%5Fmeta%5Fapp "Misc. Dialplan Tools bind meta app") for more information.
+
+If you don't have Cepstral installed, you will probably want to comment out the "speak" and "sleep" action lines. I find it better to tell the caller that they're being transferred to an outside line when branching to my cell, otherwise they may get impatient and hang up. See[Session speak](https://wiki.freeswitch.org/wiki/Session%5Fspeak "Session speak") for more information on Cepstral and how to use it in Freeswitch.
+
+**Ring Multiple Targets**
+
+```xml
+<!-- in dialplan/public.xml -->
+   <extension name="KJV">
+      <condition field="destination_number" expression="^(0)$">
+        <!-- Make sure the caller hears ringing if we're ringing a phone and we already answered -->
+      	<action application="set" data="transfer_ringback=${us-ring}"/>
+
+        <!-- This was added some time ago, not sure if it's still needed -->
+      	<action application="ring_ready"/>
+
+        <!-- Hanging up after the bridge is generally a good idea -->
+      	<action application="set" data="hangup_after_bridge=true"/>
+
+        <!-- Now that we're not dealing with VoicePulse let's see if things are sane again -->
+      	<action application="set" data="continue_on_fail=NORMAL_TEMPORARY_FAILURE,USER_BUSY,NO_ANSWER,TIMEOUT,NO_ROUTE_DESTINATION"/>
+        <!-- Voicepulse workaround - Seems they always answer regardless of whether or not they managed to place the call. -->
+        <!--<action application="set" data="continue_on_fail=true"/>-->
+
+         <!-- For the first try, let's set the call timeout to 12 seconds-->
+        <action application="set" data="call_timeout=12"/>
+
+        <!-- Add in some features that help make freeswitch exceptionally versatile -->
+        <action application="bind_meta_app" data="1 b s execute_extension::dx XML features"/>
+        <action application="bind_meta_app" data="2 b s record_session::$${base_dir}/recordings/${caller_id_number}.${strftime(%Y-%m-%d-%H-%M-%S)}.wav"/>
+        <action application="bind_meta_app" data="3 b s execute_extension::cf XML features"/>
+
+        <!-- Now we try the VoIP phones only. -->
+        <action application="bridge" data="{ignore_early_media=true}user/7001@$${domain},user/7010@$${domain},user/7022@$${domain},user/7007@$${domain}"/>
+
+        <!-- Now we will try all VoIP phones, AND the cell phone -->
+        <!-- Subsequently we want the timer a little longer than 12 seconds -->
+        <!-- If you don't want it to hit your cell or work voice mail try a lower setting than 60 seconds below-->
+        <action application="set" data="call_timeout=60"/>
+
+        <!-- Make sure we have Allison tell the caller what's happening so they don't get impatient and hang up while I'm out driving around -->
+        <action application="speak" data="cepstral|allison|outside transfer"/>
+        <action application="sleep" data="1000"/>
+        <!-- This next line may not be necessary -->
+        <action application="ring_ready"/>
+
+        <!-- Perform the bridge to all VoIP and Cell -->
+        <action application="bridge" data="{ignore_early_media=true}user/7001@$${domain},user/7010@$${domain},user/7022@$${domain},user/7007@$${domain},sofia/gateway/flowroute/12345678901"/>
+
+      <!-- You can put other stuff here, but I happen to like iPhone voice mail -->
+
+      </condition>
+    </extension>
+```
+
+## FollowMe Dialplan Example 4
+
+[Using leg\_delay and javascript](http://blog.shimaore.net/2009/03/better-followme-for-freeswitch.html)
+
+**Important:** the path of the confirm wav file (press 1 to connect) by default for me was located here:**/usr/local/freeswitch/sounds/en/us/callie/**. You need to either create or find a suitable file and call it **connect-to-caller-press-1.wav**. This file should be an 8000 Hz mono wav or other FreeSWITCH compatible audio file. I downloaded asterisk sounds, went into the followme folder and modfied options.wav with Audacity to say "Press 1 to connect your caller". You could just as well record your own file.
+
+## FollowMe Dialplan Example 5
+
+Variation on Example 4, a javascript that authenticates a user with a pin prior to bridging.
+
+**Example of Authenticate before Bridge**
+
+```xml
+ // B_leg_confirm.js - Freeswitch Call PIN Check
+//
+//
+console_log("info", "Destination: "+ session.destination + "\n");
+//
+if(!session.getVariable('B_leg_legconf'))
+{
+  console_log("info", "No B-Leg Confirmation Requested \n");
+  exit();
+}
+//
+//
+// Variables...
+//
+var v_continue = false;
+var conf_pin = session.getVariable('B_leg_pin');
+var attempts = 3;
+var sound_file = "path_to_your_sound_file";
+var pin = ""
+//
+//
+if (session.ready()) {
+	session.answer();
+	session.flushDigits();
+	console_log("info","Starting PIN Collection\n");
+	var cnt = attempts;
+	while (session.ready() && ! v_continue && cnt-- > 0)
+	{
+		session.execute("sleep","200");
+		session.streamFile(sound_file);
+		pin = session.getDigits(4,"",10000);
+		console_log("info","Collected PIN: " + pin + "\n");
+		if ( pin == conf_pin ) {
+			v_continue = true;
+			console_log("info","PIN OK !.\n");
+		} else {
+		pin = "";
+		session.flushDigits();
+		}
+	}
+	if(v_continue == true) {
+		console_log("info","Auth Success");
+		exit(0);
+	} else {
+		console_log("info","Auth Failed");
+		session.hangup();
+		exit(1);
+	}
+} else {
+	console_log("info","Session not ready.\n");
+}
+```
+
+Called as follows in your dialplan:
+
+```xml
+<action application="export" data="B_leg_legconf=t" />
+<action application="export" data="B_leg_pin=1111" />
+<action application="set" data="group_confirm_key=exec"/>
+<action application="set" data="group_confirm_file=javascript B_leg_confirm.js"/>
+```
+
+## FollowMe Dialplan Example 6
+
+This is an example of how you could use Lua to confirm a call heading to an outside line (such as a mobile phone)
+
+**Example Using Lua to Confirm a Call**
+
+```xml
+if session:ready() then
+  session:execute("playback", "silence_stream://750");
+  session:execute("playback", "/usr/local/freeswitch/sounds/en/us/callie/ivr/8000/ivr-hello.wav")
+  digits = session:playAndGetDigits(1, 1, 3, 2000, "#", "/usr/local/freeswitch/sounds/en/us/callie/ivr/8000/ivr-accept_reject.wav", "/usr/local/freeswitch/sounds/en/us/callie/ivr/8000/ivr-that_was_an_invalid_entry" "[12]");
+
+  if digits == "1" then
+    session:execute("playback", "/usr/local/freeswitch/sounds/en/us/callie/ivr/8000/ivr-thank_you.wav");
+  elseif digits == "2" then
+    session:execute("playback", "/usr/local/freeswitch/sounds/en/us/callie/ivr/8000/ivr-call_rejected.wav");
+    session:execute("playback", "/usr/local/freeswitch/sounds/en/us/callie/voicemail/8000/vm-goodbye.wav");
+    session:hangup()
+  else
+    session:hangup("NO_ANSWER")
+  end;
+end;
+```
+
+Like in Example 5 above, you would call this in your dialplan like so:
+
+```xml
+<action application="set" data="group_confirm_key=exec"/>
+<action application="set" data="group_confirm_file=lua B_leg_confirm.lua"/>
+```
+
+You could also call this in something like mod\_callcenter (thanks to mcrane, who pointed me in the right direction). Your agent might look like this ($${base-dir}/conf/autoload\_configs/callcenter.conf.xml, inside of &lt;agents>&lt;/agents>):
+
+```xml
+<agent name="317XXXXXXX" type="callback" contact="{group_confirm_key=exec,group_confirm_file=lua /usr/local/freeswitch/scripts/lua/agent-confirm.lua}sofia/gateway/sip.flowroute.com/1317XXXXXXX" status="Available" max-no-answer="0" wrap-up-time="20" reject-delay-time="400" busy-delay-time="400" no-answer-delay-time="400"/>
+```
+
+ Document generated by Confluence on nov 11, 2022 04:27

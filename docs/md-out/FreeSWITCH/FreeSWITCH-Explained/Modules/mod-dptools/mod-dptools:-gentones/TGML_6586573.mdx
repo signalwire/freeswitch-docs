@@ -1,0 +1,282 @@
+
+# TGML 
+
+ Created by  Gabriel de Medeiros Galvão, last modified by  Attila Gulyas on 2019.12.23
+
+# About
+
+Syntax of teletone scripts.
+
+Click here to expand Table of Contents
+
+* 1 [EXAMPLES](#examples)  
+   * 1.1 [Script and Dialplan Examples](#script-and-dialplan-examples)  
+         * 1.1.1 [Dialplan](#dialplan)  
+         * 1.1.2 [Lua](#lua)  
+         * 1.1.3 [JavaScript](#javascript)  
+         * 1.1.4 [Perl](#perl)
+* 2 [Worldwide Frequencies and Cadences Listed by ITU-T](#worldwide-frequencies-and-cadences-listed-by-itu-t)
+* 3 [See Also](#see-also)
+
+LEGEND
+
+0-9,a-d,*,# (standard DTMF tones)
+
+variables: c,r,d,v,>,&lt;,+,w,l,L,loop,%
+
+  
+* c=x Sets the number of channels.
+* r=x Sets the sample rate.
+* d=x Sets the default tone duration in ms.
+* v=x Sets the default volume (-63.0dB to 0.0dB).
+* >=x Number of ms per interval for volume decrease.
+* &lt;=x Number of ms per interval for volume increase.
+* +=x Number of dB to step per interval (used by '&lt;' and '>').
+* w=x Default silence after each tone in ms.
+* l=x Number of times to repeat each tone in the script.
+* L=x Number of times to repeat the the whole script.
+* loops=x Like L, but doesn't pre-allocate a buffer for total duration, only one loop worth, then programmatically loops it (more mem efficient).
+* %=x A generic tone specified by a duration, a wait and a list of frequencies.
+
+  
+The values for '+' and 'v' may be decimal numbers.
+
+Standard tones can have custom duration per use with the () modifier 7(1000, 500) to generate DTMF 7 for 1 second then pause .5 seconds.
+
+# EXAMPLES
+
+  
+ITU-T Recommendation Q.35 "Technical Characteristics of Tones for Telephone Service" defines many of these tones. They are provided here for your convenience, and because they make great examples. Additionally, RFC 2833 references ITU-T E.182 "Application of tones and recorded announcements in telephone services" for when to use certain tones in RTP. You may want to look at [ITU-T Recommendation E.180](http://www.itu.int/dms%5Fpub/itu-t/opb/sp/T-SP-E.180-2010-PDF-E.pdf) for different countries, what tones are used, etc.
+
+TODO [RFC 2833](https://tools.ietf.org/html/rfc2833) is obsoleted by [RFC 4733](https://tools.ietf.org/html/rfc4733).
+
+UK Ring Tone \[400+450 Hz on for 400ms off for 200ms then 400+450 Hz on for 400ms off for 2000ms\]
+
+```xml
+%(400,200,400,450);%(400,2000,400,450)
+```
+
+US Ring Tone \[440+480 Hz on for 2000ms off for 4000ms\]
+
+```xml
+%(2000,4000,440,480)
+```
+
+ITU E.182 Calling card service tone (AT&T BONG) \[volume level -7DB, 941.0Hz +1477.0Hz (DTMF #) for 100ms with no wait. 350.0Hz+440.0Hz (US DIALTONE) for 1400ms with even decay of .1 dB over 2ms
+
+```xml
+v=-7;%(100,0,941.0,1477.0);v=-7;>=2;+=.1;%(1400,0,350,440)
+```
+
+Vacant Number Special Information Tone (SIT - The number you have dialed is not in service / disconnected) 913.8 Hz for 274 ms with no wait, 1370.6 Hz for 274 ms with no wait, 1776.7 Hz for 380ms with no wait
+
+```xml
+%(274,0,913.8);%(274,0,1370.6);%(380,0,1776.7)
+```
+
+UK Special Information Tone (SIT - The number you have dialed is not in service) 950Hz for 330 ms with 15ms wait, 1400Hz for 330 ms with 15ms wait, 1800Hz for 330ms with 1s wait
+
+```xml
+%(330,15,950);%(330,15,1400);%(330,1000,1800);
+```
+
+ATTN TONE ("barking dog", means phone's off the hook!) 1400+2060+2450+2600 Hz for 100ms with 100ms wait
+
+```xml
+%(100,100,1400,2060,2450,2600)
+```
+
+Caller Waiting Tone (aka SAS) 440Hz for 300ms repeated once after 10 seconds
+
+```xml
+%(300,10000,440);L(2)
+```
+
+Distinctive Ring/Call Waiting (indicates dialed number is greater than 7 digits in length) 440Hz on 100ms off 100ms on 100ms, repeated after 10 seconds
+
+```xml
+%(100,100,440);%(100,0,440)
+```
+
+Busy Tone 480Hz + 620Hz 500ms on 500ms off
+
+```xml
+%(500,500,480,620)
+```
+
+Reorder (in North America this is ITU E.182 Negative Indication Tone) 480Hz + 620Hz 250ms on 250ms pause
+
+```xml
+%(250,250,480,620)
+```
+
+CAS Tone 2750Hz + 2130Hz for 80ms
+
+```xml
+%(80,0,2750,2130)
+```
+
+3 burst stutter dial tone - 3 sequences of 350Hz+440Hz 100ms on 100ms off, then continuous dialtone (not included here, see below for dialtone)
+
+```xml
+%L=3;(100,100,350,440)
+```
+
+Dial tone - continuous 350Hz + 440 Hz (this is 10 seconds when you should probably have digits dialed or go into a 'hang the phone up' tone)
+
+```xml
+%(10000,0,350,440)
+```
+
+AT&T Definity System 75/85 PABX Dial Tone - 250Hz + 400Hz continuous
+
+```xml
+%(10000,0,250,400)
+```
+
+CCITT 5 Seize sequence - 2600Hz + 2400Hz for 150ms with 150ms pause then 2400Hz for 150ms (timings can be different for different carriers)
+
+```xml
+%(150,150,2600,2400);%(150,0,2400)
+```
+
+CCITT 5 Seize sequence with 60Hz guard tone (used in some places, timings are carrier dependant and likely to be wrong for most carriers)
+
+```xml
+%(150,150,2600,2400,60);%(150,0,2400)
+```
+
+AU Congestion tone - with correct 10dB drop every second itteration - 420Hz for 375ms, then 375ms off, then 420Hz for 375ms 10dB down, then 375ms off.
+
+```xml
+v=-13;%(375,375,420);v=-23;%(375,375,420)
+```
+
+Dialtone Deutsche Telekom Germany 425Hz (used for DISA, Callthru)
+
+```xml
+%(10000,0,425)
+```
+
+Australian ringback tone
+
+```xml
+%(400,200,400,425);%(400,2000,400,425)
+```
+
+  
+## Script and Dialplan Examples
+
+### Dialplan
+
+Calling from the dialplan is extremely simple: &lt;action application="playback" data="tone\_stream://&lt;TGML>"/>
+
+Examples:
+
+```xml
+<pre>
+<!-- UK Ring -->
+<action application="playback" data="tone_stream://%(400,200,400,450);%(400,2200,400,450)"/>
+
+<!-- UK Ring (Same as above, except plays twice)-->
+<action application="playback" data="tone_stream://%(400,200,400,450);%(400,2200,400,450);loops=2"/>
+<!-- US Ring -->
+<action application="playback" data="tone_stream://%(2000,4000,440,480)"/>
+
+<!-- US Busy -->
+<action application="playback" data="tone_stream://%(500,500,480,620)"/>
+</pre>
+```
+
+### Lua
+
+In Lua scripts, use the \[\[Misc.\_Dialplan\_Tools\_playback|playback\]\] application with tone\_stream:
+
+```xml
+--Lua example of busy tone
+session:execute("playback", "tone_stream://%(500,500,480,620)");
+--Lua example of a "bong" tone
+BONG = "v=-7;%(100,0,941.0,1477.0);v=-7;>=2;+=.1;%(1000, 0, 640)";
+BONG = "tone_stream://" .. BONG;
+session:execute("playback", BONG);
+```
+
+### JavaScript
+
+In JavaScript you may use the "TeleTone" module or the \[\[Misc.\_Dialplan\_Tools\_playback|playback\]\] application with tone\_stream.
+
+Template:
+
+addTone(digit name, frequency1, frequencyN, 0.0)
+
+Where:
+
+'digit name' is a character that will be used to identify this tone, like shorthand notation
+
+frequencies are a null terminated list of all the component frequencies that make this tone
+
+Example with TeleTone module:
+
+**AT&T New Tone**
+
+```js
+// JavaScript example of a "BONG" tone using TeleTone
+use("TeleTone");
+var BONG ="v=-7;%(100,0,941.0,1477.0);v=-7;>=2;+=.1;%(1000, 0, 640)";
+var tts = new TeleTone(session);
+tts.addTone("d",350.0,440.0,0.0);
+tts.generate(BONG);
+```
+
+Example with playback and tone\_stream.
+
+**Teletone tone\_stream**
+
+```xml
+// JavaScript example of a "BONG" tone with playback and tone_stream
+var BONG ="tone_stream://v=-7;%(100,0,941.0,1477.0);v=-7;>=2;+=.1;%(1000, 0, 640)";
+session.execute("playback", BONG);
+```
+
+addTone example
+
+**addtone example**
+
+```xml
+use("TeleTone");
+var tts = new TeleTone(session);
+tts.addTone("q", 2600.0, 2400.0, 0.0);
+dtmf = session.((FreeSwitch Javascript Session GetDigits|getDigits))(1, "", 20000, true);
+if (dtmf == "q") {
+  // do something fun here
+}
+```
+
+  
+### Perl
+
+Perl is like Lua, just use the \[\[Misc.\_Dialplan\_Tools\_playback|playback\]\] application with tone\_stream:
+
+```perl
+#Perl example of busy tone
+$session->execute("playback", "tone_stream://%(500,500,480,620)");
+#Perl example of a "bong" tone
+$BONG = "v=-7;%(100,0,941.0,1477.0);v=-7;>=2;+=.1;%(1000, 0, 640)";
+$BONG = "tone_stream://" . $BONG;
+$session->execute("playback", $BONG);
+```
+
+# Worldwide Frequencies and Cadences Listed by ITU-T
+
+[Various tones used in national networks (According to ITU-T Recommendation E.180)](http://www.itu.int/dms%5Fpub/itu-t/opb/sp/T-SP-E.180-2010-PDF-E.pdf) Updated 1st May 2010.
+
+# See Also
+
+[gentones](../6586546.mdx#about)
+
+[Tone\_stream](./Tone_stream_6586599.mdx#about)
+
+[This Is A Recording](http://www.thisisarecording.com/i-international-phone-signaling-tones.html)— A list of tones used around the world
+
+  
+Document generated by Confluence on nov 11, 2022 04:27

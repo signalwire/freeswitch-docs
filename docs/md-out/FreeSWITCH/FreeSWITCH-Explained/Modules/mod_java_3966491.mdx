@@ -1,0 +1,149 @@
+
+# mod_java 
+
+ Created by  Belaid Areski, last modified by  Italo Rossi on 2015.06.09
+
+# About
+
+mod\_java is based on the swig wrapper used for [mod\_python](./mod_python_1048940.mdx#eol) so look there for any issues.
+
+It's been tested with 1 call with Sun's Java 1.6 running the example script below and found to work.
+
+NOTE: Sun JDK 1.6.0.05 has a bug which causes freeswitch (among other Java programs) to crash immediately. To avoid problems, use an earlier release of 1.6 or any of the 1.5 JDK series.  
+NOTE: Also sending the -HUP signal to FreeSWITCH while mod\_java is loaded will make FreeSWITCH exit due to the fact the JVM calls exit(); when it receives a HUP.
+
+Click here to expand Table of Contents
+
+* 1 [Building mod\_java](#building-mod_java)
+* 2 [Enabling mod\_java](#enabling-mod_java)
+* 3 [Configuring mod\_java](#configuring-mod_java)
+* 4 [Building Java scripts](#building-java-scripts)
+* 5 [Invoking mod\_java applications](#invoking-mod_java-applications)
+* 6 [Debugging](#debugging)
+* 7 [Example code](#example-code)
+* 8 [Notes](#notes)
+* 9 [FAQ](#faq)  
+   * 9.1 [Q: Does mod\_java run in a single JVM or does it spawn a JVM per call?](#q-does-mod_java-run-in-a-single-jvm-or-does-it-spawn-a-jvm-per-call)
+
+# Building mod_java
+
+Dependencies (gcj and classpath development tools)
+
+```xml
+apt-get install gcj-jdk
+```
+
+You need a Java JDK, version 1.5 or greater, to build mod\_java (and a JRE of the same version to use it). If _./configure_ doesn't detect Java, you'll have to pass the _\--with-java=/path/to/jni.h/directory_ flag. Something like the following:
+
+```xml
+./configure --with-java=/usr/java/jdk1.6.0_16/include/
+```
+
+Edit _modules.conf.xml_ and uncomment _languages/mod\_java_ _javac_ and _jar_ have to be on your PATH during compilation. _make installall_
+
+# Enabling mod_java
+
+Edit _modules.conf.xml_ and uncomment:
+
+```xml
+ <load module="mod_java"/>
+```
+
+# Configuring mod_java
+
+Edit _java.conf.xml_ and fill in the path to your favourite Java 1.5 or greater virtual machine library.
+
+The _java.class.path_ parameter must contain _freeswitch.jar_ and other paths are only necessary when you are not using JAR files, read on. You can create the _freeswitch.jar_ file yourself by using jar command or any of your favorite tool. All the source files are there in _&lt;extracted-freeswitch-directory>/src/mod/languages/mod\_java/src_ to build the required _jar_.
+
+You can add any other options you like; for convenience remote debugging is enabled by default.
+
+# Building Java scripts
+
+You need to have _freeswitch.jar_ on your CLASSPATH when using _javac_.
+
+# Invoking mod_java applications
+
+Use one of these in your dialplan:
+
+```xml
+<action application="java" data="fully.qualified.class.name arg1 arg2 arg3"/>
+<action application="java" data="/path/to/file.jar fully.qualified.class.name arg1 arg2 arg3"/>
+```
+
+The first will look for the given class on your CLASSPATH (set in _java.conf.xml_), the second will look in the given JAR file.
+
+# Debugging
+
+By default the remote debugger listens on port 8000 and IP 127.0.0.1\. The _org.freeswitch.Launcher_ class in _freeswitch.jar_ is used to launch scripts, so you can put breakpoints on it and from there trace into your code.
+
+# Example code
+
+```java
+import org.freeswitch.*;
+import org.freeswitch.swig.*;
+
+public class PhoneTest implements FreeswitchScript, DTMFCallback, HangupHook
+{
+    public PhoneTest()
+    {
+    }
+
+    public String onDTMF(Object object, int i, String arg)
+    {
+        if (object instanceof String)
+            freeswitch.console_log("notice", "DTMF: " + (String)object + " ARG: " + arg + "\n");
+        else
+            freeswitch.console_log("notice", "WOW GOT AN EVENT: " + object.toString());
+        return "true";
+    }
+
+    public void onHangup()
+    {
+        freeswitch.console_log("notice", "HANGUP!\n");
+    }
+
+    public void run(String sessionUuid, String args)
+    {
+        freeswitch.console_log("notice", "UUID: " + sessionUuid + " ARGS: " + args + "\n");
+        JavaSession session = null;
+        try
+            {
+                session = new JavaSession(sessionUuid);
+                session.setDTMFCallback(this, "TEST");
+                session.setHangupHook(this);
+
+                session.answer();
+                session.streamFile(args, 0);
+                session.hangup("");
+            }
+        finally
+            {
+                if (session != null)
+                    session.delete();
+            }
+    }
+}
+```
+
+# Notes
+
+If you want to be aware of channel hang up then your java class should implement interface _org.freeswitch.HangupHook_. Method _org.freeswitch.HangupHook.onHangup()_ is called not only when channel is being hanged up but also when it's being transferred. In this method you should shutdown you java-application
+
+```xml
+javaSession.destroy()
+```
+
+to release the given channel else general call processing will be blocked with your app.
+
+# FAQ
+
+## Q: Does mod_java run in a single JVM or does it spawn a JVM per call?
+
+A: There is a single in-process JVM, and each FreeSWITCH thread is attached to it before calling into Java (using the invocation API) and detached afterwards.
+
+## Comments:
+
+| Before anybody wastes 3 hours like I did, be aware that when setting the startup and shutdown scripts in the config file, you need to use path notation instead of standard java notation, when identifying the class.So com.anything.ClassName becomes com/anything/ClassName.Could somebody add this to the documentation? I can also update this modules documentation, if I can get access, as we are currently beginning to use it. ![](/images/icons/contenttypes/comment_16.png) Posted by jleren at mar 03, 2019 07:23 |
+| ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+
+Document generated by Confluence on nov 11, 2022 04:27

@@ -1,0 +1,160 @@
+
+# mod_dptools: eavesdrop 
+
+ Created by  Italo Rossi, last modified by  livem Chan on 2017.11.10
+
+# About
+
+eavesdrop provides the ability to spy on a channel. It often referred to as call barge. For persistent spying on a user see [mod\_spy](../mod_spy_6586547.mdx#about).
+
+Click here to expand Table of Contents
+
+* 1 [Usage](#-freeswitch--mod_dptools-eavesdrop-)
+* 2 [Variables](#variables)
+* 3 [Simulating DTMF](#simulating-dtmf)  
+   * 3.1 [DTMF Speak to callee Example](#dtmf-speak-to-callee-example)  
+   * 3.2 [DTMF Speak to caller Example](#dtmf-speak-to-caller-example)
+* 4 [Examples](#examples)  
+   * 4.1 [From the Dialplan](#-freeswitch--mod_dptools-eavesdrop-)  
+   * 4.2 [From the mod\_event\_socket](#from-the-mod_event_socket-)  
+   * 4.3 [Specifying a group](#specifying-a-group)
+* 5 [See Also](#see-also)
+
+## Usage
+
+```xml
+eavesdrop [<uuid>|all]
+```
+
+## Variables
+
+```xml
+<action application="set" data="eavesdrop_require_group=<groupID>"/>
+<action application="set" data="eavesdrop_indicate_failed=/sounds/failed.wav"/>         <!-- used in 'eavesdrop all' case -->
+<action application="set" data="eavesdrop_indicate_new=/sounds/new_chan_announce.wav"/> <!-- used in 'eavesdrop all' case -->
+<action application="set" data="eavesdrop_indicate_idle=/sounds/idle.wav"/>             <!-- used in 'eavesdrop all' case -->
+<action application="set" data="eavesdrop_enable_dtmf=true"/> <!-- false means no commands during eavesdrop -->
+<action application="set" data="eavesdrop_bridge_aleg=true"/> <!-- enables listen to aleg -->
+<action application="set" data="eavesdrop_bridge_bleg=true"/> <!-- enables listen to bleg -->
+<action application="set" data="eavesdrop_whisper_aleg=true"/> <!-- enables whisper mode in aleg -->
+<action application="set" data="eavesdrop_whisper_bleg=true"/> <!-- enables whisper mode in bleg -->
+```
+
+DTMF signals during eavesdrop
+
+* 2 to speak with the uuid
+* 1 to speak with the other half
+* 3 to engage a three way
+* 0 to restore eavesdrop.
+* \* to next channel.
+
+If "eavesdrop\_require\_group" is specified, eavesdrop only works with channels that have an "eavesdrop\_group" channel variable set to the same name.
+
+If '\*' is used on an eavesdrop with out the data = all parameter set, the eavesdrop will be terminated.
+
+If neither eavesdrop\_bridge\_aleg nor eavesdrop\_bridge\_bleg are set to true, eaves will be dropped on both legs.
+
+## Simulating DTMF
+
+You can send DTMF using [uuid\_recv\_dtmf](../mod_commands_1966741.mdx#uuid_recv_dtmf)
+
+### DTMF Speak to callee Example
+
+```xml
+<extension name="eavesdrop_speak_to_callee" continue="true">
+  <condition field="destination_number" expression="^88(.*)$|^\*0(.*)$">
+    <action application="answer"/>
+    <action application="set" data="eavesdrop_enable_dtmf=true"/>
+    <action application="queue_dtmf" data="w1@500"/>
+    <action application="eavesdrop" data="${db(select/spymap/$1$2)}"/>
+  </condition>
+</extension>
+```
+
+### DTMF Speak to caller Example
+
+```xml
+<extension name="eavesdrop_speak_to_caller" continue="true">
+  <condition field="destination_number" expression="^88(.*)$|^\*0(.*)$">
+    <action application="answer"/>
+    <action application="set" data="eavesdrop_enable_dtmf=true"/>
+    <action application="queue_dtmf" data="w2@500"/>
+    <action application="eavesdrop" data="${db(select/spymap/$1$2)}"/>
+  </condition>
+</extension>
+```
+
+## Examples
+
+###   
+From the Dialplan
+
+This is available in the default.xml dialplan. To use it from your phone dial 88\[extension number\]. For example to eavesdrop on extension 1001 dial 881001.
+
+```xml
+<extension name="global" continue="true">
+  <condition>
+    <action application="info"/>
+    <action application="db" data="insert/spymap/${caller_id_number}/${uuid}"/>
+    <action application="db" data="insert/last_dial/${caller_id_number}/${destination_number}"/>
+    <action application="db" data="insert/last_dial/global/${uuid}"/>
+  </condition>
+</extension>
+<extension name="eavesdrop">
+  <condition field="destination_number" expression="^88(.*)$|^\*0(.*)$">
+    <action application="answer"/>
+    <action application="eavesdrop" data="${db(select/spymap/$1$2)}"/>
+  </condition>
+</extension>
+```
+
+### From the mod_event_socket 
+
+In this example you originate a call to extension 2001 and start spying the channel with UUID c7709e9c-1517-11dc-842a-d3a3942d3d63
+
+```xml
+api originate sofia/default/2001@yourvsp.com &eavesdrop(c7709e9c-1517-11dc-842a-d3a3942d3d63)
+```
+
+or another example with SRTP
+
+```xml
+originate {sip_secure_media=true}user/1000 &eavesdrop(52d87034-4173-11de-99ef-f1acc19bfdf1)
+```
+
+In this example an eavesdrop is made of UUID a28739d0-00f0-4a59-8c82-7a5a74ab6861 to extension 1001, however the eavesdrop is started with DTMF option 2 (w2@500) to allow speaking directly to the UUID with out the other party hearing (whisper).
+
+```xml
+originate user/1001 'queue_dtmf:w2@500,eavesdrop:a28739d0-00f0-4a59-8c82-7a5a74ab6861' inline
+```
+
+### Specifying a group
+
+You can specify a "group" to limit the channels that an eavesdrop applies to. This may be useful for privacy reasons.
+
+For example, if you only want to eavesdrop on incoming sales calls, you could set the "eavesdrop\_group" variable on the original incoming channel:
+
+```xml
+<action application="set" data="eavesdrop_group=sales_call_eavesdrop"/>
+```
+
+Then create an eavesdrop command that only affects that "sales\_call\_eavesdrop" group:
+
+```xml
+<extension name="eavesdrop">
+  <condition field="destination_number" expression="^779$">
+    <action application="answer"/>
+    <action application="set" data="eavesdrop_require_group=sales_call_eavesdrop"/>
+    <action application="eavesdrop" data="all"/>
+  </condition>
+</extension>
+```
+
+You should set the var eavesdrop\_require\_group=foo before you run the app and on all calls that are not using G729, set the var eavesdrop\_group=foo in the dialplan in order to avoid call drops on G.729, if you don't have the codec licenses since they require transcoding.
+
+## See Also
+
+* [Dialplan](../../Dialplan/index.mdx#0-about)
+* [mod\_dptools: three\_way](./6587079.mdx#about)
+
+Document generated by Confluence on nov 11, 2022 04:27

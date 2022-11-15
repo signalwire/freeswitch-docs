@@ -1,0 +1,85 @@
+
+# mod_dptools: transfer 
+
+ Created by  Luan Fonseca de Farias, last modified by  Henning Heedfeld on 2022.08.09
+
+# About
+
+Immediately transfer the calling channel to a new context. If there happens to be an xml extension named &lt;destination\_number> then control is "warped" directly to that extension. Otherwise it goes through the entire context checking for a match.
+
+TODO What is the difference between `uuid_transfer` in [mod\_commands](../mod_commands_1966741.mdx#--) and [mod\_dptools: transfer](./6586616.mdx#about)?
+
+Click here to expand Table of Contents
+
+* 1 [Description](#description)
+* 2 [Usage](#-freeswitch--mod_dptools-transfer-)
+* 3 [Examples](#examples)
+
+# Description
+
+Immediately transfer the calling channel to a new context. If there happens to be an xml extension named &lt;destination\_number> then control is "warped" directly to that extension. Otherwise it goes through the entire context checking for a match.
+
+Example: say caller dials 3015551212, causing conf/dialplan/public/3015551212.xml to "answer". If 3015551212.xml does an:
+
+```xml
+<action application="transfer" data="1047 XML cntxt_a"/>
+```
+
+that causes the conf/dialplan/cntxt\_a/1047.xml to be parsed (assuming that file does a match on "^1047$". If dialplan or context are not defined, they default to XML and default.
+
+The transfer app does not actually "transfer a call" (It might have been better named _dialplan-jump_). It changes the destination extension and/or context and restarts the parsing of the dialplan. Actual transfers are done after a call is answered by use of the bridge application. see [bridge](./6586484.mdx#45-user).
+
+Each transfer app call will decrement max\_forwards variable that is by default set to 70\. After 70 transfers the call will go on-hook. If you have a large IVR dialplan application, to prevent call going on-hook, you can set max\_session\_transfers variable to a large value. Once max\_session\_transfers is defined for a channel, max\_forwards is not touched by transfer application, and the value in max\_session\_transfers gets decremented.
+
+# Usage
+
+```xml
+transfer <destination_number> [<dialplan> [<context>]]
+```
+
+# Examples
+
+```xml
+<action application="transfer" data="500"/>
+```
+
+This example is found in public.xml. It transfers the call to the given extension in the default context, which is located in default.xml. Please note the use of XML as a dialplan as it is defined in freeswitch.xml
+
+```xml
+<extension name="public_extensions">
+  <condition field="destination_number" expression="^(10[01][0-9])$">
+    <action application="transfer" data="$1 XML default"/>
+  </condition>
+</extension>
+```
+
+If the call is currently in a bridge it will transfer the other side of the call instead of itself:
+
+```xml
+<action application="transfer" data="-bleg 2103"/>
+```
+
+This would transfer both legs of the call to the same ext. i.e a conference extension:
+
+```xml
+<action application="transfer" data="-both 2103"/>
+```
+
+When a call is transferred back through the dialplan, the RDNIS value is populated with the previous destination\_number value.
+
+**Note:** You can also specify an [inline dialplan](./6586667.mdx#about)
+
+**Note:** Transfer will begin parsing extensions from the beginning of the dialplan. Be careful to avoid loops.
+
+**Note:** The transfer application also works with **mod\_xml\_curl**, it just does another request to mod\_xml\_curl and starts over again, just like in the static dialplan.
+
+  
+## Comments:
+
+| In lua, try session:getVariable("max\_session\_transfers") got nil.How can I get the channel variable **max\_session\_transfers** ? Thanks. ![](/images/icons/contenttypes/comment_16.png) Posted by livem at ago 29, 2017 22:16                                                                                              |
+| ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Initially max\_session\_transfers is not set. You need to set it to a numeric value; only then this variable going to be decremented instead of max\_forwards. ![](/images/icons/contenttypes/comment_16.png) Posted by tomasb at apr 23, 2019 14:59                                                                          |
+| it transfers to extension with name="&lt;destination\_number>" or to file with name=&lt;destination\_number>.xml ? ![](/images/icons/contenttypes/comment_16.png) Posted by clx88 at mar 09, 2021 00:22                                                                                                                             |
+| Yeah, that example is just plain wrong, unless I'm misunderstanding it. It transfers the session to search for the desired extension in another &lt;dialplan name>.xml which is NOT named after the number. So there is no 3015551212.xml ![](/images/icons/contenttypes/comment_16.png) Posted by boteman at mar 11, 2021 14:28 |
+
+Document generated by Confluence on nov 11, 2022 04:27

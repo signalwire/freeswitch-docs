@@ -1,0 +1,252 @@
+
+# Simple Call Forward with IVR 
+
+ Created by  Juan Ossa, last modified by  John Boteler on 2016.04.27
+
+# About
+
+Set up Call Forwarding using the dialplan instead of a button on your phone. 
+
+Click here to expand Table of Contents
+
+* 1 [](#-freeswitch--simple-call-forward-with-ivr-)
+* 2 [Introduction](#introduction)
+* 3 [Description](#description)
+* 4 [Configuration](#configuration)  
+   * 4.1 [Changes to default.xml](#changes-to-defaultxml)  
+   * 4.2 [Utility Extensions](#-utility-extensions-)  
+   * 4.3 [Using \*72 and \*73](#using-72-and-73-)  
+   * 4.4 [Phrase Macros](#phrase-macros)  
+   * 4.5 [Don't Forget to "reloadxml"](#-dont-forget-to-reloadxml-)
+* 5 [Usage](#-freeswitch--simple-call-forward-with-ivr-)
+* 6 [See Also](#-freeswitch--simple-call-forward-with-ivr-)
+
+#   
+
+# Introduction
+
+I started this as a proof of concept and it worked well enough that I decided to add it as an example of using [hash](../Modules/mod_hash_6586975.mdx#api), [play\_and\_get\_digits](../Interoperability/Phones/index.mdx#feature-grid), and [Phrase Macros](https://wiki.freeswitch.org/wiki/Speech%5FPhrase%5FManagement "Speech Phrase Management"). The idea is that you can set call forwarding for a telephone by using the dialplan instead of the CF button on the phone itself.
+
+NOTE: Hash information is cleared on a FreeSWITCH restart. For persistent storage, use [mod\_db](../Modules/mod_db_6586567.mdx#api) instead.
+
+# Description
+
+There are four CF "utility" extensions presented here:
+
+* **9090** \- Set CF for my phone (from my phone)
+* **9091** \- Set CF for any extension (from any phone)
+* **9092** \- Cancel CF for my phone (from my phone)
+* **9093** \- Cancel CF for any extension (from any phone)
+
+With these four extensions a user can set, modify, or cancel call forwarding for his particular extension, whether he's at his own telephone or at a different phone. Since this is a PoC, there is neither security nor error checking. These are left as an exercise for the reader.
+
+Note: I do like DJBinter's idea of using **\*72** and **\*73** with beeps and bong tones. Feel free to look at his example. (Check out the See Also items below.)
+
+# Configuration
+
+There are several items that need to be changed or added to the configuration.
+
+## Changes to default.xml
+
+The following extension needs to be added to the top of conf/dialplan/default.xml: 
+
+**default.xml** Espandi fonte 
+
+```xml
+<extension name="Check IVR-based CF" continue="true">
+     <condition field="destination_number" expression="^(\d+)$">
+       <action application="set" data="dialed_number=$1" inline="true"/>
+       <action application="set" data="cf_target=${hash(select/${domain_name}-CF/$1" inline="true"/>
+     </condition>
+     <condition field="${cf_target}" expression="^\d+$">
+       <action application="log" data="INFO Found CF info for ${dialed_number}, x-fering to ${cf_target}..."/>
+       <action application="set_user" data="${dialed_number}@${domain_name}"/>
+       <action application="transfer" data="${cf_target} XML ${user_domain}"/>
+     </condition>
+   </extension>
+```
+
+##  Utility Extensions 
+
+The following extensions can be added as a separate file in conf/dialplan/default/01\_IVR-CF.xml:
+
+**Utility Extensions** Espandi fonte 
+
+```xml
+ <extension name="CF from my station">
+   <condition field="destination_number" expression="^(9090)$">
+     <action application="answer"/>
+     <action application="log" data="INFO Set CF from ${caller_id_number}"/>
+     <action application="play_and_get_digits" 
+         data="4 4 3 3000 # phrase:enter_dest_number ivr/ivr-that_was_an_invalid_entry.wav target_number \d+"/>
+     <action application="hash" data="insert/${domain_name}-CF/${caller_id_number}/${target_number}"/>
+     <action application="sleep" data="1000"/>
+     <action application="playback" data="phrase:call_forward_set:${caller_id_number}:${target_number}"/>
+   </condition>
+ </extension>
+
+ <extension name="CF from any station">
+   <condition field="destination_number" expression="^(9091)$">
+     <action application="answer"/>
+     <action application="log" data="INFO set CF from any station (caller=${caller_id_number})"/>
+     <action application="play_and_get_digits" 
+         data="4 4 3 3000 # phrase:enter_src_number ivr/ivr-that_was_an_invalid_entry.wav source_number \d+"/>
+     <action application="sleep" data="1000"/>
+     <action application="flush_dtmf"/>
+     <action application="play_and_get_digits" 
+         data="4 4 3 3000 # phrase:enter_dest_number ivr/ivr-that_was_an_invalid_entry.wav target_number \d+"/>
+     <action application="hash" data="insert/${domain_name}-CF/${source_number}/${target_number}"/>
+     <action application="sleep" data="1000"/>
+     <action application="playback" data="phrase:call_forward_set:${source_number}:${target_number}"/>
+   </condition>
+ </extension>
+
+ <extension name="CF cancel from my station">
+   <condition field="destination_number" expression="^(9092)$">
+     <action application="answer"/>
+     <action application="log" data="INFO cancel CF from my station (caller=${caller_id_number})"/>
+     <action application="hash" data="delete/${domain_name}-CF/${caller_id_number}"/>
+     <action application="playback" data="phrase:call_forward_cancel:${caller_id_number}"/>
+   </condition>
+ </extension>
+
+ <extension name="CF cancel from any station">
+   <condition field="destination_number" expression="^(9093)$">
+     <action application="answer"/>
+     <action application="log" data="INFO cancel CF from any station (caller=${caller_id_number})"/>
+     <action application="play_and_get_digits" 
+         data="4 4 3 3000 # phrase:enter_src_number ivr/ivr-that_was_an_invalid_entry.wav source_number \d+"/>
+     <action application="sleep" data="1000"/>
+     <action application="hash" data="delete/${domain_name}-CF/${source_number}"/>
+     <action application="playback" data="phrase:call_forward_cancel:${source_number}"/>
+   </condition>
+ </extension>
+```
+
+## Using \*72 and \*73 
+
+Some may prefer the simplicity of \*72 set and \*73 cancel. Piece of cake! Just add these extensions to conf/dialplan/default/01\_IVR-CF.xml:
+
+**Using \*72 and \*73** Espandi fonte 
+
+```xml
+<extension name="call_forwarding_activativation">
+   <condition field="destination_number" expression="^\*72$">
+     <action application="play_and_get_digits" data="3 12 1 14000 # tone_stream://%(10000,0,350,440) silence_stream://250 target_number \d+"/>	    
+     <action application="hash" data="insert/${domain_name}-CF/${caller_id_number}/${target_number}"/>
+     <action application="playback" data="tone_stream://${bong-ring}"/>
+     <action application="hangup"/>
+   </condition>
+ </extension>
+
+ <extension name="call_forwarding_deactivation">
+   <condition field="destination_number" expression="^\*73$">	     
+     <action application="hash" data="delete/${domain_name}-CF/${caller_id_number}/${destination_number}"/>
+     <action application="playback" data="tone_stream://${bong-ring}"/>
+     <action application="hangup"/>
+   </condition>
+ </extension>
+ 
+```
+
+## Phrase Macros
+
+**Phrase Macros** Espandi fonte 
+
+```xml
+<macro name="enter_dest_number">
+     <input pattern="^(.*)$">
+       <match>
+         <action function="sleep" data="1000"/>
+         <action function="play-file" data="ivr/ivr-enter_destination_telephone_number.wav"/>
+         <action function="sleep" data="1000"/>
+       </match>
+     </input>
+   </macro>
+
+   <macro name="enter_src_number">
+     <input pattern="^(.*)$">
+       <match>
+         <action function="sleep" data="1000"/>
+         <action function="play-file" data="ivr/ivr-enter_source_telephone_number.wav"/>
+         <action function="sleep" data="1000"/>
+       </match>
+     </input>
+   </macro>
+
+   <macro name="call_forward_set">
+     <input pattern="^(\d+):(\d+)$">
+       <match>
+         <action function="sleep" data="1000"/>
+         <action function="play-file" data="ivr/ivr-extension_number.wav"/>
+         <action function="sleep" data="400"/>
+         <action function="say" data="$1" method="iterated" type="number"/>
+         <action function="sleep" data="400"/>
+         <action function="play-file" data="digits/2.wav"/>                                                                                                
+         <action function="sleep" data="1000"/>
+         <action function="play-file" data="ivr/ivr-extension_number.wav"/>
+         <action function="sleep" data="400"/>
+         <action function="say" data="$2" method="iterated" type="number"/>
+         <action function="sleep" data="1000"/>
+         <action function="play-file" data="ivr/ivr-call_forwarding_has_been_set.wav"/>
+         <action function="sleep" data="1500"/>
+       </match>
+     </input>
+   </macro>
+
+   <macro name="call_forward_cancel">
+     <input pattern="^(\d+)$">
+       <match>
+         <action function="sleep" data="1000"/>
+         <action function="play-file" data="ivr/ivr-extension_number.wav"/>
+         <action function="sleep" data="400"/>
+         <action function="say" data="$1" method="iterated" type="number"/>
+         <action function="play-file" data="ivr/ivr-call_forwarding_has_been_cancelled.wav"/>
+         <action function="sleep" data="1500"/>
+       </match>
+     </input>
+   </macro> 
+```
+
+##  Don't Forget to "reloadxml" 
+
+Be sure to _reloadxml_ or press _F6_ at the **fs\_cli** before you try these out!
+
+#  Usage 
+
+Go to a phone that you would like to call forward. Dial 9090 and then enter in a destination number. For a simple test, send the call to '9192' so that it does an **info** dump and then exits. If you call your source extension number it will "forward" to 9192, which does the info dump and hangs up.
+
+To see what's actually happening, consider an example where I used extension 1007\. After setting the call forward to 9192, go to the _fs\_cli_ and type this command:
+
+```xml
+expand hash_dump all ${domain}-CF
+```
+
+You should see something like this:
+
+```xml
+D/10.15.128.192-CF_1001/9192
+```
+
+f you have multiple extensions forwarded they should all appear. For example, if I forward 1001 to 3000 then my output looks like this:
+
+```xml
+freeswitch@internal> expand hash_dump all ${domain}-CF
+D/10.15.128.192-CF_1001/9192
+D/10.15.128.192-CF_1007/3000
+```
+
+To cancel call forwarding for your phone you have two choices:
+
+* From the forwarded phone, dial 9092
+* From any phone, dial 9093 and input the source extension number
+
+One other feature: you can set call forwarding from any phone by dialing 9091\. Try it out - I think you'll find that it is so easy that even an end user could figure it out.
+
+#  See Also 
+
+* [play\_and\_get\_digits](../Interoperability/Phones/index.mdx#feature-grid)
+* [mod\_hash](../Modules/mod_hash_6586975.mdx#api), which supplies the **hash** dialplan app
+* [DJBInter's call forward example](../Codecs-and-Media/Bypass-Media-Overview/Call-Forward-Example_6587445.mdx#about), which I did not notice until after I was done with this. ;)
+
+Document generated by Confluence on nov 11, 2022 04:28

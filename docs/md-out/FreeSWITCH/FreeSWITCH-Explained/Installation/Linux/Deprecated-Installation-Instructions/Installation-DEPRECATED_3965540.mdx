@@ -1,0 +1,849 @@
+
+# Installation DEPRECATED 
+
+ Created by  John Boteler, last modified on 2022.03.21
+
+  
+# Operating Systems
+
+## **Linux and Unix**
+
+The primary Linux distributions supported include the latest versions of Debian and CentOS. Be sure to use CentOS versions later than 6.3 to avoid a kernel timing bug that affected the proper operation of FreeSWITCH. CentOS 5 is RIGHT OUT!
+
+Successful installations have been reported on FreeBSD and Ubuntu, although the FS team would appreciate devoted \*BSD and Ubuntu users to maintain those ports and build systems.
+
+## **Mac OS X**
+
+The comprehensive [Installation and Setup on OS X](../../macOS/MacOS-Archive/Installation-and-Setup-on-OS-X_1966082.mdx#ssh) guide has detailed installation steps and instructions for setting up a 24x7 Mac. OS X is based on BSD Unix so there are similarities to the Linux installation.
+
+## **Windows**
+
+Information for source and binary installation is found at [Windows Install](../../Windows-Install_1966780.mdx#about) which also contains [Quick Start](../../Windows-Install_1966780.mdx#install-from-source) information. Very little information on this page applies to Windows other than the [Source Options](https://wiki.freeswitch.org/wiki/Installation%5FGuide#Source%5FOptions).
+
+# Preparation
+
+## Directory Permissions
+
+FreeSWITCH™ can be placed in any directory. However, for Unix and Linux the source code is typically installed in /usr/local/src/freeswitch and binaries in /usr/local/freeswitch. Some systems drop 'local' and use /usr/src. These directories are usually root protected after initial OS installation. You should change the owner and group so that root is not needed for installation or execution of FreeSWITCH. You should create and set permissions on /usr/local/freeswitch in this fashion:
+
+**Set Permissions**
+
+```bash
+sudo mkdir /usr/local/freeswitch
+sudo chown -R newid:newgroup /usr/local/freeswitch
+```
+
+  
+Executive summary: deploy the **latest official release** for production systems, **master** from git for test and development systems that require the very latest features or patches.
+
+The current release is recommended for production use. The yum and Debian packages provide the easiest path to a working FreeSWITCH installation. 
+
+The 1.4 release is available in Git branch v1.4 Patches will be made here and periodically released as the next minor version. Since not every patch will mean a newer version you will get the very latest patches to the current release by using this branch. This branch is a moving target - the checkout date and revision will form part of the version number.
+
+The current release in a tarball of FreeSWITCH is [version 1.4.4](http://files.freeswitch.org/freeswitch-1.4.4.tar.bz2), released on 23 May 2014\. Older releases and other files are in [the file archive](http://files.freeswitch.org), along with digital signatures that you can use to verify your download.
+
+If you wish to compile your own build with the very latest features you can use the Master branch from Git. New features will only be added to the Master branch. This will have the newest, latest, and greatest features, but due to upgrading of the bundled libraries it _might_ be less stable than the current release for a short while. If you use this branch you should **test the installation before releasing it to production use** to confirm that it is stable in your environment. You can then use 'git checkout' to install the same tested revision on all your systems.
+
+**NOTE that this is a formal change of development practice;** Master used to be the recommended deployment target for all users, but now the tarballs and the Git current release version number serve that purpose. Older documentation and tutorials may still exist recommending using Master, but these will now be out-of-date.
+
+**When upgrading** please review the [Release Notes](https://wiki.freeswitch.org/wiki/Release%5FNotes "Release Notes") page to see whether there are any behavior changes since previous versions.
+
+###  Recommended: Git
+
+Git provides access to the latest features and bug fixes added throughout the day. Most often you will only use the **clone** and **pull** commands. There is an excellent [Online Git Book](http://progit.org/book) available in multiple languages. For help installing Git see [Git\_Install](http://wiki.freeswitch.org/wiki/Git%5FInstall). The following creates a freeswitch directory and downloads a "clone" of the current source:
+
+```bash
+cd /usr/local/src
+git clone git://git.freeswitch.org/freeswitch.git
+OR
+git clone -b v1.4 git://git.freeswitch.org/freeswitch.git
+(SEE BELOW)
+```
+
+Note: git reset --hard &lt;commit\_id> - will revert all local changes and reset the working copy to the specified commit.
+
+#### Selecting version
+
+There are 2 branches in Git - Master and v1.4
+
+v1.4 is the branch for the 1.4 series. It contains the current release, plus any patches made since that release.
+
+```bash
+git clone -b v1.4 git://git.freeswitch.org/freeswitch.git
+```
+
+Master is where the development for the future 1.4 release is being done. New features are added to this branch, but it may be less stable than 1.4 at times.
+
+```bash
+git clone git://git.freeswitch.org/freeswitch.git
+```
+
+You can switch branches on an already cloned Git tree:
+
+```bash
+git checkout v1.4
+git checkout master
+```
+
+If you get an error on GIT PULL on v1.4 saying `You asked me to pull without telling me which branch you want to merge with`
+
+Then run this to add the definition for that branch to .git/config:
+
+```bash
+git branch --set-upstream v1.4 origin/v1.4
+```
+
+You can see all remote branches with git branch -r. You can check out 1.4beta for example with
+
+```bash
+git checkout v1.4.beta
+```
+
+  
+Some more information for people trying git tag: 1.4beta is snapshots of the 1.5 development code base. Version 1.4 has replaced 1.2 as the current release.
+
+#### Reverting to an Earlier Commit in Git
+
+Sometimes when things go terribly wrong with the latest commits (regression-type bugs), you can always revert to an earlier commit with git. Simply type in:
+
+```bash
+git checkout <revhash>
+```
+
+  
+where &lt;revhash> is the hash of an earlier commit. You can find the commit hashes [here](http://fisheye.freeswitch.org).
+
+After reverting to a previous version, it is strongly recommended that you (in the following order):
+
+* Report the issue to the [FreeSWITCH JIRA](http://jira.freeswitch.org)
+* Run 'git clean -d -f -x' on the root directory of the sources of FreeSWITCH to remove non-git files and spare compilation files.
+* Run 'rm -rf /usr/local/freeswitch/{lib,mod,bin}/\*' to remove the current binary files in those 3 directories.
+* Re-bootstrap the code
+* Re-run the configure process
+
+... before you re-build the code from an earlier revision.
+
+To go back to the very latest commit from the development branch, simply type in
+
+```bash
+git checkout master
+```
+
+  
+#### Revert only certain commit
+
+To reverse only the one commit change on newer build
+
+```bash
+git log -1 -p <revhash> | patch -p1 -R
+```
+
+  
+#### freeswitch-contrib
+
+Contributed source may be obtained from the freeswitch-contrib tree as follows (this will compile and install updates):
+
+```bash
+git clone git://git.freeswitch.org/freeswitch-contrib.git
+```
+
+Sample configs can be downloaded as well:
+
+```bash
+git clone git://git.freeswitch.org/freeswitch-sample-configs.git
+```
+
+The Latest Build site [latest.freeswitch.org](http://latest.freeswitch.org) is currently empty.
+
+## Compiling and Installation
+
+Ensure that the required [prerequisites](https://wiki.freeswitch.org/wiki/Download%5F%26%5FInstallation%5FGuide#Common%5FPrerequisites) are installed. Also check if there are notes for your distribution in [Distribution Information and Installation](https://wiki.freeswitch.org/wiki/Download%5F%26%5FInstallation%5FGuide#Distribution%5FInformation%5Fand%5FInstallation).
+
+### Switch to the src/freeswitch Directory
+
+The remaining commands are executed from the directory containing the FreeSWITCH™ source (use whatever directory the source is located in):
+
+```bash
+cd /usr/local/src/freeswitch
+```
+
+  
+### Installed from Git
+
+If Git was used to download, the configuration files must be built before the first compile. ./bootstrap.sh creates many files including modules.conf. Once this is performed it's not normally required to be performed again. If you're installing from a tarball, this script was run before packaging, and you shouldn't need to run it.
+
+```bash
+ ./bootstrap.sh
+```
+
+You can use multiple cores for your bootstrap/config/build, by specifying it at the start, e.g.: (note this may make build errors harder to spot)
+
+```bash
+./bootstrap.sh -j
+```
+
+However, its not recommended to use the -j flag for either bootstrap.sh or make, on bootstrap.sh on a slow machine (older machines or say a raspberry pi) -j will fail randomly due to how it is handled. on the make this may also randomly fail. (quoted from Ken Rice in FS-4891)
+
+### Configure for Compilation
+
+./configure sets compilation options. Invoke the following command to configure for compilation:
+
+```bash
+./configure
+```
+
+You can have the checks cached for each module, by using:
+
+```bash
+./configure -C
+```
+
+If you want to install FreeSWITCH to a non-standard location you can simply append the --prefix option to the configure script as shown in this example:
+
+```bash
+./configure --prefix=<example of non standard location>
+```
+
+  
+### Edit modules.conf
+
+The modules.conf file contains the list of modules to be compiled, some are commented as they are not required. As your FreeSWITCH™ configuration becomes more complex additional modules may be required. **If you plan to test the sample IVR after installation, FLITE must be added to the compile as follows:**
+
+1. Use an editor to navigate to and edit /usr/local/src/freeswitch/modules.conf (or whatever directory it was placed into)
+2. Search for "flite" and remove the # to uncomment.
+3. Save the file.
+
+_If this is your first experience with FreeSWITCH™ don't add more than FLITE. Adding functions may result in additional prerequisites that must be installed._
+
+Building FLITE requires about 450 megabytes of addressable memory, so if you are building on a device with limited RAM, you'll need to create a swap file (a.k.a. Virtual Memory or paging file) of sufficient size to allow the build to proceed, or simply do not include mod\_flite in the build. (Please refer to your operating system's documentation for instructions on how to create a swap file.) All other modules in the default configuration will build successfully on devices with less than 100MB of available RAM.
+
+### Compile and Install
+
+Invoke the following commands to compile and create the binaries:
+
+```bash
+make && make install
+```
+
+"make install" does not overwrite existing configuration files in freeswitch/conf if a freeswitch.xml file already exists in conf.
+
+### Compile and Install Sounds
+
+There are IVR sound prompts and music on hold files that are optional but must be compiled and installed to run the sample IVR. There are four versions available:
+
+* sounds-install moh-install (8 kHz)
+* hd-sounds-install hd-moh-install (16 kHz)
+* uhd-sounds-install uhd-moh-install (32 kHz)
+* cd-sounds-install cd-moh-install (48 kHz)
+
+The cd sounds are recommended since all the sampling rates are provided resulting in fewer problems. Invoke the following command:
+
+```bash
+make all cd-sounds-install cd-moh-install
+```
+
+  
+### Ready to Test!
+
+Switch to the freeswitch/bin directory and [try some stuff](https://wiki.freeswitch.org/wiki/Getting%5FStarted%5FGuide#Some%5Fstuff%5Fto%5Ftry%5Fout.21 "Getting Started Guide")! When you're done read the [Getting Started Guide](http://wiki.freeswitch.org/wiki/Getting%5FStarted%5FGuide) to learn how to configure FreeSWITCH™.
+
+```bash
+cd /usr/local/freeswitch/bin
+./freeswitch
+
+```
+
+## Upgrading and Re-installation
+
+### Upgrading
+
+When upgrading please review the [Release Notes](https://wiki.freeswitch.org/wiki/Release%5FNotes "Release Notes") page to see whether there are any behavior changes since previous versions.
+
+See the [Download & Installation Guide](../../index.mdx#about).
+
+### Updating the Source
+
+If FreeSWITCH™ was previously installed using a Git based installation, and only a clean update to the latest tree is required, issue this command:
+
+```bash
+make current
+```
+
+The **make current** command will clean your build environment, do a git pull, and then do a make install for you.
+
+### Rebuilding
+
+After doing a "git pull" or changing source files, it may be desirable to clean out your build area:
+
+```bash
+make clean modwipe
+```
+
+Alternatively, you can execute "make current" which will handle the git pull, clean up, and rebuild in one step:
+
+make current **completely** cleans the build environment and rebuilds FreeSWITCH™ so it runs a long time. However, it will **not overwrite** files in a pre-existing "conf" directory. Also, the clean targets leave the "modules.conf" file.
+
+```bash
+make current
+```
+
+To check if there are any new modules execute:
+
+```bash
+diff build/modules.conf.in modules.conf
+```
+
+If a previously disabled module is now enabled, or there is a requirement to rebuild a single module, execute the following (replace mod\_name with the name of the module to build):
+
+### Upgrading on-the-fly
+
+It is highly inadvisable to upgrade FreeSWITCH on-the-fly (aka while running) as this can cause unexpected behavior and may potentially hang the entire system.
+
+However it can be done by following these steps below:
+
+After recompilation while FS is still running you can still install:
+
+Note, this will automatically install, and it even first cleans the build dir and the installation dir, which should even work while FS is running, provided no modules are reloaded or loaded:
+
+```bash
+make mod_name-install
+```
+
+```bash
+make current
+```
+
+To make the changes of the new build take effect, FS has to be restarted:
+
+```bash
+/usr/local/freeswitch/bin/fs_cli -x shutdown elegant restart
+```
+
+This will wait for all traffic to end, yet still allow new traffic. &lt;--ERROR\*\*\*
+
+If you want to restart as soon as possible, you can use:
+
+```bash
+/usr/local/freeswitch/bin/fs_cli -x shutdown asap restart
+```
+
+This will restart FS as soon as there is no more traffic and it will not allow any new traffic to make this happen as soon as possible.
+
+If you want a faster rebuild, you can make use of make's dependency system. Note that this will not make the version command reflect the actual git revision, as the modules making use of it will not be rebuild if there is no change of them in the git tree.
+
+Be aware some things might not be rebuilt which might be important to be and there might occur compile errors / runtime errors / segfaults. In my experience, this is rare, but if you encounter any problems, a clean rebuild is advisable to see if the problem persists.
+
+```bash
+make sync all install
+```
+
+  
+To always reflect the actual git version and revision in every module, there should be a function switch\_core\_get\_version() which would be in an object always rebuilt and giving the actual version in return. So far a preprocessor variable is used.
+
+## Troubleshooting
+
+### Compile Errors
+
+If you encounter compile errors or other bugs be sure to test it again with the latest Git version, then file a bug report at <http://jira.freeswitch.org> or email [freeswitch-dev@lists.freeswitch.org](mailto:freeswitch-dev@lists.freeswitch.org) (we prefer that you use Jira so that we can track all issues). Remember FreeSWITCH™ development is always ongoing and requires contributions from everybody.
+
+### Compiling 32-bit Target on 64-bit System
+
+To compile a 32-bit binary on a 64-bit system:
+
+```bash
+CFLAGS=-m32 CXXFLAGS=-m32 LDFLAGS=-m32 ./configure
+```
+
+  
+# Is below still needed?  
+
+### Python 3.x build workaround (e.g. Arch linux)
+
+On systems where Python 3.x is the system default FreeSWITCH will fail to build some modules such as v8\. Use the following workaround to build them using Python 2.7x
+
+Create file /usr/local/bin/python with content like this:
+
+```py
+#!/bin/bash
+script=`readlink -f -- "$1"`
+case "$script" in (/home/user/freeswitch-source-dir)
+   exec python2 "$@"
+   ;;
+esac
+script=`readlink -f -- "$2"`
+case "$script" in (/home/user/freeswitch-source-dir)
+   exec python2 "$@"
+   ;;
+esac
+exec python3 "$@"
+
+```
+
+Where /home/user/freeswitch-source-dir is the path to the build directory containing the FreeSWITCH source files.
+
+Don't forget to make it executable:
+
+```bash
+# chmod +x /usr/local/bin/python
+```
+
+This information was reposted from the Arch wiki[\[1\]](https://wiki.archlinux.org/index.php/Python#Dealing%5Fwith%5Fversion%5Fproblem%5Fin%5Fbuild%5Fscripts)
+
+## Common Prerequisites
+
+### Mandatory
+
+These mandatory prerequisites provide for compiling the standard FreeSWITCH™ installation and test the supplied configuration and sample IVR. They are sufficient for many production systems.
+
+* [**GIT**](http://en.wikipedia.org/wiki/Git%5F%28software%29) or [**WGET**](http://en.wikipedia.org/wiki/Wget)
+* [**AUTOCONF**](http://en.wikipedia.org/wiki/Autoconf)
+* [**AUTOMAKE**](http://en.wikipedia.org/wiki/Automake)
+* [**GAWK**](http://en.wikipedia.org/wiki/Gawk%5F%28GNU%5Fpackage%29)
+* [**GCC-C++**](http://en.wikipedia.org/wiki/C%2B%2B)
+* [**LIBJPEG-DEVEL**](http://en.wikipedia.org/wiki/Libjpeg) Used by mod\_spandsp for basic codecs
+* [**LIBTOOL**](http://en.wikipedia.org/wiki/Libtool)
+* [**MAKE**](http://en.wikipedia.org/wiki/Make%5F%28software%29)
+* [**NCURSES-DEVEL**](http://en.wikipedia.org/wiki/Ncurses)
+
+### Optional
+
+There are [optional modules](http://wiki.freeswitch.org/wiki/Modules) that can be built and if so may require one or more of the following;
+
+* [**curl-devel**](http://en.wikipedia.org/wiki/Curl%5F%28programming%5Flanguage%29) for [mod\_xml\_curl](https://wiki.freeswitch.org/wiki/Mod%5Fxml%5Fcurl "Mod xml curl")
+* [**expat-devel**](http://en.wikipedia.org/wiki/Expat%5F%28XML%29)
+* [**libtiff**](http://en.wikipedia.org/wiki/Libtiff) for fax support
+* [**libx11-devel**](http://en.wikipedia.org/wiki/X%5FWindow%5FSystemf) for [Mod\_skypopen](https://wiki.freeswitch.org/wiki/Mod%5Fskypopen "Mod skypopen")
+* [**ODBC or UNIX-ODBC and ODBC-devel**](http://en.wikipedia.org/wiki/Odbc) see the [ODBC page](http://wiki.freeswitch.org/wiki/Mod%5Fspidermonkey%5Fodbc) for information
+* [**OpenSSL**](http://en.wikipedia.org/wiki/Openssl) (libssl-dev / openssl-devel) for [SIP SSL & TLS](https://wiki.freeswitch.org/wiki/SIP%5FTLS "SIP TLS") and [Dingaling](https://wiki.freeswitch.org/wiki/Dingaling "Dingaling")
+* [**python-devel**](http://www.python.org) for the [python interface](https://wiki.freeswitch.org/wiki/Mod%5Fpython "Mod python")
+* [**ZLIB and ZLIB-devel**](http://en.wikipedia.org/wiki/Zlib)
+* [**libzrtp**](http://en.wikipedia.org/wiki/ZRTP) ZRTP encryption support, see the FreeSWITCH™ [ZRTP](https://wiki.freeswitch.org/wiki/ZRTP "ZRTP") page
+
+## Distribution Information and Installation
+
+###  Arch Linux 
+
+[Arch Linux](http://www.archlinux.org) uses the [pacman](http://wiki.archlinux.org/index.php/Pacman) package manager. It also has a ports-like build system called [Arch Build System](http://wiki.archlinux.org/index.php/ABS%5F-%5FThe%5FArch%5FBuild%5FSystem).
+
+To build FreeSWITCH from the latest git, use the [freeswitch-fixed](https://aur.archlinux.org/packages/freeswitch-fixed/) package. This package is documented on the [Arch Linux Wiki](http://wiki.archlinux.org/index.php/Freeswitch)
+
+The packages for FreeSWITCH™ current release (and the zaptel dependency for mod\_openzap) are available at the [AUR](http://wiki.archlinux.org/index.php/AUR) repository:
+
+* [Zaptel](http://aur.archlinux.org/packages.php?ID=24364)
+* [FreeSWITCH](http://aur.archlinux.org/packages.php?ID=24373)
+
+To build these packages follow the instructions of the [Makepkg](http://wiki.archlinux.org/index.php/Makepkg) build system. You will need the following pre-requisites:
+
+```bash
+pacman -S base-devel libjpeg python2 unixodbc git
+```
+
+Alternatively, if you have an AUR helper installed, you may install with:
+
+```bash
+packer -S freeswitch-git
+yaourt -S freeswitch-git
+
+```
+
+  
+### CentOS & RedHat Enterprise Linux
+
+CentOS 5.5 x86\_64 \- Tested 2010-11-26  
+There were no issues during installation and testing other than EPEL requirements. Installation of Git required adding the [EPEL](http://fedoraproject.org/wiki/EPEL) repository to obtain Git.
+
+CentOS 6.4 x86\_64 2013-05-03  
+There were no issues during installation and testing.
+
+2012-08 - CentOS6 older than 6.3 may display performance problems on higher-performance installations; if you're planning on needing lots of performance, Ken Rice recommends you stick with 5.x for the nonce. (See the [RHEL6 notes](https://wiki.freeswitch.org/wiki/Download%5F%26%5FInstallation%5FGuide#Release.28es.29%5F6%5Fand%5FLater) at the end of this page for more)
+
+#### Prerequisites
+
+Use the yum package manager tool or Add/Remove Applications menu function to add the following packages to a basic installation:
+
+* autoconf
+* automake
+* gcc-c++
+* git-core
+* libjpeg-devel
+* libtool
+* make
+* ncurses-devel
+
+  
+```bash
+yum install autoconf automake gcc-c++ git-core libjpeg-devel libtool make ncurses-devel pkgconfig
+```
+
+To install the optional packages needed to enable all FreeSWITCH modules to be built:
+
+```bash
+yum install unixODBC-devel openssl-devel libogg-devel libvorbis-devel libcurl-devel libtiff-devel libjpeg-devel python-devel expat-devel zlib zlib-devel bzip2 which pcre pcre-devel speex-devel sqlite-devel 
+```
+
+You will also need to install the following packages if you need the modules listed below:
+
+* mod\_event\_zmq needs "openssl-devel" and "libuuid-devel" packages.
+* mod\_erlang\_event needs "openssl-devel" and "erlang-devel" packages.
+* mod\_flite needs "openssl-devel" and "bzip2" packages.
+* mod\_osp needs "openssl-devel" package and the "OSP Toolkit" see [mod\_osp](https://wiki.freeswitch.org/wiki/Mod%5Fosp "Mod osp").
+* mod\_snmp needs "openssl-devel" and "net-snmp-devel" packages.
+* mod\_xml\_ldap needs "openssl-devel" and "cyrus-sasl-devel" packages.
+
+#### YUM Based Installation
+
+FreeSWITCH is now available via yum. You will need to add the FreeSWITCH yum repository
+
+To install the FreeSWITCH Repo
+
+```bash
+rpm -Uvh http://files.freeswitch.org/freeswitch-release-1-0.noarch.rpm
+```
+
+Then to install FreeSWITCH with the generic vanilla example configs
+
+```bash
+yum install --nogpgcheck freeswitch-config-vanilla
+```
+
+This will give you a base working FreeSWITCH. At the time of this update (2012-FEB-13) these RPMs are Beta but should be working fine. Please report any bugs in them via [JIRA](http://jira.freeswitch.org)
+
+After that you need to install FreeSWITCH sound related files. For that you need to issue following command.
+
+```bash
+yum install sox freeswitch-sounds*
+```
+
+#### Automatic Startup At Boot
+
+To get FreeSWITCH to start up automatically at system start, just copy the FreeSWITCH init script into the /etc/init.d directory. An example init script is included in the git repository, under the build directory, named as freeswitch.init.redhat. You may need to modify the script to get FreeSWITCH starting up from the directory where the binaries are installed. After the file has been modified to suit your needs, simply run this command:
+
+```bash
+chkconfig --add freeswitch && chkconfig --levels 35 freeswitch on
+```
+
+This procedure will also work exactly the same way on Fedora systems.
+
+#### Installation
+
+Continue with the normal [installation steps](https://wiki.freeswitch.org/wiki/Download%5F%26%5FInstallation%5FGuide#Preparation) or the [Linux Quick Install Guide Downloads](http://wiki.freeswitch.org/wiki/Linux%5FQuick%5FInstall%5FGuide#Download) section.
+
+#### FreeSWITCH v.1.4/master openssl requirement change
+
+Required: openssl version 1.0.1g or later to build
+
+For CentOS 5:
+
+```bash
+wget http://www.openssl.org/source/openssl-1.0.1g.tar.gz
+tar -zxvf openssl-1.0.1g.tar.gz
+cd openssl-1.0.1g
+./config --prefix=/usr/openssl101g -fPIC
+make 
+make install
+
+# then go over to the FS build root (even on an existing build that had picked up the dependency by a git pull)
+./configure CFLAGS="-I/usr/openssl101g/include" LDFLAGS="-L/usr/openssl101g/lib"  
+```
+
+then build as normal
+
+#### Release(es) 6 and Later
+
+A change by Red Hat in RHEL 6 and later releases was to compile the kernel to run tickless by default. As previously brought up on the mailing lists, it is recommended that the kernel's tickless feature should be disabled for optimum performance when running FreeSWITCH under the newer operating system's kernel. You can disable the tickless feature by appending nohz=off to your boot options under GRUB. The GRUB start up configuration file is located under /boot/grub or as /etc/grub.conf. Add it to the line beginning with "kernel". This is also applicable to Fedora releases 8 and later.
+
+FS may not behave 100% correctly in CentOS 6.x, please review Jira issues: FS-4396, FS-4316, FS-4291\. We have anecdotal evidence that CentOS 6.3 does not seem to have the problems listed above. If you experience any of the above symptoms with CentOS 6.3 please comment on the Jira cases listed.
+
+### Errors
+
+Linking fails on CentOS with
+
+/usr/lib64/libnss3.so: undefined reference to `PR_FindSymbol'
+
+This is due to the deprecated mod\_spidermonkey being installed already; FS has switched to mod\_v8 as its JavaScript engine.
+
+To solve this problem:
+
+edit modules.conf in the root of the FS source tree to comment out mod\_spidermonkey
+
+rm -rf /usr/local/freeswitch/lib/* && reconfigure 
+
+make install
+
+### Debian
+
+#### Debian packages
+
+There are precompiled Debian packages available for several Debian releases, including Wheezy, 32 bit and 64 bit. Currently FreeSWITCH is not in the main Debian repositories because it's very hard to make the FreeSWITCH code & build system comply with the rules for that.
+
+1. Add the freeswitch APT repository: (for Debian Wheezy)  
+```bash  
+#for 1.4 Release Branch  
+echo 'deb http://files.freeswitch.org/repo/deb/debian/ wheezy main' >> /etc/apt/sources.list.d/freeswitch.list  
+#For 1.4 Beta Branch  
+echo 'deb http://files.freeswitch.org/repo/deb-beta/debian/ wheezy main' >> /etc/apt/sources.list.d/freeswitch.list  
+#For 1.5 Master/Dev Branch  
+echo 'deb http://files.freeswitch.org/repo/deb-master/debian/ wheezy main' >> /etc/apt/sources.list.d/freeswitch.list  
+```
+2. Import the repo signing key  
+```bash  
+curl http://files.freeswitch.org/repo/deb/debian/freeswitch_archive_g0.pub | apt-key add -  
+```  
+or  
+```bash  
+gpg --keyserver pool.sks-keyservers.net --recv-key D76EDC7725E010CF  
+gpg -a --export D76EDC7725E010CF | sudo apt-key add -  
+```
+3. Update apt-get.  
+```bash  
+apt-get update  
+```
+4. Search for the FreeSWITCH™ packages in apt. Choose from the packages listed to complete your FreeSWITCH™ installation.  
+```bash  
+apt-cache search freeswitch  
+```
+5. There's also a meta package to get a reasonably running installation.  
+```bash  
+apt-get install freeswitch-meta-vanilla  
+```
+6. The packages do not set up the configuration in /etc/freeswitch, and you need to copy files manually:  
+```bash  
+cp -a /usr/share/freeswitch/conf/vanilla /etc/freeswitch  
+```
+
+#### Create your own Debian packages
+
+If the precompiled Debian packages don't suite your needs you can [build your own custom debian packages](https://wiki.freeswitch.org/wiki/Debian%5Fpackages%5Fbuildscript "Debian packages buildscript").
+
+A new version of the above script which also installs all dependencies and downloads and builds the new seperate sounds & music from github can be found [here](https://wiki.freeswitch.org/wiki/Debianbuild2 "Debianbuild2"). Tested on Squeeze with FreeSWITCH 1.2.10.
+
+Packages can either be installed locally, or upload them to your local Debian repository and install them via APT.
+
+```bash
+dpkg -i $DEB_PACKAGE_NAMES
+```
+
+This also allows you to build once and install the packages on multiple servers.
+
+#### From source
+
+Tested June 28, 2012 with Debian "wheezy" (public beta 18\. June 2012) for Raspberry PI ARMv6.  
+There was a problem using apt-get, gone after sudo apt-get update --fix-missing. Install took several hours, compilation without mod\_flite, worked fine, find debian .img here: [\[2\]](http://www.raspberrypi.org/archives/1435)
+
+Tested Nov 27, 2010 with Debian 5.0 AMD64.  
+There were no issues during installation and testing. Benefits from a custom kernel with "CONFIG\_HZ\_1000=y" and "CONFIG\_HZ=1000" defined to avoid performance issues. Follow Debian guidelines [\[3\]](http://www.debian.org/doc/FAQ/ch-kernel.en.html).
+
+##### Prerequisites
+
+There are a variety of [Debian package manager tools](http://www.debian.org/doc/FAQ/ch-pkgtools.en.html) such as dpkg, apt, aptitude, and synaptic. The synaptic GUI tool was used for this installation. The System menu Add/Remove Applications function does not offer the required packages, Add the following to a basic Debian installation:
+
+* autoconf
+* automake
+* devscripts
+* gawk (mawk does not work)
+* g++
+* git-core
+* libjpeg-dev
+* libncurses5-dev
+* libtool
+* make
+* python-dev
+* pkg-config
+* libtiff5-dev
+* libperl-dev
+* libgdbm-dev
+* libdb-dev
+* libssl-dev
+* libcurl4-openssl-dev
+* libpcre3-dev
+* libspeex-dev
+* libspeexdsp-dev
+* libsqlite3-dev
+* libedit-dev
+
+```bash
+apt-get install autoconf automake devscripts gawk g++ git-core libjpeg-dev libncurses5-dev libtool make python-dev gawk pkg-config libtiff5-dev libperl-dev libgdbm-dev libdb-dev gettext libssl-dev libcurl4-openssl-dev libpcre3-dev libspeex-dev libspeexdsp-dev libsqlite3-dev libedit-dev
+```
+
+Some of these modules may have additional dependencies.
+
+Continue with the normal [installation steps](https://wiki.freeswitch.org/wiki/Download%5F%26%5FInstallation%5FGuide#Preparation) or the [Linux Quick Install Guide Downloads](http://wiki.freeswitch.org/wiki/Linux%5FQuick%5FInstall%5FGuide#Download) section.
+
+### Fedora
+
+Fedora 20 works fine!
+
+### NetBSD
+
+NetBSD information can be found at [NetBSD](../../Unix/NetBSD_1966834.mdx#introduction).
+
+### OpenBSD
+
+OpenBSD information can be found at [OpenBSD](../../Unix/OpenBSD_1966828.mdx#about).
+
+### FreeBSD
+
+FreeBSD information can be found at [FreeBSD](../../Unix/FreeBSD_1966823.mdx#about).
+
+### Gentoo Linux
+
+The FreeSWITCH™ ebuilds are maintained by [stkn](https://wiki.freeswitch.org/wiki/User:Stkn "User:Stkn") in the [freeswitch-overlay](http://oss.axsentis.de/gitweb/?p=freeswitch-overlay.git;a=summary) at [oss.axsentis.de](http://oss.axsentis.de).  
+Installation instructions: [Installation:Gentoo](https://wiki.freeswitch.org/wiki/Installation:Gentoo "Installation:Gentoo")
+
+### openSUSE
+
+Tested Nov 23, 2010 with openSUSE 11.3 x86\_64  
+There were no issues during installation and testing.
+
+#### Prerequisites
+
+Use the YAST tool or [zypper](http://en.opensuse.org/SDB:Zypper%5Fusage%5F11.3) to add the following packages to a basic installation, the "base development" group contains most but not all of these items:
+
+* autoconf
+* automake
+* gcc-c++
+* git
+* libjpeg-devel
+* libtool
+* make
+* ncurses-devel
+
+#### Installation
+
+Continue with the normal [installation steps](https://wiki.freeswitch.org/wiki/Download%5F%26%5FInstallation%5FGuide#Preparation) or the [Linux Quick Install Guide Downloads](http://wiki.freeswitch.org/wiki/Linux%5FQuick%5FInstall%5FGuide#Download) section.
+
+### pfSense package with GUI
+
+pfSense FreeSWITCH™ package is available for pfSense 1.2.3\. The package includes a GUI for FreeSWITCH's configuration. The naming convention for the GUI has been designed to closely match the XML tag names and file names used in the default XML configuration as closely as possible. Install pfSense 1.2.3 based on FreeBSD7, Then go to System -> Packages and click the '+' add button on the right to install FreeSWITCH™ from the packages list. The package is around 50mb because it includes 8khz sounds and music on hold. After the installation FreeSWITCH™ will automatically start. By default it will bind to the WAN IP address.
+
+To download pfSense 1.2.3 go to: <http://www.pfsense.com/>
+
+Screenshots are here: [http://portableusbapps.com/images/freeswitch/](http://portableusbapps.com/images/FreeSWITCH/)
+
+The pfSense FreeSWITCH™ package is being used on many live systems on dedicated hardware and on some virtual machines.
+
+If you already have a firewall in place and just want to use this package as an easy FreeSWITCH™ install you can simply use it as a dedicated device and if desired turn off the firewall in pfSense by going to System -> Advanced -> Disable Firewall then put a check mark in 'Disable all packet filtering.'
+
+### Solaris
+
+Solaris information can be found at [Solaris](../../Unix/Solaris_1966840.mdx#about).
+
+### Ubuntu
+
+Visit the [Ubuntu Quick Start](http://wiki.freeswitch.org/wiki/Ubuntu%5FQuick%5FStart) page.
+
+### Cross Compiling for ARM on Linux
+
+These instructions were tested on Linux 2.6.18 (Centos 5) Cross compiling Linux 2.6.21 for ARM using gcc 3.4.6 All commands should be executed from within the main source repository.
+
+Create a modules.conf. (this can be done after configure but it is convenient to do it now)
+
+```bash
+cp build/modules.conf.in modules.conf
+```
+
+Decide if you want to include cpp code, if you are running on a small embedded system and don't want to install the 2+MBytes libstdc++.so edit [Makefile.am](http://Makefile.am) in the root of the source repository and remove all references to switch\_cpp.cpp and switch\_cpp.h, there is one of each. This will also disable all of FreeSWITCH™'s language modules, edit modules.conf and comment out all the language modules, that is all the lines starting with "language". You can still write C applications with the cpp disabled.
+
+I was not able to get javascript working so you should comment out languages/mod\_spidermonkey\* from modules.conf and comment out the line "AC\_CONFIG\_SUBDIRS(libs/js)" in the file [configure.in](http://configure.in). If you figure out a way to get it working update this page, I wasn't motivated as I did not intend to use it.
+
+If you want to reduce the build time you can comment out other support libraries from [configure.in](http://configure.in), I only used and tested the following, it saves a lot of build time and I don't know if the other libraries will build:
+
+* libs/srtp
+* libs/sqlite
+* libs/libedit
+* libs/pcre
+* libs/apr
+* libs/apr-util
+* libs/codec/ilbc
+* libs/sofia-sip
+* libs/libsndfile
+* libs/voipcodecs
+
+I already had a version of curl cross compiled so I did not use the version that comes with FreeSWITCH.
+
+Run this command next, it will create all the configure scripts
+
+```bash
+./bootstrap.sh
+```
+
+  
+Several of the packages cannot detect capabilities of the Cross Compile environment correctly so configure needs to be called with many options to get it to work correctly. Check that the options I have match your Cross Compile environment. Prior to running this the following environment variables must be set: TARGET\_CC - the cross compiler HOSTCC - the host compiler CFLAGS - CFLAGS for the cross compiler CPPFLAGS - CPPFLAGS for the cross compiler LDFLAGS - LDFLAGS for the cross compiler These environment variables also need to be set to point to the appropriate tool in the cross compiler's toolchain CC, CXX, AR, LD, GCC, AS, NM, RANLIB, STRIP, SIZE, OBJCOPY & OBJDUMP. Not sure if they are all used, but this is what worked for me.
+
+You will need to adjust some setting to fit your environment, set the "path" in ac\_cv\_path\_\_libcurl\_config and --with-curl, or remove them if you use the version that comes with FreeSWITCH™. Set --with-modinstdir to point to where the FreeSWITCH™ modules will be on the target filesystem.
+
+```bash
+export config_TARGET_CC="$(TARGET_CC)"; \
+   export config_BUILD_CC="$(HOSTCC)"; \
+   export config_TARGET_CFLAGS="$(CFLAGS)"; \
+   export config_TARGET_LIBS="$(LDFLAGS)"; \
+   export CC_FOR_BUILD="$(HOSTCC)"; \
+   export CFLAGS_FOR_BUILD=" "; \
+   export ac_cv_file__dev_zero=no; \
+   export apr_cv_tcp_nodelay_with_cork=yes; \
+   export ac_cv_sizeof_ssize_t=4; \
+   export ac_cv_file_dbd_apr_dbd_mysql_c=yes; \
+   export ac_cv_path__libcurl_config=/path/curl-config; \
+   export apr_cv_mutex_recursive=yes; \
+   export ac_cv_func_pthread_rwlock_init=yes; \
+   export apr_cv_type_rwlock_t=yes; \
+       ./configure \
+       --target=$(GNU_TARGET_NAME) \
+       --host=$(GNU_TARGET_NAME) \
+       --build=$(GNU_HOST_NAME) \
+       --with-libcurl=/path/install \
+       --with-devrandom=/dev/urandom \
+       --with-modinstdir=/mod \
+```
+
+If you have not done so edit modules.conf so that it will build the modules you desire. If you are unsure, leave this to the defaults. FreeSWITCH™ comes with a good set of modules as the default, until you become more familiar with FreeSWITCH™ it is advised that you not edit modules.conf. A # at the beginning will omit that module from being built. A list of the modules can be obtained from the [Modules](https://wiki.freeswitch.org/wiki/Modules "Modules") page.
+
+Once you are done configuring the build environment you need to run the following command. (Your PATH must point to the cross compiler toolchain)
+
+```bash
+make
+```
+
+I found little use for make install as I didn't want the Cross Compiled version installed on the build system. You will need to copy the FreeSWITCH™ binary, library and modules directly out of the build tree into where ever you need them.
+
+### Cross Compiling for OpenWrt
+
+<http://wiki.freeswitch.org/wiki/OpenWrt>
+
+## Prebuilt Binaries
+
+The FreeSWITCH™ team **strongly** recommends installing from the latest [**Git tree**](https://wiki.freeswitch.org/wiki/Download%5F%26%5FInstallation%5FGuide#Git) which is extremely stable! Many reported bugs in older versions of FreeSWITCH™ are fixed in the current Git version. The developers **require** testing an issue on the current Git version prior to filing a bug report.
+
+The FreeSWITCH™ project maintains binary packages for a number of Linux distributions on the [openSUSE](http://opensuse.org) [Build Service](http://build.opensuse.org). All external dependencies required by these FreeSWITCH™ packages are either part of the base Linux distros or available in the repository at: <http://software.opensuse.org/download/network:/telephony/>. If your preferred Linux distro and version is listed there, then we recommend you use these packages.
+
+## Special Considerations
+
+#### ODBC Support
+
+See the [ODBC Support document](http://wiki.freeswitch.org/wiki/Mod%5Fspidermonkey%5Fodbc).
+
+##### ODBC Installed in non-standard locations
+
+As of April 23 2012, a change was made to the configure script to check if the ODBC library is installed. As a consequence, the check fails due to the way how the macro behaves. To resolve this issue, you would issue the following command before you initiate the configure script:
+
+```bash
+export LIBRARY_PATH="<path to ODBC lib here>"
+```
+
+  
+#### No Root Access
+
+If you don’t have root access add --prefix=\~/freeswitch to the command. **This is a really bad idea on production systems, _not_ recommended.**
+
+```bash
+./configure --prefix=/usr/local/freeswitch
+```
+
+## Graphical User Interfaces
+
+See: [FreeSWITCH Gui](https://wiki.freeswitch.org/wiki/Freeswitch%5FGui "Freeswitch Gui")
+  
+  
+mkdir /export/home/freeswitch; zfs create rpool/export/home/freeswitch
+
+Document generated by Confluence on nov 11, 2022 04:24

@@ -1,0 +1,246 @@
+
+# Understanding the Configuration Files 
+
+ Created by  Duvid Rottenberg, last modified by  John Boteler on 2021.08.17
+
+# About
+
+A basic FreeSWITCH installation uses XML files to configure the core as well as all modules. As you can imagine the configuration can grow quite big and complex. The [default Vanilla configuration](../Configuration/Default-Configuration_6587388.mdx#mod_vp8) provides a good starting point for new users to begin with a working system. If you would just like to jump in and start using FreeSWITCH see [Configuring FreeSWITCH](../Configuration/Configuring-FreeSWITCH/index.mdx#set) for a quick overview of the default configuration and the changes you need to make before you start the switch. However, if you would like to do any serious project with FreeSWITCH we would strongly recommend you take the time to get a deeper understanding of how the configuration files work. In this page we will do an in-depth overview of the configuration system. Once you gain more experience, you might want to completely remove the default configuration and start from scratch with skeleton files.
+
+Advanced FreeSWITCH installations can retrieve some dynamic configurations such as dialplan and user extension directory via database lookup.
+
+  
+Click here to expand Table of Contents
+
+# 
+
+* 1 [](#-freeswitch--understanding-the-configuration-files-)
+* 2 [XML](#-freeswitch--understanding-the-configuration-files-)  
+   * 2.1 [Configuration](#-freeswitch--understanding-the-configuration-files-)  
+         * 2.1.1 [switch.conf](#-freeswitch--understanding-the-configuration-files-)  
+         * 2.1.2 [modules.conf](#configuration-modules)  
+   * 2.2 [Dialplan](#-freeswitch--understanding-the-configuration-files-)  
+   * 2.3 [Chatplan](#-freeswitch--understanding-the-configuration-files-)  
+   * 2.4 [Directory](#-freeswitch--understanding-the-configuration-files-)  
+   * 2.5 [Languages](#-freeswitch--understanding-the-configuration-files-)
+* 3 [Pre-Process Directives](#pre-process-directives)  
+   * 3.1 [include](#-freeswitch--understanding-the-configuration-files-)  
+   * 3.2 [set](#-freeswitch--understanding-the-configuration-files-)  
+   * 3.3 [exec](#-freeswitch--understanding-the-configuration-files-)  
+   * 3.4 [exec-set](#-freeswitch--understanding-the-configuration-files-)  
+   * 3.5 [Comment](#-freeswitch--understanding-the-configuration-files-)
+* 4 [Configuration Modules](#configuration-modules)  
+   * 4.1 [XML Curl](#-freeswitch--understanding-the-configuration-files-)
+
+# XML
+
+The configuration files are written in XML. If you are new to XML, invest the time to read the [XML Basics](../Configuration/XML-Basics_7143966.mdx#about) page. See the [Configuration Modules](#configuration-modules) section below for more advanced ways of doing configuration. The configuration is named freeswitch.xml and by default it's located at `/etc/freeswitch` for package installations and `/usr/local/freeswitch/conf` for installations compiled from source, although you can specify an alternate file path as a command line argument.
+
+The XML file is divided into multiple sections, as you can see below in the basic schema of the configuration file. Each section has its own subsections and schema, in the following sections we will explore the schema of each individual section. There is no DTD (document type definition) for these files.
+
+**Configuration Schema**
+
+```xml
+<document type="freeswitch/xml">
+  <section name="configuration" description="Various Configuration">
+    <!-- Module configuration goes here -->
+  </section>  
+  <section name="dialplan" description="Regex/XML Dialplan">
+    <!-- Instructions on how to route incoming calls goes here -->
+  </section>
+  <section name="chatplan" description="Regex/XML Chatplan">
+    <!-- Instructions on how to route incoming SMS messages -->
+  </section>
+  <section name="directory" description="User Directory">
+    <!-- User configuration goes here -->  
+  </section>
+  <section name="languages" description="Language Management">
+    <!-- Here you can configure support for playing the system prompts in different languages -->
+  </section>
+</document>
+```
+
+##   
+Configuration
+
+In the configuration section you can configure the FreeSWITCH core and most modules. Within the configuration section are many configuration elements, usually one for each module. Most configuration elements use the following XML schema.
+
+**Configuration Example**
+
+```xml
+<section name="configuration" description="Various Configuration">
+	<configuration Name="mymodule.conf" Description="My Module Configuration">
+		<settings>
+			<param name="my_param" value="my value" />
+		</settings>
+	</configuration>
+	<configuration Name="another_module.conf" Description="Other Module Configuration">
+		<settings>
+			<param name="my_param" value="my value" />
+		</settings>
+	</configuration>
+</section>
+```
+
+Some modules use different XML elements and/or additional XML attributes, refer to each module's confluence page for details on the specific parameters, elements, and attributes it uses. 
+
+In addition to the configuration elements for individual modules, there are 2 special configuration elements that are used to configure the FreeSWITCH core itself.
+
+### switch.conf
+
+This is where you configure settings for the FreeSWITCH core. The full list of parameters is documented on the [XML Switch Configuration](../Configuration/XML-Switch-Configuration_13173223.mdx#--) page.
+
+### modules.conf
+
+This section tells FreeSWITCH which modules to load at startup. You can always load other modules from the command line at a later time. For more info see the [module configuration](../Modules/XML-Modules-Configuration_13173211.mdx#xml-modules-configuration) page. When FreeSWITCH starts up, it first loads switch.conf, then modules.conf. As each module is loaded, FreeSWITCH will parse and load the configuration element used by that module.
+
+## Dialplan
+
+The dialplan section is where you setup all your call-routing rules. See the [Dialplan ](../Dialplan/index.mdx#0-about)page for more information.
+
+## Chatplan
+
+Here you setup routing rules for SMS and other chatting platorms. See [mod\_sms ](../Modules/mod_sms_6587288.mdx#set)for more.
+
+## Directory
+
+ The [user directory](../Directory/index.mdx#about) defines extensions that will register with FreeSWITCH™, typically phones.
+
+## Languages
+
+FreeSWITCH prompts can be played in a number of Human languages. Each language family lives under the sounds directory.
+
+# Pre-Process Directives
+
+XML files are plain text, there are no programming logic functionalities built-in to XML. While it has the advantage of being easy to read, there are some drawbacks too.
+
+1. For a large and flexible system such as FreeSWITCH, the `freeswitch.xml.fsxml` configuration file can become huge. The default configuration runs close to 15,000 lines in total.
+2. If you have special values you want to use in many places in the configuration, you have to duplicate it by hand. This can cause problems when you want to change it.
+3. You can't run scripts to dynamically calculate values for the static XML configuration.
+
+To address these issues, FreeSWITCH uses custom pre-processor directives. There is a pre-processor engine that runs on the original configuration files at system start (and reloadxml) to create a new configuration file using the results of the pre-processor directives. The output file is stored in the log directory (by default `/var/log/freeswitch` for packages and `/usr/local/freeswitch/log` if FreeSWITCH is compiled from source) and is named `freeswitch.xml.fsxml` . This is the file that's actually loaded by FreeSWITCH at start time. The pre-processor is run at startup as well as when you reload the configuration file. If you are running into issues with pre-processor directives, it can be helpful to review the processed file.
+
+Whenever FreeSWITCH reports a configuration file error, the error line number actually refers to the huge `freeswitch.xml.fsxml` so that is the place to look first. Once you have determined which individual config file generated the error, you must edit that individual XML file **NOT** the compiled `freeswitch.xml.fsxml` log file.
+
+There are 2 ways you can specify pre-processor directives.
+
+1. The custom X-PRE-PROCESS XML tag
+2. Within an XML comment you can prefix the directive with a #.
+
+**Pre-Process example**
+
+```xml
+<!--Using the X-PRE-PROCESS custom XML tag-->
+<X-PRE-PROCESS cmd="set" data="my_variable='value'"/>
+<!--Using an XML comment with a #-->
+<!--#set my_variable='value'-->
+```
+
+Commenting Pre-Process commands
+
+Standard XML comments have no effect on Pre-Process commands. If you want to comment out a Pre-Process Command you can replace X-PRE-PROCESS with X-NO-PRE-PROCESS
+
+```xml
+<!--This is a standard XML comment, the Pre-Process command WILL be processed-->	
+<!--<X-PRE-PROCESS cmd="set" data="my_global_var='some value'"/>-->
+<!--This pre-process command will NOT run-->
+<X-NO-PRE-PROCESS cmd="set" data="my_global_var='some value'"/>
+```
+
+Following are all the available pre-process directives. `Include` and `Set` are by far the most commonly used.
+
+## include
+
+This pre-process command allows us to break up the configuration into multiple files. The include directive specifies the path of the additional files and the pre-processor will replace the include directive with the contents of the specified file(s) at the line where the include appears. The path can be a single file or it can be a wildcard; by using a wildcard you can pull in all files in a directory. In the default configuration, the main configuration file (freeswitch.xml) is just a set of include directives, one for vars.xml (more on that soon) and one for each of the configuration sections. This allows us to build a clean directory hierarchy for the various system configurations.
+
+**Include Examples**
+
+```xml
+<!--This include is used by the default configuration to load the vars.xml file into the main configuration file-->
+<X-PRE-PROCESS cmd="include" data="vars.xml"/>
+
+<!-- 
+This include directive is used by the default configuration to load all the module configuration files from the autoload_configs directory. This allows us to use a separate configuration file for each module.
+-->
+<section name="configuration" description="Various Configuration">
+	<X-PRE-PROCESS cmd="include" data="autoload_configs/*.xml"/>
+</section>
+```
+
+In the included file, the pre-process will only include child XML that's enclosed in an include tag as seen in this example
+
+**Include tag**
+
+```xml
+<include>
+	<!--content to be included goes here-->
+</include>
+```
+
+  
+## set
+
+The set directive allows us to assign a value to a global variable name, then we can reference the variable throughout the configuration file using the syntax $${variable\_name}. When the pre-processor runs it will create a [global variable](Variables/index.mdx#1-referring-to-variables) using the name and value specified. The global variable is stored by the FreeSWITCH engine and can be referenced anywhere in the configuration as well as dynamically from the API or a script.
+
+In addition to setting the global variable, the pre-processor will also do a static replacement of all text in the configuration files that use the $${variable\_name} syntax. The text will be replaced with the value of the variable **at the time the pre-processor runs**. Since it is a static replacement, you **must** place the set directive on a line before the variable is called. Also, if you change the value of the global variable at runtime the configuration will still have the old value.
+
+The set directive is useful for values that appear in many places in the configuration, but are not expected to change, such as IP addresses and domains.
+
+By combining the set and include directives we can create a single file where all variables are set. Now we can share the same set of configuration files on many servers and only need to change one file to include the server specific settings. In fact, this is how the default configuration is set up: there is a file loaded by the include directive called [vars.xml](../Configuration/Configuring-FreeSWITCH/vars.xml_7144079.mdx#about) where values such as IP address and domain are set.
+
+**Using the Set directive**
+
+```xml
+<!--Use the Set directive to set the valuable of a global variable-->
+<X-PRE-PROCESS cmd="set" data="domain=example.com"/>
+ 
+<!--Use the $${variable_name} syntax to retrieve the value of the variable-->
+<action application="bridge" data="sofia/$${domain}/1234@example.com"/>
+ 
+<!-- This is how the previous line will actually appear in the processed configuration file (freeswitch.xml.fsxml) -->
+<!-- Note that the reference to the variable is gone -->
+<action application="bridge" data="sofia/example.com/1234@example.com"/>
+```
+
+For more information about variables see the [Variables](./Variables/index.mdx#0-about) page.
+
+## exec
+
+If you have some really complicated configuration rules you can have a script that generates parts of the configuration files. The exec directive will run as a shell command and include the output in the configuration file.
+
+**exec example**
+
+```xml
+<X-PRE-PROCESS cmd="exec" data="/path/to/my_script_that_dumps_all_configs_to_stdout.pl"/>
+```
+
+## exec-set
+
+This is similar to exec, but instead of including the output in the configuration file it will set a global variable with the output.
+
+**exec-set example**
+
+```xml
+<!-- Set local_ip_v4 to eth1 address -->
+<X-PRE-PROCESS cmd="exec-set" data="local_ip_v4=ip addr show eth1 | awk '/inet /{print $2}' | head -n 1 | cut -d '/' -f 1"/>
+```
+
+## Comment
+
+A pre-process comment can be used if you don't want the comment to appear in the final XML file.
+
+**comment example**
+
+```xml
+<X-PRE-PROCESS cmd="comment" data="This text will be removed by the pre-processor" />
+```
+
+  
+# Configuration Modules
+
+We will see later that there are alternatives to using plain XML files, however you would still need some XML to start up FreeSWITCH and instruct it to load a different configuration provider.
+
+## XML Curl
+
+  
+Document generated by Confluence on nov 11, 2022 04:24

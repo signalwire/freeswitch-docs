@@ -1,0 +1,181 @@
+
+# macOS Email Voicemail 
+
+ Created by  Mario G, last modified on 2018.10.06
+
+# About
+
+This section describes how to customize macOS and FreeSWITCH™ to send voicemail files as emails automatically. It is part of the FreeSWITCH™ [macOS](./index.mdx#about) documentation.
+
+* 1 [Email Voicemail to an iPhone](#email-voicemail-to-an-iphone)
+* 2 [How This Works](#how-this-works)
+* 3 [Required Information](#required-information)
+* 4 [Configuring Postfix](#configuring-postfix)  
+   * 4.1 [Editing the main.cf File](#editing-the-maincf-file)  
+   * 4.2 [Edit Postfix main.cf](#edit-postfix-maincf)  
+   * 4.3 [Replace Postfix main.cf](#replace-postfix-maincf)  
+   * 4.4 [Create smtp\_sasl\_passwords File](#create-smtp_sasl_passwords-file)  
+   * 4.5 [Create smtp\_tls\_sites File](#create-smtp_tls_sites-file)  
+   * 4.6 [Create the Postfix Databases](#create-the-postfix-databases)  
+   * 4.7 [Test and Diagnose POSTFIX](#test-and-diagnose-postfix)
+* 5 [Configure FreeSWITCH™ Email](#configure-freeswitch-email)  
+   * 5.1 [Setting User Parameters](#setting-user-parameters)  
+   * 5.2 [Settings for Common Email address](#settings-for-common-email-address)
+
+# Email Voicemail to an iPhone
+
+When a voicemail is left with FreeSWITCH™ the voicemail file can be packaged as an attachment to an email and sent to any email address. The receiver could be a laptop, iPhone, iPad or any other portable device that can obtain emails and play audio file attachments. This has the advantage of multiple people at different locations able to receive any voicemails left on FreeSWITCH™. The example below works on perfect on iPhones. Our Mac sends voice emails to multiple iPhones within a few seconds. No need to wait for or miss a voicemail now!
+
+# How This Works
+
+FreeSWITCH™ calls the SENDMAIL program to send voicemail as an email attachment. Fortunately, macOS comes with [POSTFIX](http://www.postfix.org/), a SENDMAIL replacement, already installed. These steps illustrate how to setup POSTFIX to send emails from macOS. Sending email does not require POSTFIX to be running, it will automatically start when required and shut down after sending email. Receiving emails require POSTFIX to be running all the time and does not apply to this document.
+
+# Required Information
+
+Before editing files the correct parameters must be determined. The process is not complicated but getting the settings right for your ISP may take some trial and error. The sample below works if you have your own domain name. You can search the web for "setup email macOS postfix" or "setup outgoing email macOS postfix". Record the following information before editing the configuration files:
+
+smtpdomain - The domain name for the SMTP email server, typically the ISP or your domain name that Freeswitch will use to send email. The example uses mail.abc.com.
+
+smtp port - The port number of the SMTP email server. Common ports: 25, 26, 465, 587, check the ISP. The example uses 465.
+
+myhostname - The qualified domain name of the computer running FreeSWITCH. The example uses imac1.abc.com.
+
+fromdomain - The domain name of the send email address. The example uses "abc".
+
+fromname - The email account name of fromdomain the email is sent from. The example uses "freeswitch".
+
+frompw - The password for the fromname email account. The example uses "SECRET".
+
+toemail - The target complete email address the email to be sent to. The example uses voicemail@xyz.com.
+
+# Configuring Postfix
+
+## Editing the main.cf File
+
+Issue the following commands to backup the original postfix configuration file, copy it to the desktop and change the owner so it can be edited, sudo is required:
+
+```xml
+sudo cp /etc/postfix/main.cf /etc/postfix/main.cforig
+sudo cp /etc/postfix/main.cf ~/Desktop
+sudo chown -R `id -u`:`id -g` ~/Desktop/main.cf
+```
+
+## Edit Postfix main.cf
+
+The simplest way to edit the main.cf file is to drop it on top of the Textedit application or open the file from Textedit. Copy the lines below after the end of main.cf then change "mail.abc.com", "imac1.abc.com" and port 465 to the your information. Save the file with the completed changes.
+
+```xml
+myorigin = $mydomain
+relayhost = [mail.abc.com]:465 
+myhostname = imac1.abc.com
+smtp_sasl_auth_enable = no
+smtp_sasl_security_options =
+smtp_sasl_tls_security_options =
+smtp_sasl_tls_verified_security_options =
+smtp_tls_loglevel = 2
+smtp_tls_security_level = encrypt
+smtp_tls_wrappermode = yes
+smtp_sasl_password_maps = hash:/etc/postfix/smtp_sasl_passwords
+smtp_tls_per_site = hash:/etc/postfix/smtp_tls_sites
+tls_random_source = dev:/dev/urandom
+smtp_generic_maps = hash:/etc/postfix/generic
+```
+
+## Replace Postfix main.cf
+
+Place the edited main.cf back into the proper directory using the following commands to change the owner, then move the file:
+
+```xml
+sudo chown -R root:wheel ~/Desktop/main.cf
+sudo mv ~/Desktop/main.cf /etc/postfix
+```
+
+## Create smtp_sasl_passwords File
+
+Use Textedit to create a file named smtp\_sasl\_passwords, it contains the SMTP URL, a valid email address and password that FreeSWITCH sends mail from. Make sure to save as text and _do not save with the .txt extension!_
+
+```xml
+mail.abc.com    freeswitch@abc.com:SECRET
+```
+
+Change the owner and move the file to the correct location:
+
+```xml
+sudo chown -R root:wheel ~/Desktop/smtp_sasl_passwords
+sudo mv ~/Desktop/smtp_sasl_passwords /etc/postfix
+```
+
+## Create smtp_tls_sites File
+
+Use Textedit to create a file named smtp\_tls\_sites with the following line, replace the domain with your SMTP domain:
+
+```xml
+mail.abc.com MUST_NOPEERMATCH
+```
+
+Change the owner and move it to the correct location:
+
+```xml
+sudo chown -R root:wheel ~/Desktop/smtp_tls_sites
+sudo mv ~/Desktop/smtp_tls_sites /etc/postfix
+```
+
+## Create the Postfix Databases
+
+Execute the commands below in Terminal to create the required postfix databases from the source files. If the source files are changed the databases must be recreated.
+
+```xml
+   cd /etc/postfix
+   sudo chmod go-rx smtp_sasl_passwords
+   sudo postmap smtp_sasl_passwords
+   sudo postmap smtp_tls_sites
+   sudo postmap generic
+   sudo postfix stop
+   sudo postfix start
+```
+
+## Test and Diagnose POSTFIX
+
+Before configuring FreeSWITCH™ to send email POSTFIX _must_ be working. Execute the following command in Terminal have a test email sent, use the correct email addresses.
+
+```xml
+  printf "Subject: TestnHello" | sendmail -f freeswitch@abc.com voicemail@xyz.com
+```
+
+View /var/log/mail.log to determine if there were problems by double clicking on it to launch Console or use Textedit. If there are no problems you should receive an email. Do not proceed with FreeSWITCH™ configuration until POSTFIX testing is successful.
+
+You can perform all editing using Textedit, however, you should become familiar with the Xcode editor. Its advantage is that it displays [XML](http://en.wikipedia.org/wiki/XML) code colorized so you can find syntax errors quickly. This is ideal for editing FreeSWITCH™ XML configuration files such as those below.
+
+# Configure FreeSWITCH™ Email
+
+## Setting User Parameters
+
+If postfix is working the information below will get email to work, the aiff format is used since it does not require additional modules. You should also read the FreeSWITCH™ [voicemail documentation](../../Modules/mod_voicemail_6587070.mdx#--).
+
+The parameters below were added to a userid in the conf/directory. This allows voicemails to be emailed to separate persons based on their extension number.
+
+```xml
+   <param name="vm-mailto" value="voicemail@xyz.com"/>
+   <param name="vm-email-all-messages" value="true"/>
+   <param name="vm-attach-file" value="true"/>
+   <param name="vm-message-ext" value="aiff"/>
+
+   <variable name="voicemail_domain" value="abc.com"/>
+   <variable name="voicemail_account" value="freeswitch"/>
+```
+
+## Settings for Common Email address
+
+If everyones voicemail are to go to a single common email, you can optionally make the changes below and not change user definitions.
+
+Edit voicemail.xml and change the line below, make sure to use the valid email account used in the passwords file above:
+
+   Original:      &lt;param name="email-from" value="${voicemail_account}@${voicemail_domain}"/>
+   Replacement:   &lt;param name="email-from" value="phones@yourowndomain.com"/>
+
+This voicemail templates also required editing. Change the first line in the conf/voicemail.tpl and notify-voicemail.tpl templates:
+
+   Original:      From: "${voicemail_caller_id_name}" &lt;${voicemail_caller_id_number}@${voicemail_domain}>
+   Replacement:   From: "${voicemail_caller_id_name}" &lt;phones@yourowndomain.com>
+
+Document generated by Confluence on nov 11, 2022 04:24

@@ -1,0 +1,162 @@
+
+# Lua TeleCaptcha example 
+
+ Created by  Belaid Areski, last modified on 2014.06.17
+
+# About
+
+The following LUA script can be used for tele-captcha. Please be sure to read the description and set the config variables needed to point to your audio files.
+
+# Lua Script Telecaptcha.lua
+
+```xml
+--[[
+	title: tele-captcha
+	author: johnnyvoip
+	date: October 15, 2008
+	
+	description:
+	This is a script designed to be run before another action within the dialplan.  It's purpose is to act as a 
+	simple audio captcha to verify human "intelligence" on the other line of the phone.  On engagement it will play the user the
+	<intro file> and then a numeric code for them to input, it will wait until all the digits have been inputted or timeout.  If the 
+	user succeeds, the <correct file> will be played and the session will continue.  If the code was incorrectly entered or
+	it timed out, the user will be played the <incorrect file> if there are retries available and then repeated the code to enter again.  
+	If the user fails and has no retries left the session will be disconnected with no file played.
+	
+	Changable parameters (The values given are defaults) :
+		<action application="set" data="tc_upper_bound=9999"/>
+		<action application="set" data="tc_lower_bound=0"/>
+		<action application="set" data="tc_retries=3"/>
+		<action application="set" data="tc_timeout=5000"/><!-- time in ms -->
+		<action application="set" data="tc_sounds_path=tele-captcha/"/>
+		<action application="set" data="tc_intro_filename=intro"/>
+		<action application="set" data="tc_incorrect_filename=incorrect"/>
+		<action application="set" data="tc_correct_filename=correct"/>
+		<action application="set" data="tc_sounds_extension=wav"/>		
+		<action application="set" data="tc_digit_filename_prefix="/>
+		<action application="set" data="tc_digit_filename_postfix="/>		
+		
+	Before it will work : 
+	Set the file paths for the sounds, either configure them via session vars, use the defaults, or change the defaults below
+	The sound files it expects are 0-9 digits, an intro file, an incorrect file and a correct file all located in the sounds_path.
+	
+]]
+-- Constants
+DP_PRFIX 		= "tc_" ;
+PADDING_DIGIT 	= "0" ;
+GET_DIGITS_DONE = "#" ;
+
+-- Session overrides, each sessionVariable is prepended with DP_PREFIX
+TIMEOUT 				= { sessionVariable = "timeout", 				defaultValue = 5000 }
+RETRIES 				= { sessionVariable = "retries", 				defaultValue = 3 }
+UPPER_BOUND 			= { sessionVariable = "upper_bound", 			defaultValue = 9999 }
+LOWER_BOUND 			= { sessionVariable = "lower_bound", 			defaultValue = 0 }
+SOUNDS_PATH 			= { sessionVariable = "sounds_path", 			defaultValue = "tele-captcha/" }
+FILENAME_INTRO 			= { sessionVariable = "intro_filename", 		defaultValue = "intro" }
+FILENAME_CORRECT 		= { sessionVariable = "correct_filename", 		defaultValue = "correct" }
+FILENAME_INCORRECT 		= { sessionVariable = "incorrect_filename", 	defaultValue = "incorrect" }
+FILENAME_EXTENSION 		= { sessionVariable = "sounds_extension", 		defaultValue = "wav" }
+FILENAME_DIGIT_PREFIX 	= { sessionVariable = "digit_filename_prefix", 	defaultValue = "" }
+FILENAME_DIGIT_POSTFIX 	= { sessionVariable = "digit_filename_postfix", defaultValue = "" }
+
+-- Play a string that consists of only numbers
+function playStringOfNumbers( numberString )
+	for digit=1, string.len( numberString ) do
+		playSingleNumber( string.sub( numberString, digit, digit ) );
+	end
+end
+
+-- Plays a single number if it is in the 0-9 range
+function playSingleNumber( number )
+	number = tonumber( number );
+	if( number < 10 and number >= 0 ) then
+		playTeleCaptchaSoundFile( sessionOrDefault( FILENAME_DIGIT_PREFIX ) .. number .. sessionOrDefault( FILENAME_DIGIT_POSTFIX ) );
+	end
+end
+
+-- Prepend a string with another string a set amount of times
+function padStringWithString( theString, padString, totalTimesToPad )
+	while totalTimesToPad > 0 do
+		theString = padString .. theString;
+		totalTimesToPad = totalTimesToPad - 1;
+	end
+	return theString;
+end
+
+-- play a file from this scripts directory
+function playTeleCaptchaSoundFile( filename )
+	session:execute( "playback", sessionOrDefault( SOUNDS_PATH ) .. filename .. "." .. sessionOrDefault( FILENAME_EXTENSION ) );
+end
+
+-- assign the first value if not null, otherwise default it to the second value
+function sessionOrDefault( obj )
+	local sessionVariable = sessionVar( obj.sessionVariable );
+	if sessionVariable then
+		return sessionVariable;
+	else
+		return obj.defaultValue;
+	end
+end
+
+-- generate a numeric string that is inbetween the lower and upper range and is padded to be
+-- the maxium possible len everytime eg. code of 2 in a range from 0-99999 will be 00002
+function numericKeyCodeString( lowerRange, upperRange )
+	local digitCount = string.len( tostring( upperRange ) );
+	local randomNumericCode = tostring( math.random( lowerRange, upperRange ) );
+	return padStringWithString( randomNumericCode, PADDING_DIGIT, digitCount - string.len( randomNumericCode ) );
+end
+
+-- retreive a session variable for this script
+function sessionVar( name )
+	return session:getVariable( DP_PRFIX..name );
+end
+
+-- helper to play the intro file
+function playFileIntro()
+	playTeleCaptchaSoundFile( sessionOrDefault( FILENAME_INTRO ) );
+end
+
+-- helper to play the correct file
+function playFileCorrect()
+	playTeleCaptchaSoundFile( sessionOrDefault( FILENAME_CORRECT ) );
+end
+
+-- helper to play the incorrect file
+function playFileIncorrect()
+	playTeleCaptchaSoundFile( sessionOrDefault( FILENAME_INCORRECT ) );
+end
+
+-- main programming logic ::
+
+-- answer, always needed
+session:answer( );
+-- setup parameters
+local timeout 	 = sessionOrDefault( TIMEOUT );
+local lowerRange = sessionOrDefault( LOWER_BOUND );
+local upperRange = sessionOrDefault( UPPER_BOUND );
+local retries 	 = sessionOrDefault( RETRIES );
+-- get the code based on the range
+local code = numericKeyCodeString( lowerRange, upperRange );
+-- play the intro
+playFileIntro();
+repeat
+	-- play the string of numbers to the user
+	playStringOfNumbers( code );
+	-- request digits
+	userInput = session:getDigits( string.len( code ), GET_DIGITS_DONE, timeout );
+	-- one less retry
+	retries = retries - 1;
+	-- play the appropriate response after getting digits
+	if( retries > 0 and not( userInput == code ) ) then
+		playFileIncorrect();
+	end
+until retries == 0 or userInput == code
+-- only if it was failed hangup the session
+if( userInput == code ) then
+	playFileCorrect();
+else
+	session:hangup( "1" );
+end
+```
+
+Document generated by Confluence on nov 11, 2022 04:27

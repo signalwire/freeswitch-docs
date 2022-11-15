@@ -1,0 +1,386 @@
+
+# Lua ASR TTS Directory example 
+
+ Created by  John Boteler, last modified by  Belaid Areski on 2014.06.16
+
+# About
+
+This guide should allow you to install FreeSWITCH and configure automatic speech recognition to look up users in a company directory. 
+
+_By Matt Williams (Hmmhesays in #freeswitch) and Brian West (bkw\_)_
+
+This guide hasn't been updated in a long time, so please _run through this and let us know if there is anything missing._
+
+# Requirement
+
+There are a few things we are going to use for constants in this guide.
+
+**Network Addresses:** 
+
+* FreeSWITCH box 192.168.1.100
+
+**Phones:**
+
+* Phone 1 extension 1000
+* Phone 2 extension 1001
+
+**Directories:**
+
+* FreeSWITCH source directory /usr/src/freeswitch
+* FreeSWITCH installation diretory /usr/local/freeswitch
+
+# Build FreeSWITCH from Source Code
+
+Install FreeSWITCH from source, please refer to the [Installation](../../../Installation/index.mdx#about) documentation. 
+
+You must tell FreeSWITCH which modules to build before installation. Open up **modules.conf** with your favorite text editor and uncomment the following lines if they are commented. They should look like the following.
+
+```xml
+...
+#asr_tts/mod_flite
+asr_tts/mod_pocketsphinx
+#asr_tts/mod_cepstral
+...
+#languages/mod_spidermonkey_odbc
+languages/mod_lua
+#languages/mod_perl
+```
+
+#   
+Configure Directory
+
+The next step is to set up directory entries for our users on the local network. We need to create a new directory and copy a couple files into it.
+
+```bash
+#!/bin/bash
+#Change your directory to the freeswitch directory
+cd /usr/local/freeswitch/conf/directory
+#Make a new file were we are going to keep our user settings for our local network
+mkdir 192.168.1.100
+#Copy default.xml to 192.168.1.100.xml for for our domain settings
+cp default.xml 192.168.1.100.xml
+#copy over a directory files. These hold the phone registration info, voicemail, nat. These are similar to a peer/user entry in asterisks sip.conf or users.conf
+cp default/brian.xml 192.168.1.100/1000.xml
+cp default/brian.xml 192.168.1.100/1001.xml
+```
+
+Now we need to edit our domain info. Open up 192.168.1.100.xml and edit it so it looks like the following
+
+```xml
+<include>
+  <!--the domain or ip (the right hand side of the @ in the addr-->
+  <domain name="192.168.1.100">
+    <params>
+      <param name="dial-string" value="{presence_id=${dialed_user}@${dialed_domain},transfer_fallback_extension=${dialed_user}}${sofia_contact(${dialed_domain}/${dialed_user}@${dialed_domain})}"/>
+    </params>
+
+    <variables>
+      <variable name="record_stereo" value="true"/>
+    </variables>
+
+    <X-PRE-PROCESS cmd="include" data="192.168.1.100/*.xml"/>
+  </domain>
+</include>
+```
+
+Next we need to edit the directory entries for each phone. Change directories into 192.168.1.100 and open up 1000.xml in your favorite text editor. The following are the lines we should be concerned with. These are pretty self explanatory. Username, password, context. Do this for 1001.xml entry also.
+
+```xml
+<user id="1000" mailbox="1000">
+<param name="password" value="1234"/>
+<variable name="user_context" value="internal"/>
+```
+
+Now we set up our internal sip profile. Change directories to our sip\_profiles directory and open up **internal.xml** in your favorite editor modify the following lines.
+
+```bash
+cd /usr/local/freeswitch/conf/sip_profiles
+```
+
+```xml
+...
+<profile name="internal">
+...
+<aliases>
+   <alias name="192.168.1.100"/>
+</aliases>
+...
+```
+
+Next, we need to set up a our dial plan to call between our phones.
+
+```bash
+#!/bin/bash
+cd /usr/local/freeswitch/conf/dialplan
+touch internal.xml
+```
+
+Now open up internal.xml in your favorite text editor and make it look like the following
+
+```xml
+<?xml version="1.0" encoding="utf-8"?>
+<!-- http://wiki.freeswitch.org/wiki/Dialplan_XML -->
+<include>
+<context name="internal">
+    <extension name="users">
+        <condition field="destination_number" expression="^{1\d\d\d}$">
+            <action application="bridge" data="sofia/$1%192.168.1.100"/>
+        </condition>
+    </extension>
+    <extension name="directory">
+        <condition field="destination_number" expression="^411$">
+            <action application="lua" data="directory.lua"/>
+        </condition>
+    </extension>
+</context>
+</include>
+```
+
+Next we need to tell FreeSWITCH to load mod\_pocketsphinx and mod\_lua on start up. Open up **/usr/local/freeswitch/conf/autoload\_configs/modules.conf.xml** in your favorite editor and change the following lines.
+
+**modules.conf.xml**
+
+```xml
+<!-- ASR /TTS -->
+<!-- <load module="mod_flite"/> -->
+<load module="mod_pocketsphinx"/>
+<!-- <load module="mod_cepstral"/> -->
+...
+<!-- <load module="mod_java"/> -->
+<load module="mod_lua"/>
+```
+
+At this point you should be able to restart FreeSWITCH, register your phones and call between them.
+
+Create **/usr/local/freeswitch/scripts/directory.lua**:
+
+**directory.lua** Espandi fonte 
+
+```xml
+ --[[
+FreeSWITCH Modular Media Switching Software Library / Soft-Switch Application
+Copyright (C) 2005/2006, Anthony Minessale II <anthm@freeswitch.org>
+
+Version: MPL 1.1
+
+The contents of this file are subject to the Mozilla Public License Version
+1.1 (the "License"); you may not use this file except in compliance with
+the License. You may obtain a copy of the License at
+http://www.mozilla.org/MPL/
+
+   Software distributed under the License is distributed on an "AS IS" basis,
+WITHOUT WARRANTY OF ANY KIND, either express or implied. See the License
+for the specific language governing rights and limitations under the
+License.
+
+The Original Code is FreeSWITCH Modular Media Switching Software Library / Soft-Switch Application
+
+The Initial Developer of the Original Code is
+Anthony Minessale II <anthm@freeswitch.org>
+   Portions created by the Initial Developer are Copyright (C)
+the Initial Developer. All Rights Reserved.
+
+Contributor(s):
+
+Brian West <brian@freeswitch.org>
+
+   Example for Speech Enabled LUA Applications.
+]]
+
+-- Used in parse_xml
+function parseargs_xml(s)
+   local arg = {}
+   string.gsub(s, "(%w+)=([\"'])(.-)%2", function (w, _, a)
+					    arg[w] = a
+					 end)
+   return arg
+end
+
+-- Turns XML into a lua table.
+function parse_xml(s)
+   local stack = {};
+   local top = {};
+   table.insert(stack, top);
+   local ni,c,label,xarg, empty;
+   local i, j = 1, 1;
+   while true do
+      ni,j,c,label,xarg, empty = string.find(s, "<(%/?)(%w+)(.-)(%/?)>", i);
+      if not ni then
+	 break
+      end
+      local text = string.sub(s, i, ni-1);
+      if not string.find(text, "^%s*$") then
+	 table.insert(top, text);
+      end
+      if empty == "/" then
+	 table.insert(top, {label=label, xarg=parseargs_xml(xarg), empty=1});
+      elseif c == "" then
+	 top = {label=label, xarg=parseargs_xml(xarg)};
+	 table.insert(stack, top);
+      else
+	 local toclose = table.remove(stack);
+	 top = stack[#stack];
+	 if #stack < 1 then
+	    error("nothing to close with "..label);
+	 end
+	 if toclose.label ~= label then
+	    error("trying to close "..toclose.label.." with "..label);
+	 end
+	 table.insert(top, toclose);
+      end
+      i = j+1;
+   end
+   local text = string.sub(s, i);
+   if not string.find(text, "^%s*$") then
+      table.insert(stack[stack.n], text);
+   end
+   if #stack > 1 then
+      error("unclosed "..stack[stack.n].label);
+   end
+   return stack[1];
+end
+
+-- Used to parse the XML results.
+function getResults(s) 
+   local xml = parse_xml(s);
+   local stack = {}
+   local top = {}
+   table.insert(stack, top)
+   top = {grammar=xml[1].xarg.grammar, score=xml[1].xarg.score, text=xml[1][1][1]}
+   table.insert(stack, top)
+   return top;
+end
+
+-- This is the input callback used by dtmf or any other events on this session such as ASR.
+function onInput(s, type, obj)
+   freeswitch.consoleLog("info", "Callback with type " .. type .. "\n");
+   if (type == "dtmf") then
+      freeswitch.consoleLog("info", "DTMF Digit: " .. obj.digit .. "\n");
+   else if (type == "event") then
+	 local event = obj:getHeader("Speech-Type");
+	 if (event == "begin-speaking") then
+	    freeswitch.consoleLog("info", "\n" .. obj:serialize() .. "\n");
+	    -- Return break on begin-speaking events to stop playback of the fire or tts.
+	    return "break";
+	 end
+	 if (event == "detected-speech") then
+	    freeswitch.consoleLog("info", "\n" .. obj:serialize() .. "\n");
+	    if (obj:getBody()) then
+	       -- Pause speech detection (this is on auto but pausing it just in case)
+	       session:execute("detect_speech", "pause");
+	       -- Parse the results from the event into the results table for later use.
+	       results = getResults(obj:getBody());
+	    end
+	    return "break";
+	 end
+      end
+   end
+end
+
+--Used to map returned names to extension numbers
+extensions = {
+   ["MATTHEW_WILLIAMS"] = 1000,
+   ["MATT_WILLIAMS"] = 1000,
+   ["JOSEPH_SMITH"] = 1001,
+   ["JOE_SMITH"] = 1000
+   }
+
+-- Create the empty results table.
+results = {};
+
+-- Answer the call.
+session:answer();
+-- Register the input callback 
+session:setInputCallback("onInput");
+-- Sleep a little bit to give media time to be fully up.
+session:sleep(200);
+session:streamFile("/usr/local/freeswitch/sounds/en/us/directory/directory-welcome.wav");
+-- Start the detect_speech app.  This attaches the bug to fire events
+session:execute("detect_speech", "pocketsphinx directory directory");   
+
+-- Magic happens here.
+-- It would be ok to loop like 3 times and error to the operator if this doesn't work or revert to reading names off with TTS.
+while (session:ready() == true) do 
+   session:sleep(100);
+   -- Who are they looking for?
+   session:streamFile("/usr/local/freeswitch/sounds/en/us/directory/directory-speak_name.wav");
+   -- This sleep is what blocks till the detected-speech event.  This has to give you enough time to speak plus get the results.
+   session:sleep(3000);
+   session:sleep(3000);
+   -- If the results aren't null and we have an extension in the table.
+   if (results.text ~= nil) then
+      -- Letting the caller know we are trying.
+      session:streamFile("/usr/local/freeswitch/sounds/en/us/directory/directory-please_hold.wav");
+      -- It's critical to stop the detect_detect otherwise it will continue to fire speech events and waste resources.
+      session:execute("detect_speech", "stop"); 
+      -- Transfer the call to the extension out of the lua table.
+      session:execute("transfer", extensions[results.text] .. " XML home");
+   end
+   -- We didn't have them in our directory table.
+   session:streamFile("/usr/local/freeswitch/sounds/en/us/directory/directory-not_found.wav");
+   -- Clear any results we have just in case.
+   results = {};
+   -- Resume detect_speech.
+   session:execute("detect_speech", "resume");
+end
+```
+
+Please note the extensions array. This is where you map the names to extension numbers.
+
+Next we create our dictionary and language model file. Change your directory to /usr/local/freeswitch/grammar and create a file called **directory.sent**
+
+We are using Matthew Williams and Joe Smith as our examples.
+
+```xml
+<s> MATTHEW_WILLIAMS </s>
+<s> MATT_WILLIAMS </s>
+<s> JOSEPH_SMITH </s>
+<s> JOE_SMITH </s>
+```
+
+Type **make** in the **/usr/local/freeswitch/grammar** directory.
+
+This should give you the following files.
+
+```xml
+ls -la directory
+-rw-r--r--  1 root root   82 2008-08-13 10:59 directory.dic
+-rw-r--r--  1 root root  727 2008-08-13 10:59 directory.lm
+```
+
+**directory.dic** currently looks like this.
+
+```xml
+JOE     JH OW
+JOSEPH  JH OW S AH F
+JOSEPH(2)       JH OW Z AH F
+MATT    M AE T
+MATTHEW M AE TH Y UW
+SMITH   S M IH TH
+WILLIAMS        W IH L Y AH M Z
+```
+
+You will need to make it look like the following. Note this file is tab delimited.
+
+```xml
+JOE_SMITH       JH OW S M IH TH
+JOSEPH_SMITH    JH OW Z AH F S M IH TH
+JOSEPH_SMITH(2) JH OW S AH F S M IH TH
+MATT_WILLIAMS   M AE T W IH L Y AH M Z
+MATTHEW_WILLIAMS        M AE TH Y UW W IH L Y AH M Z
+```
+
+Now we have to create the directory for the sound files. In this example we have US EN prompts
+
+```bash
+#!/bin/bash
+cd /usr/local/freeswitch/sounds/en/us
+mkdir directory
+cd directory
+wget www.freeswitch.org/eg/directory.tar.gz
+tar -xvzf directory.tar.gz
+```
+
+You should now be able to dial 411 and access the directory.
+
+Document generated by Confluence on nov 11, 2022 04:27

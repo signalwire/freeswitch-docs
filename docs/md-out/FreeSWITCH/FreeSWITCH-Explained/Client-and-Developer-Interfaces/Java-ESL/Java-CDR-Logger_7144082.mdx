@@ -1,0 +1,225 @@
+
+# Java CDR Logger 
+
+ Created by  John Boteler on 2015.03.13
+
+# About
+
+CDRLogger is a Java servlet application that works together with [mod\_xml\_cdr](../../Modules/mod_xml_cdr_6587377.mdx#faq) to store CDR records into a database table. The application parses the CDR XML data and stores it into pre-configured fields. Current application 'war' packaging only includes and tests with PostgreSQL database driver. Other database driver support could be easily included (MySQL, SQL Server, Oracle, etc).
+
+Click here to expand Table of Contents
+
+* 1 [Requirement](#requirement)  
+   * 1.1 [Installation w/ Tomcat](#installation-w-tomcat)  
+   * 1.2 [Database Connection Setup](#database-connection-setup)  
+   * 1.3 [Testing The Installation](#testing-the-installation)  
+   * 1.4 [Automatic Schema Generation](#automatic-schema-generation)  
+   * 1.5 [Configure mod\_xml\_cdr](#configure-mod_xml_cdr)  
+   * 1.6 [Additional Configuration](#additional-configuration)
+
+# Requirement
+
+* Java Runtime Environment 1.5
+* Java Servlet Container (Tomcat, JBoss, Weblogic, etc)
+* Database Server: PostgreSQL ( MySQL, Oracle, SQL Server, etc)
+
+## Installation w/ Tomcat
+
+* Make sure JRE and Tomcat is successfully installed.
+* Download cdr-logger war package from [here](http://svn.freeswitch.org/svn/freeswitch/branches/jkr888/CDRLogger/tags/Release-1.0/target/cdr-logger-1.0.war)
+* Copy cdr-logger-x.x.war to tomcat web apps directory (replace x.x with the right version, ie. cdr-logger-1.0.war)
+
+cp &lt;your-download-path>/cdr-logger-x.x.war &lt;tomcat-webapps-dir>
+
+* If tomcat is running, the war package should automatically expanded into its own directory
+
+## Database Connection Setup
+
+Edit cdr-logger-x.x/WEB-INF/classes/hibernate.conf.xml under tomcat web apps. Change the database connection setup according to your database settings. For example for postgresql:
+
+&lt;property name="connection.url">jdbc:postgresql://localhost/mydb&lt;/property>
+&lt;property name="connection.username">postgres&lt;/property>
+&lt;property name="connection.driver_class">org.postgresql.Driver&lt;/property>
+&lt;property name="dialect">org.hibernate.dialect.PostgreSQLDialect&lt;/property>
+&lt;property name="connection.password">yourpassword&lt;/property>
+&lt;property name="transaction.factory_class">org.hibernate.transaction.JDBCTransactionFactory&lt;/property>
+
+## Testing The Installation
+
+Restart tomcat, under Ubuntu should be like
+
+/etc/init.d/tomcat5.5 restart
+
+point your browser to
+
+http://yourip:port/cdr-logger-x.x/schema
+
+It should return some error message similar to below
+
+Unrecognized 'null' operation type. Type should be 'insert' or 'create'.
+
+This indicate, the CDRLogger application properly installed.
+
+## Automatic Schema Generation
+
+Now, to automatically generate database schema, point your browser to :
+
+http://yourip:port/cdr-logger-x.x/schema?type=create
+
+This will start automatic schema generation. Check your database, it should generate following database table :
+
+CREATE TABLE freeswitch_cdrs
+(
+  id bigint NOT NULL,
+  start_stamp character varying(32),
+  answer_stamp character varying(32),
+  end_stamp character varying(32),
+  profile_start_stamp character varying(32),
+  answered_time character varying(32),
+  hangup_time character varying(32),
+  created_time character varying(32),
+  billsec integer,
+  billmsec integer,
+  billusec integer,
+  total_duration_sec integer,
+  total_duration_msec integer,
+  sip_from_uri character varying(64),
+  sip_to_uri character varying(64),
+  sip_call_id character varying(64),
+  custom_tag_1 text,
+  custom_tag_2 text,
+  custom_tag_3 text,
+  custom_tag_4 text,
+  custom_tag_5 text,
+  custom_tag_6 text,
+  custom_tag_7 text,
+  custom_tag_8 text,
+  custom_tag_9 text,
+  xml_data text,
+  CONSTRAINT freeswitch_cdrs_pkey PRIMARY KEY (id)
+)
+WITH (OIDS=FALSE);
+ALTER TABLE freeswitch_cdrs OWNER TO postgres;
+
+CREATE TABLE freeswitch_cdr_data
+(
+  id bigint NOT NULL,
+  category character varying(64),
+  "name" character varying(64),
+  "value" text,
+  cdr_id bigint NOT NULL,
+  CONSTRAINT freeswitch_cdr_data_pkey PRIMARY KEY (id),
+  CONSTRAINT fkabdb2bd73aa16d74 FOREIGN KEY (cdr_id)
+      REFERENCES freeswitch_cdrs (id) MATCH SIMPLE
+      ON UPDATE NO ACTION ON DELETE NO ACTION
+)
+WITH (OIDS=FALSE);
+ALTER TABLE freeswitch_cdr_data OWNER TO postgres;
+
+You can test the application to insert test record, point your browser to :
+
+http://yourip:port/cdr-logger-x.x/schema?type=insert
+
+Then check freeswitch\_cdrs table, it should create a sample record.
+
+## Configure mod_xml_cdr
+
+Setup mod\_xml\_cdr to point to CDRLogger application.
+
+&lt;configuration name="xml_cdr.conf" description="XML CDR CURL logger">
+&lt;settings>
+   &lt;param name="url" value="http://yourip:port/cdr-logger-x.x/cdr"/>
+   &lt;param name="retries" value="2"/>
+   &lt;param name="delay" value="120"/>
+   &lt;param name="log-dir" value="/var/log/cdr"/>
+   &lt;param name="err-log-dir" value="/var/log/cdr/errors"/>
+   &lt;param name="encode" value="true"/>
+&lt;/settings>
+
+Make a test call and check the database table. if there is a new CDR record populated. Sit down and enjoy your coffee ;)
+
+## Additional Configuration
+
+vi cdr-logger-x.x/WEB-INF/web.xml, there is a couple settings that you can tune. Don't forget to restart tomcat to make sure it pickup the latest changes.
+
+* Turn on/off raw xml storage (storeRawXML)
+* Customize xml tag storage (custom\_tag\_n)
+* Turn on/off automatic schema generation url (allowChemaGenerator)
+
+&lt;?xml version="1.0" encoding="UTF-8"?>
+&lt;web-app xmlns="http://java.sun.com/xml/ns/j2ee" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+	version="2.4"
+	xsi:schemaLocation="http://java.sun.com/xml/ns/j2ee http://java.sun.com/xml/ns/j2ee/web-app_2_4.xsd">
+	&lt;description>Freeswitch CDR Logger&lt;/description>
+	&lt;display-name>com.jkr.freeswitch.cdr.logger
+	&lt;/display-name>
+	&lt;distributable />
+	&lt;welcome-file-list>
+		&lt;welcome-file>index.jsp&lt;/welcome-file>
+		&lt;welcome-file>index.html&lt;/welcome-file>
+	&lt;/welcome-file-list>
+	&lt;servlet>
+		&lt;servlet-name>CDRLogger&lt;/servlet-name>
+		&lt;servlet-class>com.jkr.freeswitch.cdr.logger.FreeswitchCDRLogger&lt;/servlet-class>
+		&lt;!-- Log raw cdr XML -->
+		&lt;init-param>
+			&lt;param-name>StoreRawXML&lt;/param-name>
+			&lt;param-value>false&lt;/param-value>
+		&lt;/init-param>
+		&lt;init-param>
+			&lt;param-name>custom_tag_1&lt;/param-name>
+			&lt;param-value>caller_id_number&lt;/param-value>
+		&lt;/init-param>
+		&lt;init-param>
+			&lt;param-name>custom_tag_2&lt;/param-name>
+			&lt;param-value>caller_id_name&lt;/param-value>
+		&lt;/init-param>
+		&lt;init-param>
+			&lt;param-name>custom_tag_3&lt;/param-name>
+			&lt;param-value>destination_number&lt;/param-value>
+		&lt;/init-param>
+		&lt;init-param>
+			&lt;param-name>custom_tag_4&lt;/param-name>
+			&lt;param-value>uuid&lt;/param-value>
+		&lt;/init-param>
+		&lt;init-param>
+			&lt;param-name>custom_tag_5&lt;/param-name>
+			&lt;param-value>chan_name&lt;/param-value>
+		&lt;/init-param>
+		&lt;init-param>
+			&lt;param-name>custom_tag_6&lt;/param-name>
+			&lt;param-value>&lt;/param-value>
+		&lt;/init-param>
+		&lt;init-param>
+			&lt;param-name>custom_tag_7&lt;/param-name>
+			&lt;param-value>&lt;/param-value>
+		&lt;/init-param>
+		&lt;init-param>
+			&lt;param-name>custom_tag_8&lt;/param-name>
+			&lt;param-value>&lt;/param-value>
+		&lt;/init-param>
+		&lt;init-param>
+			&lt;param-name>custom_tag_9&lt;/param-name>
+			&lt;param-value>&lt;/param-value>
+		&lt;/init-param>
+	&lt;/servlet>
+	&lt;servlet>
+		&lt;servlet-name>CDRSchema&lt;/servlet-name>
+		&lt;servlet-class>com.jkr.freeswitch.cdr.logger.FreeswitchCDRSchema&lt;/servlet-class>
+		&lt;!-- Log raw cdr XML -->
+		&lt;init-param>
+			&lt;param-name>allowShemaGenerator&lt;/param-name>
+			&lt;param-value>true&lt;/param-value>
+		&lt;/init-param>
+	&lt;/servlet>	
+	&lt;servlet-mapping>
+		&lt;servlet-name>CDRLogger&lt;/servlet-name>
+		&lt;url-pattern>/cdr&lt;/url-pattern>
+	&lt;/servlet-mapping>
+		&lt;servlet-mapping>
+		&lt;servlet-name>CDRSchema&lt;/servlet-name>
+		&lt;url-pattern>/schema&lt;/url-pattern>
+	&lt;/servlet-mapping>
+&lt;/web-app>
+
+Document generated by Confluence on nov 11, 2022 04:27

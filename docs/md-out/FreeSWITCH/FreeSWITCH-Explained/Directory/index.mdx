@@ -1,0 +1,136 @@
+
+# Directory 
+
+ Created by  Brian West, last modified by  John Boteler on 2020.04.03
+
+  
+# About
+
+The user directory holds credentials and configuration information for devices that register with FreeSWITCH™.
+
+  
+Click to expand Table of Contents
+
+* 1 [Default Config](#default-config)  
+   * 1.1 [Parent User Directory](#parent-user-directory)  
+   * 1.2 [User Entry](#user-entry)
+
+  
+# Default Config
+
+## Parent User Directory
+
+The default parent XML directory file is `conf/directory/default.xml` and traverses child file system directories to include users from multi-tenant partitions, if used.
+
+**Stock Directory Parent**
+
+```xml
+<!--
+    NOTICE NOTICE NOTICE NOTICE NOTICE NOTICE NOTICE NOTICE NOTICE NOTICE 
+    
+    FreeSWITCH works off the concept of users and domains just like email.
+    You have users that are in domains for example 1000@domain.com.
+    
+    When freeswitch gets a register packet it looks for the user in the directory
+    based on the from or to domain in the packet depending on how your sofia profile
+    is configured.  Out of the box the default domain will be the IP address of the
+    machine running FreeSWITCH.  This IP can be found by typing "sofia status" at the
+    CLI.  You will register your phones to the IP and not the hostname by default.
+    If you wish to register using the domain please open vars.xml in the root conf
+    directory and set the default domain to the hostname you desire.  Then you would
+    use the domain name in the client instead of the IP address to register 
+    with FreeSWITCH.
+    
+    NOTICE NOTICE NOTICE NOTICE NOTICE NOTICE NOTICE NOTICE NOTICE NOTICE 
+-->
+
+<include>
+  <!--the domain or ip (the right hand side of the @ in the addr-->
+  <domain name="$${domain}">
+    <params>
+      <param name="dial-string" value="{^^:sip_invite_domain=${dialed_domain}:presence_id=${dialed_user}@${dialed_domain}}${sofia_contact(*/${dialed_user}@${dialed_domain})}"/>
+      <!-- These are required for Verto to function properly -->
+      <!-- <param name="jsonrpc-allowed-methods" value="verto"/> -->
+      <!-- <param name="jsonrpc-allowed-event-channels" value="demo,conference,presence"/> -->
+    </params>
+    <variables>
+      <variable name="record_stereo" value="true"/>
+      <variable name="default_gateway" value="$${default_provider}"/>
+      <variable name="default_areacode" value="$${default_areacode}"/>
+      <variable name="transfer_fallback_extension" value="operator"/>
+    </variables>
+    <groups>
+      <group name="default">
+        <users>
+          <X-PRE-PROCESS cmd="include" data="default/*.xml"/>
+        </users>
+      </group>
+      <group name="sales">
+        <users>
+          <!--
+              type="pointer" is a pointer so you can have the 
+              same user in multiple groups.  It basically means
+              to keep searching for the user in the directory.
+          -->
+          <user id="1000" type="pointer"/>
+          <user id="1001" type="pointer"/>
+          <user id="1002" type="pointer"/>
+          <user id="1003" type="pointer"/>
+          <user id="1004" type="pointer"/>
+        </users>
+      </group>
+      <group name="billing">
+        <users>
+          <user id="1005" type="pointer"/>
+          <user id="1006" type="pointer"/>
+          <user id="1007" type="pointer"/>
+          <user id="1008" type="pointer"/>
+          <user id="1009" type="pointer"/>
+        </users>
+      </group>
+      <group name="support">
+        <users>
+          <user id="1010" type="pointer"/>
+          <user id="1011" type="pointer"/>
+          <user id="1012" type="pointer"/>
+          <user id="1013" type="pointer"/>
+          <user id="1014" type="pointer"/>
+        </users>
+      </group>
+    </groups>
+  </domain>
+</include>
+```
+
+## User Entry
+
+Stock configuration for station 1000 located in `conf/directory/default/1000.xml`
+
+**User 1000 Entry**
+
+```xml
+<include>
+  <user id="1000">
+    <params>
+      <param name="password" value="$${default_password}"/>
+      <param name="vm-password" value="1000"/>
+    </params>
+    <variables>
+      <variable name="toll_allow" value="domestic,international,local"/>
+      <variable name="accountcode" value="1000"/>
+      <variable name="user_context" value="default"/>
+      <variable name="effective_caller_id_name" value="Extension 1000"/>
+      <variable name="effective_caller_id_number" value="1000"/>
+      <variable name="outbound_caller_id_name" value="$${outbound_caller_name}"/>
+      <variable name="outbound_caller_id_number" value="$${outbound_caller_id}"/>
+      <variable name="callgroup" value="techsupport"/>
+    </variables>
+  </user>
+</include>
+```
+
+Context-Sensitive
+
+The user\_context variable will override the "public" context set as the default in both internal and external sip\_profiles because of the priority hierarchy: user > group > domain. This elevates the privilege of registered user stations to dial the more extensive and dangerous extensions in the "default" dialplan as opposed to the few innocuous extensions listed in the "public" dialplan that ships with FreeSWITCH.
+
+Document generated by Confluence on nov 11, 2022 04:24

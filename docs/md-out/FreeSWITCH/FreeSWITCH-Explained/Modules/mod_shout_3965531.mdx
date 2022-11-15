@@ -1,0 +1,233 @@
+
+# mod_shout 
+
+ Created by  Belaid Areski, last modified by  Attila Gulyas on 2019.12.23
+
+---
+
+Table of Contents (click to expand)
+
+* [0\. About](#0-about)
+* [1\. Build mod\_shout](#1-build-mod_shout-)  
+   * [1.1 Install dependencies](#11-install-dependencies)  
+   * [1.2 Enable module in build](#12-enable-module-in-build)  
+   * [1.3 Configure and make](#13-configure-and-make)  
+   * [1.4 Debugging](#14-debugging)  
+         * [1.4.1 Configure libshout directly](#141-configure-libshout-directly)  
+         * [1.4.2 Delete lib directories](#142-delete-lib-directories)
+* [2\. Load mod\_shout](#2-load-mod_shout-)  
+   * [2.1 Enable module in runtime](#21-enable-module-in-runtime)  
+   * [2.2 Load the Module](#22-load-the-module)
+* [3\. Capabilities](#3-capabilities)  
+   * [2.1 Play](#21-play)  
+         * [2.1.1 Local MP3 Files](#211-local-mp3-files)  
+         * [2.1.2 Remote MP3 Files](#212-remote-mp3-files)  
+         * [2.1.3 Icecast Streams](#213-icecast-streams)  
+         * [2.1.4 Shoutcast streams](#214-shoutcast-streams)  
+                  * [2.1.4.1 Using shoutcast stream for music-on-hold (MOH)](#2141-using-shoutcast-stream-for-music-on-hold-moh)  
+         * [2.1.5 Using mod\_shout for TTS with online services](#215-using-mod_shout-for-tts-with-online-services)  
+   * [2.2 Record](#22-record)  
+         * [2.2.1 Recording to Icecast server](#221-recording-to-icecast-server)
+
+---
+
+## 0\. About
+
+  
+This module allows one to play local and remote MP3 files at any sample rate.
+
+This module also needs to be built (see **1\. Build `mod_shout`** section below) and loaded (in `modules.conf.xml`, see [Modules](./index.mdx#about)) for other facilities (such as [mod\_dptools: playback](./mod-dptools/6586776.mdx#0-about), [mod\_conference](./mod_conference_3965534.mdx#list), etc.) to be able to handle MP3 files.
+
+## 1\. Build `mod_shout` 
+
+### 1.1 Install dependencies
+
+* `libvorbis` and development libraries
+* `libogg` and development libraries
+
+On Debian:
+
+```xml
+apt-get install libvorbis0a libogg0 libogg-dev libvorbis-dev 
+```
+
+On CentOS 5.x:
+
+```xml
+yum install libvorbis libvorbis-devel libogg libogg-devel
+```
+
+On CentOS 6.x:
+
+```xml
+yum install libshout-devel lame-devel libmpg123-devel
+```
+
+### **1.2 Enable module in build**
+
+Remove hash tag (#) in [build/modules.conf.in](https://github.com/signalwire/freeswitch/blob/master/build/modules.conf.in) source directory:
+
+```xml
+formats/mod_sndfile
+formats/mod_shout    <--- NEW
+#languages/mod_perl
+```
+
+### 1.3 Configure and make
+
+```xml
+./configure && make install
+```
+
+### 1.4 Debugging
+
+If `mod_shout` is not working, try the following:
+
+TODO These instructions may be outdated. For example, `libshout` is only included [under the win32 directory](https://github.com/signalwire/freeswitch/tree/master/libs/win32).
+
+#### 1.4.1 Configure `libshout` directly
+
+Rather than relying on the overall configure script to invoke this, go to the `src/lib/libshout` directory and run configure directly. If you get an error like:
+
+```xml
+checking for libogg... not found
+checking for VORBIS... checking for libvorbis... not found
+configure: error: requisite Ogg Vorbis library not found
+```
+
+#### 1.4.2 Delete lib directories
+
+Also, try deleting both the libs/libshout-2.2.2 and libs/lame-3.97 directory and rerunning make.
+
+## 2\. Load `mod_shout` 
+
+### 2.1 Enable module in runtime
+
+Edit `conf/autoload_configs/modules.conf.xml` :
+
+```xml
+    <load module="mod_native_file"/>
+    <!--For icecast/mp3 streams/files-->
+    <load module="mod_shout"/>          <------- NEW
+```
+
+`conf/` refers to the main FreeSWITCH configuration directory. To find its exact location on your system:
+
+```xml
+$ fs_cli -x 'eval $${conf_dir}'
+/etc/freeswitch_
+```
+
+### 2.2 Load the Module
+
+From the [CLI](../Client-and-Developer-Interfaces/1048948.mdx#or), run `load mod_shout`
+
+## 3\. Capabilities
+
+### 2.1 Play
+
+Fast Forward / Rewind bugs
+
+Certain things, such as fast-forward and rewind, might not work, especially if the MP3 is "badly encoded".
+
+If these features are needed, one thing to try is to decode the MP3 to a WAV, and re-encode it back to an MP3, in order to cleanse it of errors. If this still does not work, consider converting it to a WAV, and using it in that format.
+
+See [Playing/Recording External Media](../Examples/Playing-recording-external-media_13173508.mdx#1-cli-examples) for instructions on how to play an MP3 file into a conference call.
+
+#### 2.1.1 Local MP3 Files
+
+Can play local MP3 files at any sample rate (8khz, 16khz, 44.5khz) in mono/stereo. Re-sampling happens on the fly.
+
+Re-sampling can be very CPU-expensive.
+
+#### 2.1.2 Remote MP3 Files
+
+```xml
+session.streamFile("shout://some.server.com/file.mp3", "")
+```
+
+#### 2.1.3 Icecast Streams
+
+Can play icecast streams. 
+
+TODO Add example.
+
+#### 2.1.4 Shoutcast streams
+
+```xml
+<extension name="shout">
+  <condition field="destination_number" expression="^750$">
+    <action application="answer"/>
+    <action application="playback" data="shout://scfire-dll-aa02.stream.aol.com:80/stream/1074"/>
+  </condition>
+</extension>
+
+
+<extension name="moh_for_bridges">
+  <condition field="destination_number" expression="^(15145555555)$">
+   <action application="set" data="hold_music=shout://scfire-dll-aa01.stream.aol.com:80/stream/1018"/>
+   <action application="bridge" data="sofia/default/$1@1.2.3.4"/>
+  </condition>
+</extension>
+```
+
+##### 2.1.4.1 Using shoutcast stream for music-on-hold (MOH)
+
+To use shoutcast for MOH, do the following:
+
+If you just use `hold_music=shout://<url>` , you will have issues after the first time you place the call on hold.
+
+1. Create a folder that contains a single file called `something.loc` with the URL of the shoutcast stream  
+(e.g., `shout://theserver:8111/the_stream.mp3`)
+2. Edit `conf/autoload_configs/local_stream.conf.xml` to contain a stream that points to the folder you just created.  
+```xml  
+  <directory name="moh/shout" path="$${base_dir}/sounds/music/shout">  
+    <param name="rate" value="8000"/>  
+    <param name="shuffle" value="true"/>  
+    <param name="channels" value="1"/>  
+    <param name="interval" value="10"/>  
+    <param name="timer-name" value="soft"/>  
+  </directory>  
+```
+3. Set your [hold\_music variable](../../Channel-Variables-Catalog/hold_music_16352624.mdx#hold_music) to point to the local stream that you just created.  
+That is, from the above example, it will be **`local_stream://moh/shout`** in this case.
+4. Tweak the volume parameters if the hold music is too loud via `conf/autoload_configs/shout.conf`  
+```xml  
+<configuration name="shout.conf" description="mod shout config">  
+  <settings>  
+    <!-- Don't change these unless you are insane -->  
+    <!--<param name="decoder" value="i586"/>-->  
+    <param name="volume" value="0.7"/>  
+    <!--<param name="outscale" value="8192"/>-->  
+  </settings>  
+</configuration>  
+```
+
+#### 2.1.5 Using mod_shout for TTS with online services
+
+Using `mod_shout` for TTS is not recommend in a live environment due to lack of caching. 
+
+See **Via [mod\_shout](mod_shout_3965531.mdx#21-play) using online TTS** section in [TTS](../Configuration/TTS_9634273.mdx#about) for examples.
+
+### 2.2 Record
+
+Can record to
+
+* local MP3 files
+* icecast and/or shoutcast streams.
+
+#### 2.2.1 Recording to Icecast server
+
+To record to Icecast server from your conference or your call:
+
+```xml
+<action application="record" data="shout://source:pass@10.10.10.10:8000/stream.mp3"/>
+```
+
+For conference, I do it from console:
+
+```xml
+conference 3001-10.10.10.10 record shout://source:pass@10.10.10.10:8000/stream.mp3
+```
+
+Document generated by Confluence on nov 11, 2022 04:27

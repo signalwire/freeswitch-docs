@@ -1,0 +1,143 @@
+
+# Goip HowTo 
+
+ Created by  Mario G, last modified by  Belaid Areski on 2014.08.29
+
+# About
+
+Goip is just a GSM Gateway model made in China. There are several companies that offer this device under different brand names such us MadCom, Hybertone, Etross etc. They are cheap and quite popular in sites like eBay.com, alibaba.com etc. They all share the same features and they are normally easy to configure. Some models support up to 1, 4, 8 and 32 Sim cards. Normally, all of them share the same web menu to be configured.
+
+Click here to expand Table of Contents
+
+# 
+
+* 1 [](#about)
+* 2 [Goip GSM Gateway HowTo](#goip-gsm-gateway-howto)
+* 3 [Goip GSM Gateway HowTo ASSUMPTIONS](#goip-gsm-gateway-howto-assumptions)
+* 4 [Goip Device Before you Start](#goip-device-before-you-start)
+* 5 [Goip Device Login to FS](#goip-device-login-to-fs)
+* 6 [Goip Device Status](#goip-device-status)
+* 7 [FreeSwitch Gateway Configuration Example](#freeswitch-gateway-configuration-example)
+* 8 [FreeSwitch Context (Outbound) Configuration Example](#freeswitch-context-outbound-configuration-example)
+* 9 [FreeSwitch Context (Inbound) Configuration Example](#freeswitch-context-inbound-configuration-example)
+* 10 [Troubleshooting and Useful Tips](#troubleshooting-and-useful-tips)
+* 11 [Useful Docs](#useful-docs)  
+   * 11.1 [See Also](#see-also)
+
+# Goip GSM Gateway HowTo
+
+This is the minimal basic configuration to make the Goip GSM Gateway work with FreeSwitch. 
+
+# Goip GSM Gateway HowTo ASSUMPTIONS
+
+You have the default Goip GSM Gateway configuration.
+
+You have the initial FreeSwitch install.
+
+You have are familiar with FreeSwitch dialplan and CLI commands.
+
+# Goip Device Before you Start
+
+Remember to remove the PIN number from your SIM card. Double check your SIM card with a Phone. It should not ask you for a PIN. Check out that the led lights (green and red) are blinking as they should.
+
+# Goip Device Login to FS
+
+**goipSetup -> Call Setting -> Config Mode -> Sip Phone**
+
+Config Mode -> Single Server Mode
+
+Phone Number -> 1000
+
+Sip Proxy -> 192.168.2.1
+
+Sip Registrar ->Server
+
+Authentication ID -> 1000
+
+Password -> 1234
+
+**goipSetup -> Call Divert -> Forward Number(VoIP to PSTN) -> 10000**
+
+This will redirect all your inbound calls to this Freeswitch extension (10000) in this case
+
+* Sip proxy should aim to the IP where your FS is running.
+* Do not change any other parameter, they should be as they are by default.
+
+**goipSetup -> Save Changes**
+
+# Goip Device Status
+
+**goipSetup -> Status**
+
+* On the Goip status page the Phone Status and your GSM Status must be LOGIN.
+* On the Goip status page GSM operator must not be blank.(It normaly takes about 1 minute to show a Reference ID from your GSM operator)
+* GSM signal must be good, you may have trouble if it is below 12.
+
+# FreeSwitch Gateway Configuration Example
+
+**Create file goip.xml in this folder freeswitch/conf/sip\_profiles/external/**
+
+```xml
+<include>
+  <gateway name="goip">
+  <!--/// account username *required* ///-->
+  <!-- Extension 1000 in my case -->
+  <param name="username" value="1000"/>
+  <!--/// auth realm: *optional* same as gateway name, if blank ///-->
+  <!-- It must aim to the Goip GateWay IP 192.168.2.2 in my case -->
+  <param name="realm" value="192.168.2.2"/>
+  <!--1234 in my case-->
+  <param name="password" value="1234"/> 
+  <!--/// expire in seconds: *optional* 3600, if blank ///-->
+  <param name="expire-seconds" value="30"/>
+  <!--/// do not register ///-->
+  <param name="register" value="false"/>
+  <!-- which transport to use for register -->
+  </gateway>
+ </include>
+```
+
+# FreeSwitch Context (Outbound) Configuration Example
+
+```xml
+  <extension name="Goip outbound">
+    <condition field="destination_number" expression="^(6(\d{8}))$">
+      <action application="log" data="INFO goip outbound to $1"/>
+      <action application="bridge" data="sofia/gateway/goip/$1"/>
+    </condition>
+  </extension>
+```
+
+* In this example if you dial a number that starts with 6 plus 8 more digits the call will be bridged to the Goip GSM, change it accordingly to your country phone format or the desired format.
+
+# FreeSwitch Context (Inbound) Configuration Example
+
+```xml
+  <extension name="Goip inbound">
+    <condition field="destination_number" expression="^(10000)$">
+      <action application="log" data="INFO do you inbound stuff here!!!!! ani --${ani} "/>
+      <action application="hangup" />
+   </condition>
+  </extension>
+```
+
+* In this example all the inbound calls are sent to the extension 10000 then they are hanged up. The ani should appear.
+
+# Troubleshooting and Useful Tips
+
+* sofia status profile internal (to verify that the Goip extension is logged in FS).
+* sofia status (to check that the Goip gateway is properly configured and it is running).
+* If you are having trouble with the outbound calls try to log **directly** into the Goip Gateway, that is to say create an account with your favorite SIP client (Jitsy, X-Lite, SipDroid, CSipSimple...) use the same username and password and remember that **the IP must aim at your Goip Gateway IP, not the Freeswitch one**, then when your client is logged, try to make a call.
+* If you are having trouble with the inbound call, **goipSetup -> tools -> Restore Factory Settings** make a call with another phone to your Goip Gateway Sim phone number. The green light should remain still, then you should hear the Goip answering machine asking you to dial an extension plus # sign to transfer you to that extension. If this is the case check out your Sip parameters specially your Forward Number in Goip, set your FS to debug, some traces should appear, if not double check the SIM card. Extract it from Goip test it with your cell phone.
+
+# Useful Docs
+
+* [Documentation 1 pdf](http://goip.com.ua/download/goip-series-manual.pdf)
+* [Documentation 2 pdf](http://www.justtech.co.nz/manuals/goIP%5Fr1.2.pdf)
+
+## See Also
+
+* [Sofia\_Configuration\_Files#Structure\_of\_a\_Profile](http://wiki.freeswitch.org/wiki/Sofia%5FConfiguration%5FFiles#Structure%5Fof%5Fa%5FProfile)
+* [XML Dialplan](../../Dialplan/XML-Dialplan/index.mdx#why)
+
+Document generated by Confluence on nov 11, 2022 04:28

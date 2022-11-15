@@ -1,0 +1,168 @@
+
+# OpenWrt 
+
+ Created by  Sergio Filipe, last modified on 2016.12.23
+
+# About
+
+This page exists to help others configure FreeSWITCH to run on their OpenWrt based routers.
+
+Click here to expand Table of Contents
+
+* 1 [Hardware](#hardware)
+* 2 [Small Caveat](#small-caveat)
+* 3 [Serial connection](#serial-connection)
+* 4 [Location of Firmware](#location-of-firmware)
+* 5 [Project Files](#project-files)
+* 6 [Compiling FreeSWITCH](#compiling-freeswitch)
+* 7 [Memory Consumption](#memory-consumption)
+* 8 [List of currently compiled modules](#list-of-currently-compiled-modules)
+* 9 [Sample startup/shutdown scripts](#sample-startupshutdown-scripts)
+* 10 [To Do](#to-do)
+
+# Hardware
+
+Development work was done on a Planex MZK-W04NU 802.11bgn 2.4ghz router. This router comes highly recommended from the OpenWrt community as it has gained full support within Kamikaze, the latest OpenWrt release. Some of the benefits of this router:
+
+* It has a relatively large amount of memory for a router of this class, 32MB and a good size flash (8MB).
+* USB 2.0 port. This provides many options for expansion (flash drives, external hard drives, ethernet and wifi dongles, web cams).
+* Atheros' MIPS implementation is a more recent architecture compared to the Linksys WRT54 routers. The AR9130 is a 400Mhz MIP32 24Kc based processor.
+* Very easy to build a serial cable for this router.
+* It's relatively inexpensive. Available online in the US for about 60 bucks.
+
+There is an active thread on the OpenWrt [forums](http://forum.openwrt.org/viewtopic.php?id=18434&p=1) which discuss this router.
+
+Keep in mind you should be able to build FreeSWITCH for any router that that is supported under a Kamikaze cross compile environment.
+
+# Small Caveat
+
+With all the benefits of this router I must state a concern:
+
+The Atheros wifi radio inside this router depends on the ath9k driver for Linux. This driver is still in its early stages and as such has some known issues. One of the biggest is the dropped [SSID](http://forum.openwrt.org/viewtopic.php?pid=84464#p84464) issue. The post referenced does document a workaround. In the interim I currently not do rely on the wireless connection from this router and will revisit this once the issue is remedied.
+
+With that said I can vouch the rest of the Linux system is quite STABLE. I've been running r15083 for over a week now with FreeSWITCH without any problems.
+
+# Serial connection
+
+If you plan to build your own firmware I **highly** recommend you acquire/build a [serial cable](http://www.nslu2-linux.org/wiki/HowTo/AddASerialPort) for this router. Unlike some other routers such as the WRT54 series, the Planex will not accept a tftp upload without serial intervention (uboot access). If you get in a situation where the kernel panics repeatedly during startup or you forgot to include any network drivers, you'll be SOL until you connect to the serial port.
+
+Also, keep in mind you cannot just directly connect your DB9 serial cable to the contacts on the board as PC serial ports operate at 12V. Most home routers such as this one have 3.3V connections. You will need a cable logic converter. The page above has some good information. I would suggest a Nokia DKU-5 cable on ebay for &lt; $4US as your easiest option.
+
+# Location of Firmware
+
+RoundSparrow has been considerate enough to provide precompiled images for this [router: ](http://forum.openwrt.org/viewtopic.php?id=19475)  
+His direct [link](http://sites.google.com/a/roundsparrow.com/openwrt%5Fap81/)
+
+# Project Files
+
+The file [freeswitch-openwrt.tar.gz](http://files.freeswitch.org/freeswitch-openwrt.tar.gz) consists of several files:
+
+\- Makefile (self explanatory)   
+\- freeswitch-modules.conf (this gets copied to the build folder during compile)   
+\- several patch files required for building in a cross compile environment 
+
+# Compiling FreeSWITCH
+
+Before you can cross compile FreeSWITCH you'll need an OpenWrt build system. Keep in mind a cross compile environment for OpenWrt can take several gigabytes of storage so your Linux host should have plenty of space! The first [post](http://forum.openwrt.org/viewtopic.php?id=9180) in this thread is a good place to read on how to build Kamikaze from scratch. After following the steps up to 2.3 and have grabbed several cups of coffee :) you're ready to extract the tar file. Extract the tar file from the trunk directory. It should place the files under trunk/package/freeswitch
+
+From the trunk directory, run **make menuconfig**, select Networking menu, scroll down until you see **freeswitch**. Select it as a module(M) which will build an ipk package or (\*) to be placed in the firmware image.
+
+At this point you can type: **make V=99 package/freeswitch-compile**. In the end you should end up with a freeswitch-snapshot.ipk file under trunk/bin.
+
+If you don't want to build your own copy of FreeSWITCH you can attempt to install the prepackaged file, [freeswitch-openwrt.ipk](http://files.freeswitch.org/freeswitch-openwrt%5Fmips.ipk). This will ONLY work on routers that use the MIP32r2 instruction set (such as the Planex above). GCC strings that were passed to the cross compiler: "-mips32r2 -mtune=mips32r2"
+
+This package has several dependencies: libncurses, libreadline, libpthread, libpcre, libgnutls 
+
+If you're curious about the contents you can just extract it with tar as it's just a gzip tar file.
+
+# Memory Consumption
+
+On average with FreeSWITCH running I see about 18MB memory (Virtual)
+
+```xml
+Mem: 28536K used, 1296K free, 0K shrd, 488K buff, 7440K cached
+```
+
+CPU: 9% usr 9% sys 0% nice 0% idle 81% io 0% irq 0% softirq Load average: 0.41 0.59 0.61
+
+```xml
+ PID  PPID USER     STAT   VSZ %MEM %CPU COMMAND
+3474  3453 root     R    18984  64%   9% /usr/local/freeswitch/bin/freeswitch 
+3719  2327 root     R     1380   5%   9% top -b 
+3542  3453 root     R    18984  64%   0% /usr/local/freeswitch/bin/freeswitch 
+3540  3453 root     R    18984  64%   0% /usr/local/freeswitch/bin/freeswitch 
+3462  3453 root     S    18984  64%   0% /usr/local/freeswitch/bin/freeswitch 
+3470  3453 root     S    18984  64%   0% /usr/local/freeswitch/bin/freeswitch 
+3546  3453 root     S    18984  64%   0% /usr/local/freeswitch/bin/freeswitch 
+3455  3453 root     S    18984  64%   0% /usr/local/freeswitch/bin/freeswitch 
+3538  3453 root     S    18984  64%   0% /usr/local/freeswitch/bin/freeswitch 
+3454  3453 root     S    18984  64%   0% /usr/local/freeswitch/bin/freeswitch 
+3541  3453 root     S    18984  64%   0% /usr/local/freeswitch/bin/freeswitch 
+3463  3453 root     S    18984  64%   0% /usr/local/freeswitch/bin/freeswitch 
+3539  3453 root     S    18984  64%   0% /usr/local/freeswitch/bin/freeswitch 
+3475  3453 root     S    18984  64%   0% /usr/local/freeswitch/bin/freeswitch 
+3452  3451 root     S    18984  64%   0% /usr/local/freeswitch/bin/freeswitch 
+3456  3453 root     S    18984  64%   0% /usr/local/freeswitch/bin/freeswitch 
+3459  3453 root     S    18984  64%   0% /usr/local/freeswitch/bin/freeswitch 
+3537  3453 root     S    18984  64%   0% /usr/local/freeswitch/bin/freeswitch 
+3453  3452 root     S    18984  64%   0% /usr/local/freeswitch/bin/freeswitch 
+3473  3453 root     S    18984  64%   0% /usr/local/freeswitch/bin/freeswitch 
+3457  3453 root     S    18984  64%   0% /usr/local/freeswitch/bin/freeswitch 
+3458  3453 root     S    18984  64%   0% /usr/local/freeswitch/bin/freeswitch 
+1103     1 root     S     2792   9%   0% hostapd -P /var/run/wifi-wlan0.pid -B
+```
+
+I strongly advise configuring a swap partition as you will most likely see the dreaded oom-killer (followed by a kernel panic) without it. I am currently using a USB flash drive partitioned for swap and an ext3 volume (for /usr/local/freeswitch). The faster the flash the better. I'm using a 200X flash (Patriot Xporter XT - best rating on newegg).
+
+If you're use to running the FreeSWITCH console via a screen session on other unix systems (in order to disconnect and reconnect at a later time) you might be interested in running the console from the serial port session. This will allow you to detach/attach to the serial port without affecting the FreeSWITCH console session.
+
+# List of currently compiled modules
+
+```bash
+root@OpenWrt:/usr/local/freeswitch/mod# ls
+mod_amr.so                mod_esf.so                mod_iax.so                mod_sofia.so
+mod_cdr_csv.so            mod_event_multicast.so    mod_ilbc.so               mod_speex.so
+mod_commands.so           mod_event_socket.so       mod_limit.so              mod_syslog.so
+mod_conference.so         mod_expr.so               mod_local_stream.so       mod_tone_stream.so
+mod_console.so            mod_fifo.so               mod_logfile.so            mod_voicemail.so
+mod_dialplan_asterisk.so  mod_fsv.so                mod_loopback.so           mod_voipcodecs.so
+mod_dialplan_xml.so       mod_g723_1.so             mod_native_file.so        mod_xml_cdr.so
+mod_dptools.so            mod_g729.so               mod_say_en.so             mod_xml_curl.so
+mod_enum.so               mod_h26x.so               mod_sndfile.so            mod_xml_rpc.so
+```
+
+# Sample startup/shutdown scripts
+
+ **startfs.sh**
+
+```bash
+#!/bin/sh
+ulimit -s 240
+export PREFIX=/usr/local/freeswitch
+export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:$PREFIX/lib
+$PREFIX/bin/freeswitch -conf $PREFIX/conf -db $PREFIX/db -log $PREFIX/log 
+
+```
+
+  
+**stopfs.sh**
+
+```bash
+ #!/bin/sh
+export PREFIX=/usr/local/freeswitch
+export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:$PREFIX/lib
+$PREFIX/bin/freeswitch -stop
+```
+  
+  
+# To Do
+
+* Get NSPR/spider\_monkey compiled (doesn't play nice in a cross compiled environment)
+* Get lame/mod\_shout compiled (similar issue)
+
+ ## Comments:
+
+| Hello all,This page seems out of date. There are references to Kamikaze, which is an end-of-life release from way-back-when. And then there is information about a Planex MZK-W04NU router and a serial connection - which feel like they don't belong here. For one there are hundreds of routers supported by OpenWrt (if they all provide the minimum system requirements is another question). And the serial connection stuff is a topic of its own altogether ![(sorriso)](/images/icons/emoticons/smile.svg)On the OpenWrt Wiki there is an intro to FreeSWITCH on OpenWrt ([here](https://openwrt.org/docs/guide-user/services/voip/freeswitch)). Packages are created automatically by the OpenWrt build bots and can be easily installed with opkg. Init and hotplug script are provided by the main package.Kind regards,Seb ![](/images/icons/contenttypes/comment_16.png) Posted by Sebastian at nov 17, 2018 09:09 |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+
+Document generated by Confluence on nov 11, 2022 04:24

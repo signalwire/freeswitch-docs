@@ -1,0 +1,479 @@
+
+# Creating New Modules 
+
+ Created by  Humberto Diógenes, last modified by  Piotr Gregor on 2016.04.21
+
+# About
+
+This page outlines some of the structure available to build a new FreeSWITCH™ module.
+
+Click to expand Table of Contents
+
+* 1 [Before You Begin...](#before-you-begin)  
+   * 1.1 [Building Modules](#building-modules)  
+         * 1.1.1 [Within Git checkout](#within-git-checkout)  
+         * 1.1.2 [Using development headers (libfreeswitch-dev)](#using-development-headers-libfreeswitch-dev)  
+   * 1.2 [Module Interface](#module-interface)  
+         * 1.2.1 [SWITCH\_MODULE\_LOAD\_FUNCTION](#switch_module_load_function)  
+         * 1.2.2 [SWITCH\_MODULE\_RUNTIME\_FUNCTION](#switch_module_runtime_function)  
+         * 1.2.3 [SWITCH\_MODULE\_SHUTDOWN\_FUNCTION](#switch_module_shutdown_function)  
+   * 1.3 [Iterative Development](#iterative-development)  
+         * 1.3.1 [Building Your Module](#creating-your-module)  
+         * 1.3.2 [Installing Your Module](#reloading-your-module)  
+         * 1.3.3 [Reloading Your Module](#creating-your-module)  
+   * 1.4 [XML API](#creating-your-module)  
+         * 1.4.1 [Domains](#creating-your-module)  
+         * 1.4.2 [Users](#creating-your-module)  
+         * 1.4.3 [Module Configuration](#module-configuration)  
+         * 1.4.4 [Gathering data from XML objects](#gathering-data-from-xml-objects)  
+   * 1.5 [Reacting](#creating-your-module)  
+         * 1.5.1 [Subscribing to events](#subscribing-to-events)  
+         * 1.5.2 [Handling events](#handling-events)  
+   * 1.6 [Setting hooks](#setting-hooks)  
+         * 1.6.1 [Channel States](#channel-states)  
+         * 1.6.2 [State handlers](#channel-states)  
+   * 1.7 [Making calls](#making-calls)  
+         * 1.7.1 [Analysis of a FreeSWITCH call](#analysis-of-a-freeswitch-call)  
+         * 1.7.2 [Making calls from within your module](#making-calls-from-within-your-module)  
+         * 1.7.3 [Session Objects](#session-objects)  
+   * 1.8 [Memory Management](#memory-management)  
+   * 1.9 [Useful Macros](#useful-macros)  
+         * 1.9.1 [SWITCH\_DECLARE\_GLOBAL\_STRING\_FUNC](#switch_declare_global_string_func)  
+         * 1.9.2 [switch\_malloc](#switch_malloc)  
+         * 1.9.3 [switch\_zmalloc](#switch_zmalloc)  
+         * 1.9.4 [switch\_strdup](#switch_strdup)  
+         * 1.9.5 [switch\_safe\_free](#switch_safe_free)
+* 2 [New Module Checklist](#new-module-checklist)
+* 3 [See Also:](#creating-your-module)
+
+# Before You Begin...
+
+* Ensure that the functionality you're looking for has not already been implemented [somewhere else](../../../Modules/index.mdx#about).  
+   * Collaborate with the original authors if there is something very close that just needs a minor change to accommodate what you need.
+* Review the bundled modules in freeswitch/src/mod/applications (particularly [mod\_skel](../../../Modules/mod_skel_3965522.mdx#about)) to get an understanding of how modules interface with FreeSWITCH and function.
+
+## Building Modules
+
+### Within Git checkout
+
+It is possible to build your modules at the same time as FreeSWITCH.
+
+#### Creating Your Module
+
+* Start with a fresh git clone
+* Create your own module directory under freeswitch/src/mod/applications
+* Copy the skeleton from [freeswitch/src/mod/applications/mod\_skel/mod\_skel](../../../Modules/mod_skel_3965522.mdx#about) to mod\_yourmodule
+* Edit as appropriate
+* Add your module to the list of modules to build in freeswitch/modules.conf
+
+#### Customizing Include/Library Flags
+
+The first time you perform a 'make' from freeswitch, a Makefile will be generated for your module
+
+If you wish to use functionality from the libraries bundled with FreeSWITCH, you might add something like this to your module's Makefile:
+
+LOCAL_CFLAGS=-I$(switch_srcdir)/libs/libteletone/src
+LOCAL_LDFLAGS=$(switch_srcdir)/libs/libteletone/libteletone.la
+
+#### Working with multiple source files
+
+If you want to work with multiple C or C++ files, you might add something like this to your module's Makefile:
+
+LOCAL_OBJS=file.o file2.o file3.o
+local_depend: $(LOCAL_OBJS)
+
+Please note that the file list should not contain the source file which has the same name as the module.
+
+### Using development headers (libfreeswitch-dev)
+
+It is also possible to build your module using only the libfreeswitch-dev development header package from the [Debian repository](http://files-sync.freeswitch.org/repo/deb/debian/).
+
+This means you do not need to recompile FreeSWITCH, only your module(s). This means a much faster build.
+
+* Create a directory for storing your module
+* Copy the skeleton from freeswitch/src/mod/applications/mod\_skel/mod\_skel.c to mod\_yourmodule.c
+* Edit as appropriate
+* Create this Makefile (more complex ones may be required as your project demands it):
+
+**Makefile**
+
+```bash
+# Customise these as appropriate
+MODNAME = mod_yourmodule.so
+MODOBJ = mod_yourmodule.o file.o file2.o file3.o
+MODCFLAGS = -Wall -Werror
+MODLDFLAGS = -lssl
+
+CC = gcc
+CFLAGS = -fPIC -g -ggdb `pkg-config --cflags freeswitch` $(MODCFLAGS)
+LDFLAGS = `pkg-config --libs freeswitch` $(MODLDFLAGS)
+
+.PHONY: all
+all: $(MODNAME)
+
+$(MODNAME): $(MODOBJ)
+    @$(CC) -shared -o $@ $(MODOBJ) $(LDFLAGS)
+
+.c.o: $<
+    @$(CC) $(CFLAGS) -o $@ -c $<
+
+.PHONY: clean
+clean:
+    rm -f $(MODNAME) $(MODOBJ)
+
+.PHONY: install
+install: $(MODNAME)
+    install -d $(DESTDIR)/usr/lib/freeswitch/mod
+    install $(MODNAME) $(DESTDIR)/usr/lib/freeswitch/mod
+```
+
+* You can now create your own Debian package (more information to be added later - Steven Ayre)
+
+## Module Interface
+
+A module is expected to define the following "hooks":
+
+### SWITCH_MODULE_LOAD_FUNCTION
+
+Using this macro defines the load function for the module, in this function you should initialize any global structures, hook up any event or state handlers, etc. If you return anything other than SWITCH\_STATUS\_SUCCESS, the module will not continue to be loaded.
+
+### SWITCH_MODULE_RUNTIME_FUNCTION
+
+This is the runtime loop of the module, from here you can listen on sockets, spawn new threads to handle requests. etc.
+
+### SWITCH_MODULE_SHUTDOWN_FUNCTION
+
+This is where you do any cleanup for unloading or reloading the module, you should release state handlers, event reservations, etc. You should also synchronize with shutting down the runtime thread (usually using something like a shared 'running' variable that the shutdown function sets to some value that the runtime function notices, sets to a third value and then exits).
+
+## Iterative Development
+
+The build system is set up to conveniently support rapidly iterative development of your module. Lets look at how you can make changes to your module source, build those changes, and then install and reload your library in a running instance of FreeSWITCH; all with 3 quick and easy commands.
+
+In these examples the FS source will be in a directory called **freeswitch** under our home directory. The module we'll use in our examples will be **mod\_event\_zmq** which would be located at **\~/freeswitch/src/mod/event\_handlers/mod\_event\_zmq**.
+
+### Building Your Module
+
+The build system automatically generates a target for each module which happens to be the module's full name.
+
+You've just made a change to the source code and now want to build just the module and not the whole of the switch:
+
+ josh@overt ~/freeswitch $ make mod_event_zmq
+
+### Installing Your Module
+
+Once the build is done there should be an updated library file located in the module source directory. The library could be manually copied to the FS installation directory, but there are a number of other ancillary tasks that need to be done such as setting permissions and updating the runtime linker. The build system will handle all of this with an autogenerated target; each module has a distinct install target which is it's name appended with **\-install**.
+
+You've now built the module library and are ready to install the new library to the FS installation directory (on \*nix platforms this does not require shutting down a running switch instance):
+
+ josh@overt ~/freeswitch $ sudo make mod_event_zmq-install
+
+### Reloading Your Module
+
+FS has the capability to reload modules which will cause the newly installed library to get loaded. N.B. your module's **Shutdown** function must accomplish a complete reversion of any setup that happens in it's **Load** function for a reload to work properly.
+
+You've now built the module, installed it and now want to see how the new changes work; the module can be reloaded using the FreeSWITCH console:
+
+ freeswitch@overt> reload mod_event_zmq
+
+## XML API
+
+XML is used a lot, every module gets its configuration from XML objects and some (e.g. directory) expose functions for modules to query information. This is how you query users, domains, etc. to get specific information.
+
+Those function will take a pointer to a switch\_xml\_t structure, you need to pass a preallocated pointer so that the functions can write the proper XML object in there.
+
+Here are a few ways to open a configuration section.
+
+Note: XML objects that come from a locate or open function MUST be freed. To do so, call the switch\_xml\_free function. (note it doesn't take a pointer as argument)
+
+ void switch_xml_free(switch_xml_t xml)
+
+### Domains
+
+switch_status_t switch_xml_locate_domain (const char *domain_name, switch_event_t *params, switch_xml_t *root, switch_xml_t *domain)
+
+### Users
+
+switch_status_t switch_xml_locate_user (const char *key, const char *user_name, const char *domain_name, 
+    const char *ip, switch_xml_t *root, switch_xml_t *domain, switch_xml_t *user, switch_event_t *params)
+
+### Module Configuration
+
+ switch_xml_t switch_xml_open_cfg (const char *file_path, switch_xml_t *node, switch_event_t *params)  
+
+**file\_path** the name of the config section e.g. modules.conf  
+**node** a pointer to point to the node if it is found  
+**params** optional URL formatted params to pass to external gateways 
+
+Your module configuration file should resemble the following:
+
+ &lt;configuration name="mymodule.conf" description="MyModule configuration">
+ ...
+ &lt;/configuration>
+
+You can then use freeswitch's XML functions to access your configuration data. **Note:** Don't forget to call switch\_xml\_free(&node) after you are done!
+
+### Gathering data from XML objects
+
+Now that you have your favorite configuration element opened, let's get some data out of it.
+
+The switch\_xml\_child(switch\_xml\_t xml, const char \*name) function will return you the first node with the name passed as argument. You can then use the switch\_xml\_attr or function to get the value of an attribute.
+
+For example, to parse the following structure
+
+ &lt;configuration name="mymodule.conf" description="MyModule configuration">
+   &lt;settings>
+    &lt;param name="key" value="value"/>
+    ...
+   &lt;/settings>
+ &lt;/configuration>
+
+You could do the following:
+
+ switch_xml_t xml = NULL, x_lists = NULL, x_list = NULL, cfg = NULL;
+ if ((xml = switch_xml_open_cfg("mymodule.conf", &cfg, NULL))) {
+   if ((x_lists = switch_xml_child(cfg, "settings"))) {
+     for (x_list = switch_xml_child(x_lists, "param"); x_list; x_list = x_list->next) {
+       const char *name = switch_xml_attr(x_list, "name"); // This needs to be const 
+       const char *value = switch_xml_attr(x_list, "value");
+ 
+       // Ignore empty/missing attributes
+       if (switch_strlen_zero(name)) {
+         continue;
+       }
+       
+       if (switch_strlen_zero(value)) {
+         continue;
+       }
+ 
+       if (!strcmp(name, "myattribute")) {
+         // Do something with value
+       } else if (!strcmp(name, "myotherattribute")) {
+         // ...
+       } else {
+         switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "Unknown attribute %s\n", name);
+       }
+     }
+   }
+ } else {
+   switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "Failed to load MyModule's config!\n");
+ }
+
+## Reacting
+
+Once your module is loaded, you want to react to whats happening, here is a few way to do so:
+
+### Subscribing to events
+
+Since we have an event based architecture, you can subscribe to various events to get notified whenever something happens in the switch. The event system is going to call a callback function every time an event occurs.
+
+ switch_event_bind(const char *id, switch_event_types_t event, const char *subclass_name, switch_event_callback_t callback, void *user_data);
+
+id is an identifier token of the binder, use your module's name  
+event is which event you would like to receive, see the [list](https://wiki.freeswitch.org/wiki/Event%5Flist "Event list")   
+subclass\_name is obviously the name of the subclass  
+user\_data is a pointer which is going to be passed back to you whenever the callback is called.
+
+If you want to receive all events, you can use the SWITCH\_EVENT\_ALL event type and the SWITCH\_EVENT\_SUBCLASS\_ANY subclass.
+
+ if (switch_event_bind("mod_mymodule", SWITCH_EVENT_ALL, SWITCH_EVENT_SUBCLASS_ANY, mymodule_event_handler, NULL) != SWITCH_STATUS_SUCCESS) {
+   switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "Cannot bind to event handler!\n");
+ }
+
+### Handling events
+
+Now that you registered a callback, here's how it works. Your callback procedure must have the following prototype:
+
+ void mymodule_event_handler(switch_event_t *event);
+
+Let's take a look at switch\_event\_t
+
+ /*! \brief Representation of an event */
+ struct switch_event {
+ 	/*! the event id (descriptor) */
+ 	switch_event_types_t event_id;
+ 	/*! the priority of the event */
+ 	switch_priority_t priority;
+ 	/*! the owner of the event */
+ 	char *owner;
+ 	/*! the subclass of the event */
+ 	char *subclass_name;
+ 	/*! the event headers */
+ 	switch_event_header_t *headers;
+ 	/*! the event headers tail pointer */
+ 	switch_event_header_t *last_header;
+ 	/*! the body of the event */
+ 	char *body;
+ 	/*! user data from the subclass provider */
+ 	void *bind_user_data;
+ 	/*! user data from the event sender */
+ 	void *event_user_data;
+ 	/*! unique key */
+ 	unsigned long key;
+ 	struct switch_event *next;
+ }; 
+
+Now most of you will need to filter on the event type, and do something with the headers the event contains. Here is an example
+
+ void mymodule_event_handler(switch_event_t *event) 
+ {
+ 	switch_assert(event); // Just a sanity check
+ 	
+ 	switch(event->event_id) {
+ 		case SWITCH_EVENT_CHANNEL_CREATE:
+ 			switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "A new channel is born, its called \"%s\"\n", 
+ 				switch_event_get_header_nil(event, "channel-name")); // This function isnt case-sensitive 
+ 			break;
+ 		case SWITCH_EVENT_CHANNEL_DESTROY:
+ 			switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "A channel named \"%s\" has been destroyed\n"
+ 				switch_event_get_header_nil(event, "channel-name"));
+ 			break;
+ 	}
+ }
+
+## Setting hooks
+
+### Channel States
+
+A description and explanation of [Channel States](https://wiki.freeswitch.org/wiki/Channel%5FStates "Channel States") is on a separate page.
+
+### State handlers
+
+You have the option of getting a callback whenever your channel changes state. Your function signature should be:
+
+   switch_status_t my_callback(switch_core_session_t *);
+
+The way you expose state handlers is by passing a switch\_state\_handler\_table\_t structure containing functions pointers to your handlers. Here is the structure:
+
+   struct switch_state_handler_table {
+       switch_state_handler_t on_init;
+       switch_state_handler_t on_routing;
+       switch_state_handler_t on_execute;
+       switch_state_handler_t on_hangup;
+       switch_state_handler_t on_exchange_media;
+       switch_state_handler_t on_soft_execute;
+       switch_state_handler_t on_consume_media;
+       switch_state_handler_t on_hibernate;
+       switch_state_handler_t on_reset;
+       switch_state_handler_t on_park;
+       switch_state_handler_t on_reporting;
+       switch_state_handler_t on_destroy;
+       int flags;
+       void *padding[10];
+   };
+
+The ones you do not want can be safely set to NULL, all others are going to be called when the state changes.
+
+There is a few way to register state handlers, all using this structure.
+
+Globally
+
+   int switch_core_add_state_handler(const switch_state_handler_table_t *state_handler)
+   void switch_core_remove_state_handler(const switch_state_handler_table_t *state_handler)
+
+On a specific channel
+
+   int switch_channel_add_state_handler(switch_channel_t *channel, const switch_state_handler_table_t *state_handler)
+   void switch_channel_clear_state_handler(switch_channel_t *channel, const switch_state_handler_table_t *state_handler)
+
+You can also set them when calling switch\_ivr\_originate() (more later)
+
+PS: Callbacks will occur on the session's thread itself.  
+Note: If you register state handlers and support module unloading, make sure you unbind them to avoid segfaults.
+
+## Making calls
+
+### Analysis of a FreeSWITCH call
+
+(talk about call states, session, channels, private data, etc)
+
+### Making calls from within your module
+
+Below is my current understanding. I'm not core developer, so all is guessed --[Sathieu](https://wiki.freeswitch.org/index.php?title=User:Sathieu&action=edit&redlink=1 "User:Sathieu (page does not exist)") 11:14, 18 February 2010 (UTC)
+
+When _originate your\_module/dest vmain_ is called from the console:
+
+* [your\_io\_routines.outgoing\_channel](http://docs.freeswitch.org/structswitch%5F%5Fio%5F%5Froutines.html#2fac41d9629ee59aea0739d14b195e69) is called  
+   * create a new session (with [switch\_core\_session\_request()](http://docs.freeswitch.org/group%5F%5Fsessm.html#g642a67bfa960aaa9221cf893e2b1afd4))  
+   * parse _outbound\_profile_\->_destination\_number_ to get called number  
+   * qualify the _session_, attached _channel_ and attached _private data_  
+   * The channel is currently in [CS\_NEW](https://wiki.freeswitch.org/wiki/Channel%5FStates "Channel States")  
+   * Change channel state to [CS\_INIT](https://wiki.freeswitch.org/wiki/Channel%5FStates "Channel States")  
+   * Make the phone ring (and call [switch\_channel\_mark\_ring\_ready()](http://docs.freeswitch.org/group%5F%5Fswitch%5F%5Fchannel.html#gf6eaad035aa712b44a9d1567b316bb02))
+* [your\_state\_handler.on\_init](http://docs.freeswitch.org/structswitch%5F%5Fstate%5F%5Fhandler%5F%5Ftable.html#d6a3c2d2ffd282587da2b0e2d6be781a) is called  
+   * Change channel state to [CS\_ROUTING](https://wiki.freeswitch.org/wiki/Channel%5FStates "Channel States")
+* [your\_state\_handler.on\_routing](http://docs.freeswitch.org/structswitch%5F%5Fstate%5F%5Fhandler%5F%5Ftable.html#ae354ef505041f2e731f8cdd41231d85) is called  
+   * What to do here?
+* The call is answered  
+   * switch\_channel\_mark\_answered(channel)
+
+### Session Objects
+
+You can get the session object of a session if you know the uuid. Consider:
+
+  switch_core_session_t *session;
+  if ((session = switch_core_session_locate(uuid_here))) {
+          /* do stuff with session */
+          switch_core_session_rwunlock(session);
+  }
+
+**NOTE:** _switch\_core\_session\_locate()_ will automatically lock the session. When you are done with the session object it is MANDATORY to call _switch\_core\_session\_rwunlock()_ or bad things will happen.
+
+## Memory Management
+
+In addition to the normal ways of managing memory in C, freeswitch provides an interface to APR memory pools. You can allocate from a memory pool using switch\_core\_alloc() or allocate from a session's memory pool using switch\_core\_session\_alloc(). You _cannot_ free memory from a pool, all the memory allocated from a pool is freed when the pool is destroyed.
+
+Memory pools are also hierarchical, in FreeSWITCH™ all the pools are a child of the core's master pool. You can create your own child pools using switch\_core\_new\_memory\_pool() or you can use a session's memory pool (not recommended).
+
+However, since you can't free memory from a pool without destroying the entire pool, there's still times when using traditional C memory management is a better plan.
+
+## Useful Macros
+
+FreeSWITCH™ provides a number of very helpful macros to aid development.
+
+### SWITCH_DECLARE_GLOBAL_STRING_FUNC
+
+This macro lets you define a dynamic global string (which is actually static to your module) setting function. The macro will free the previous value (if any) and then strdup the new value into it. The first value is the name of the function to be defined and the second parameter is the char \* pointer to store the pointer to the allocated string.
+
+### switch_malloc
+
+Macro to attempt a regular malloc(), which will abort() the process (eg. exit with SIGABRT), printing an error message to stderr containing the filename and line number where the error occurred.
+
+ #define switch_malloc(ptr, len) (void)( (!!(ptr = malloc(len))) || (fprintf(stderr,"ABORT! Malloc failure at: %s:%s", __FILE__, __LINE__),abort(), 0), ptr )
+
+### switch_zmalloc
+
+As per [#switch\_malloc](https://wiki.freeswitch.org/wiki/Authoring%5FFreeswitch%5FModules#switch%5Fmalloc), but uses calloc() so that the contents of the buffer are filled with byte value zero before use.
+
+ #define switch_zmalloc(ptr, len) (void)( (!!(ptr = calloc(1, (len)))) || (fprintf(stderr,"ABORT! Malloc failure at: %s:%s", __FILE__, __LINE__),abort(), 0), ptr)
+
+### switch_strdup
+
+Similarly to [#switch\_malloc](https://wiki.freeswitch.org/wiki/Authoring%5FFreeswitch%5FModules#switch%5Fmalloc), the macro will abort() if strdup() returns a null pointer (since strdup() is internally little more than a malloc() and a strcpy()).
+
+ #define switch_strdup(ptr, s) (void)( (!!(ptr = strdup(s))) || (fprintf(stderr,"ABORT! Malloc failure at: %s:%s", __FILE__, __LINE__),abort(), 0), ptr)
+
+### switch_safe_free
+
+Macro to avoid freeing a null pointer. Pointer is set to null after free()'ing to avoid pointing to a stale buffer.
+
+ #define switch_safe_free(it) if (it) {free(it);it=NULL;}
+
+# New Module Checklist
+
+When proposing a new module:
+
+* Add a `Makefile.am` for the module
+* Add the module to the FS `configure.ac`
+* Add the module to `build/modules.conf.in` (commented out)
+* Describe the module in as much detail as possible in the comments at the top of the module
+* Add our whitespace footer to the module files; ensure the \\\*.\[ch\] module files use tabs for indentation and are free of trailing whitespace (eg. in Emacs, run \` `M-x whitespace-mode`\`, then \` `M-x whitespace-cleanup`\`)
+* Remove any unused code left over from debugging
+* Ensure symbols not meant to be exported are declared `static`
+* Don't add any files to `conf/vanilla`
+* Write a commit message body describing the module, why it's useful, what it does, how it works, and any parts not yet implemented
+
+# See Also:
+
+* [Developer Potpourri](https://wiki.freeswitch.org/wiki/Developer%5FPotpourri "Developer Potpourri")
+
+Document generated by Confluence on nov 11, 2022 04:28

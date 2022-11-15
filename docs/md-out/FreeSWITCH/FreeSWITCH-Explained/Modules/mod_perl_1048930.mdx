@@ -1,0 +1,542 @@
+
+# mod_perl 
+
+ Created by  John Boteler, last modified by  Stanislav Sinyagin on 2015.03.20
+
+# About
+
+mod\_perl is supported as of RC4.
+
+Keep in mind that if you just want to execute perl scripts (or talk to FreeSWITCH using sockets through perl) you do not need mod\_perl. Generally the only time you will need mod\_perl support is if you want to interact with a live session from a script executed by FreeSWITCH (see examples below). For more details on using Perl without mod\_perl see the [Perl](https://wiki.freeswitch.org/wiki/Perl "Perl") page.
+
+Click to expand Table of Contents
+
+* 1 [Installing](#installing)  
+   * 1.1 [Issue with SUSE Linux](#issue-with-suse-linux--)  
+   * 1.2 [Perl Multiplicity Requirement](#perl-multiplicity-requirement)
+* 2 [Usage](#usage)  
+   * 2.1 [Dialplan application](#dialplan-application--)  
+   * 2.2 [Inline execution](#inline-execution)  
+   * 2.3 [XML dialplan generation](#xml-dialplan-generation)
+* 3 [Programming with mod\_perl](#programming-with-mod_perl)  
+   * 3.1 [Functions and classes](#functions-and-classes)  
+   * 3.2 [Some tips for programming with mod\_perl](#some-tips-for-programming-with-mod_perl)  
+   * 3.3 [Executing an API from within mod\_perl](#executing-an-api-from-within-mod_perl)  
+   * 3.4 [Hangup hook](#hangup-hook)
+* 4 [See Also](#-see-also-)
+* 5 [Examples](#-examples-)
+
+## Installing
+
+First beware that for mod\_perl support you must have perl compiled with threads/multiplicity (generally once you compile for threads this is enabled). If you are not sure if you have perl compiled with multiplicity (the FreeSWITCH install will \_not\_ check this for you) or if you are looking for tips on recompiling perl with this support please see the section on the perl multiplicity requirement at the end of this page.
+
+Once you have multiplicity support working you can continue:
+
+* Uncomment the mod\_perl line in modules.conf in the build root of FreeSWITCH
+* (re)compile freeswitch
+* issue "make mod\_perl-install" from the shell
+* Uncomment the mod\_perl load line in modules.conf.xml
+* Mod perl will now load and work correctly
+
+On RHEL / CentOS, gdbm-devel and db4-devel packages must be installed.
+
+### Issue with SUSE Linux  
+
+FreeSWITCH will compile mod\_perl on Suse 10.3, 11.0, and 11.1 however it appears that it will coredump. I resolved this by recompiling perl 5, (and upgrading to 5.10.0 in the process) which seems to have gotten this bug resolved. If you're not sufficiently skilled to re-compile perl yourself, contact your Distribution vendor and ask them to stop fixing things that aren't broken.
+
+I have not tried FreeSWITCH on earlier Suse distributions, your mileage may vary...
+
+### Perl Multiplicity Requirement
+
+As FreeSWITCH is multithreaded it requires mod\_perl to be multithreaded this can be a bit of a task to get working if it is not already compiled with this support.
+
+While there is a check in the makefile for this it doesn't actually execute currently so it is best to verify this yourself. At a command line run:
+
+perl -V | grep -oP "usemultiplicity=[a-z]+"
+
+you should get back something like: usemultiplicity=define however if you get back usemultiplicity=undef you are in bad shape. If this happens to you you will need to recompile perl to make mod\_perl for FreeSWITCH load correctly. Keep in mind that in addition to recompiling some (many) of your perl modules may need to be reinstalled to work correctly along with some apps that may require in with perl/libperl. You should test this on a non-production system before trying to convert a production system.
+
+For gentoo do the following:
+
+Add ithreads to the perl and libperl use flags
+recompile perl and libperl
+perl-cleaner reallyall
+
+That should help to ensure everything that could be effected is recompiled but it may not get everything (specifically manually compiled apps or cpan installed modules).
+
+A script to help ensure all modules are reinstalled for your new version of perl can be found at: <http://mitchcapper.com/missing%5Fmodules.pl.txt>
+
+## Usage
+
+### Dialplan application  
+
+Once you have enabled mod\_perl in the modules config, you are ready to start using it. If you want to call it as part of a dial plan you just have to call your script using:
+
+&lt;action application="perl" data="/path/to/your/script.pl"/>
+
+You can pass arguments to the script by just placing them at the end of the data string (separated by spaces).
+
+The script receives `$session` variable which represents the session object.
+
+`mod_perl` will automatically import the `freeswitch` Perl module, but nothing is imported into the global namespace. This means if you want to access a non-instance function from the class, say `consoleLog`, it is `freeswitch::consoleLog`.
+
+Your script should always end with a line of '`1;`', or if you are returning out of the script make sure you use '`return 1`' not just '`return`'.
+
+Keep in mind that your Perl script gets full control of the session, and nothing is happening to the session if the script is waiting for something. You cannot, for example, play music to the session and perform some bulky lookups in external databases.
+
+Example:
+
+**mod\_perl dialplan script example**
+
+```perl
+use strict;
+use warnings;
+our $session;
+freeswitch::consoleLog('INFO',"Example script started\n");
+$session->setVariable('business_hour', 'true');
+1;
+```
+
+### Inline execution
+
+`<` `action` `application` `=` `"set"` `data` `=` `"foo=${perl(/path/to/your/script.pl)}"` `/>`
+
+In case of inline execution, in addition to `$session` variable as described above, the script receives a predefined `$stream` variable which allows you to write the output:
+
+$stream->write("hello world");
+
+Also the variable `$env` represents an event object.
+
+### XML dialplan generation
+
+If you want to use mod\_perl to call a perl script to generate XML for a dialplan however you want to do a few additional things:
+
+The file conf/autoload\_configs/perl.conf.xml is used in the default FreeSWITCH™ setup.
+
+Here is a minimum configuration file, it will fetch a [dialplan ](../Dialplan/XML-Dialplan/index.mdx#why)from perl script:
+
+**conf/autoload\_configs/perl.conf.xml** 
+
+```xml
+<configuration name="perl.conf" description="PERL Configuration">
+  <settings>
+    <param name="xml-handler-script" value="/tmp/xml.pl"/>
+    <param name="xml-handler-bindings" value="dialplan"/>
+
+    <!--
+	The following options identifies a perl script that is launched	
+	at startup and may live forever in the background.
+	You can define multiple lines, one for each script you 
+	need to run.
+    -->
+    <!--param name="startup-script" value="startup_script_1.pl"/-->
+    <!--param name="startup-script" value="startup_script_2.pl"/-->
+
+  </settings>
+</configuration>
+```
+
+The **startup-script** values represent perl scripts (located inside the scripts/ directory) that are launched when FreeSWITCH is started. The scripts live in their own thread. You can use them to run simple tasks (and then let them finish) or looping forever, watching (for example) for events, generating calls or whatever you like.
+
+The **xml-handler-bindings** value can assume the following values:
+
+* configuration
+* dialplan
+* directory
+
+See [Mod xml curl](./mod_xml_curl_1049001.mdx) for more informations. Mod\_perl behaves the same identical way.
+
+The handler script receives two hashes that are populated for you by freeswitch:
+
+* %XML\_REQUEST
+* %XML\_DATA
+
+It also receives $params that is a wrapped switch event.
+
+You should return a valid XML dialplan in the $XML\_STRING variable before exiting your code.
+
+See the following example to start experimenting. The code will dump all the data to the console:
+
+**mod\_perl XML handler example**
+
+```xml
+#!/usr/bin/perl
+
+freeswitch::console_log("info", "Perl rocks\n");
+
+while( ($name, $value) = each(%XML_REQUEST)) {
+    freeswitch::console_log("info", '[XML_REQUEST] '."$name => $value\n");
+}
+
+# %XML_DATA is only present when perl is used as a binding
+while( ($name, $value) = each(%XML_DATA)) {
+    freeswitch::console_log("info", '[XML_DATA] '."$name => $value\n");
+}
+
+# even $params is full of data
+my $xml_dump = $params->serialize();
+freeswitch::console_log("info", "[PARAMS] $xml_dump\n");
+
+
+$XML_STRING = '
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<document type="freeswitch/xml">
+  <section name="dialplan" description="Perl RE Dial Plan For FreeSwitch">
+    <context name="default">
+      <extension name="test">
+        <condition field="destination_number" expression="^991$">
+          <action application="playback" data="tone_stream://path=${base_dir}/conf/tetris.ttml;loops=5"/>
+        </condition>
+      </extension>
+    </context>
+  </section>
+</document>
+';
+
+```
+
+## Programming with mod_perl
+
+### Functions and classes
+
+Useful commands that may help get a list of functions and classes from mod\_perl source files:
+
+grep -o -P "^(\*[^=]+|############# Class.+)" freeswitch.pm
+
+grep -o -P 'Usage: ([^"]+)' mod_perl_wrap.cpp
+
+### Some tips for programming with mod_perl
+
+Most instance functions have 'this' as the first parameter, you don't actually pass 'this', it is automatically passed when you call a function, for example:
+
+$session->answer();
+
+will pass $session as the this automatically.
+
+It is important to know that the perl->c++ conversion is not always perfect. Passing functions is done by passing the function name as a string, rather than the standard dereferencing:
+
+# GOOD  
+$session->setHangupHook( 'on_hangup' ); 
+# BAD  
+$session->setHangupHook( \&on_hangup );
+
+In addition a function that takes a string argument you should not pass it a number, so:
+
+# GOOD  
+$session->execute("sleep","1500");  
+# BAD   
+$session->execute("sleep",1500);
+
+Generally if you pass an invalid argument it will give you an error when you run it, with an error of "No matching function for overloaded".
+
+Also, some differences exist in the function names. For example, where in JavaScript you might do:
+
+var hangup_cause = session.cause
+
+In Perl, you would do:
+
+$hangup_cause = $session->hangupCause();
+
+Finally functions can behave a little bit different than expected, for example consoleLog does not append a newline at the end of the log message automatically, and may not flush it to the console until a new line is printed.
+
+### Executing an API from within mod_perl
+
+Sometimes you need to execute an API (like 'show channels' or 'fifo list') while processing in your script. You need to create an API object:
+
+my $api = new freeswitch::API;
+
+Then use the **execute** or **executeString** method and capture the return value:
+
+my $res = $api->executeString("show channels");
+
+Here's a very simple example that calls **version** and prints the value in the debug log.
+
+```xml
+# api_example.pl
+#
+my $api = new freeswitch::API;
+my $res = $api->executeString("version");
+chomp($res);
+freeswitch::consoleLog("INFO","Version information is '$res'\n");
+$session->hangup;
+1; ## Always end with a TRUE value    
+```
+
+### Hangup hook
+
+FreeSWITCH's [api\_hangup\_hook](https://wiki.freeswitch.org/wiki/Variable%5Fapi%5Fhangup%5Fhook "Variable api hangup hook") is a handy tool for post-processing on a call. While many use Lua for this (because it is lightweight and easy) there are valid reasons for using Perl. For example, Lua does not natively support directory operations (create file, delete file, etc.). Also, Perl has many CPAN modules that can be leveraged for post processing. 
+
+Setting a hook is simple:
+
+&lt;action application="set" data="api_hangup_hook=perl hook.pl"/>
+
+The above hook will run `perl hook.pl` when the channel hangs up.
+
+A sample `hook.pl`:
+
+our $env;
+open(FILEOUT,'>','/tmp/hookdata.txt');
+print FILEOUT $env->serialize;
+close(FILEOUT);
+
+A dump of hookdata.txt will show you what is available. Note that this particular hook ran after a successful [rxfax](https://wiki.freeswitch.org/wiki/Mod%5Fspandsp#For%5Freceiving%5Fa%5Ffax "Mod spandsp") application:
+
+Espandi fonte 
+
+```text
+'direction: outbound
+is_outbound: true
+uuid: 2cef485a-d020-11e0-a4e6-474e765f4808
+write_codec: L16
+write_rate: 8000
+channel_name: loopback/9905-a
+call_uuid: 2cef3cde-d020-11e0-a4e5-474e765f4808
+origination_caller_id_number: 5594372600
+originate_early_media: true
+other_loopback_leg_uuid: 2cef485a-d020-11e0-a4e6-474e765f4808
+loopback_leg: B
+open: true
+RFC2822_DATE: Fri,%2026%20Aug%202011%2013%3A15%3A43%20-0700
+endpoint_disposition: ANSWER
+playback_seconds: 2
+playback_ms: 2000
+playback_samples: 16000
+api_hangup_hook: perl%20hook.pl
+fax_v17_disabled: 0
+fax_ecm_requested: 1
+fax_filename: /tmp/fax-in-2cef485a-d020-11e0-a4e6-474e765f4808.tif
+jitterbuffer_msec: 0
+fax_success: 1
+fax_result_code: 0
+fax_result_text: OK
+fax_ecm_used: on
+fax_local_station_id: SpanDSP%20Fax%20Ident
+fax_remote_station_id: SpanDSP%20Fax%20Ident
+fax_document_transferred_pages: 1
+fax_document_total_pages: 1
+fax_image_resolution: 8031x3850
+fax_image_size: 0
+fax_bad_rows: 0
+fax_transfer_rate: 14400
+read_codec: L16
+read_rate: 8000
+current_application: hangup
+hangup_cause: NORMAL_CLEARING
+hangup_cause_q850: 16
+digits_dialed: none
+start_stamp: 2011-08-26%2013%3A15%3A43
+profile_start_stamp: 2011-08-26%2013%3A15%3A43
+answer_stamp: 2011-08-26%2013%3A15%3A43
+end_stamp: 2011-08-26%2013%3A16%3A39
+start_epoch: 1314389743
+start_uepoch: 1314389743241198
+profile_start_epoch: 1314389743
+profile_start_uepoch: 1314389743241198
+answer_epoch: 1314389743
+answer_uepoch: 1314389743261208
+bridge_epoch: 0
+bridge_uepoch: 0
+last_hold_epoch: 0
+last_hold_uepoch: 0
+hold_accum_seconds: 0
+hold_accum_usec: 0
+hold_accum_ms: 0
+resurrect_epoch: 0
+resurrect_uepoch: 0
+progress_epoch: 0
+progress_uepoch: 0
+progress_media_epoch: 0
+progress_media_uepoch: 0
+end_epoch: 1314389799
+end_uepoch: 1314389799501207
+last_app: hangup
+caller_id: 5594372600
+duration: 56
+billsec: 56
+progresssec: 0
+answersec: 0
+waitsec: 0
+progress_mediasec: 0
+flow_billsec: 56
+mduration: 56260
+billmsec: 56240
+progressmsec: 0
+answermsec: 20
+waitmsec: 0
+progress_mediamsec: 0
+flow_billmsec: 56260
+uduration: 56260009
+billusec: 56239999
+progressusec: 0
+answerusec: 20010
+waitusec: 0
+progress_mediausec: 0
+flow_billusec: 56260009
+Channel-State: CS_HANGUP
+Channel-Call-State: HANGUP
+Channel-State-Number: 10
+Channel-Name: loopback/9905-b
+Unique-ID: 2cef89e6-d020-11e0-a4e7-474e765f4808
+Call-Direction: inbound
+Presence-Call-Direction: inbound
+Channel-Call-UUID: 2cef3cde-d020-11e0-a4e5-474e765f4808
+Answer-State: hangup
+Channel-Read-Codec-Name: L16
+Channel-Read-Codec-Rate: 8000
+Channel-Read-Codec-Bit-Rate: 128000
+Channel-Write-Codec-Name: L16
+Channel-Write-Codec-Rate: 8000
+Channel-Write-Codec-Bit-Rate: 128000
+Caller-Direction: inbound
+Caller-Dialplan: xml
+Caller-Caller-ID-Number: 5594372600
+Caller-Callee-ID-Name: Outbound%20Call
+Caller-Callee-ID-Number: 9905
+Caller-Destination-Number: 9905
+Caller-Unique-ID: 2cef89e6-d020-11e0-a4e7-474e765f4808
+Caller-Source: mod_loopback
+Caller-Context: default
+Caller-Channel-Name: loopback/9905-b
+Caller-Profile-Index: 1
+Caller-Profile-Created-Time: 1314389743241198
+Caller-Channel-Created-Time: 1314389743241198
+Caller-Channel-Answered-Time: 1314389743261208
+Caller-Channel-Progress-Time: 0
+Caller-Channel-Progress-Media-Time: 0
+Caller-Channel-Hangup-Time: 1314389799501207
+Caller-Channel-Transfer-Time: 0
+Caller-Screen-Bit: true
+Caller-Privacy-Hide-Name: false
+Caller-Privacy-Hide-Number: false
+variable_direction: outbound
+variable_is_outbound: true
+variable_uuid: 2cef485a-d020-11e0-a4e6-474e765f4808
+variable_write_codec: L16
+variable_write_rate: 8000
+variable_channel_name: loopback/9905-a
+variable_call_uuid: 2cef3cde-d020-11e0-a4e5-474e765f4808
+variable_origination_caller_id_number: 5597993757
+variable_originate_early_media: true
+variable_other_loopback_leg_uuid: 2cef485a-d020-11e0-a4e6-474e765f4808
+variable_loopback_leg: B
+variable_open: true
+variable_RFC2822_DATE: Fri,%2026%20Aug%202011%2013%3A15%3A43%20-0700
+variable_endpoint_disposition: ANSWER
+variable_playback_seconds: 2
+variable_playback_ms: 2000
+variable_playback_samples: 16000
+variable_api_hangup_hook: perl%20hook.pl
+variable_fax_v17_disabled: 0
+variable_fax_ecm_requested: 1
+variable_fax_filename: /tmp/fax-in-2cef485a-d020-11e0-a4e6-474e765f4808.tif
+variable_jitterbuffer_msec: 0
+variable_fax_success: 1
+variable_fax_result_code: 0
+variable_fax_result_text: OK
+variable_fax_ecm_used: on
+variable_fax_local_station_id: SpanDSP%20Fax%20Ident
+variable_fax_remote_station_id: SpanDSP%20Fax%20Ident
+variable_fax_document_transferred_pages: 1
+variable_fax_document_total_pages: 1
+variable_fax_image_resolution: 8031x3850
+variable_fax_image_size: 0
+variable_fax_bad_rows: 0
+variable_fax_transfer_rate: 14400
+variable_read_codec: L16
+variable_read_rate: 8000
+variable_current_application: hangup
+variable_hangup_cause: NORMAL_CLEARING
+variable_hangup_cause_q850: 16
+variable_digits_dialed: none
+variable_start_stamp: 2011-08-26%2013%3A15%3A43
+variable_profile_start_stamp: 2011-08-26%2013%3A15%3A43
+variable_answer_stamp: 2011-08-26%2013%3A15%3A43
+variable_end_stamp: 2011-08-26%2013%3A16%3A39
+variable_start_epoch: 1314389743
+variable_start_uepoch: 1314389743241198
+variable_profile_start_epoch: 1314389743
+variable_profile_start_uepoch: 1314389743241198
+variable_answer_epoch: 1314389743
+variable_answer_uepoch: 1314389743261208
+variable_bridge_epoch: 0
+variable_bridge_uepoch: 0
+variable_last_hold_epoch: 0
+variable_last_hold_uepoch: 0
+variable_hold_accum_seconds: 0
+variable_hold_accum_usec: 0
+variable_hold_accum_ms: 0
+variable_resurrect_epoch: 0
+variable_resurrect_uepoch: 0
+variable_progress_epoch: 0
+variable_progress_uepoch: 0
+variable_progress_media_epoch: 0
+variable_progress_media_uepoch: 0
+variable_end_epoch: 1314389799
+variable_end_uepoch: 1314389799501207
+variable_last_app: hangup
+variable_caller_id: 5594372600
+variable_duration: 56
+variable_billsec: 56
+variable_progresssec: 0
+variable_answersec: 0
+variable_waitsec: 0
+variable_progress_mediasec: 0
+variable_flow_billsec: 56
+variable_mduration: 56260
+variable_billmsec: 56240
+variable_progressmsec: 0
+variable_answermsec: 20
+variable_waitmsec: 0
+variable_progress_mediamsec: 0
+variable_flow_billmsec: 56260
+variable_uduration: 56260009
+variable_billusec: 56239999
+variable_progressusec: 0
+variable_answerusec: 20010
+variable_waitusec: 0
+variable_progress_mediausec: 0
+variable_flow_billusec: 56260009
+API-Command: perl
+API-Command-Argument: hook.pl
+'
+```
+
+ Individual items can be accessed using the getHeader method:
+
+print FILEOUT "UUID: " . $env->getHeader('uuid') . "\n";
+print FILEOUT "Caller: " . $env->getHeader('caller_id') . "\n";
+print FILEOUT "Fax result: " $env->getHeader('fax_result_text') . "\n";
+print FILEOUT "Fax pages: " . $env->getHeader('fax_document_transferred_pages') . "\n";
+
+Once you have the values you need you simply build a perl script and do whatever you wish to do.
+
+The following is an example of dialplan extension that executes a Perl script after a fax is received:
+
+```xml
+  <extension name="fax in">
+    <condition field="destination_number" expression="^9905$">
+      <action application="answer"/>
+      <action application="playback" data="silence_stream://2000"/>
+      <action application="set" data="api_hangup_hook=perl hook.pl"/>
+      <action application="set" data="fax_file=/tmp/fax-in-${uuid}.tif"/>
+      <action application="rxfax" data="${fax_file}"/>
+      <action application="info"/>
+      <action application="log" data="INFO Fax recd!!"/>
+      <action application="hangup"/>
+    </condition>
+  </extension>
+```
+
+  
+##  See Also 
+
+* [Script Language Choice](../Client-and-Developer-Interfaces/Script-Language-Choice_1048942.mdx#about)
+
+##  Examples 
+
+* [ENUM Caller ID lookup](../Examples/ENUM-Caller-ID-lookup_1966681.mdx#about)
+* [IVR in Perl](../Examples/IVR-in-Perl_7144389.mdx#--)
+* [Caller ID LDAP Lookup](../Examples/Caller-ID-LDAP-Lookup_7144395.mdx#about)
+* [mod\_perl examples by Mitch Capper](../Examples/mod_perl-examples-by-Mitch-Capper_7144403.mdx#--)
+
+Document generated by Confluence on nov 11, 2022 04:27

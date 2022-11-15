@@ -1,0 +1,169 @@
+
+# mod_format_cdr 
+
+ Created by  Italo Rossi, last modified by  Jim Lynch on 2018.05.11
+
+# About
+
+Multi Format CDR CURL logger.
+
+Click here to expand Table of Contents
+
+* 1 [Configuration](#configuration)
+* 2 [Details of configuration](#details-of-configuration)
+* 3 [PHP Example](#php-example)
+
+# Configuration
+
+Default values are shown.
+
+```xml
+<configuration name="format_cdr.conf" description="Multi Format CDR CURL logger">
+
+ <!-- You can have multiple profiles, to allow logging to both JSON and XML simultaneously, or to 
+        different paths or servers with different settings, just be sure to use different name for
+        each profile. -->
+ <profiles>
+
+ <profile name="default">
+  <settings>
+    <!-- the format of data to send, defaults to xml -->
+    <!-- <param name="format" value="json|xml"/> -->
+    <param name="format" value="xml"/>
+
+    <!-- the url to post to if blank web posting is disabled  -->
+    <!-- <param name="url" value="http://localhost/cdr_curl/post.php"/> -->
+
+    <!-- optional: credentials to send to web server -->
+    <!--    <param name="cred" value="user:pass"/> -->
+
+    <!-- the total number of retries (not counting the first 'try') to post to webserver incase of failure -->
+    <!-- <param name="retries" value="2"/> -->
+
+    <!-- delay between retries in seconds, default is 5 seconds -->
+    <!-- <param name="delay" value="1"/> -->
+
+    <!-- Log via http and on disk, default is false -->
+    <!-- <param name="log-http-and-disk" value="true"/> -->
+
+    <!-- optional: if not present we do not log every record to disk -->
+    <!-- either an absolute path, a relative path assuming ${prefix}/logs or a blank value will default to ${prefix}/logs/format_cdr -->
+    <param name="log-dir" value=""/>
+
+    <!-- optional: if not present we do log the b leg -->
+    <!-- true or false if we should create a cdr for the b leg of a call-->
+    <param name="log-b-leg" value="false"/>
+    
+    <!-- optional: if not present, all filenames are the uuid of the call -->
+    <!-- true or false if a leg files are prefixed "a_" -->
+    <param name="prefix-a-leg" value="true"/>
+
+    <!-- encode the post data may be 'true' for url encoding, 'false' for no encoding, 'base64' for base64 encoding, 'textxml' for text/xml or 'appljson' for application/json-->
+    <param name="encode" value="true"/>
+
+    <!-- optional: set to true to disable Expect: 100-continue lighttpd requires this setting --> 
+    <!--<param name="disable-100-continue" value="true"/>--> 
+    
+    <!-- optional: full path to the error log dir for failed web posts if not specified its the same as log-dir -->
+    <!-- either an absolute path, a relative path assuming ${prefix}/logs or a blank or omitted value will default to ${prefix}/logs/format_cdr -->
+    <!-- <param name="err-log-dir" value="/tmp"/> -->
+
+    <!-- which auhtentification scheme to use. Supported values are: basic, digest, NTLM, GSS-NEGOTIATE or "any" for automatic detection -->
+    <!--<param name="auth-scheme" value="basic"/>--> 
+
+    <!-- optional: this will enable the CA root certificate check by libcurl to
+         verify that the certificate was issued by a major Certificate Authority.
+         note: default value is disabled. only enable if you want this! -->
+    <!--<param name="enable-cacert-check" value="true"/>-->
+    <!-- optional: verify that the server is actually the one listed in the cert -->
+    <!-- <param name="enable-ssl-verifyhost" value="true"/> -->
+
+    <!-- optional: these options can be used to specify custom SSL certificates
+         to use for HTTPS communications. Either use both options or neither.
+         Specify your public key with 'ssl-cert-path' and the private key with
+         'ssl-key-path'. If your private key has a password, specify it with
+         'ssl-key-password'. -->
+    <!-- <param name="ssl-cert-path" value="$${base_dir}/conf/certs/public_key.pem"/> -->
+    <!-- <param name="ssl-key-path" value="$${base_dir}/conf/certs/private_key.pem"/> -->
+    <!-- <param name="ssl-key-password" value="MyPrivateKeyPassword"/> -->
+
+    <!-- optional: use a custom CA certificate in PEM format to verify the peer
+         with. This is useful if you are acting as your own certificate authority.
+         note: only makes sense if used in combination with "enable-cacert-check." -->
+    <!-- <param name="ssl-cacert-file" value="$${base_dir}/conf/certs/cacert.pem"/> -->
+
+    <!-- optional: specify the SSL version to force HTTPS to use. Valid options are
+         "SSLv3" and "TLSv1". Otherwise libcurl will auto-negotiate the version. -->
+    <!-- <param name="ssl-version" value="TLSv1"/> -->
+
+    <!-- optional: enables cookies and stores them in the specified file. -->
+    <!-- <param name="cookie-file" value="/tmp/cookie-mod_format_cdr_curl.txt"/> -->
+
+    <!-- Whether to URL encode the individual JSON values. Defaults to true, set to false for standard JSON. -->
+    <param name="encode-values" value="true"/>
+
+  </settings>
+ </profile>
+ </profiles>
+</configuration>
+```
+
+At least one profile must be defined. format parameter should be specified to indicate the desired output format for that particular profile.
+
+At least one of **log-dir** or **url** is required for logging to happen.
+
+In **log-dir** (file) mode, one file is created per call in the target directory.
+
+In **url** mode, one POST is submitted per CDR. (The socket is currently not re-used between CDRs.) The **cred** field should contain "login:password" for authentication.
+
+If submission of the CDR using **url** fails, the module will fallback to file mode using each **err-log-dir**.
+
+# Details of configuration
+
+This module currently is a superset of [mod\_json\_cdr](./mod_json_cdr_4653124.mdx#-output-example-cdrs-) and [mod\_xml\_cdr](mod_xml_cdr_6587377.mdx#faq) and will eventually replace those two modules. When that occurs, the documentation for those modules will be merged into this page. For now, see them for details of the specific output format.
+
+# PHP Example
+
+Below is a simple example that demonstrates how to post CDR data in JSON format to a php file and parse channel variables into php variables.
+
+**format\_cdr.conf.xml pointing to a webserver running PHP code**
+
+```xml
+<configuration name="format_cdr.conf" description="Multi Format CDR CURL logger">
+ <profiles>
+ <profile name="default">
+  <settings>
+    <param name="format" value="json"/>
+    <param name="url" value="http://127.0.0.1:8000/cdr.php"/>
+    <param name="encode" value="true"/>
+    <param name="encode-values" value="false"/>
+  </settings>
+ </profile>
+ </profiles>
+</configuration>
+ 
+ 
+```
+
+**cdr.php**
+
+```php
+<?php
+$data = $_POST["cdr"];
+$decode_data = urldecode($data);
+$obj = json_decode($decode_data);
+
+$sip_user_agent = $obj->variables->sip_user_agent;
+$hangup_cause = $obj->variables->hangup_cause;
+
+echo $sip_user_agent;
+?>
+```
+
+## Comments:
+
+| **format\_cdr.conf.xml Configuration for PHP Example**&lt;param name="format" value="json"/>&lt;param name="url" value="http://127.0.0.1:8000/cdr.php"/\>&lt;param name="encode" value="true"/>&lt;param name="encode-values" value="false"/> ![](/images/icons/contenttypes/comment_16.png) Posted by lesnet at ott 23, 2015 15:53 |
+| ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Thanks Leslie. I've added your snippet in the page. ![](/images/icons/contenttypes/comment_16.png) Posted by italorossi at ott 26, 2015 10:12                                                                                                                                                                           |
+
+Document generated by Confluence on nov 11, 2022 04:27

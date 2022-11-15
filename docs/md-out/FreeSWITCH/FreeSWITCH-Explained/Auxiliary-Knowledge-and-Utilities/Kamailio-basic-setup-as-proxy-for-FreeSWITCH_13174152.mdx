@@ -1,0 +1,228 @@
+
+# Kamailio basic setup as proxy for FreeSWITCH 
+
+ Created by  Waldyr de Souza on 2017.01.13
+
+# About
+
+Below is two example sample configurations of Kamailio as a SIP proxy to FreeSWITCH.
+
+Click here to expand Table of Contents
+
+* 1 [Simple Setup](#-freeswitch--kamailio-basic-setup-as-proxy-for-freeswitch-)
+* 2 [Simple setup with database lookup](#simple-setup-with-database-lookup)
+
+## Simple Setup
+
+192.168.0.101 is the IP of Kamailio
+
+192.168.0.102 is the IP of FreeSWITCH
+
+```bash
+memdbg=5
+memlog=5
+
+log_facility=LOG_LOCAL0
+
+fork=yes
+children=4
+disable_tcp=yes
+listen=udp:192.168.0.101:5060
+port=5060
+mpath="/usr/lib64/kamailio/modules/"
+
+# ------------------ module loading ----------------------------------
+loadmodule "mi_fifo.so"
+loadmodule "tm.so"
+loadmodule "sl.so"
+loadmodule "rr.so"
+loadmodule "pv.so"
+loadmodule "maxfwd.so"
+loadmodule "textops.so"
+loadmodule "siputils.so"
+loadmodule "xlog.so"
+
+# ----------------- setting module-specific parameters ---------------
+modparam("mi_fifo", "fifo_name", "/tmp/kamailio_fifo")
+
+# -------------------------  request routing logic -------------------
+
+# main routing logic
+
+route{
+
+        /* ********* ROUTINE CHECKS  ********************************** */
+
+        # filter too old messages
+        if (!mf_process_maxfwd_header("10")) {
+                log("LOG: Too many hops\n");
+                sl_send_reply("483","Too Many Hops");
+                break;
+        };
+
+        # grant Route routing if route headers present 
+        if (has_totag()) {
+                if (loose_route()) {
+                        t_relay();
+                        break;
+                } else {
+                        if ( is_method("ACK") ) {
+                                if ( t_check_trans() ) {
+                                        t_relay();
+                                        break;
+                                } else {
+                                        exit;
+                                }
+                        }
+                        sl_send_reply("404","Not here");
+                }
+                exit;
+        }
+
+        # CANCEL processing
+        if (is_method("CANCEL"))
+        {
+                if (t_check_trans())
+                        t_relay();
+                exit;
+        }
+
+        # Process initial INVITE
+        if (method=="INVITE") {
+                record_route();
+        } else {
+                sl_send_reply("404","Not here");
+                exit;
+        };
+
+        rewritehostport("192.168.0.102:5060");
+
+        # forward the request now
+        if (!t_relay()) {
+                sl_reply_error(); 
+                break; 
+        };
+} 
+```
+
+## Simple setup with database lookup
+
+192.168.0.101 is the IP of Kamailio
+
+192.168.0.102 is the IP of FreeSWITCH box 1
+
+192.168.0.103 is the IP of FreeSWITCH box 2
+
+```bash
+ memdbg=5
+memlog=5
+
+log_facility=LOG_LOCAL0
+
+fork=yes
+children=4
+disable_tcp=yes
+listen=udp:192.168.0.101:5060
+port=5060
+mpath="/usr/lib64/kamailio/modules/"
+
+# ------------------ module loading ----------------------------------
+loadmodule "db_postgres.so"
+loadmodule "mi_fifo.so"
+loadmodule "tm.so"
+loadmodule "sl.so"
+loadmodule "rr.so"
+loadmodule "pv.so"
+loadmodule "maxfwd.so"
+loadmodule "textops.so"
+loadmodule "siputils.so"
+loadmodule "xlog.so"
+loadmodule "sqlops.so"
+
+# ----------------- setting module-specific parameters ---------------
+modparam("mi_fifo", "fifo_name", "/tmp/kamailio_fifo")
+modparam("sqlops", "sqlcon", "ca=>postgres://kamailio:kamailio@localhost/kamailio")
+
+# -------------------------  request routing logic -------------------
+
+# main routing logic
+
+route{
+
+        /* ********* ROUTINE CHECKS  ********************************** */
+
+        # filter too old messages
+        if (!mf_process_maxfwd_header("10")) {
+                log("LOG: Too many hops\n");
+                sl_send_reply("483","Too Many Hops");
+                break;
+        };
+
+        # grant Route routing if route headers present 
+        if (has_totag()) {
+                if (loose_route()) {
+                        t_relay();
+                        break;
+                } else {
+                        if ( is_method("ACK") ) {
+                                if ( t_check_trans() ) {
+                                        t_relay();
+                                        break;
+                                } else {
+                                        exit;
+                                }
+                        }
+                        sl_send_reply("404","Not here");
+                }
+                exit;
+        }
+
+        # CANCEL processing
+        if (is_method("CANCEL"))
+        {
+                if (t_check_trans())
+                        t_relay();
+                exit;
+        }
+
+        $var(hp) = 0;
+        # Process initial INVITE
+        if (method=="INVITE") {
+                record_route();
+                # only match 10-11 digit numbers and strip '+' if it exists
+                if (subst_user('/^\+?1?([0-9]{10})$/1\1/')) {
+                        sql_query ("ca", "SELECT accountcode FROM numbers WHERE number = '$rU'", "ra");
+                        $var(hp) = $dbr(ra=>[0,0]);
+                        sql_result_free("ra");
+
+                } else {
+                        sl_send_reply("404","Not here");
+                        exit;
+                }
+        } else {
+                sl_send_reply("404","Not here");
+                exit;
+        };
+
+        if ($var(hp) == 0) {
+                sl_send_reply("404","Not here");
+                exit;
+        } else {
+                switch ($var(hp)) {
+                        case 1:
+                                rewritehostport("192.168.0.102:5060");
+                        case 2:
+                                rewritehostport("192.168.0.103:5060");
+                }
+        }
+
+        # forward the request now
+        if (!t_relay()) {
+                sl_reply_error(); 
+                break; 
+        };
+}
+```
+
+  
+Document generated by Confluence on nov 11, 2022 04:29

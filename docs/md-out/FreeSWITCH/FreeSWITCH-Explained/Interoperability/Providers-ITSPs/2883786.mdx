@@ -1,0 +1,192 @@
+
+# Provider Neotel (South Africa) 
+
+ Created by  Mario G, last modified by  John Boteler on 2015.01.16
+
+Last update: 16 March 2010
+
+Click to expand Table of Contents
+
+* 1 [Neotel.co.za](#-freeswitch--provider-neotel-south-africa-)
+* 2 [IP addressing & DDI info](#ip-addressing--ddi-info)
+* 3 [Server configuration](#server-configuration)
+* 4 [Network Configuration](#network-configuration)
+* 5 [Install FreeSWITCH](#install-freeswitch)  
+   * 5.1 [Modify vars.xml](#modify-varsxml)  
+   * 5.2 [Modify sip\_profiles\\internal.xml](#modify-sip_profilesinternalxml)  
+   * 5.3 [Modify sip\_profiles\\external.xml](#modify-sip_profilesexternalxml)  
+   * 5.4 [Modify directory\\default.xml](#modify-directorydefaultxml)  
+   * 5.5 [Modify dialplan\\public\\ 00\_inbound\_did.xml](#modify-dialplanpublic00_inbound_didxml)  
+   * 5.6 [Create dialplan\\default\\ 00\_neotel\_out.xml](#create-dialplandefault02_neotel_outxml)
+* 6 [Test configuration](#test-configuration)
+
+## [Neotel.co.za](http://neotel.co.za)
+
+Neotel requires you connect directly into their network. The configuration described below is based on a standard FreeSWITCH installation on a dual homed server.
+
+## IP addressing & DDI info
+
+IN.IN.IN.IN - represents your internal NIC (LAN) IP address e.g. 10.0.2.185
+
+EX.EX.EX.EX - represents your external NIC (WAN) IP address – this will be supplied to you by Neotel
+
+SP.SP.SP.SP - represents the IP address of Neotel’s SIP server - this will be supplied to you by Neotel
+
+DG.DG.DG.DG - represents the default gateway - supplied by Neotel
+
+nnnnnnnnnn - represents a 10 digit telephone number (DID), from the range supplied to you by Neotel
+
+## Server configuration
+
+This FS installation was done using an HP desktop with the following config:
+
+• Windows Server 2008 SP1 • 2 GB RAM • Intel Core 2 Duo (E7400) 2.8GHZ • 150GB HDD • 2 x NICs
+
+## Network Configuration
+
+For simplicity, turn off all firewall services on your FS server.
+
+  
+Setup your NICs as follows:
+
+NIC 1 (LAN) • IP address: IN.IN.IN.IN /255.255.255.0 • No default gateway
+
+NIC 2 (Neotel) • IP address: EX.EX.EX.EX / MASK (Supplied by Neotel) • Default gateway: DG.DG.DG.DG (Supplied by Neotel)
+
+Test you can successfully PING the SIP Server (SP.SP.SP.SP)
+
+Recommend you install Wireshark and run traces on your NICs to confirm that traffic is flowing.
+
+## Install FreeSWITCH
+
+Download and install latest version of FreeSWITCH.
+
+Recommend you make a backup copy of the FreeSWITCH\\conf folder, in case you need to revert back to a clean config
+
+Configure FreeSWITCH
+
+All configuration is done in the FreeSWITCH\\conf folder and subfolders
+
+### Modify vars.xml
+
+#### Domain IP
+
+```xml
+Change: 
+<X-PRE-PROCESS cmd="set" data="domain=$${local_ip_v4}"/>
+
+To: 
+<X-PRE-PROCESS cmd="set" data="domain=IN.IN.IN.IN"/>
+```
+
+#### Swap internal & external ports
+
+```xml
+Change:
+<X-PRE-PROCESS cmd="set" data="internal_sip_port=5080"/>
+<X-PRE-PROCESS cmd="set" data="internal_tls_port=5081"/>
+
+To: 
+<X-PRE-PROCESS cmd="set" data="external_sip_port=5060"/>
+<X-PRE-PROCESS cmd="set" data="external_tls_port=5061"/>
+```
+
+### Modify sip_profiles\\internal.xml
+
+```xml
+Change: 
+<param name="rtp-ip" value="$${local_ip_v4}"/>
+<param name="sip-ip" value="$${local_ip_v4}"/>
+<param name="ext-rtp-ip" value="auto-nat"/>
+<param name="ext-sip-ip" value="auto-nat"/>
+
+To: 
+<param name="rtp-ip" value="IN.IN.IN.IN"/>
+<param name="sip-ip" value="IN.IN.IN.IN"/>
+<param name="ext-rtp-ip" value="IN.IN.IN.IN"/>
+<param name="ext-sip-ip" value="IN.IN.IN.IN"/>
+```
+
+### Modify sip_profiles\\external.xml
+
+```xml
+Change: 
+<param name="rtp-ip" value="$${local_ip_v4}"/>
+<param name="sip-ip" value="$${local_ip_v4}"/>
+<param name="ext-rtp-ip" value="auto-nat"/>
+<param name="ext-sip-ip" value="auto-nat"/>
+
+To:
+<param name="rtp-ip" value="EX.EX.EX.EX"/>
+<param name="sip-ip" value="EX.EX.EX.EX"/>
+<param name="ext-rtp-ip" value="EX.EX.EX.EX"/>
+<param name="ext-sip-ip" value="EX.EX.EX.EX"/>
+```
+
+### Modify directory\\default.xml
+
+```xml
+Change: 
+<domain name="$${domain}">
+
+To:
+<domain name="IN.IN.IN.IN"> 
+```
+
+### Modify dialplan\\public\\ 00_inbound_did.xml
+
+Replace the xml in dialplan\\public\\ 00\_inbound\_did.xml with:
+
+```xml
+<include>
+  <extension name="public_did">
+    <condition field="destination_number" expression="^(nnnnnnnnnn)$">
+    <action application="set" data="domain_name=IN.IN.IN.IN"/>
+      <!-- This example maps the DID nnnnnnnnnn to ring  extension 1002 in the default context -->
+      <action application="transfer" data="1002 XML default"/>
+    </condition>
+  </extension>
+</include> 
+```
+
+### Create dialplan\\default\\ 00_neotel_out.xml
+
+In the dialplan\\default folder, create a new xml file called 02\_neotel\_out.xml.
+
+Paste the following xml into the new file and save:
+
+```xml
+<include>
+  <extension name="neotel_out">
+    <condition field="destination_number" expression="^(\d{10})$">
+      <action application="bridge" data="sofia/external/$1@SP.SP.SP.SP"/>
+      </condition>
+  </extension>
+</include>
+```
+
+## Test configuration
+
+Install Xlite and create an account with the following settings:
+
+```text
+Display Name: 1002
+
+Username: 1002
+
+Password: 1234
+
+Authorization user name: 1002
+
+Domain: IN.IN.IN.IN:5080 
+
+Ensure that Register with Domain is ticked and Send outbound via Domain is enabled 
+```
+
+From XLite, dial a 10 digit number e.g. a mobile phone
+
+From your mobile phone, dial your DID (nnnnnnnnn).
+
+If you receive a SIP 500 Error, contact Neotel and ask them to reset/reconfigure your ports on their SBC.
+
+Document generated by Confluence on nov 11, 2022 04:28

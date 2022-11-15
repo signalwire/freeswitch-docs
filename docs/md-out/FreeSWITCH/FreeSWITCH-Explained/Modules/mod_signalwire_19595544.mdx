@@ -1,0 +1,450 @@
+
+# mod_signalwire 
+
+ Created by  Utente Sconosciuto (fmuteesa), last modified by  Attila Gulyas on 2020.10.28
+
+  
+---
+
+Table of Contents (click to expand)
+
+* [0\. About](#21-mod_signalwire)
+* [1\. Capabilities](#1-capabilities)
+* [2\. mod\_signalwire configuration (autoload\_conf/signalwire.conf.xml)](#2-mod_signalwire-configuration-autoload_confsignalwireconfxml)  
+   * [2.1 After FreeSWITCH release 1.10.5](#21-after-freeswitch-release-1105)  
+   * [2.2 Before FreeSWITCH release 1.10.5](#22-before-freeswitch-release-1105)
+* [3\. Dialplan sample](#3-dialplan-sample)
+* [4\. Components](#4-components)  
+   * [2.1 mod\_signalwire](#21-mod_signalwire)  
+   * [2.2 SignalWire CLOUD Resources](#22-signalwire-cloud-resources)  
+   * [2.3 CLOUD APIs](#23-cloud-apis-)  
+   * [2.4 CLOUD Integration UI/UX](#24-cloud-integration-uiux)
+* [5\. Connect to SignalWire by creating a new Integration/Connector](#5-connect-to-signalwire-by-creating-a-new-integrationconnector)  
+   * [Summary of the steps below](#summary-of-the-steps-below)  
+   * [Step 0\. Load mod\_signalwire](#step-0-load-mod_signalwire)  
+   * [Step 1\. Get a connection token](#step-1-get-a-connection-token)  
+   * [Step 2\. Connect your instance to SignalWire (using the Dashboard)](#step-2-connect-your-instance-to-signalwire-using-the-dashboard)  
+   * [Step 3\. OUTBOUND CALLS: set up a purchased phone number to be used with your integration/connector](#step-3-outbound-calls-set-up-a-purchased-phone-number-to-be-used-with-your-integrationconnector)  
+   * [Step 4\. INCOMING CALLS: associate a connector with a purchased number to handle incoming calls](#step-4-incoming-calls-associate-a-connector-with-a-purchased-number-to-handle-incoming-calls)
+* [6\. Generating a new token](#6-generating-a-new-token)  
+   * [Step 1\. Delete the current token and associated auth file](#step-1-delete-the-current-token-and-associated-auth-file-)  
+   * [Step 2\. Reload mod\_signalwire or restart FreeSWITCH](#step-2-reload-mod_signalwire-or-restart-freeswitch)  
+   * [Step 3\. Input new token into your SignalWire integrations dashboard for adoption.](#step-3-input-new-token-into-your-signalwire-integrations-dashboard-for-adoption)  
+   * [Settings & Caller ID](#settings--caller-id)  
+   * [Associating Phone Numbers with Integrations](#associating-phone-numbers-with-integrations)
+* [Pricing and Fees](#pricing-and-fees)
+* [Support](#21-mod_signalwire)
+
+---
+
+## 0\. About
+
+Allows external service connections to SignalWire telecommunications provider via _integrations,_ formerly known as _connectors_. See the [official connector product description](https://docs.google.com/document/d/1YMFKdkR6i7%5FXgnDslarKY%5FkGrWNG6T8TXiDn%5FhPD%5FbE/edit) for more info. 
+
+Enabled by default in [modules.conf.xml for vanilla installations](https://github.com/signalwire/freeswitch/blob/a5cecbfc2a5e0ea2d3f45489f2681a67e32ce955/conf/vanilla/autoload%5Fconfigs/modules.conf.xml).
+
+Supported services:
+
+* SignalWire STACK
+* FreeSWITCH
+* Agora
+* Zapier
+
+## 1\. Capabilities
+
+Enables several valuable functions that will automate configuration and connect services. Without any additional configuration in the FreeSWITCH instance, FreeSWITCH can be connected to SignalWire CLOUD. When doing so the FreeSWITCH configuration will be automagically modified based on what CLOUD services are assembled under the Integration.
+
+* **Voice**  
+Voice resources including DIDs, Toll Free numbers can be purchased through CLOUD and directed to your FreeSWITCH Integration, which will automatically configure your FreeSWITCH instance to work with the Voice resources.
+* **Messaging**  
+Not yet available.
+
+## 2\. `mod_signalwire` configuration (`autoload_conf/signalwire.conf.xml`)
+
+### 2.1 After FreeSWITCH release 1.10.5
+
+**autoload\_conf/signalwire.conf.xml**
+
+```xml
+<configuration name="signalwire.conf" description="SignalWire">
+  <settings>
+    <!-- on/off/file-path -->
+    <!--param name="kslog" value="on"/-->
+    <!--param name="blade-bootstrap" value="blade://switchblade:2100"/-->
+    <!--param name="adoption-service" value="https://adopt.signalwire.com/adoption"/-->
+    <!--param name="stun-server" value="stun.freeswitch.org"/-->
+    <!-- <authentication></authentication> -->
+    <!-- override dialplan context for calls on connector -->
+    <!--<param name="override-context" value="signalwire"/>-->
+  </settings>
+</configuration>
+```
+
+(source: <https://github.com/signalwire/freeswitch/issues/786>)
+
+### 2.2 Before FreeSWITCH release 1.10.5
+
+​Just in case, because before release 1.10.1 (and somewhere between 1.10.1 and 1.10.5..) there has been no `signalwire.conf.xml` and `mod_signalwire` configuration settings were saved in memory of the FreeSWITCH instance, but also cached in the storage directory, in case it can't connect to SignalWire CLOUD on restart.
+
+To find the storage directory, use one of the following:
+
+**Linux terminal**
+
+```xml
+$ fs_cli -x 'eval $${db_dir}'
+```
+
+**fs\_cli**
+
+```xml
+freeswitch@vm> eval $${db_dir}
+```
+
+For vanilla installations, the location is `**/var/lib/freeswitch/db/sofia_reg_signalwire.db**`
+
+TODO This is a binary file, and so instructions would be welcome.
+
+## 3\. Dialplan sample
+
+**/etc/freeswitch/dialplan/default.xml (for example)**
+
+```xml
+    <extension name="SignalWire INTEGRATIONS incoming call">
+      <condition field="destination_number" expression="^(\+18005551212)$"> <!-- the number you assigned in your dashboard -->
+        <action application="bridge" data="user/1000"/>
+      </condition>
+    </extension>
+
+    <extension name="signalwire INTEGRATIONS outgoing call">
+      <condition field="destination_number" expression="^(\+?\d{11})$">
+        <action application="answer"/>
+        <action application="bridge" data="sofia/gateway/signalwire/$1"/>
+      </condition>
+    </extension>
+```
+
+## 4\. Components
+
+### 2.1 `mod_signalwire`
+
+This is official SignalWire module is part of FreeSWITCH v1.8.3 and later (check [Release Notes](../Release-Notes/index.mdx#-freeswitch--release-notes-)) and STACK v 20.18.2 which can be obtained from SignalWire STACK repositories. Contact SignalWire Sales ([sales@signalwire.com](mailto:sales@signalwire.com)) for more information. `mod_signalwire` installs as part of the default package and windows installs, and will loaded by default on new installs. See below for installation / loading instructions on existing installations.
+
+### 2.2 SignalWire CLOUD Resources
+
+The CLOUD APIs and dashboard can be used together to enable a FreeSWITCH Integration for voice. The intuitive dashboard will allow users to create the Integration that is associated with your FreeSWITCH instance. APIs take it to another level and allow for quite a bit of flexibility.
+
+### 2.3 CLOUD APIs 
+
+SignalWire Cloud APIs are defined here: <https://docs.signalwire.com/>
+
+RELAY APIs can be found here: <https://docs.signalwire.com/relay-rest/>
+
+### 2.4 CLOUD Integration UI/UX
+
+Go to **Integrations** in your SignalWire Dashboard.
+
+## 5\. Connect to SignalWire by creating a new Integration/Connector
+
+Only from FreeSWITCH 1.8.3
+
+You will need to be running at least FreeSWITCH 1.8.3, or STACK 20.18.2 in order to load the SignalWire module.
+
+### Summary of the steps below
+
+Step 0\. Load `mod_signalwire` .
+
+Step 1\. Get a connection token.
+
+Step 2\. Connect your instance to SignalWire (using the Dashboard).
+
+Step 3\. OUTBOUND CALLS: set up a purchased phone number to be used with your integration/connector.
+
+Step 4\. INCOMING CALLS: associate a connector with a purchased number to handle incoming calls.
+
+If **Step 4.** is omitted, any calls to the purchased number(s) will disconnect with busy signal.
+
+### Step 0\. Load `mod_signalwire`
+
+Is it already loaded?
+
+`mod_signalwire` is enabled by default on new installations, but to check:
+
+**fs\_cli**
+
+```xml
+freeswitch@vm> module_exists mod_signalwire
+true
+```
+
+  
+1. Add (or uncomment) the line to your `modules.conf.xml` configuration file:  
+**modules.conf.xml**  
+```xml  
+<load module="mod_signalwire"/>  
+```
+2. Use **`load mod_signalwire`** on `fs_cli`  
+**fs\_cli**  
+```xml  
+freeswitch@vm> load mod_signalwire  
+```
+
+### Step 1\. Get a connection token
+
+Issue the command **`signalwire token`** on `fs_cli` or, if the module had to be loaded, it is automatically generated by **`load mod_signalwire`** .
+
+```xml
+freeswitch@vm> signalwire token
+     _____ _                   ___       ___
+    / ___/(_)___ _____  ____ _/ / |     / (_)_______
+    \__ \/ / __ `/ __ \/ __ `/ /| | /| / / / ___/ _ \
+   ___/ / / /_/ / / / / /_/ / / | |/ |/ / / /  /  __/
+  /____/_/\__, /_/ /_/\__,_/_/  |__/|__/_/_/   \___/
+         /____/
+
+ /=====================================================================\
+| Connection Token: abcdef12-1234-abcd-ef56-abcdef123456               |
+ \=====================================================================/
+ Go to https://signalwire.com to set up your Connector now!
+```
+
+### Step 2\. Connect your instance to SignalWire (using the Dashboard)
+
+1. Click on **Integrations**, and then to **Connect to FreeSwitch**  
+    
+![](/attachments/19595544/27591656.jpeg)
+2. Fill out the form by adding a name and pasting the **connection token** from Step 1.  
+    
+![](/attachments/19595544/27591661.jpeg)
+
+### Step 3\. OUTBOUND CALLS: set up a purchased phone number to be used with your integration/connector
+
+Click on your newly created connector, specify your caller ID, and enter the one of your purchased phone numbers. (I had to copy-paste it for now from **Purchased Numbers** menu.)
+
+![](/attachments/19595544/27591828.jpeg)
+
+### Step 4\. INCOMING CALLS: associate a connector with a purchased number to handle incoming calls
+
+Click **Edit** on the purchased phone number,
+
+![](/attachments/19595544/27591829.jpeg)
+
+and, depending on your use case, choose "Voice Calls" or "Fax" at "HANDLE INCOMING CALLS AS", select "a FreeSwitch Connector" at "HANDLE CALLS USING", and finally, select the connector that you desire.
+
+![](/attachments/19595544/27591830.jpeg)
+
+## 6\. Generating a new token
+
+In case a new token needs to be generated you may do so by deleting a couple of token related files in the storage folder. Location will depend on how FreeSWITCH was installed but for vanilla installations the location is `**/var/lib/freeswitch/storage**`
+
+For best security practices be sure to delete any unassociated tokens from your SignalWire integrations dashboard.
+
+### Step 1\. Delete the current token and associated auth file 
+
+**Bash or other CLI**
+
+```bash
+root@fs_playground:/var/lib/freeswitch/storage# ls
+adoption-auth.dat  adoption-token.dat  http_file_cache  signalwire-conf.dat  voicemail
+
+root@fs_playground:/var/lib/freeswitch/storage# rm adoption-*.dat
+root@fs_playground:/var/lib/freeswitch/storage#
+```
+
+### Step 2\. Reload mod_signalwire or restart FreeSWITCH
+
+**fs\_cli**
+
+```text
+freeswitch@fs_playground> reload mod_signalwire
+2020-04-08 14:42:14.595274 [ERR] switch_xml.c:175 stun-set failed.
+2020-04-08 14:42:14.635211 [NOTICE] switch_loadable_module.c:1230 Deleting Dialplan 'signalwire'
+2020-04-08 14:42:14.635211 [NOTICE] switch_loadable_module.c:1318 Deleting API Function 'signalwire'
+2020-04-08 14:42:14.635211 [DEBUG] switch_loadable_module.c:1320 Write lock interface 'signalwire' to wait for existing references.
+2020-04-08 14:42:14.635211 [CONSOLE] switch_loadable_module.c:2398 Stopping: mod_signalwire
+2020-04-08 14:42:14.635211 [INFO] mod_signalwire.c:964 Disconnecting from SignalWire
+2020-04-08 14:42:14.635211 [INFO] mod_enum.c:884 ENUM Reloaded
+2020-04-08 14:42:14.635211 [INFO] switch_time.c:1433 Timezone reloaded 1750 definitions
+2020-04-08 14:42:14.635211 [NOTICE] switch_event.c:2134 Event Binding deleted for mod_signalwire:MODULE_LOAD
+2020-04-08 14:42:14.635211 [NOTICE] switch_event.c:2134 Event Binding deleted for mod_signalwire:MODULE_UNLOAD
+2020-04-08 14:42:14.635211 [NOTICE] switch_event.c:2134 Event Binding deleted for mod_signalwire:CUSTOM
+2020-04-08 14:42:14.755186 [CONSOLE] switch_loadable_module.c:2414 mod_signalwire stopping runtime thread.
+2020-04-08 14:42:14.935234 [NOTICE] switch_loadable_module.c:125 Thread ended for mod_signalwire
+2020-04-08 14:42:14.935234 [CONSOLE] switch_loadable_module.c:2418 mod_signalwire unloaded.
+2020-04-08 14:42:14.955214 [DEBUG] ks_thread.c:771 Allocating new thread, current active and attached count: 1, current active and detatched count: 0
+
+2020-04-08 14:42:14.955214 [DEBUG] ks_thread.c:786 Thread state change: KS_THREAD_CALLER_STATE_INIT => KS_THREAD_STARTING, address: 0x7f86bd1ad2d8, tid: 00000000
+
+2020-04-08 14:42:14.955214 [DEBUG] ks_thread.c:789 Thread state change: KS_THREAD_CALLER_STATE_INIT => KS_THREAD_CALLER_STATE_START_REQUESTED, address: 0x7f86bd1ad2d8, tid: 00000000
+
+2020-04-08 14:42:14.955214 [DEBUG] ks_thread.c:797 Waiting for thread thread to set running, with address: 0x7f86e821ba38, tid: 00000000
+
+2020-04-08 14:42:14.955214 [DEBUG] ks_thread.c:206 Thread has launched with address: 0x7f86e821ba38, tid: 00000000
+
+2020-04-08 14:42:14.955214 [DEBUG] ks_thread.c:220 Marking thread as running, with address: 0x7f86e821ba38, tid: 00000000
+
+2020-04-08 14:42:14.955214 [DEBUG] ks_thread.c:227 Thread state change: KS_THREAD_STARTING => KS_THREAD_RUNNING, address: 0x7f8708d8ec30, tid: 00000000
+
+2020-04-08 14:42:14.955214 [DEBUG] ks_thread.c:824 Allocated (attached) thread context ptr: 0x7f86e821ba38, tid: 00000655
+
+2020-04-08 14:42:14.955214 [CONSOLE] mod_signalwire.c:915 Welcome to
+     _____ _                   ___       ___
+    / ___/(_)___ _____  ____ _/ / |     / (_)_______
+    \__ \/ / __ `/ __ \/ __ `/ /| | /| / / / ___/ _ \
+   ___/ / / /_/ / / / / /_/ / / | |/ |/ / / /  /  __/
+  /____/_/\__, /_/ /_/\__,_/_/  |__/|__/_/_/   \___/
+         /____/
+2020-04-08 14:42:14.955214 [INFO] mod_signalwire.c:616
+ /=====================================================================\
+| Connection Token: aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee               |
+ \=====================================================================/
+ Go to https://signalwire.com to set up your Connector now!
+2020-04-08 14:42:14.955214 [CONSOLE] switch_loadable_module.c:1804 Successfully Loaded [mod_signalwire]
+2020-04-08 14:42:14.955214 [NOTICE] switch_loadable_module.c:292 Adding Dialplan 'signalwire'
+2020-04-08 14:42:14.955214 [NOTICE] switch_loadable_module.c:412 Adding API Function 'signalwire'
+2020-04-08 14:42:15.175186 [NOTICE] mod_signalwire.c:379 Go to https://signalwire.com to set up your Connector now! Enter connection token aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee
+2020-04-08 14:42:15.175186 [INFO] mod_signalwire.c:1009 Next SignalWire adoption check in 1 minutes
+```
+
+### Step 3\. Input new token into your SignalWire integrations dashboard for adoption.
+
+Login to your project space and create a new integration. A few moments later you should get something similar to this on your console.
+
+**fs\_cli**
+
+```text
+2020-04-08 14:52:15.915221 [INFO] mod_signalwire.c:404 SignalWire adoption of this FreeSWITCH completed
+2020-04-08 14:52:17.235212 [INFO] mod_signalwire.c:524 SignalWire Session State Change: [Normal=>Online] Status: 0 Reason: Manager completed state change request
+2020-04-08 14:52:19.015190 [INFO] mod_signalwire.c:1030 Connected to SignalWire
+2020-04-08 14:52:20.255213 [DEBUG] mod_signalwire.c:1103 "<?xml version="1.0"?> < SNIP >
+2020-04-08 14:52:20.255213 [INFO] mod_signalwire.c:1142 gwlist = ""
+2020-04-08 14:52:20.255213 [INFO] mod_signalwire.c:1115 profile MD5 = ""
+2020-04-08 14:52:20.255213 [INFO] mod_signalwire.c:1129 Received configuration from SignalWire
+2020-04-08 14:52:21.255207 [INFO] mod_signalwire.c:1142 gwlist = ""
+2020-04-08 14:52:21.295190 [INFO] switch_stun.c:897 External ip address detected using STUN: 
+2020-04-08 14:52:21.315175 [INFO] switch_stun.c:897 External ip address detected using STUN: 
+2020-04-08 14:52:21.355181 [DEBUG] mod_signalwire.c:558 Received XML lookup for SignalWire SIP profile
+2020-04-08 14:52:21.355181 [DEBUG] sofia.c:4606 debug [0]
+2020-04-08 14:52:21.355181 [DEBUG] sofia.c:4606 dialplan [signalwire]
+2020-04-08 14:52:21.355181 [DEBUG] sofia.c:4606 context [default]
+2020-04-08 14:52:21.355181 [DEBUG] sofia.c:4606 rtp-timer-name [soft]
+2020-04-08 14:52:21.355181 [DEBUG] sofia.c:4606 rtp-ip []
+2020-04-08 14:52:21.355181 [DEBUG] sofia.c:4606 sip-ip []
+2020-04-08 14:52:21.355181 [DEBUG] sofia.c:4606 ext-rtp-ip []
+2020-04-08 14:52:21.355181 [DEBUG] sofia.c:4606 ext-sip-ip []
+2020-04-08 14:52:21.355181 [DEBUG] sofia.c:4606 rtp-timeout-sec [300]
+2020-04-08 14:52:21.355181 [WARNING] sofia.c:5203 rtp-timeout-sec deprecated use media_timeout variable.
+2020-04-08 14:52:21.355181 [DEBUG] sofia.c:4606 rtp-hold-timeout-sec [1800]
+2020-04-08 14:52:21.355181 [WARNING] sofia.c:5210 rtp-hold-timeout-sec deprecated use media_hold_timeout variable.
+2020-04-08 14:52:21.355181 [DEBUG] sofia.c:4606 sip-port [6051]
+2020-04-08 14:52:21.355181 [DEBUG] sofia.c:4606 tls [True]
+2020-04-08 14:52:21.355181 [DEBUG] sofia.c:4606 tls-only [true]
+2020-04-08 14:52:21.355181 [DEBUG] sofia.c:4606 tls-bind-params [transport=tls]
+2020-04-08 14:52:21.355181 [DEBUG] sofia.c:4606 tls-sip-port [6051]
+2020-04-08 14:52:21.355181 [DEBUG] sofia.c:4606 tls-verify-date [true]
+2020-04-08 14:52:21.355181 [DEBUG] sofia.c:4606 tls-verify-policy [none]
+2020-04-08 14:52:21.355181 [DEBUG] sofia.c:4606 tls-verify-depth [2]
+2020-04-08 14:52:21.355181 [DEBUG] sofia.c:4606 codec-prefs [OPUS,G722,PCMU,PCMA,G729,VP8,H264]
+2020-04-08 14:52:21.355181 [DEBUG] sofia.c:4606 inbound-codec-negotiation [generous]
+2020-04-08 14:52:21.355181 [DEBUG] sofia.c:4606 inbound-late-negotiation [true]
+2020-04-08 14:52:21.355181 [DEBUG] sofia.c:4606 manage-presence [false]
+2020-04-08 14:52:21.355181 [DEBUG] sofia.c:4606 auth-calls [false]
+2020-04-08 14:52:21.355181 [INFO] sofia.c:6004 Setting MAX Auth Validity to 0 Attempts
+2020-04-08 14:52:21.355181 [INFO] mod_enum.c:884 ENUM Reloaded
+2020-04-08 14:52:21.355181 [WARNING] sofia.c:3708 Ignoring duplicate gateway 'signalwire'
+2020-04-08 14:52:21.355181 [DEBUG] mod_signalwire.c:1216 SignalWire SIP profile rescanned
+2020-04-08 14:52:21.375180 [INFO] switch_time.c:1433 Timezone reloaded 1750 definitions
+2020-04-08 14:52:22.375215 [INFO] mod_signalwire.c:1142 gwlist = ""
+2020-04-08 14:52:27.395173 [ERR] switch_stun.c:900 STUN Failed! [Timeout]
+2020-04-08 14:52:27.395173 [ERR] switch_xml.c:175 stun-set failed.
+2020-04-08 14:52:32.415176 [ERR] switch_stun.c:900 STUN Failed! [Timeout]
+2020-04-08 14:52:32.415176 [ERR] switch_xml.c:175 stun-set failed.
+2020-04-08 14:52:32.455207 [DEBUG] mod_signalwire.c:558 Received XML lookup for SignalWire SIP profile
+2020-04-08 14:52:32.455207 [INFO] mod_enum.c:884 ENUM Reloaded
+2020-04-08 14:52:32.455207 [DEBUG] sofia.c:4606 debug [0]
+2020-04-08 14:52:32.455207 [DEBUG] sofia.c:4606 dialplan [signalwire]
+2020-04-08 14:52:32.455207 [DEBUG] sofia.c:4606 context [default]
+2020-04-08 14:52:32.455207 [DEBUG] sofia.c:4606 rtp-timer-name [soft]
+2020-04-08 14:52:32.455207 [DEBUG] sofia.c:4606 rtp-ip []
+2020-04-08 14:52:32.455207 [DEBUG] sofia.c:4606 sip-ip []
+2020-04-08 14:52:32.455207 [DEBUG] sofia.c:4606 ext-rtp-ip []
+2020-04-08 14:52:32.455207 [DEBUG] sofia.c:4606 ext-sip-ip []
+2020-04-08 14:52:32.455207 [DEBUG] sofia.c:4606 rtp-timeout-sec [300]
+2020-04-08 14:52:32.455207 [WARNING] sofia.c:5203 rtp-timeout-sec deprecated use media_timeout variable.
+2020-04-08 14:52:32.455207 [DEBUG] sofia.c:4606 rtp-hold-timeout-sec [1800]
+2020-04-08 14:52:32.455207 [WARNING] sofia.c:5210 rtp-hold-timeout-sec deprecated use media_hold_timeout variable.
+2020-04-08 14:52:32.455207 [DEBUG] sofia.c:4606 sip-port [6051]
+2020-04-08 14:52:32.455207 [DEBUG] sofia.c:4606 tls [True]
+2020-04-08 14:52:32.455207 [DEBUG] sofia.c:4606 tls-only [true]
+2020-04-08 14:52:32.455207 [DEBUG] sofia.c:4606 tls-bind-params [transport=tls]
+2020-04-08 14:52:32.455207 [DEBUG] sofia.c:4606 tls-sip-port [6051]
+2020-04-08 14:52:32.455207 [DEBUG] sofia.c:4606 tls-verify-date [true]
+2020-04-08 14:52:32.455207 [DEBUG] sofia.c:4606 tls-verify-policy [none]
+2020-04-08 14:52:32.455207 [DEBUG] sofia.c:4606 tls-verify-depth [2]
+2020-04-08 14:52:32.455207 [DEBUG] sofia.c:4606 codec-prefs [OPUS,G722,PCMU,PCMA,G729,VP8,H264]
+2020-04-08 14:52:32.455207 [DEBUG] sofia.c:4606 inbound-codec-negotiation [generous]
+2020-04-08 14:52:32.455207 [DEBUG] sofia.c:4606 inbound-late-negotiation [true]
+2020-04-08 14:52:32.455207 [DEBUG] sofia.c:4606 manage-presence [false]
+2020-04-08 14:52:32.455207 [DEBUG] sofia.c:4606 auth-calls [false]
+2020-04-08 14:52:32.455207 [INFO] sofia.c:6004 Setting MAX Auth Validity to 0 Attempts
+2020-04-08 14:52:32.455207 [WARNING] sofia.c:3708 Ignoring duplicate gateway 'signalwire'
+2020-04-08 14:52:32.455207 [DEBUG] mod_signalwire.c:1245 SignalWire SIP gateway started
+2020-04-08 14:52:32.455207 [INFO] switch_time.c:1433 Timezone reloaded 1750 definitions
+```
+  
+  
+Manage Connectors/Integrations
+
+Outdated images
+
+The images still have Connectors on them, but the principles are the same.
+
+### Settings & Caller ID
+
+Once the setup is complete, you can now enter the outbound Caller ID for this Integration which DID / Phone Number you would like to send calls as.
+
+![](https://lh6.googleusercontent.com/dOcXMoqj83CWFKehYGoZyck6XUF_tFHRSyjH2_TIOWPu0RgkOhxAX2gN9nxcyON6rJea_XYLFKzzTE26D_2bRfgqwzHDuX0ppnVpRntzP9VbHR1jNxsPbNI3_M70LCPV0I-Q8UEH)
+
+### Associating Phone Numbers with Integrations
+
+* Select Phone Numbers from the left navigation bar
+* Then select the Number you wish to associate with your Integration.
+* Select Integration, and the Integration type you wish to associate with your SignalWire service.
+
+![](https://lh6.googleusercontent.com/kmw0p4pWZjxIQhdlsz_4-oixpPYv6vjbNTFKBtmZwRfbfKYddtX3lG_B49CgNpSCeagMQNdj2UXW6mLe-xop0ZMf0ScUNvmvWu2M4hOnN8Z4dJOspwZR4IPc_W17AW8D4xZ4kb7f)
+
+![](https://lh4.googleusercontent.com/QbvOom6KiZV9HhN8pWMvyC9Ofw4IWeHuViRdQe63CnZ27IFlZ68i9h2vW56680CvVmYs5JoFCk3Lb4E_BuMT4yvc5lhW7Ma57juoRHVmmq29ZCAIzx82Ng5q-BccLbHz6FQSk85x)
+
+## Pricing and Fees
+
+  
+SignalWire Cloud fees are based on what our customers consume. There is no cost associated with the mod\_signalwire module itself.
+
+<https://signalwire.com/disruptive-pricing>
+
+## Support
+
+  
+API Documentation
+
+<https://docs.signalwire.com/relay-rest>
+
+  
+Slack Community
+
+<https://slack.signalwire.community>
+
+  
+instructions for setting up mod\_signalwire on FreeSWITCH and creating a CLOUD Integration (private)
+
+<https://freeswitch.org/confluence/display/FREESWITCH/mod%5Fsignalwire>
+
+  
+## Attachments:
+
+![](/images/icons/bullet_blue.gif) [sw-integrations-new.jpeg](/attachments/19595544/27591656.jpeg) (image/jpeg)  
+![](/images/icons/bullet_blue.gif) [sw-integrations-new-form.jpeg](/attachments/19595544/27591661.jpeg) (image/jpeg)  
+![](/images/icons/bullet_blue.gif) [sw-edit-connection.jpeg](/attachments/19595544/27591828.jpeg) (image/jpeg)  
+![](/images/icons/bullet_blue.gif) [sw-purchased-numbers.jpeg](/attachments/19595544/27591829.jpeg) (image/jpeg)  
+![](/images/icons/bullet_blue.gif) [sw-purchased-numbers-edit.jpeg](/attachments/19595544/27591830.jpeg) (image/jpeg)  
+
+Document generated by Confluence on nov 11, 2022 04:27

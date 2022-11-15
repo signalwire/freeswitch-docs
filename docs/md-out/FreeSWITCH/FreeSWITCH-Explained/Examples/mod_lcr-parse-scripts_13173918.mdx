@@ -1,0 +1,496 @@
+
+# mod_lcr parse scripts 
+
+ Created by  Aline Cristine Freire de Araújo, last modified by  Attila Gulyas on 2019.10.30
+
+# About
+
+Below is example of how to parse HTML pages of rate lists for [mod\_lcr](../Modules/mod_lcr_6587457.mdx#lrn) usage.
+
+Click here to expand Table of Contents
+
+* 1 [1\. lcr.sh is called by cron on a daily basis, which is the action script that holds all the perl scripts together](#1-lcrsh-is-called-by-cron-on-a-daily-basis-which-is-the-action-script-that-holds-all-the-perl-scripts-together)
+* 2 [2\. Broadvoice example (parsebroadvoice.pl) (both pennytel and voipian rely on broadvoice.rates.csv as they don't have any dialplans in their rate table, only names)](#2-broadvoice-example-parsebroadvoiceplhttpparsebroadvoicepl-both-pennytel-and-voipian-rely-on-broadvoiceratescsv-as-they-dont-have-any-dialplans-in-their-rate-table-only-names)
+* 3 [3\. Pennytel example (parsepennytel.pl)](#3-pennytel-example-parsepennytelplhttpparsepennytelpl)
+* 4 [4\. Voipian example (parsevoipian.pl)](#4-voipian-example-parsevoipianplhttpparsevoipianpl)
+* 5 [5\. Parsing the XDR rates from TSV file (parsetsv.pl)](#5-parsing-the-xdr-rates-from-tsv-file-parsetsvplhttpparsetsvpl)
+* 6 [6\. Convert the csv files into SQL for import into the DB (turncsvintosql.pl)](#6-convert-the-csv-files-into-sql-for-import-into-the-db-turncsvintosqlplhttpturncsvintosqlpl)
+* 7 [](#-freeswitch--mod_lcr-parse-scripts-)
+
+# 1\. lcr.sh is called by cron on a daily basis, which is the action script that holds all the perl scripts together
+
+* cron entry  
+```xml  
+45 01    * * *   freeswitch    ( cd /opt/freeswitch/scripts/lcr && ./lcr.sh )  
+50 01	* * *   freeswitch (cat /tmp/data.sql | /usr/bin/sqlite3 /opt/freeswitch/conf/databases/fslcr.db)  
+```
+* lcr.sh  
+```xml  
+#!/bin/bash  
+ pushd /opt/freeswitch/scripts/lcr  
+ # retrieve the HTML pages from the 3 providers  
+ wget http://www.voipian.com/en/rates.php -O voipian.rates.html  
+ wget http://www.pennytel.com/call_rate_pphone.jsp -O pennytel.rates.html  
+ wget http://www.broadvoice.com/RateTable.aspx -O broadvoice.rates.html  
+ # convert the html into text so we can parse it more easily  
+ html2text -width 200 -nobs -ascii voipian.rates.html > voipian.rates.txt  
+ html2text -width 200 -nobs -ascii pennytel.rates.html > pennytel.rates.txt  
+ html2text -width 200 -nobs -ascii broadvoice.rates.html > broadvoice.rates.txt  
+ #XDR rates for currency conversion to USD  
+ wget -Orates.html --no-cache --save-cookies=cookies.txt --keep-session-cookies "http://www.imf.org/external/np/fin/ert/GUI/Pages/Report.aspx?CU='EUR','JPY','GBP','USD','ARS','AUD','ATS','BHD','BEF','VEF','BWP','BRL','BND','CAD','CLP','CNY','COP','CYP','CZK','DKK','DEM','FIM','FRF','GRD','HUF','ISK','INR','IDR','IRR','IEP','ILS','ITL','KZT','KRW','KWD','LYD','LUF','MYR','MTL','MUR','MXN','NPR','NLG','NZD','NOK','PKR','PLN','PTE','QAR','OMR','RUB','SAR','SGD','SKK','SIT','ZAR','ESP','LKR','SEK','CHF','THB','TTD','AED','VEB'&EX=SDRC&P=Last30Days&CF=UnCompressed&CUF=Period&DS=Ascending&DT=Blank"  
+ # pull the TSV version of the rates  
+ wget -Orates.tsv --no-cache --load-cookies=cookies.txt --keep-session-cookies "http://www.imf.org/external/np/fin/ert/GUI/Pages/ReportData.aspx?Type=TSV"  
+ # parse the rates now so we have the latest XDR tables  
+ ./parsetsv.pl rates.tsv > rates.txt  
+ # parse broadvoice first so we have the dialplan with country name -> dialplan  
+ ./parsebroadvoice.pl broadvoice.rates.txt > broadvoice.rates.csv  
+ ./parsevoipian.pl voipian.rates.txt > voipian.rates.csv  
+ ./parsepennytel.pl pennytel.rates.txt > pennytel.rates.csv  
+ # finally convert the resultant CSV files into SQL scripts for mod_lcr  
+ ./turncsvintosql.pl > /tmp/data.sql  
+ popd  
+```
+
+# 2\. Broadvoice example ([parsebroadvoice.pl](http://parsebroadvoice.pl)) (both pennytel and voipian rely on broadvoice.rates.csv as they don't have any dialplans in their rate table, only names)
+
+  
+```xml
+ #!/usr/bin/perl
+ # parse the following:
+ #  ________________________________________________________________________________________
+ #|              |      |          |BYOD |Unlimited|Unlimited|Unlimited|Unlimited|Unlimited|
+ #|Country       |Prefix|Number    |Lite |In-State |World    |World    |Small    |USA      |
+ #|______________|______|__________|_____|_________|_________|Plus_____|Business_|_________|
+ #|Afghanistan___|93____|#_________|0.40_|0.40_____|0.40_____|0.40_____|0.40_____|0.40_____|
+ #|Afghanistan - |      |70#, 75#, |     |         |         |         |         |         |
+ #|Mobile        |93    |77#, 78#, |0.40 |0.40     |0.40     |0.40     |0.40     |0.40     |
+ #|______________|______|79#_______|_____|_________|_________|_________|_________|_________|
+ #|Albania_______|355___|#_________|0.14_|0.14_____|0.14_____|0.14_____|0.14_____|0.14_____|
+ #|Albania -     |355   |67#, 68#, |0.46 |0.46     |0.46     |0.46     |0.46     |0.46     |
+ #|Mobile________|______|69#_______|_____|_________|_________|_________|_________|_________|
+ #
+ @header = null;
+ open (FILE, $ARGV[0]);
+ my @values;
+ my $incountry=-1;
+ my $country;
+ my $prefix;
+ my $dialplan;
+ my $rate;
+ my %hashdetails;
+ while (<FILE>) {
+	chomp;
+	$rateline = $_;
+
+	if ($rateline=~m/\|Country/ && !$foundcountry)
+	{
+		$foundcountry = true;	
+		next;
+	}
+
+	if (!$foundcountry)
+	{
+		next;
+	}
+	
+	# first find country 
+	if ($rateline=~m/___/)
+	{
+		$incountry=0;
+	}
+	if ($incountry >= 0)
+	{
+		@templine = split(/\|/,$rateline);
+		foreach $l (0 .. $#templine)
+		{
+			$box=$templine[$l];
+			$box =~ s/_/ /g;
+			$box =~ s/^\s+//;
+			$box =~ s/\s+$//;
+			if ($l == 1)
+			{
+				$country .= $box;
+			}	
+			elsif ($l == 2)
+			{
+				$prefix .= $box;
+			}
+			elsif ($l == 3)
+			{
+				$box =~ s/\,/ /g;
+				$dialplan .= $box;
+			}
+			elsif ($l == 7)
+			{
+				$rate .= $box;
+			}
+		}
+	}
+	if ($incountry==0)
+	{
+		@dialplansplit = split(/\s+/,$dialplan);
+		foreach $dialplanitem (@dialplansplit)
+		{
+			$dialplanitem =~ s/#//g;
+			print "$country,$prefix$dialplanitem,$rate\n";
+		}
+
+		$country = "";
+		$prefix = "";
+		$dialplan = "";
+		$rate = "";
+	}
+	$incountry++;
+ }
+ close (FILE);
+ exit;
+```
+
+  
+# 3\. Pennytel example ([parsepennytel.pl](http://parsepennytel.pl))
+
+  
+```xml
+#!/usr/bin/perl
+# parse the following:
+# Afghanistan                                 0.30931
+#Afghanistan Mobile                          0.30931
+#Albania                                     0.10517
+#Albania Mobile                              0.28097
+#Algeria                                     0.0993
+#Algeria Mobile                              0.17767
+#American Samoa                              0.11729
+#American Samoa Mobile                       0.11729
+#Andorra                                     0.04221
+#Andorra Mobile                              0.31075
+#Angola                                      0.16113
+
+open (FILE, "broadvoice.rates.csv");
+my @broadvoice = <FILE>;
+close FILE;
+
+# pennytel is in AUD, so convert to USD
+$usdrate=0;
+$audrate=0;
+open (FILE, "rates.txt");
+while (<FILE>)
+{
+	if (m/^AUD ([\d\.]+)/)
+	{
+		$audrate=$1;
+	} elsif (m/^USD ([\d\.]+)/)	
+	{
+		$usdrate=$1;
+	}
+}
+close FILE;
+
+#print "AUD $audrate USD $usdrate\n";
+
+$tousd = $audrate / $usdrate;
+#print "AUD -> USD $tousd\n";
+
+%freelocations = ( "Australia" => 0.0, "United Kingdom" => 0.0, "United States" => 0.0, "United States - Mobile" => 0.0, "Canada" => 0.0, "Canada - Mobile" => 0.0, "China" => 0.0, "China - Mobile" => 0.0, "Singapore" => 0.0, "Singapore - Mobile" => 0.0 );
+@header = null;
+open (FILE, $ARGV[0]);
+my @values;
+while (<FILE>) {
+	chomp;
+	$rateline = $_;
+	if ($rateline =~ m/([^\d]+)([\d]+\.[\d]+)/)
+	{
+		$country = $1;
+		$rate = $2;
+		# convert to USD
+		$rate = $rate * $tousd;
+		$country =~ s/_/ /g;
+		$country =~ s/^\s+//;
+		$country =~ s/\s+$//;
+		# fix Mobile to be - Mobile
+		$country =~ s/Mobile/- Mobile/;
+
+		# change rate to 0 for @freelocations
+		if (exists($freelocations{$country}))
+		{
+			$rate = $freelocations{$country};
+		}
+
+		@matchcountries = grep(/$country/,@broadvoice);
+                foreach $countrymatch (@matchcountries)
+                {
+                        if ($country =~ m/Mobile/ || $countrymatch =~ m/Mobile/)
+                        {
+                                if ($country =~ m/Mobile/ && $countrymatch =~ m/Mobile/)
+                                {
+                                        # match only with Mobiles
+                                        @linesplit = split(/\,/,$countrymatch);
+                                        $prefixlist = $linesplit[1];
+                                        @prefixsplit = split(/\s+/,$prefixlist);
+                                        foreach $prefix (@prefixsplit)
+                                        {
+                                                print "$country,$prefix,$rate\n";
+                                        }
+                                }
+                        } else {
+                                # match only with non Mobiles
+                                @linesplit = split(/\,/,$countrymatch);
+                                $prefixlist = $linesplit[1];
+                                @prefixsplit = split(/\s+/,$prefixlist);
+                                foreach $prefix (@prefixsplit)
+                                {
+                                        print "$country,$prefix,$rate\n";
+                                }
+                        }
+                }
+	}
+}
+close (FILE);
+exit;
+```
+
+  
+# 4\. Voipian example ([parsevoipian.pl](http://parsevoipian.pl))
+
+  
+```xml
+#!/usr/bin/perl
+# parse the following:
+#Afghanistan (landline)                0.170        0.202
+#Afghanistan (mobile)                  0.180        0.214
+#Albania (landline)                    0.034        0.040
+#Albania (mobile)                      0.130        0.155
+#Algeria (landline)                    0.040        0.048
+#Algeria (mobile)                      0.090        0.107
+#Andorra (landline)                    1 Cent/Call*  
+#Andorra (mobile)                      0.100        0.119
+#Angola (landline)                     0.090        0.107
+#Angola (mobile)                       0.130        0.155
+#Anguilla (landline)                   0.080        0.095
+#United_Kingdom_(landline)             1 Cent/Call*
+#United_Kingdom_(mobile)               0.068        0.081
+#United_States                         1 Cent/Call*
+#Uruguay_(landline)                    0.048        0.057
+#Uruguay_(mobile)                      0.136        0.162
+#Free
+@header = null;
+open (FILE, "broadvoice.rates.csv");
+my @broadvoice = <FILE>;
+close FILE;
+
+# voipian is in EUR, so convert to USD
+$usdrate=0;
+$eurrate=0;
+open (FILE, "rates.txt");
+while (<FILE>)
+{
+        if (m/^EUR ([\d\.]+)/)
+        {
+                $eurrate=$1;
+        } elsif (m/^USD ([\d\.]+)/)
+        {
+                $usdrate=$1;
+        }
+}
+close FILE;
+
+#print "EUR $eurrate USD $usdrate\n";
+
+$tousd = $eurrate / $usdrate;
+#print "EUR -> USD $tousd\n";
+
+
+open (FILE, $ARGV[0]);
+my @values;
+while (<FILE>) {
+	chomp;
+	$rateline = $_;
+	if ($rateline =~ m/([\w\_\s\(\)]*)\s+(?:([\d\.\s]+)|1 Cent)/)
+	{
+		$country = $1;
+		$rate = $2;
+		$country =~ m/([\w\_]+)_?(.*)/;
+		$country = $1;
+		$type = $2;
+		$type =~ s/[\(\)]//g;
+		$type = ucfirst($type);
+		$country =~ s/_/ /g;
+		$country =~ s/^\s+//;
+		$country =~ s/\s+$//;
+	
+		if (!$country)
+		{
+			next;
+		}
+		
+		if ($type =~ m/Mobile/)
+		{
+			$country .= " - Mobile";
+		}
+		if ($rateline =~ m/Cent\/Call/)
+		{	
+			$rate_exvat = "0.0";
+			$rate_incvat = "0.0";
+		}
+		else
+		{
+			$rate =~ m/([\d\.]+)\s+([\d\.]+)/;
+			$rate_exvat = $1;
+			$rate_incvat = $2;
+			$rate_exvat = $rate_exvat * $tousd;
+			$rate_incvat = $rate_incvat * $tousd;
+		}
+		# now need to pull the dialplan using the match from broadvoice
+		# as below
+		# United Kingdom,0.0
+                # United Kingdom,44,#,0.00
+		# United Kingdom - London,44,207#  208#,0.00
+		# United Kingdom - Mobile,44,7#,0.27
+		# United Kingdom - Other,44,8#  9#,0.32
+		# United Kingdom - Personal,44,70#,0.50
+
+		# United Kingdom - Mobile,0.081
+		# United Kingdom - Mobile,44,7#,0.27
+		@matchcountries = grep(/$country/,@broadvoice);
+		foreach $countrymatch (@matchcountries)
+		{
+			if ($country =~ m/Mobile/ || $countrymatch =~ m/Mobile/)
+			{
+				if ($country =~ m/Mobile/ && $countrymatch =~ m/Mobile/)
+				{
+					# match only with Mobiles
+					@linesplit = split(/\,/,$countrymatch);
+					$prefixlist = $linesplit[1];
+					@prefixsplit = split(/\s+/,$prefixlist);
+					foreach $prefix (@prefixsplit)
+					{
+						print "$country,$prefix,$rate_incvat\n";
+					}
+				}
+			} elsif ($country) {
+				# match only with non Mobiles
+                                @linesplit = split(/\,/,$countrymatch);
+                                $prefixlist = $linesplit[1];
+                                @prefixsplit = split(/\s+/,$prefixlist);
+                                foreach $prefix (@prefixsplit)
+                                {
+                                        print "$country,$prefix,$rate_incvat\n";
+                                }
+			} else {
+				print "#no country?\n";
+			}
+		}
+	}
+}
+close (FILE);
+exit;
+```
+
+  
+# 5\. Parsing the XDR rates from TSV file ([parsetsv.pl](http://parsetsv.pl))
+
+  
+```xml
+#!/usr/bin/perl
+@header = null;
+open (FILE, $ARGV[0]);
+my @values;
+while (<FILE>) {
+	chomp;
+	if (m/Date/ && $#header == 0)
+	{
+		@header = split("\t");
+	}
+	elsif ($#header > 0)
+	{
+		@tempvalues = split("\t");
+		if ($#tempvalues == 1)
+		{	
+			last;
+		}
+		foreach $rate_index (0 .. $#tempvalues)
+		{
+			if ($tempvalues[$rate_index] =~ m/\d+/)
+			{
+				$values[$rate_index] = $tempvalues[$rate_index];
+			}
+		}
+
+	}
+
+}
+close (FILE);
+
+# use the last value of the currency report
+foreach $num (0 .. $#header)
+{
+	$rate = "$header[$num] $values[$num]\n";
+	if ($rate =~ m/\((\w+)\).*?([\d\.]+)/)
+	{
+		print "$1 $2\n";
+	}
+}
+exit;
+
+
+```
+  
+  
+# 6\. Convert the csv files into SQL for import into the DB ([turncsvintosql.pl](http://turncsvintosql.pl))
+
+  
+```xml
+#!/usr/bin/perl
+
+open (FILE,"broadvoice.rates.csv");
+@broadvoice = <FILE>;
+close FILE;
+open (FILE,"pennytel.rates.csv");
+@pennytel = <FILE>;
+close FILE;
+open (FILE,"voipian.rates.csv");
+@voipian = <FILE>;
+close FILE;
+
+print "DELETE from carriers;\n";
+print "DELETE from carrier_gateway;\n";
+print "DELETE from lcr;\n";
+
+# create the SQL for the carriers
+print "INSERT INTO carriers (id,carrier_name) VALUES (1,'broadvoice');\n";
+print "INSERT INTO carriers (id,carrier_name) VALUES (2,'pennytel.com');\n";
+print "INSERT INTO carriers (id,carrier_name) VALUES (3,'voipian.com');\n";
+
+# create the gateway info
+print "INSERT INTO carrier_gateway (carrier_id, prefix, suffix) VALUES (1, 'sofia/gateway/broadvoice/011', '');\n";
+print "INSERT INTO carrier_gateway (carrier_id, prefix, suffix) VALUES (2, 'sofia/gateway/pennytel.com/', '');\n";
+print "INSERT INTO carrier_gateway (carrier_id, prefix, suffix) VALUES (3, 'sofia/gateway/voipian.com/', '');\n";
+
+# insert the LCR data
+foreach $line (@broadvoice)
+{
+	($country_name, $prefix, $rate) = split(/\,/,$line);
+	chomp($rate);
+	print "INSERT INTO lcr (digits, rate, carrier_id, lead_strip, trail_strip, prefix, suffix, date_start, date_end, quality, reliability) VALUES ('$prefix', $rate, 1, 0, 0, '', '', datetime(current_timestamp,'-1 year'), datetime(current_timestamp,'+1 year') , 0, 0);\n";	
+}
+
+# insert the LCR data
+foreach $line (@pennytel)
+{
+        ($country_name, $prefix, $rate) = split(/\,/,$line);
+        chomp($rate);
+        print "INSERT INTO lcr (digits, rate, carrier_id, lead_strip, trail_strip, prefix, suffix, date_start, date_end, quality, reliability) VALUES ('$prefix', $rate, 2, 0, 0, '', '', datetime(current_timestamp,'-1 year'), datetime(current_timestamp,'+1 year') , 0, 0);\n";
+}
+
+# insert the LCR data
+foreach $line (@voipian)
+{
+        ($country_name, $prefix, $rate) = split(/\,/,$line);
+        chomp($rate);
+        print "INSERT INTO lcr (digits, rate, carrier_id, lead_strip, trail_strip, prefix, suffix, date_start, date_end, quality, reliability) VALUES ('$prefix', $rate, 3, 0, 0, '', '', datetime(current_timestamp,'-1 year'), datetime(current_timestamp,'+1 year') , 0, 0);\n";
+}
+```
+  
+  
+#   
+  
+Document generated by Confluence on nov 11, 2022 04:28

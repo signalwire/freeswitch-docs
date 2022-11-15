@@ -1,0 +1,179 @@
+
+# mod_com_g729 
+
+ Created by  John Boteler, last modified by  Joshua Young on 2019.09.27
+
+## About
+
+mod\_com\_g729 allows you to have the G.729/A audio codec in FreeSWITCH. It supports G.729 and G.729 Annex A (a=fmtp:18 annexb=no).
+
+G.729 is a toll-quality, low-bandwidth audio codec supported by many VoIP providers. The voice quality of a G.729-encoded call is about the same as that of G.711, the codec used for standard PSTN calls. However, the amount of bandwidth needed to carry a G.729 call is much lower than that for a G.711 call. Enterprises using G.729 will make more efficient use of available network bandwidth.
+
+G.729 uses roughly 1/8th of the bandwidth of a G.711 (8 kbit/s vs 64 kbit/s).
+
+## Setup
+
+The module is packaged separately from the rest of FreeSWITCH.
+
+It can be downloaded from [http://files.freeswitch.org/g729](http://files.freeswitch.org/g729/)
+
+Full installation instructions are available at the above link in the INSTALL.txt file.
+
+You should make sure that [mod\_g729](mod_g729_3375549.mdx#about) is not loaded at the same time as mod\_com\_g729.
+
+### Quick install
+
+```xml
+cd /tmp
+apt-get install unzip
+wget files.freeswitch.org/g729/fs-latest-installer-v1.6
+chmod +x fs-latest-installer-v1.6 
+./fs-latest-installer-v1.6 /usr /usr/lib/freeswitch/mod
+/usr/bin/freeswitch-license-validator
+unzip licences.zip
+ 
+cp <HEX-KEY>.conf /etc/freeswitch/   # <--- must be "/etc/freeswitch" for its a hard coded path freeswitch_licence server will search
+
+systemctl stop freeswitch
+freeswitch-licence-server 
+systemctl start freeswitch
+fs_cli -x "load mod_com_g729"
+fs_cli -x "g729_info"
+ 
+# should see sucess
+Success checking G.729A/0
+G.729A license available => 5
+G.729A license allocated => 0
+```
+
+Troubleshooting
+
+```xml
+fs_cli -x "g729_info"
+Can't contact licence server.
+ 
+systemctl stop freeswitch
+pkill -HUP freeswitch_licence_server
+systemctl start freeswitch
+```
+
+  
+### Linux
+
+Download the fs-xxx-installer (currently <http://files.freeswitch.org/g729/fs-201501231218-installer>) file, make it executable and run it. This will install the module and supporting software to /usr/local/freeswitch or /opt/freeswitch (autodetected). If you are not using one of these directories for FreeSWITCH installation (e.g. using standard Debian directory layout), then you will need to pass two command line parameters:
+
+./fs-xxx-installer [bin_dir modules_dir]
+
+For example:
+
+./fs-201501231218-installer /usr /usr/lib/freeswitch/mod
+
+Your /bin directory will then contain an executable named validator, run this to enter your sales codes (see Licensing) and download your licences.zip file. This file contains your licences which should be extracted to /etc/freeswitch.
+
+####  No Hardware Detected 
+
+This error will usually happen for one of two reasons.
+
+* You're trying to run inside a VM  
+   * Using mod\_com\_g729 from within a VM is not supported, please use bare metal only
+* Your network interfaces aren't named ethX (e.g. eth0, eth1, etc).  
+   * Currently, we only support interfaces named with the ethX scheme. Please change the interface name accordingly.
+
+## Licensing
+
+Licenses can be purchased from the [FreeSWITCH website](https://billing.freeswitch.com/cart.php?a=confproduct&i=0) \- see the Commercial Modules tab at the top of the page.
+
+Pricing is $10 per channel.
+
+A single license provides you with one encoder and one decoder, which is enough for bridging one call.
+
+Licenses are only required for channels performing transcoding (for bridging calls a leg uses G.729 and a different leg uses a different codec, and for applications which need to process media). Bridged channels where G.729 is on all legs still use pass-through mode, so that they do not consume a license.
+
+###  Licence details 
+
+Licences are linked to a particular server. This is achieved by linking the license to the MAC address(es) of the server.
+
+**Warning:** This means that if these MAC addresses change, the license will no longer be valid for the server and will need to be reissued (or the MAC addresses returned to the previous values).
+
+  
+##  Adding more licenses while FreeSWITCH is running 
+
+While FreeSWITCH is running you are able to add more licenses without stopping calls. Run the G729a validator program for your new license codes:
+
+/usr/local/freeswitch/bin/validator
+
+Enter each of your **newly purchased** license numbers on a new line and finish by entering a blank line.
+
+Follow the installation instructions [as per the guide](http://files.freeswitch.org/g729/INSTALL.txt) to add your license file to FreeSWITCH and confirm that you do wish to overwrite your old license files when asked. Now that you have updated your licenses you need to re-start the license server which is already running. Kill the process for freeswitch\_licence\_server and it should automatically restart as soon as a call requests to use g729a. If the license server does not automatically restart itself you can manually start it by issuing this command:
+
+/usr/sbin/freeswitch_licence_server
+
+## API Commands
+
+### g729_status
+
+Removed in FreeSWITCH G729 release 147\. Use g729\_info instead.
+
+###  g729_info 
+
+This command verifies your license is active and shows you the number of licenses available/in use.
+
+ freeswitch@internal> g729_info
+ Permitted G.729 channels: 1
+ Encoders in use: 0
+ Decoders in use: 0
+
+###  g729_count 
+
+Returns the number of permitted channels that are licensed on this system
+
+###  g729_available 
+
+Returns 'true' if the codec is loaded and the license server is available, otherwise returns false.
+
+###  g729_used 
+
+Returns the [encoder:decoder](http://encoderdecoder) counts. Can be paired with the [regex](https://wiki.freeswitch.org/wiki/Mod%5Fcommands#regex "Mod commands") API to do powerful manipulations.
+
+## Notes
+
+The freeswitch\_licence\_server is automatically started by mod\_com\_g729 but if you started FreeSWITCH with a user other than root, e.g. nobody, you have to start freeswitch\_licence\_server before loading mod\_com\_g729\. FreeSWITCH will try to automatically start this server however if the user you are running FreeSWITCH as cannot execute /usr/sbin/freeswitch\_licence\_server it will fail. Give them permission and FreeSWITCH should be able to auto start it.
+
+ root#cd /usr/sbin
+ root#./freeswitch_licence_server
+
+If you are running FreeSWITCH with a different user and you add more G729 licenses, stop and start the freeswitch\_license\_server.
+
+###  Saving Config Files 
+
+After activating, you should keep your zip files around for backups. There's a maximum of 3 activates per license. If you don't read this until it's too late, then you can send an email to [g729-support@freeswitch.org](mailto:g729-support@freeswitch.org) to have it reset once so that you can back up the files to use in the future.
+
+### Phone wants G729A
+
+You're probably seeing something like:
+
+2011-03-17 11:51:06.327987 [DEBUG] sofia_glue.c:4619 Audio Codec Compare [G729a:18:8000:30:8000]/[G729:18:8000:20:8000]
+2011-03-17 11:51:06.327987 [DEBUG] sofia_glue.c:4619 Audio Codec Compare [G729a:18:8000:30:8000]/[G722:9:8000:20:64000]
+2011-03-17 11:51:06.327987 [DEBUG] sofia_glue.c:4619 Audio Codec Compare [G729a:18:8000:30:8000]/[PCMU:0:8000:20:64000]
+2011-03-17 11:51:06.327987 [DEBUG] sofia_glue.c:4619 Audio Codec Compare [G729a:18:8000:30:8000]/[PCMA:8:8000:20:64000]
+2011-03-17 11:51:06.327987 [DEBUG] sofia_glue.c:4619 Audio Codec Compare [G729a:18:8000:30:8000]/[GSM:3:8000:20:13200]
+2011-03-17 11:51:06.327987 [DEBUG] sofia_glue.c:4619 Audio Codec Compare [PCMU:0:8000:30:64000]/[G729:18:8000:20:8000]
+2011-03-17 11:51:06.327987 [DEBUG] sofia_glue.c:4619 Audio Codec Compare [PCMU:0:8000:30:64000]/[G722:9:8000:20:64000]
+2011-03-17 11:51:06.327987 [DEBUG] sofia_glue.c:4619 Audio Codec Compare [PCMU:0:8000:30:64000]/[PCMU:0:8000:20:64000]
+2011-03-17 11:51:06.327987 [DEBUG] sofia_glue.c:4619 Audio Codec Compare [PCMU:0:8000:30:64000]/[PCMA:8:8000:20:64000]
+2011-03-17 11:51:06.327987 [DEBUG] sofia_glue.c:4619 Audio Codec Compare [PCMU:0:8000:30:64000]/[GSM:3:8000:20:13200]
+2011-03-17 11:51:06.327987 [DEBUG] sofia_glue.c:4672 Substituting codec PCMU@30i@8000h
+
+<http://wiki.freeswitch.org/wiki/Sofia.conf.xml#NDLB-allow-bad-iananame>
+
+On Linksys (or Cisco SPA5XX) phones & ATAs you have to rename the G729 codec name on SIP tab from G729a to G729.
+
+## See Also
+
+* [Codecs](https://wiki.freeswitch.org/wiki/Codecs "Codecs")
+* [Modules](index.mdx#about)
+* [G729 Downloads](http://files.freeswitch.org/g729/)
+* [FreeSWITCH website - click Commercial Modules tab to purchase licenses](https://freeswitch.com/cart.php?gid=2)
+* [G729 Wiki](http://en.wikipedia.org/wiki/G.729)
+
+Document generated by Confluence on nov 11, 2022 04:27

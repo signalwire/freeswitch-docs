@@ -1,0 +1,201 @@
+
+# Lua Numeric Paging Example 
+
+ Created by  Ryan Harris, last modified on 2018.02.18
+
+# About
+
+Numeric pagers have become less fashionable, but are still in use. In this example, we will synthesize multiple FreeSWITCH™ concepts to create a Lua script that calls a numeric pager and enters a numeric message
+
+Click here to expand Table of Contents
+
+* 1 [Numeric Pagers](#numeric-pagers)  
+   * 1.1 [Creating a Pagerdex](#creating-a-pagerdex)  
+   * 1.2 [First Attempt](#numeric-pagers)  
+   * 1.3 [Waiting for the prompt and waiting for acknowledgement](#waiting-for-the-prompt-and-waiting-for-acknowledgement)  
+   * 1.4 [Auditing and being resourceful](#auditing-and-being-resourceful)  
+   * 1.5 [Finishing Touches](#finishing-touches)  
+   * 1.6 [Our final product](#our-final-product)
+
+# Numeric Pagers
+
+Numeric pagers have been around for decades. The concept is simple: one dials the pager number on the telephone and, when prompted, enters the numeric message on the telephone keypad. Unfortunately this gets a little tedious and can be error prone. In larger call groups, it can be difficult to manage which pager to dial for a numeric message. It might be easier to be able to simply reference someone's name and have the script figure out the right pager number to dial.
+
+## Creating a Pagerdex
+
+First, let's start by creating a pagerdex, a "host file" for our call group. We will store a name and a number:
+
+**/usr/share/freeswitch/scripts/pagers.conf**
+
+```text
+bob 8005553482
+alice 8005559844
+jane 8005553629
+john 8005550000
+```
+
+For simplicity's sake, we are going to keep this file in the script dir on a default FreeSWITCH™ install on Debian.
+
+Now we'll create a function that looks up the name in our pager file:
+
+**/usr/share/freeswitch/scripts/send\_page.lua**
+
+```bash
+local function get_pager(arg)
+   local f = "/usr/share/freeswitch/scripts/pagers.conf"
+   for line in io.lines(f) do
+      for name, number in string.gmatch(line, "(%w+)%s+(%w+)") do
+         if name == arg then return number end
+      end
+   end
+   return arg
+end
+ 
+```
+
+First we create a loop that iterates over each line in the file using [io.lines](http://www.lua.org/manual/5.2/manual.html#pdf-io.lines). For each line we us [string.gmatch](http://www.lua.org/manual/5.2/manual.html#pdf-string.gmatch) to get the name and the number. If the name matches the arg, we return the number for that person. Otherwise, we just return `arg` as it's probably a number.
+
+## First Attempt
+
+Let's get started with our first attempt. We're going to build on what we have above:
+
+```bash
+local s = freeswitch.Session("sofia/gateway/flowroute.com/1" .. get_pager(argv[1])) -- the first argument will be either a name or a pager number
+ 
+if (s:ready() == true) then
+   s:execute("wait_for_answer") -- we don't want to generate tones until the far end picks up
+   s:execute("gentones", tostring(argv[2]) .. "#") -- this is where we play the tones to the pager, numeric message end with #
+   s:hangup()
+end
+```
+
+Now if we run 
+
+**fs\_cli**
+
+```text
+ luarun send_page.lua bob 5552121
+```
+
+Bob's pager will get the numeric message!
+
+Well, sometimes. 
+
+## Waiting for the prompt and waiting for acknowledgement
+
+There are a few problems with our current implementation:
+
+* As soon as the pager answers, we start to generate tones. If the other line isn't ready to receive our DTMF digits, the message might be clipped or not sent at all!
+* We hangup almost _immediately_ after generating the tones. Some pagers will not accept messages this way - they want the person entering the message to _wait_ for the acknowledgement tones.
+
+So, let's iterate on what we already have. Let's make some changes to our `s:ready()` block in `send_page.lua:`
+
+```bash
+if (s:ready() == true) then
+   s:execute("wait_for_answer")
+   s:execute("wait_for_silence", "20 30 20 10000") -- wait for the pager to shutup before we start sending tones
+   s:execute("gentones", tostring(argv[2]) .. "#")
+   s:execute("playback", "silence_stream://-1") -- play silence to the pager until it hangs up on its own
+end
+```
+
+Now we're waiting for silence after the pager says, "_please enter a numeric message after the tone. beep beep beep_."
+
+## Auditing and being resourceful
+
+Our current version does exactly what we need it to do, but we can go a few steps further:
+
+* What if the numeric pager never hangs up? The call could sit there for a long time just wasting resources.
+* How will we know that this actually works? Of course, we can look at the logs and see that `gentones` was called, but a better way would be to record our interaction with the pager.
+* Let's make sure comfort noise is suppressed on the channel, pagers don't get uncomfortable.
+
+```bash
+if (s:ready() == true) then
+   s:setVariable("suppress_cng", "true") -- pagers don't get uncomfortable
+   s:setVariable("execute_on_answer", "sched_hangup +180 NORMAL_CLEARING") -- hang up automatically after 3 minutes
+   s:execute("record_session", "/tmp/pager_audit-" .. s:get_uuid() .. ".wav") -- record the session for auditing purposes
+   s:execute("wait_for_answer")
+   s:execute("wait_for_silence", "20 30 20 10000")
+   s:execute("gentones", tostring(argv[2]) .. "#")
+   s:execute("playback", "silence_stream://-1")
+end
+```
+
+## Finishing Touches
+
+Let's add the finishing touches:
+
+* It would be much better if we can _detect the pager acknowledgement tones_ instead of arbitrarily hanging up after a timeout or assuming the pager will hang up on its own.
+* In some cases, pagers have a hard time hearing the DTMF digits if we go too fast, let's slow things down a bit so that we can be sure the pager hears us.
+
+```bash
+local api = freeswitch.API() -- we're going to asynchronously detect the tone so we can keep the line alive while playing silence
+local s = freeswitch.Session("sofia/gateway/flowroute.com/1" .. get_pager(argv[1]))
+
+if (s:ready() == true) then
+   s:setVariable("suppress_cng", "true")
+   s:setVariable("execute_on_answer", "sched_hangup +180 NORMAL_CLEARING")
+   s:setVariable("execute_on_tone_detect", "sched_hangup +20 NORMAL_CLEARING") -- this will be called when FreeSWITCH detects our pager_ack tone
+   s:setVariable("tone_detect_hits", "4") -- let's assume the pager is going to play the acknowledgement tone at least 4 tiems
+   s:execute("record_session", "/tmp/pager_audit-" .. s:get_uuid() .. ".wav")
+   s:execute("wait_for_answer")
+   s:execute("wait_for_silence", "20 30 20 10000")
+   s:execute("gentones", "d=1000;w=500;" .. tostring(argv[2]) .. "#") -- d=1000 sets the length of the digit to 1000ms and w=500 waits 500ms between each digit
+   api:executeString("tone_detect " .. s:get_uuid() .. " pager_ack 1390-1430 r +60000") -- begin tone detection and move along to playing silence
+   s:execute("playback", "silence_stream://-1")
+end
+```
+
+Totally cool! FreeSWITCH™ will now call the pager, dial the tones, and wait for acknowledgement. We use a liberal range of frequencies in [tone\_detect](../../../Modules/mod-dptools/6586957.mdx#about) to make sure we can hear a pager that plays a weird acknowledgement tone. If FreeSWITCH™ hears the tones, it will hang up after 20 seconds. The other `sched_hangup` task in `execute_on_answer` will be executed if the tones are never detected.
+
+```text
+b5b167b2-8692-47b3-a650-e9a6ce87ed72 2018-02-18 11:23:13.556240 [DEBUG] switch_ivr_async.c:3765 Adding tone spec 1390-1430 index 0 hits 4
+b5b167b2-8692-47b3-a650-e9a6ce87ed72 2018-02-18 11:23:13.556240 [DEBUG] switch_core_media_bug.c:945 Attaching BUG to sofia/external/18005553482
+b5b167b2-8692-47b3-a650-e9a6ce87ed72 EXECUTE sofia/external/18005553482 playback(silence_stream://-1)
+b5b167b2-8692-47b3-a650-e9a6ce87ed72 2018-02-18 11:23:13.556240 [DEBUG] switch_ivr_play_say.c:1498 Codec Activated L16@8000hz 1 channels 20ms
+b5b167b2-8692-47b3-a650-e9a6ce87ed72 2018-02-18 11:23:13.736257 [DEBUG] switch_ivr_async.c:3625 TONE pager_ack HIT 1/4
+b5b167b2-8692-47b3-a650-e9a6ce87ed72 2018-02-18 11:23:14.396287 [DEBUG] switch_ivr_async.c:3625 TONE pager_ack HIT 2/4
+b5b167b2-8692-47b3-a650-e9a6ce87ed72 2018-02-18 11:23:15.176253 [DEBUG] switch_ivr_async.c:3625 TONE pager_ack HIT 3/4
+b5b167b2-8692-47b3-a650-e9a6ce87ed72 2018-02-18 11:23:15.736290 [DEBUG] switch_ivr_async.c:3625 TONE pager_ack HIT 4/4
+b5b167b2-8692-47b3-a650-e9a6ce87ed72 2018-02-18 11:23:15.736290 [DEBUG] switch_ivr_async.c:3631 TONE pager_ack DETECTED
+b5b167b2-8692-47b3-a650-e9a6ce87ed72 EXECUTE sofia/external/18005553482 sched_hangup(+15 NORMAL_CLEARING)
+2018-02-18 11:23:15.736290 [DEBUG] switch_scheduler.c:249 Added task 40 switch_ivr_schedule_hangup (b5b167b2-8692-47b3-a650-e9a6ce87ed72) to run at 1518953010
+b5b167b2-8692-47b3-a650-e9a6ce87ed72 2018-02-18 11:23:30.256267 [NOTICE] switch_ivr_async.c:4847 Hangup sofia/external/18005553482 [CS_SOFT_EXECUTE] [NORMAL_CLEARING]
+2018-02-18 11:23:30.256267 [DEBUG] switch_scheduler.c:144 Deleting task 40 switch_ivr_schedule_hangup (b5b167b2-8692-47b3-a650-e9a6ce87ed72)
+```
+
+Success! The pager heard us loud and clear and it happily beeped to let us know.
+
+## Our final product
+
+**/usr/share/freeswitch/scripts/send\_page.lua**
+
+```bash
+local function get_pager(arg)
+   local f = "/usr/share/freeswitch/scripts/pagers.conf"
+   for line in io.lines(f) do
+      for name, number in string.gmatch(line, "(%w+)%s+(%w+)") do
+         if name == arg then return number end
+      end
+   end
+   return arg
+end
+ 
+local api = freeswitch.API()
+local s = freeswitch.Session("sofia/gateway/flowroute.com/1" .. get_pager(argv[1]))
+
+if (s:ready() == true) then
+   s:setVariable("suppress_cng", "true")
+   s:setVariable("execute_on_answer", "sched_hangup +180 NORMAL_CLEARING")
+   s:setVariable("execute_on_tone_detect", "sched_hangup +20 NORMAL_CLEARING")
+   s:setVariable("tone_detect_hits", "4")
+   s:execute("record_session", "/tmp/pager_audit-" .. s:get_uuid() .. ".wav")
+   s:execute("wait_for_answer")
+   s:execute("wait_for_silence", "20 30 20 10000")
+   s:execute("gentones", "d=1000;w=500;" .. tostring(argv[2]) .. "#")
+   api:executeString("tone_detect " .. s:get_uuid() .. " pager_ack 1390-1430 r +60000")
+   s:execute("playback", "silence_stream://-1")
+end
+```
+
+Document generated by Confluence on nov 11, 2022 04:27

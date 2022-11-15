@@ -1,0 +1,236 @@
+
+# Firewall 
+
+ Created by  Brian West, last modified by  Sergey Safarov on 2019.11.23
+
+  
+# About
+
+If you are going to route traffic across your network, you need to ensure that you do not have a firewall blocking traffic on the specified network paths. Commonly firewalls are installed at egress points, where your local network connects to the internet. You may also run a firewall on the server itself. This is not always the case in some corporate environments. If you are not responsible for your network, you may wish to contact the group or individuals who are responsible for it.
+
+Information they may need to enable traffic would include the port numbers. Various protocols use different ports for different things. Some you need bi-directional connectivity, some you only need outbound. Depending on your call scenario you may only need to allow connections that are initiated by your system. **If you have any problems with protocols not working, it is recommended that you disable your firewall to the FreeSWITCH™ system, place a test call, and see if the problem persists.** A misconfigured firewall is responsible for many common problems.
+
+* 1 [About](#about)
+* 2 [Typical Ports](#typical-ports)
+* 3 [Linux netfilter iptables](#linux-netfilter-iptables)  
+   * 3.1 [Module options](#module-options)  
+   * 3.2 [Configuration](#configuration)  
+         * 3.2.1 [Notes](#notes)  
+         * 3.2.2 [Side effects](#side-effects)
+* 4 [Example](#example)  
+   * 4.1 [Back up your current iptables rules](#back-up-your-current-iptables-rules)  
+   * 4.2 [Create new rules](#create-new-rules)  
+   * 4.3 [Turn on the rules](#turn-on-the-rules)  
+   * 4.4 [Save the final rules](#save-the-final-rules)  
+   * 4.5 [Load rules on boot](#load-rules-on-boot)
+
+# Typical Ports
+
+| FireWall Ports | Network Protocol | Application Protocol           | Description                                                                                                     |
+| -------------- | ---------------- | ------------------------------ | --------------------------------------------------------------------------------------------------------------- |
+| 1719           | UDP              | H.323 Gatekeeper RAS port      |                                                                                                                 |
+| 1720           | TCP              | H.323 Call Signaling           |                                                                                                                 |
+| 2855-2856      | TCP              | MSRP                           | Used for call with messaging                                                                                    |
+| 3478           | UDP              | STUN service                   | Used for NAT traversal                                                                                          |
+| 3479           | UDP              | STUN service                   | Used for NAT traversal                                                                                          |
+| 5002           | TCP              | MLP protocol server            |                                                                                                                 |
+| 5003           | UDP              | Neighborhood service           |                                                                                                                 |
+| 5060           | UDP & TCP        | SIP UAS                        | Used for SIP signaling (Standard SIP Port, for default Internal Profile)                                        |
+| 5070           | UDP & TCP        | SIP UAS                        | Used for SIP signaling (For default "NAT" Profile)                                                              |
+| 5080           | UDP & TCP        | SIP UAS                        | Used for SIP signaling (For default "External" Profile)                                                         |
+| 8021           | TCP              | ESL                            | Used for [mod\_event\_socket](../Modules/mod_event_socket_1048924.mdx#11-acl) **\*** |
+| 16384-32768    | UDP              | RTP/ RTCP multimedia streaming | Used for audio/video data in SIP, Verto, and other protocols                                                    |
+| 5066           | TCP              | Websocket                      | Used for WebRTC                                                                                                 |
+| 7443           | TCP              | Websocket                      | Used for WebRTC                                                                                                 |
+| 8081-8082      | TCP              | Websocket                      | Used for Verto                                                                                                  |
+
+ESL SECURITY RISK
+
+Think carefully about opening the ESL port to the external world and **change the default password**. ESL allows any system commands to be run or even to crash FreeSWITCH for call recovery testing. Allowing public access is therefore a security risk.
+
+  
+Note that the ports may vary depending on which modules you have loaded and their configuration, for instance you may have more or fewer SIP profiles, and you may have changed many of the above ports including SIP,RTP,ESL etc.
+
+# Linux netfilter iptables
+
+  
+**THIS IS REQUIRED IF YOU ARE USING AN IPTABLES FIREWALL!!!** 
+
+You must add the interface and port numbers for each sip\_profile used in your FreeSWITCH installation.
+  
+  
+The nf\_conntrack\_sip and nf\_conntrack\_h323 modules will watch **unencrypted** SIP/H323 and automatically open the firewall ports required for RTP if you are accepting packets with the RELATED state. SIP and H323 packets after the first packet will be in the ESTABLISHED state. If you allow any RELATED,ESTABLISHED packets before processing new/unknown packets, then your firewall will accept subsequent packets much sooner, resulting in lower CPU usage and latency.
+
+This may only apply to packets on the standard ports (UDP/5060, TCP/5060, TCP/1720) as it requires that the firewall recognizes the SIP/H323 protocol the packets are using.
+
+This is of course not possible for encrypted connections, as the firewall cannot look inside the VoIP packets to get the RTP IPs and ports. With the imperative of encrypted communications, these steps are necessary to allow traffic through the firewall.
+
+## Module options
+
+You may need to adjust the following options in some configurations, e.g. setting sip\_direct\_media=0 for bypass media (either done by FreeSWITCH's bypass\_media or by a gateway).
+
+| **Module**          | **Option**              | **Description**                                                                                                       | **Values**                                                        | **Default\*** |
+| ------------------- | ----------------------- | --------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------- | ------------- |
+| nf\_conntrack\_sip  | sip\_direct\_signalling | Expect incoming calls from registrar only\*                                                                           | 0/1                                                               | 1             |
+| nf\_conntrack\_sip  | sip\_direct\_media      | Expect Media streams between signalling endpoints only                                                                | 0/1                                                               | 1             |
+| nf\_conntrack\_sip  | sip\_timeout            | Timeout for the master SIP session                                                                                    | Integer                                                           | 3600          |
+| nf\_conntrack\_sip  | ports                   | Port numbers of SIP servers\*                                                                                         | List of up to 8 port numbers (comma-separated) eg. 5060,5070,5080 | 5060          |
+| nf\_conntrack\_h323 | default\_rrq\_ttl       | Use this TTL if it's missing in RRQ                                                                                   | Integer                                                           | 300           |
+| nf\_conntrack\_h323 | gkrouted\_only          | Only accept calls from gatekeeper                                                                                     | Integer                                                           | 1             |
+| nf\_conntrack\_h323 | callforward\_filter     | Only create call forwarding expectations if both endpoints are on different sides (determined by routing information) | Integer                                                           | 1             |
+
+Module options are given when loading the module, e.g. "modprobe nf\_conntrack\_sip ports=5060,5080" to use a non-default setting. Modules will need to be unloaded and reloaded to change their options.
+
+The two most commonly used options are "ports" and "sip\_direct\_media".
+
+You can check the current module parameter values by viewing the special files in /sys/module/nf\_conntrack\_sip/parameters/
+
+## Configuration
+
+If your distribution supports /etc/modules.conf:
+
+**/etc/modules.conf**
+
+open /etc/modules.conf in an editor
+
+add the line:
+
+options nf_conntrack_sip [options]
+
+If your distribution supports /etc/modprobe.d/:
+
+**/etc/modprobe.d/**
+
+Create a file 50-nf\_conntrack\_sip.conf and open it in an editor
+
+add the line:
+
+options nf_conntrack_sip [options]
+
+If your module is loaded using modprobe (eg. in rc.local):
+
+**modprobe**
+
+modprobe nf_conntrack_sip [options] 
+
+### Notes
+
+sip\_direct\_signalling=1 and gkrouted\_only=1 will still allow all incoming calls if you have a rule such as "-p udp --dport 5060 -j ACCEPT" for the protocol, since you are explicitly allowing signaling instead of relying on the module.
+
+Default values are taken from linux-source-2.6.26 on Debian 2010/02/26, and may vary in later versions.
+
+### Side effects
+
+Invalid SIP packets may be silently dropped by iptables even if all packets are allowed (e.g. if they have no CSeq header). This should not be an issue for FreeSWITCH, since it only sends valid SIP packets.
+
+# Example
+
+This is a basic firewall setup using just IPTABLES on Debian Squeeze.
+
+## Back up your current iptables rules
+
+iptables-save > ~/iptables.up.rules.vanilla
+
+## Create new rules
+
+**Example iptables rules** Espandi fonte 
+
+```xml
+vim ~/iptables.fs.rules
+
+*mangle
+# mark SIP UDP packets with CS3
+-A OUTPUT -p udp -m udp --sport 5060 -j DSCP --set-dscp-class cs3
+# mark SIP UDP packets with CS3
+-A OUTPUT -p tcp --sport 5060 -j DSCP --set-dscp-class cs3
+# mark SIP TLS packets with CS3
+-A OUTPUT -p tcp --sport 5061 -j DSCP --set-dscp-class cs3
+# mark RTP packets with EF
+-A OUTPUT -p udp -m udp --sport 16384:32768 -j DSCP --set-dscp-class ef
+COMMIT
+*filter
+# Allows all loopback (lo0) traffic
+-A INPUT -i lo -j ACCEPT
+# Drop all traffic to 127/8 that doesn't use lo0
+-A INPUT ! -i lo -d 127.0.0.0/8 -j REJECT
+# Accepts all established inbound connections
+-A INPUT -m state --state ESTABLISHED,RELATED -j ACCEPT
+# Allow all outbound traffic
+-A OUTPUT -j ACCEPT
+# Allow SSH connections (THE -dport NUMBER IS THE SAME ONE YOU SET UP IN THE SSHD_CONFIG FILE)
+-A INPUT -p tcp -m state --state NEW --dport 6245 -j ACCEPT
+# Allow STUN service (Used for NAT traversal)
+-A INPUT -p udp --dport 3478 -j ACCEPT
+-A INPUT -p udp --dport 3479 -j ACCEPT
+# Allow MLP protocol server 
+-A INPUT -p tcp --dport 5002 -j ACCEPT
+# Allow Neighborhood service
+-A INPUT -p udp --dport 5003 -j ACCEPT
+# Allow SIP UDP
+-A INPUT -p udp --dport 5060 -j ACCEPT
+# Allow SIP TCP
+-A INPUT -p tcp --dport 5060 -j ACCEPT
+# Allow SIP TLS
+-A INPUT -p tcp --dport 5061 -j ACCEPT
+# Allow RTP
+-A INPUT -p udp --dport 16384:32768 -j ACCEPT
+# Allow XML_RPC from another server (replace 192.168.0.122 with the IP that will access FS ESL)
+-A INPUT -p tcp --dport 8080 -s 192.168.0.122 -j ACCEPT
+# Allow ping
+-A INPUT -p icmp -m icmp --icmp-type 8 -j ACCEPT
+# log iptables denied calls (access via 'dmesg' command)
+-A INPUT -m limit --limit 5/min -j LOG --log-prefix "iptables denied: " --log-level 7
+# Reject all other inbound - default deny unless explicitly allowed policy:
+-A INPUT -j REJECT
+-A FORWARD -j REJECT
+COMMIT
+
+```
+  
+  
+These six rules below will block the vast majority of all sip scanner traffic that randomly scans the Internet. Use these rules in conjunction with [Fail2Ban ](../Security/Fail2Ban_1049236.mdx#centos)and you will be in good shape to avoid rogue attackers.
+
+**SIP scanner iptables block**
+
+```bash
+iptables -I INPUT -j DROP -p udp --dport 5060 -m string --string "VaxSIPUserAgent" --algo bm
+iptables -I INPUT -j DROP -p udp --dport 5060 -m string --string "friendly-scanner" --algo bm
+iptables -I INPUT -j DROP -p udp --dport 5060 -m string --string "sipcli" --algo bm
+iptables -I INPUT -j DROP -p udp --dport 5080 -m string --string "VaxSIPUserAgent" --algo bm
+iptables -I INPUT -j DROP -p udp --dport 5080 -m string --string "friendly-scanner" --algo bm
+iptables -I INPUT -j DROP -p udp --dport 5080 -m string --string "sipcli" --algo bm
+```
+
+  
+## Turn on the rules
+
+iptables-restore &lt; ~/iptables.fs.rules
+
+The rules are now turned on. Test and make changes to your firewall as necessary.
+
+## Save the final rules
+
+Once you are happy with your rules, save them.
+
+iptables-save > /etc/iptables.up.rules
+
+## Load rules on boot
+
+```bash
+vim /etc/network/if-pre-up.d/iptables
+
+#!/bin/bash
+/sbin/iptables-restore < /etc/iptables.up.rules
+
+chmod +x /etc/network/if-pre-up.d/iptables
+
+```
+  
+  
+## Comments:
+
+| _What is_5003UDPNeighborhood servicedoing here?MLP protocol server also is also only going to be used by a few - opening all of these by default is a bad practiceFerinstance - someone using callcentric would only want to open UDP/TCP 5060:5080 and something for RTP: For RTP -If you have the following in autoload\_configs/switch.conf.xml &lt;!-- RTP port range --> &lt;!-- &lt;param name="rtp-start-port" value="16384"/> --> &lt;!-- &lt;param name="rtp-end-port" value="16484"/> -->That will provide for 100 audio channels - and you need to open the same range of UDP in your firewall. ![](/images/icons/contenttypes/comment_16.png) Posted by xtronics at mar 16, 2016 14:13 |
+| ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| It's a simple list of ports, not a mandatory requirement. If one happens to be clueless, one probably should not be mucking around with the firewall in the first place without educating oneself as to best practices. ![](/images/icons/contenttypes/comment_16.png) Posted by boteman at mar 28, 2016 14:18                                                                                                                                                                                                                                                                                                                                                                      |
+
+Document generated by Confluence on nov 11, 2022 04:24

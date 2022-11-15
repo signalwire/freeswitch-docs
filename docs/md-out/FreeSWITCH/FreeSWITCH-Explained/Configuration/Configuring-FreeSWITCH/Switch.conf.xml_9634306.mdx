@@ -1,0 +1,199 @@
+
+# Switch.conf.xml 
+
+ Created by  Belaid Areski, last modified by  Henning Heedfeld on 2022.07.06
+
+# About
+
+The FreeSWITCH core configuration is contained in [autoload\_configs/switch.conf.xml](http://git.freeswitch.org/git/freeswitch/tree/conf/vanilla/autoload%5Fconfigs/switch.conf.xml)
+
+Click here to expand Table of Contents
+
+* 1 [Default key bindings](#-default-key-bindings-)
+* 2 [Core parameters](#-core-parameters-)  
+   * 2.1 [core-db-dsn](#-core-db-dsn-)  
+   * 2.2 [max-db-handles](#max-db-handles-)  
+   * 2.3 [db-handle-timeout](#-db-handle-timeout-)  
+   * 2.4 [disable-monotonic-timing](#-disable-monotonic-timing-)  
+   * 2.5 [enable-use-system-time](#-enable-use-system-time-)  
+   * 2.6 [events-use-dispatch](#events-use-dispatch)  
+   * 2.7 [initial-event-threads](#-initial-event-threads-)  
+   * 2.8 [max-sessions](#-max-sessions-)  
+   * 2.9 [sessions-per-second](#-sessions-per-second-)  
+   * 2.10 [rtp-start-port](#-rtp-start-port-)  
+   * 2.11 [rtp-end-port](#-rtp-end-port-)  
+   * 2.12 [switchname](#switchname)  
+   * 2.13 [dialplan-timestamps](#dialplan-timestamps)
+* 3 [Variables](#-variables-)
+* 4 [Example config](#example-config)
+
+#  Default key bindings 
+
+Function keys can be mapped to API commands using the following configuration:
+
+```xml
+<cli-keybindings>
+<key name="[1-12]" value="[api command]"/>
+</cli-keybindings>
+```
+
+The default keybindings are;
+
+F1 = help
+F2 = status
+F3 = show channels
+F4 = show calls
+F5 = sofia status
+F6 = reloadxml
+F7 = console loglevel 0
+F8 = console loglevel 7
+F9 = sofia status profile internal
+F10 = sofia profile internal siptrace on
+F11 = sofia profile internal siptrace off
+F12 = version
+
+Beware that the option loglevel is actually setting the minimum hard\_log\_Level in the application. What this means is if you set this to something other than DEBUG no matter what log level you set the console to one you start up you will not be able to get any log messages below the level you set. Also be careful of mis-typing a log level, if the log level is not correct it will default to a hard\_log\_level of 0\. This means that virtually no log messages will show up anywhere.
+
+#  Core parameters 
+
+##  core-db-dsn 
+
+Allows to use ODBC database instead of sqlite3 for freeswitch core.
+
+Syntax:
+
+```xml
+dsn:user:pass
+```
+
+## max-db-handles 
+
+Maximum number of simultaneous DB handles open
+
+##  db-handle-timeout 
+
+Maximum number of seconds to wait for a new DB handle before failing
+
+##  disable-monotonic-timing 
+
+(bool) disables monotonic timer/clock support if it is broken on your system.
+
+##  enable-use-system-time 
+
+Enables FreeSWITCH to use system time.
+
+After discussion withe the engineers, I've come to understand that the "enable-use-system-time" parameter is a work around for older machines with broken clock APIs.
+
+It's not recommended to use this setting in modern machines, as it's likely to break timing and other things... more notably when it comes to CDRs.
+
+It's preferred to use monotonic timing like as NTP/UTC.  
+  
+I hear it can be useful to use non-monotonic timing for debugging weird issues occasionally, but I don't have specifics how or when that may be used.
+
+Using montonic timing is exactly how you address clock shift issues.
+
+  
+enable-use-system-time is something that may get removed from source code at some point, we've just not taken the time to remove it yet...
+
+  
+## events-use-dispatch
+
+Boolean
+
+If set to true, instructs the FreeSWITCH event dispatcher to use the number of threads specified in initial-event-threads to dispatch events. This is useful on heavily loaded systems.
+
+If initial-event-threads is specified, then events-use-dispatch is automatically toggled to true in switch\_core.c
+
+  
+##  initial-event-threads 
+
+Integer
+
+Number of event dispatch threads to allocate in the core. Default is 1.
+
+If you see the WARNING "Create additional event dispatch thread" on a heavily loaded server, you could increase the number of threads to prevent the system from falling behind.
+
+The maximum value is runtime.cpu\_count / 2
+
+loglevel
+
+amount of detail to show in log
+
+##  max-sessions 
+
+limits the total number of concurrent channels on your FreeSWITCH™ system.
+
+##  sessions-per-second 
+
+throttling mechanism, the switch will only create this many channels at most, per second.
+
+##  rtp-start-port 
+
+RTP port range begin
+
+##  rtp-end-port 
+
+RTP port range end
+
+## switchname
+
+Set the Switch Name for HA environments. When setting the switch name, it will override the system hostname for all DB and CURL requests allowing cluster environments such as RHCS to have identical FreeSWITCH configurations but run as different hostnames.
+
+```xml
+<param name="switchname" value="fs02"/>
+```
+
+  
+## dialplan-timestamps
+
+Adds timestamps to dialplan log lines (useful for log correlation and other stats).
+
+```xml
+<param name="dialplan-timestamps" value="true"/>
+```
+
+Example of info added:
+
+```xml
+UUID 2016-11-18 11:05:53.309812 [DEBUG] mod_dialplan_xml.c:690 Dialplan: LOGDATA
+```
+
+  
+#  Variables 
+
+Variables are default channel variables set on each channel automatically.
+
+  
+# Example config
+
+```xml
+<configuration name="switch.conf" description="Modules">
+  <settings>
+    <!--Most channels to allow at once -->
+    <param name="max-sessions" value="1000"/>
+    <param name="sessions-per-second" value="30"/>
+    <param name="loglevel" value="debug"/>
+
+    <!-- Maximum number of simultaneous DB handles open -->
+    <param name="max-db-handles" value="50"/>
+    <!-- Maximum number of seconds to wait for a new DB handle before failing -->
+    <param name="db-handle-timeout" value="10"/>
+
+  </settings>
+  <!--Any variables defined here will be available in every channel, in the dialplan etc -->
+  <variables>
+    <variable name="uk-ring" value="%(400,200,400,450);%(400,2200,400,450)"/>
+    <variable name="us-ring" value="%(2000, 4000, 440.0, 480.0)"/>
+    <variable name="bong-ring" value="v=4000;>=0;+=2;#(60,0);v=2000;%(940,0,350,440)"/>
+  </variables>
+</configuration>
+```
+  
+  
+## Comments:
+
+| The command **reloadxml** can reload this xml conf at a running freeswitch server ? ![](/images/icons/contenttypes/comment_16.png) Posted by livem at set 15, 2020 01:01                                               |
+| --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| For many parameters, you'll have to use fsctl, for example, fsctl max\_sessions 10000 or fsctl sps 1000 for sessions per seconds. ![](/images/icons/contenttypes/comment_16.png) Posted by TiCPU at mar 02, 2021 10:14 |
+
+Document generated by Confluence on nov 11, 2022 04:24

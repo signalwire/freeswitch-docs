@@ -1,0 +1,284 @@
+
+# Codec Negotiation 
+
+ Created by  Nguyen Van Nghia Em, last modified by  Martin Paterson on 2021.11.15
+
+# About
+
+Codec negotiation can be a confusing subject. If you are not familiar with [SDP](http://en.wikipedia.org/wiki/Session%5FDescription%5FProtocol) (Session Description Protocol) then this adds an extra layer of mystery. If you are new to the subject (or are just confused by what you've read and experienced) then consider this brief introduction and hopefully things will be a bit clearer.
+
+First of all, what do we mean when we say "codec negotiation"? We are talking about the _process_ of choosing which codec will be used on each leg of a call. FreeSWITCH supports a lot of codecs. Most SIP endpoints will also support multiple codecs. Each leg can have only one codec, so the codec negotiation process sifts through the choices and settles on a single codec to use. It's this "sifting process" that can cause confusion. How does this process work? How can it be modified? This page is written to help you answer those questions.
+
+Click to expand Table of Contents
+
+* 1 [Codec Negotiation in FreeSWITCH](#codec-negotiation-in-freeswitch)  
+   * 1.1 [Early Negotiation](#early-negotiation)  
+         * 1.1.1 [General principle](#general-principle)  
+         * 1.1.2 [Early Negotiation parameters](#early-negotiation-parameters)  
+   * 1.2 [Late Negotiation (requires param)](#late-negotiation-requires-param)  
+   * 1.3 [Proxy Media](#codec-negotiation-when-proxy-media-enabled)  
+   * 1.4 [Incompatible Destination](#incompatible-destination)  
+   * 1.5 [Mixing Media/Codecs on different legs (transcoding)](#mixing-mediacodecs-on-different-legs-transcoding)
+* 2 [Warnings](#codec-negotiation-in-freeswitch)
+* 3 [Examples](#codec-negotiation-in-freeswitch)  
+   * 3.1 [Modifying the codec when using proxy media mode](#modifying-the-codec-when-using-proxy-media-mode)  
+   * 3.2 [Rewriting SDP](#codec-negotiation-in-freeswitch)  
+   * 3.3 [Disable G.729b on outbound](#disable-g729b-on-outbound)  
+   * 3.4 [Codec Negotiation when proxy media enabled](#codec-negotiation-when-proxy-media-enabled)  
+         * 3.4.1 [Correct](#not-correct)  
+         * 3.4.2 [Not correct](#codec-negotiation-in-freeswitch)
+* 4 [See Also](#codec-negotiation-in-freeswitch)
+
+# Codec Negotiation in FreeSWITCH
+
+FreeSWITCH supports two basic modes of codec negotiation: early and late. _Early_ negotiation means that the codec is negotiated between FreeSWITCH and the endpoint as soon as possible, even before FreeSWITCH needs to send media (such as ringing) or answer the the call. This occurs before an incoming call even hits the dialplan. _Late_ negotiation means to delay the choosing of the codec until after the call hits the dialplan and more information can be gathered. This additional information can be used to influence the negotiation process. Let's illustrate the differences between early- and late-negotiation.
+
+Consider this setup:
+
+* Alice has a phone with codecs G722 and PCMU
+* Bob has a phone with PCMU and PCMA
+* FreeSWITCH has an outbound "codec prefs" list of G722,G722.1,PCMU,PCMA,G729
+
+(This is the list of codecs that FS will offer to all outbound calls)
+
+Look at these two call flows. See if you can spot the difference in exactly when the codec on the A leg is negotiated:
+
+* Early Negotiation
+
+Alice (A) dials Bob (B)
+A calls FS and offers two codecs: G722 and PCMU
+FS sees these two codecs and chooses G722 immediately for the A leg
+FS calls B and offers G722,G722.1,PCMU,PCMA,G729
+B sees this codecs list and chooses PCMU 
+FS bridges A to B
+FS is transcoding G722 to PCMU
+
+* Late Negotiation with "inherit codec" set
+
+Alice (A) dials Bob (B)
+A calls FS and offers two codecs: G722 and PCMU
+FS sees these two codecs but does *NOT* choose one just yet
+FS calls B and offers G722 and PCMU
+B sees these two codecs and chooses PCMU
+FS now chooses PCMU on the A leg
+FS bridges A to B
+A and B are connected with PCMU to PCMU (no extra transcoding)
+
+Note the difference in the timing of the negotiation of the A leg codec. With early negotiation, FreeSWITCH chooses a codec (G722) immediately. It does not wait to see what happens on the outbound leg (that is, the B leg) of the call. So the A leg is using G722\. After deciding on the codec for the A leg, FreeSWITCH passes this call through the dialplan, which eventually comes to a bridge application to call Bob's phone. To initiate the bridge, FreeSWITCH calls the B leg and offers a pretty big list of codecs. These are the "outbound codec prefs" for FreeSWITCH. (This list is customizable, but more on that later.) Bob's phone sees all those codecs and chooses the first one that matches, in this case PCMU. At this point we have both call legs negotiated:
+
+* A leg has G722
+* B leg has PCMU
+
+As soon as Bob's phone sends back a ringing signal, the two legs are bridged together. FreeSWITCH has to transcode from Alice's codec (G722) to Bob's codec (PCMU) because two different codecs were negotiated. Usually this is okay, but let's say you'd prefer that both phones have the same codec so that there's less CPU usage. This is where late-negotiation comes into play.
+
+As you can see, when FreeSWITCH picks a codec for the A leg without knowing what codec is set on the B leg then there can easily be a "codec mismatch." A codec "mismatch" isn't always a bad thing, but many times it is nice to have both call legs share the same codec. Using late-negotiation and a technique called "inherit codec" we can force the A leg to use which ever codec is negotiated on the B leg. (This process is described in specific detail later on - for now we are only considering the basic concepts.)
+
+The basic call flow in our second example has FreeSWITCH getting the A leg but \*not\* negotiating a codec right away. Instead, FreeSWITCH holds off on negotiating a codec for the A leg until after the A leg has passed through the dialplan. In this case, the dialplan ended up with a bridge to Bob's phone. During the bridge process, FreeSWITCH negotiated a codec with Bob's phone - in this case PCMU. Once that codec was chosen on the B leg, FreeSWITCH went back to Alice's phone and told it that we would be using PCMU on the A leg. Now both call legs are using the same codec, which is what we wanted.
+
+That's really all there is to the difference between early- and late-negotiation. Just keep this in mind: simply enabling late-negotiation does not automatically force the A leg to inherit the B leg's codec. It simply allows for "inherit codec" as one way of negotiating codecs. Late-negotiation allows for other codec negotiation tricks. Read on for a more specific description of codec negotiation in FreeSWITCH.
+
+## Early Negotiation
+
+This is the default behavior of FreeSWITCH, although most of the example configs turn on late negotiation in their profiles.  
+
+### General principle
+
+* When leg A calls FreeSWITCH, the offered codecs will be compared against the content of inbound-codec-prefs in the relevant SIP profile. As soon as a codec offered by A matches a codec allowed by FS, it is selected as the codec for leg A. If none of the offered codecs matches the allowed codecs, the call fails.
+
+Remark: Because of this algorithm, the codecs order in the inbound SDP has priority on the codecs order in inbound-codec-prefs.
+
+* When FS calls leg B, the list of codecs in outbound-codec-prefs for the SIP profile is reorganized by pushing the codec negotiated above for leg A at the top. If B does not accept any of the codecs, the calls fails, obviously.
+
+So for instance:
+
+A -------- GSM/PCMA/G729 --------> FS (allowing G729/PCMA/PCMU) -------- PCMA/G729/PCMU --------> B
+
+What is happening:
+
+* A proposes GSM/PCMA/G729 to FS.
+* FS checks the proposed codecs in order of priority (as listed in the SDP) against its list of allowed codecs (as configured in inbound-codec-prefs), and selects PCMA as the first authorized codec, so the codecs list becomes: PCMA/G729/PCMU.
+* FS proposes this codec list to B.
+
+### Early Negotiation parameters
+
+#### disable-transcoding
+
+> This is a parameter you may set in the outbound SIP profile.  
+> This will force the codec proposed to leg B (outbound leg) to be the same as the codec negotiated on leg A (inbound leg).  
+> To set this, add the following line to the required SIP profile:  
+> 
+> &lt;param name="disable-transcoding" value="true"/>
+> 
+> _Note_: it is commonly misunderstood that this parameter disables the transcoding capability in FS. That is wrong.
+> 
+> This parameter just changes the outbound codec to match the one negotiated on the inbound leg so that no transcoding will be required.
+> 
+> The same result could be achieved by setting absolute\_codec\_string to the value of the inbound codec.
+> 
+> This parameter (only applicable when late-negotiation is off) will take the negotiated codec from leg A and offer it as the only option in leg B (ignoring any other codec settings) if the B leg cannot use that same codec the call will fail
+
+#### absolute_codec_string
+
+> This is a channel variable you may set in the dialplan, typically just before bridging.  
+> This will force the codecs list proposed to leg B, without taking into account anything else.  
+> Here is an example:
+> 
+> &lt;action application="export" data="nolocal:absolute_codec_string=PCMA,PCMU"/>
+> &lt;action application="bridge" data="sofia/gateway/mygateway/mynumber"/>
+> 
+> or
+> 
+> &lt;action application="bridge" data="{absolute_codec_string='PCMA,PCMU'}sofia/gateway/mygateway/mynumber"/>
+> 
+> Make sure you have single quotes ( 'PCMA,PCMU' ) around comma ( ',' ) separated list of codecs to protect it from parsing list of variables inside of {var1=val1,var2=val2,absolute\_codec\_string='GSM,PCMU'}
+> 
+> _Note_: This parameter prevails on disable-transcoding. So if you disable transcoding in the outbound SIP profile and you use absolute\_codec\_string in the dialplan to set the outbound codec to be different from the inbound codec, transcoding will occur anyway.
+
+#### codec_string
+
+> This is a channel variable you may set in the dialplan, typically just before bridging.  
+> The defined codec list will override the one set in the outbound-codec-prefs parameter of the outbound profile.  
+> Here is an example:
+> 
+> &lt;action application="export" data="nolocal:codec_string=PCMA,PCMU"/>
+> &lt;action application="bridge" data="sofia/gateway/mygateway/mynumber"/>
+> 
+> or
+> 
+> &lt;action application="bridge" data="{codec_string='PCMA,PCMU'}sofia/gateway/mygateway/mynumber"/>
+
+Early Negotiation + Disable Transcoding:
+
+&lt;param name="disable-transcoding" value="true"/>
+
+If this sofia profile param is set, all B legs that you invite will contain \*only\* the codec negotiated by the A leg.
+
+Also in either case the variable "codec\_string" on the A leg controls what codecs will be offered to the B leg.
+
+The variable "absolute\_codec\_string" is similar except it implies the implicit list of codecs and will disable the addition of the A leg codec to the list as described in the default behavior.
+
+## Late Negotiation (requires param)
+
+&lt;param name="inbound-late-negotiation" value="true"/>
+
+* The call will hit the dialplan without looking at the codecs at all.
+* The negotiation will take place when leg A is answered.
+* This allows you to route the call to a script and examine the sdp and rewrite the acceptable codecs with the "codec\_string" channel variable.
+
+#### [inherit_codec](https://wiki.freeswitch.org/wiki/Variable%5Finherit%5Fcodec "Variable inherit codec")
+
+> &lt;action application="set" data="inherit_codec=true"/>
+> 
+> inherit\_codec=true (only applicable when late-negotiation is enabled) will take the codec negotiated when the B leg answers and pass it to the A leg so it also uses the same codec (if the A leg supports it); otherwise, it will use whatever it can from its own list
+
+#### [ep_codec_string](https://wiki.freeswitch.org/wiki/Variable%5Fep%5Fcodec%5Fstring "Variable ep codec string")
+
+> This variable is only available if late negotiation is enabled on the profile. It's a readable string containing all the codecs proposed by the calling endpoint. This can be easily parsed in the dialplan.
+> 
+> &lt;action application="export" data="codec_string='${ep_codec_string}'"/>
+
+## Proxy Media
+
+Codec Negotiation can not be made if proxy media is enabled and answer application not executed.
+
+## Incompatible Destination
+
+See below, Mixing Media/Codecs on different legs, particularly _media\_mix\_inbound\_outbound\_codecs_ new variable.
+
+## Mixing Media/Codecs on different legs (transcoding)
+
+If you want FreeSWITCH to be able to match two legs with different codecs (where it transcodes) there are several variables you will need to set to make it possible. First you must set **_media\_mix\_inbound\_outbound\_codecs=true_** either globally (ie vars.xml) or on the b leg explicitly on the bridge (ie _&lt;action application="bridge" data="{media\_mix\_inbound\_outbound\_codecs=true}sofia/gateway/....">_ ).
+
+This new variable is required with 1.6 and later due to webrtc support and the ever growing SDP when SIP over UDP is involved.SDPs have now reached the point where it is becoming harder and harder to translate from WebRTC -> SIP and keep the original SDP due to the shear size of the SDP. With SIP over UDP, when packet fragmentation happens, it destroys the SIP packet as UDP does not auto-reassemble the fragments… this happens once your sip packets exceed MTU… the only fix is small packets. That means compact headers, eliminating extra headers, or just don’t use such a big SDP by eliminating CODECs you don’t need.The affect with FS is if you don’t have media\_mix\_inbound\_outbound\_codecs set to true, only codecs offered to FS on the A leg are passed to the B leg, this reduces the size of the SDP and has the side effect of greatly reducing the amount of transcoding.
+
+Second you will want to turn off _inbound-late-negotiation_ and _inbound-zrtp-passthru_ (the second forces the first to true), or you will want to pre-answer the A leg prior to the bridge.
+
+Finally you should make sure you have variables like _disable-transcoding,inherit\_codec,bypass\_media,proxy\_media_ all set to false (as these are all tangential to what we want to accomplish).
+
+# Warnings 
+
+If your sdp contains codecs with different ptime preferences and ptime is specified in sdp, sofia will not send a ptime attr.
+
+ 2010-10-18 11:47:52.234322 [WARNING] sofia_glue.c:213 Codec G723 payload 4 added to sdp wanting ptime 30 but it's already 20 (G729:18:20), disabling ptime.
+
+# Examples
+
+## Modifying the codec when using proxy media mode
+
+Here is a dialplan example that will allow you to change the codec preference order and still enjoy the low cpu usage of proxy\_media mode. It is similar to subst() in openser/opensips/kamailio textops module.
+
+&lt;context>
+  &lt;extension name="sdp_mangler">
+    &lt;!-- Set some defaults for this call -->
+    &lt;condition field="destination_number" expression="^(\d+)$" break="on-false">
+      &lt;action application="set" data="transfer_to=${destination_number} XML fail"/>
+    &lt;/condition>
+
+    &lt;!-- Here we check for G729 if found we are going make sure we have it first in preference order -->
+    &lt;condition field="${switch_r_sdp}" expression="/(.*)(m=audio \d+ RTP\/AVP)(?=[ \d]+18|18[ \d]+)([ \d]*)(.*)/s" break="never">
+      &lt;action application="set" data="codec_mangle= 18"/>
+      &lt;action application="set" data="transfer_to=${destination_number} XML public_proxy"/>
+    &lt;/condition>
+
+    &lt;!-- Here we check for PCMU to add it back into the SDP if we want -->
+    &lt;condition field="${switch_r_sdp}" expression="/(.*)(m=audio \d+ RTP\/AVP)(?=[ \d]+0|0[ \d]+)([ \d]*)(.*)/s" break="never">
+      &lt;action application="set" data="codec_mangle=${codec_mangle} 0"/>
+    &lt;/condition>
+
+    &lt;!-- Here we rebuild our SDP Moving G729 up front-->
+    &lt;condition field="${switch_r_sdp}" expression="/(.*)(m=audio \d+ RTP\/AVP)([ \d]+)(.*)/s" break="never">
+      &lt;action application="set" data="switch_r_sdp=$1$2${codec_mangle} 101$4"/>
+    &lt;/condition>
+
+    &lt;condition>
+      &lt;action application="transfer" data="${transfer_to}"/>
+    &lt;/condition>
+  &lt;/extension>
+&lt;/context>
+
+## Rewriting SDP
+
+switch\_r\_sdp:
+
+&lt;action application="set">
+&lt;![CDATA[switch_r_sdp=(sdp here)
+ ]]>
+&lt;/action>
+
+## Disable G.729b on outbound
+
+&lt;extension name="disable-annexB" continue="true">
+  &lt;condition field="${switch_r_sdp}" expression="/(.*)(m=audio \d+ RTP\/AVP)(.*)( 18 )(.*)/s">
+     &lt;action application="export" data="rtp_append_audio_sdp=a=fmtp:18 annexb=no"/>
+  &lt;/condition>
+&lt;/extension>
+
+## Codec Negotiation when proxy media enabled
+
+### Correct
+
+&lt;extension name="test_proxy_media">
+  &lt;condition field="source" expression="mod_sofia">
+    &lt;action application="answer"/>
+    &lt;action application="playback" data="ivr/ivr-welcome_to_freeswitch.wav"/>
+  &lt;/condition>
+&lt;/extension>
+
+### Not correct
+
+&lt;extension name="test_proxy_media">
+  &lt;condition field="source" expression="mod_sofia">
+    &lt;action application="playback" data="ivr/ivr-welcome_to_freeswitch.wav"/>
+  &lt;/condition>
+&lt;/extension>
+
+# See Also
+
+* [Codecs and Media](./index.mdx#about)
+* [Audio Codecs](./Audio-Codecs_1048675.mdx#--)
+* [Proxy Media](../Configuration/Proxy-Media_13173588.mdx#faqs)
+* [Trans Coding Issues](../Configuration/Sofia-SIP-Stack/index.mdx#transcoding-issues)
+* [SDP Manipulation](../Dialplan/Variables-Archive/x__Channel-Variables_1048892.mdx#channel-variable-manipulation)
+* [Codec Related in Channel Variables](../Dialplan/Variables-Archive/x__Channel-Variables_1048892.mdx#channel-variable-scope-w-example)
+
+Document generated by Confluence on nov 11, 2022 04:24

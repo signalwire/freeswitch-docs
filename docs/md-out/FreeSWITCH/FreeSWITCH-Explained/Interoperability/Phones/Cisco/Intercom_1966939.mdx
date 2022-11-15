@@ -1,0 +1,251 @@
+
+# Intercom 
+
+ Created by  Mario G, last modified by  John Boteler on 2016.05.15
+
+# About
+
+A discussion and examples of implementing intercom paging on some VoIP desk phones.
+
+Click to expand Table of Contents
+
+* 1 [Goal](#goal)
+* 2 [Cisco-7960 and Linksys SPA-941 Phones](#cisco-7960-and-linksys-spa-941-phones)
+* 3 [Paging Example](#paging-example)
+* 4 [Audio Feedback](#audio-feedback)
+
+# Goal
+
+Some phones like Snom will utilize a multicast paging method, which is actually quite nice if everyone is on the same LAN, or if you're into setting up multicast routing within your VPN. However, this doesn't suit the needs of more distributed environments where the extensions are located on far off networks potentially behind a NAT router, or an environment which one way or another hampers multicast routing.
+
+This "How-To" is an adaptation of the Mad-Boss example given in the Vanilla sample configuration files.
+
+# Cisco-7960 and Linksys SPA-941 Phones
+
+This example below is from an environment where three Cisco 7960 phones are configured with extensions 23X0 - 23X5 and are running the SIP protocol stack.
+
+Line 6 on the phone 23X5 where X is 2,3, or 4 are the only lines configured to auto-answer.
+
+The phones in question, such as a Linksys SPA-941 phone and the Cisco 7960 must have the auto-answer feature enabled on the line used for the intercom.
+
+In the SPA-941 "User" tab you must configure Auto Answer Page = yes.
+
+The SPA-941 will place an individual incoming intercom page on the speaker without intervention if you include the following line in its dialplan extension
+
+&lt;action application="export" data="sip_auto_answer=true"/>
+
+This will export the setting to the B-leg of the call and send the SIP header to command the SPA-941 into intercom paging mode. When the call terminates the phone returns to an idle state.
+
+As an alternative you can set a custom SIP header that will be recognized by the SPA-941 to do the same thing:
+
+&lt;action application="set" data="sip_h_Call-info=&lt;sip:${domain}>;answer-after=0"/>
+
+where ${domain} is simply the domain name or i.p. address of the originating FreeSWITCH™ server. This inserts the custom header Call-Info into the INVITE.
+
+# Paging Example
+
+This WILL NOT WORK unless you uncomment OPTION 1 or OPTION 2 in the dialplan snippet below! This is done intentionally to make you read the dialplan snippet below. I strongly urge you to read the whole thing as there are comments throughout explaining what it's doing.
+
+PS: many thanks to MikeJ and bkw for their patience and tolerance in fixing the brain damage I sustained writing AEL Dialplans.
+
+  
+Click here to expand this example....
+
+```xml
+<!-- This paging zone can be reached at either 412 or 23412, you can change as you desire, however be sure to change it in the -->
+<!-- catch-all below as well -->
+    <extension name="KTE Green Acres Paging Group">
+      <condition field="destination_number" expression="^(412|23412)$" break="never">
+        <!--These params effect the outcalls made once you join-->
+        <!-- First we set the api_hangup_hook to kick everyone from the conference when the initiator hangs up. -->
+        <action application="set" data="api_hangup_hook=conference 412 kick all"/>
+        <action application="answer"/>
+        <action application="export" data="sip_invite_params=intercom=true"/>
+        <action application="export" data="sip_auto_answer=true"/>
+        <!-- If the above exports do not product the desired results, try passing the variables as commented out below -->
+        <!--<action application="conference_set_auto_outcall" data="{sip_auto_answer=true}sofia/gateway/asterlink.com/19184238080"/>-->
+
+        <action application="set" data="conference_auto_outcall_caller_id_name=$${effective_caller_id_name}"/>
+        <action application="set" data="conference_auto_outcall_caller_id_number=$${effective_caller_id_number}"/>
+
+        <!-- Keep the call time down to a few seconds.  If calling phones that don't auto-answer you may want to -->
+        <!-- increase this value to something a bit more persistent than 5 seconds. -->
+        <action application="set" data="conference_auto_outcall_timeout=5"/>
+        
+
+        <!--if you don't need to hear the participants, as in a page instead of multi-party intercom -->
+        <!-- then use "mute" instead of "none" as the conference_outcall_flags below. -->
+        <action application="set" data="conference_auto_outcall_flags=none"/>
+        
+        <!-- If you'd like to say something to the participant and have cepstral configured and installed, now's the time. -->
+        <!--<action application="set" data="conference_auto_outcall_announce=say:You have been called into an emergency conference"/>-->
+        
+        <!--Add as many of these as you need, These are the people you are going to call-->
+        <!-- We have commented these out since we have the list of participants down below as a catch-all in case the caller_id -->
+        <!-- of the initiating party doesn't match the phones being called. -->
+        <!--<action application="conference_set_auto_outcall" data="sofia/gateway/asterlink.com/19184238080"/>-->
+        <!--<action application="conference_set_auto_outcall" data="sofia/default/888@conference.freeswitch.org"/>-->
+      </condition>
+      
+      <!-- Now we check to see if this is one of the 7960 phones.  If so we exclude it from the list of -->
+      <!-- extensions to call to avoid the call-waiting annoyance. -->
+      <condition field="caller_id_number" expression="^(233[0-9])$" break="never">
+        <!--<action application="conference_set_auto_outcall" data="user/2335@$${domain}"/>-->
+        <action application="conference_set_auto_outcall" data="user/2345@$${domain}"/>
+        <action application="conference_set_auto_outcall" data="user/2355@$${domain}"/>
+        <!--<action application="conference" data="cool@default"/>-->
+      </condition>
+      <condition field="caller_id_number" expression="^(234[0-9])$" break="never">
+        <action application="conference_set_auto_outcall" data="user/2335@$${domain}"/>
+        <action application="conference_set_auto_outcall" data="user/2355@$${domain}"/>
+      </condition>
+      <condition field="caller_id_number" expression="^(235[0-9])$" break="never">
+        <action application="conference_set_auto_outcall" data="user/2335@$${domain}"/>
+        <action application="conference_set_auto_outcall" data="user/2345@$${domain}"/>
+      </condition>
+      
+      <!-- Here is the catch-all whereby if the caller_id matches none of the above we add all the extensions to the list. -->
+      <!-- Please note the use of anti-actions in this condition. -->
+      <condition field="caller_id_number" expression="^(233[0-9]|234[0-9]|235[0-9])$" break="never">
+        <anti-action application="conference_set_auto_outcall" data="user/2335@$${domain}"/>
+        <anti-action application="conference_set_auto_outcall" data="user/2345@$${domain}"/>
+        <anti-action application="conference_set_auto_outcall" data="user/2355@$${domain}"/>
+      </condition>
+      <!-- Now we check the destination again and act accordingly. -->
+      <condition field="destination_number" expression="^(412|23412)$">
+        
+        <!-- Please note that you can also designate your own conference bridge instead of default and enable only the options you desire.-->
+        <!-- I have kept the default conference in this example so that you can get this to work before changing the conference to something -->
+        <!-- with your own options enabled.  In this way the example provided here should work and you can fine tune your conference to your -->
+        <!-- desire.  See the config file autoload_configs/conferences.conf.xml for more information on how/what to do or consult the Wiki -->
+        
+        <!-- IMPORTANT IMPORTANT IMPORTANT - use ONLY ONE of the two options below -->
+        
+        <!-- OPTION 1 -->
+        <!-- If your phones are all isolated from one another (not in the same room, uncomment the following line -->
+        <!-- <action application="conference" data="412@default"/> -->
+        
+        <!-- OPTION 2 -->
+        <!-- If you encounter feedback issues use the conference profile given on this page -->
+        <!-- and comment out the application line in OPTION 1 above -->
+        <!-- and un-comment the line below -->
+        <!-- <action application="conference" data="412@intercom"/> -->
+
+
+        <!--After the hangup, we kick everyone in the conference to cause a hangup. -->
+        <!--This shouldn't be necessary since it should be handled above in the api_hangup_hook. -->
+        <action application="conference" data="412 kick all"/>
+      </condition>
+    </extension>
+```
+
+# Audio Feedback
+
+Let's say you have a bunch of phones in the same room (a lab for instance), and you get feedback between them when someone talks over the intercom. One thing that I found is that you can alter the conference profile and make a few changes to it that will help mitigate the feedback a small bit. The conference profile below is offered as an example, you may have to tweak it to suit your environment.
+
+No guarantee can be made since the acoustics of your room, the audio characteristics of your speakerphones, among several other variables too numerous to mention will vary and change the dynamics of the situation.
+
+_See notes below about what to change in the Dialplan to use this conference profile._
+
+**Filename:** autoload\_configs/conference.conf.xml
+
+* Note: This isn't the whole file, merely a profile contained within it.
+
+Click here to expand this example
+
+**conference.conf.xml snippet**
+
+```xml
+<profile name="intercom">
+      <!-- Domain (for presence) -->
+      <param name="domain" value="$${domain}"/>
+
+      <!-- Sample Rate-->
+      <!-- A default for this would be 8000, however in order to trim some of the high pitch -->
+      <!-- sounds that usually cause feedback we've scaled the rate down to 1000. -->
+      <!-- You will probably notice a slight degradation of quality, however the feedback -->
+      <!-- should be kept to a minimum -->
+      <param name="rate" value="1000"/>
+
+      <!-- Number of milliseconds perframe -->
+      <param name="interval" value="20"/>
+
+
+      <!-- Energy level required for audio to be sent to the other users -->
+      <!-- If you have multiple phones in the same room, this may or may -->
+      <!-- not help things.  With the Cisco 7960's we observed that since -->
+      <!-- the speakerphone does a good job of gain control that it wasn't -->
+      <!-- necessary to have an energy level, and in fact having this option -->
+      <!-- on caused problems when walking around in the room such that -->
+      <!-- it caused what could be construed as a "flutter"" effect when -->
+      <!-- one was directly between two phones where the audio level was -->
+      <!-- the same to each phone -->
+      <param name="energy-level" value="0"/>
+
+      <!--Can be | delim of waste|mute|deaf waste will always transmit data to each channel
+          even during silence -->
+      <!--<param name="member-flags" value="waste"/>-->
+
+      <!-- Name of the caller control group to use for this profile -->
+      <!-- <param name="caller-controls" value="some name"/> -->
+      <!-- TTS Engine to use -->
+      <!--<param name="tts-engine" value="cepstral"/>-->
+      <!-- TTS Voice to use -->
+      <!--<param name="tts-voice" value="allison"/>-->
+
+      <!-- If TTS is enabled all audio-file params beginning with -->
+      <!-- 'say:' will be considered text to say with TTS -->
+      <!-- Set a default path here so you can use relative paths in the other sound params-->
+      <param name="sound-prefix" value="$${base_dir}/sounds/en/us/callie"/>
+      <!-- File to play to acknowledge succees -->
+      <!--<param name="ack-sound" value="beep.wav"/>-->
+      <!-- File to play to acknowledge failure -->
+      <!--<param name="nack-sound" value="beeperr.wav"/>-->
+      <!-- File to play to acknowledge muted -->
+      <param name="muted-sound" value="conference/conf-muted.wav"/>
+      <!-- File to play to acknowledge unmuted -->
+      <param name="unmuted-sound" value="conference/conf-unmuted.wav"/>
+      <!-- File to play if you are alone in the conference -->
+      <param name="alone-sound" value="conference/conf-alone.wav"/>
+      <!-- File to play endlessly (nobody will ever be able to talk) -->
+      <!--<param name="perpetual-sound" value="perpetual.wav"/>-->
+      <!-- File to play when you're alone (music on hold)-->
+      <param name="moh-sound" value="$${hold_music}"/>
+      <!-- File to play when you join the conference -->
+      <param name="enter-sound" value="tone_stream://%(200,0,500,600,700)"/>
+      <!-- File to play when you leave the conference -->
+      <param name="exit-sound" value="tone_stream://%(500,0,300,200,100,50,25)"/>
+      <!-- File to play when you ae ejected from the conference -->
+      <!--<param name="kicked-sound" value="conference/conf-kicked.wav"/>-->
+      <!-- File to play when the conference is locked -->
+      <!--<param name="locked-sound" value="conference/conf-locked.wav"/>-->
+      <!-- File to play when the conference is locked during the call-->
+      <!--<param name="is-locked-sound" value="conference/conf-is-locked.wav"/>-->
+      <!-- File to play when the conference is unlocked during the call-->
+      <!--<param name="is-unlocked-sound" value="conference/conf-is-unlocked.wav"/>-->
+      <!-- File to play to prompt for a pin -->
+      <!--<param name="pin-sound" value="conference/conf-pin.wav"/>-->
+      <!-- File to play to when the pin is invalid -->
+      <!--<param name="bad-pin-sound" value="conference/conf-bad-pin.wav"/>-->
+      <param name="comfort-noise-level" value="1400"/>
+      <!-- Conference pin -->
+      <!--<param name="pin" value="12345"/>-->
+      <!-- Default Caller ID Name for outbound calls -->
+      <param name="caller-id-name" value="$${outbound_caller_name}"/>
+      <!-- Default Caller ID Number for outbound calls -->
+      <param name="caller-id-number" value="$${outbound_caller_id}"/>
+      <!-- Suppress start and stop talking events -->
+      <!-- <param name="suppress-events" value="start-talking,stop-talking"/> -->
+      <!-- enable comfort noise generation -->
+      <param name="comfort-noise" value="true"/>
+      <!-- Uncomment auto-record to toggle recording every conference call. -->
+      <!-- Another valid value is   shout://user:pass@server.com/live.mp3   -->
+      <!--
+      <param name="auto-record" value="/usr/local/freeswitch/sounds/conference/${conference_name}_${strftime(%Y-%m-%d-%H-%M-%S)}.wav"/>
+      -->
+    </profile>
+```
+
+****Notes:** When you insert the profile above into the conference profile configurations you will need to refer to the dial plan above and use OPTION 2 in order to make use of this new conference profile.
+
+Document generated by Confluence on nov 11, 2022 04:28

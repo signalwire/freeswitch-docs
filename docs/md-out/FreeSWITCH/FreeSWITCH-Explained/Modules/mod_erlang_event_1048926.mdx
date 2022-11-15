@@ -1,0 +1,1392 @@
+
+# mod_erlang_event 
+
+ Created by  John Boteler, last modified by  Attila Gulyas on 2019.12.27
+
+---
+
+Table of Contents (click to expand)
+
+* [0\. Status](mod_erlang_event_1048926.mdx#0-status)
+* [1\. About](mod_erlang_event_1048926.mdx#1-about)
+* [2\. Installation](mod_erlang_event_1048926.mdx#2-installation)  
+   * [2.1\. Vanilla FreeSWITCH installation](mod_erlang_event_1048926.mdx#21-vanilla-freeswitch-installation)  
+   * [2.2\. Compiling from source](mod_erlang_event_1048926.mdx#22-compiling-from-source)  
+   * [Windows](mod_erlang_event_1048926.mdx#-event-)  
+   * [OSX](mod_erlang_event_1048926.mdx#-event-)
+* [3\. Configuration](mod_erlang_event_1048926.mdx#3-configuration)  
+   * [Step 1\. Load mod\_erlang\_event in FreeSWITCH](mod_erlang_event_1048926.mdx#erlang-api)  
+   * [Step 2\. Edit &lt;conf\_dir>/autoload\_configs/erlang\_event.conf.xml](mod_erlang_event_1048926.mdx#-freeswitch--mod_erlang_event-)  
+   * [Step 3\. Restart FreeSWITCH](mod_erlang_event_1048926.mdx#step-3-restart-freeswitch)
+* [4\. Configuration parameters](mod_erlang_event_1048926.mdx#4-configuration-parameters)  
+   * [4.1 Short name vs. long name](mod_erlang_event_1048926.mdx#41-short-name-vs-long-name)  
+         * [4.1.1 How to set a custom name?](mod_erlang_event_1048926.mdx#411-how-to-set-a-custom-name)
+* [5\. Message formats](mod_erlang_event_1048926.mdx#5-message-formats)  
+   * [Erlang API](mod_erlang_event_1048926.mdx#erlang-api)  
+         * [Accepted by the FreeSWITCH C node](mod_erlang_event_1048926.mdx#accepted-by-the-freeswitch-c-node)  
+         * [Emitted by the FreeSWITCH C node](mod_erlang_event_1048926.mdx#emitted-by-the-freeswitch-c-node)  
+                  * [{event, ... }](mod_erlang_event_1048926.mdx#event--)  
+                  * [Rough list of other emitted tuples](mod_erlang_event_1048926.mdx#rough-list-of-other-emitted-tuples)
+* [6\. Inbound mode](mod_erlang_event_1048926.mdx#6-inbound-mode)  
+   * [6.1\. Example](mod_erlang_event_1048926.mdx#61-example)  
+         * [6.1.1\. Example configuration](mod_erlang_event_1048926.mdx#611-example-configuration)  
+         * [6.1.2\. Start a distributed Erlang node locally with short names](mod_erlang_event_1048926.mdx#612-start-a-distributed-erlang-node-locally-with-short-names)  
+         * [6.1.3\. Using Event Socket Library (ESL) commands](mod_erlang_event_1048926.mdx#event--)  
+                  * [6.1.3.1\. api command](mod_erlang_event_1048926.mdx#6131-api-command)  
+                              * [Why the {Name, Node } tuple when sending messages to the FreeSWITCH C node?](mod_erlang_event_1048926.mdx#emitted-by-the-freeswitch-c-node)  
+                              * [Why the value of Name in {Name, Node} can be arbitrary when sending messages to the FreeSWITCH C node?](mod_erlang_event_1048926.mdx#emitted-by-the-freeswitch-c-node)  
+                  * [6.1.3.2\. bgapi command](mod_erlang_event_1048926.mdx#6132-bgapi-command)  
+                  * [6.1.3.3\. Working with events](mod_erlang_event_1048926.mdx#6133-working-with-events)
+* [7\. Outbound mode](mod_erlang_event_1048926.mdx#7-outbound-mode)  
+   * [7.1\. Dialplan actions](mod_erlang_event_1048926.mdx#71-dialplan-actions)  
+         * [7.1.1\. Handle all incoming calls in one registered process](mod_erlang_event_1048926.mdx#711-handle-all-incoming-calls-in-one-registered-process)  
+         * [7.1.2\. Return the PID of the process that will handle the call (via a registered process)](mod_erlang_event_1048926.mdx#712-return-the-pid-of-the-process-that-will-handle-the-call-via-a-registered-process)  
+         * [7.1.3\. Return the PID of the process that will handle the call (via RPC)](mod_erlang_event_1048926.mdx#713-return-the-pid-of-the-process-that-will-handle-the-call-via-rpc)  
+   * [7.2\. Examples](mod_erlang_event_1048926.mdx#72-examples)  
+         * [7.2.1\. Handle call events](mod_erlang_event_1048926.mdx#721-handle-call-events)  
+         * [7.2.2\. Distribute calls among Erlang processes](mod_erlang_event_1048926.mdx#722-distribute-calls-among-erlang-processes)  
+                  * [5.2.1.2 Spawn a process dynamically for each incoming call](mod_erlang_event_1048926.mdx#5212-spawn-a-process-dynamically-for-each-incoming-call)
+* [Example Outbound Connection](mod_erlang_event_1048926.mdx#-example-outbound-connection-)  
+   * [Step 1\. Implement the Erlang code](mod_erlang_event_1048926.mdx#step-1-implement-the-erlang-code-)  
+   * [Step 2\. Start a distributed Erlang node and start handler process](mod_erlang_event_1048926.mdx#step-2-start-a-distributed-erlang-node-and-start-handler-process)  
+   * [Step 3\. Add entry in dialplan to call the remote Erlang node](mod_erlang_event_1048926.mdx#step-3-add-entry-in-dialplan-to-call-the-remote-erlang-node)  
+         * [Use an already running registered process](mod_erlang_event_1048926.mdx#use-an-already-running-registered-process)  
+   * [Spawn a dynamic Erlang process to handle the call](mod_erlang_event_1048926.mdx#spawn-a-dynamic-erlang-process-to-handle-the-call)
+* [API](mod_erlang_event_1048926.mdx#erlang-api)  
+   * [Messages (get\_pid, etc)](mod_erlang_event_1048926.mdx#messages-get_pid-etc)  
+   * [Commands](mod_erlang_event_1048926.mdx#commands)  
+         * [api](mod_erlang_event_1048926.mdx#erlang-api)  
+                  * [Examples](mod_erlang_event_1048926.mdx#erlang-api)  
+         * [bgapi](mod_erlang_event_1048926.mdx#erlang-api)  
+         * [filter](mod_erlang_event_1048926.mdx#-event-)  
+                  * [Examples](mod_erlang_event_1048926.mdx#erlang-api)  
+         * [register\_event\_handler](mod_erlang_event_1048926.mdx#-register_event_handler-)  
+         * [event](mod_erlang_event_1048926.mdx#-event-)  
+                  * [Examples](mod_erlang_event_1048926.mdx#erlang-api)  
+         * [nixevent](mod_erlang_event_1048926.mdx#-nixevent-)  
+         * [noevents](mod_erlang_event_1048926.mdx#-noevents-)  
+         * [register\_log\_handler](mod_erlang_event_1048926.mdx#-register_log_handler)  
+         * [set\_log\_level](mod_erlang_event_1048926.mdx#-set_log_level-)  
+         * [nolog](mod_erlang_event_1048926.mdx#-event-)  
+         * [exit](mod_erlang_event_1048926.mdx#-event-)  
+         * [sendevent](mod_erlang_event_1048926.mdx#-sendevent)  
+         * [sendmsg](mod_erlang_event_1048926.mdx#-event-)  
+         * [getpid](mod_erlang_event_1048926.mdx#erlang-api)  
+         * [handlecall](mod_erlang_event_1048926.mdx#-handlecall)  
+                  * [Syntax](mod_erlang_event_1048926.mdx#-event-)  
+                  * [Use cases](mod_erlang_event_1048926.mdx#-event-)
+* [XML search bindings](mod_erlang_event_1048926.mdx#xml-search-bindings)  
+   * [bind](mod_erlang_event_1048926.mdx#-event-)  
+   * [fetch\_reply](mod_erlang_event_1048926.mdx#fetch_reply-)
+* [Console Commands](mod_erlang_event_1048926.mdx#console-commands)
+* [Debugging](mod_erlang_event_1048926.mdx#debugging)
+* [freeswitch.erl](mod_erlang_event_1048926.mdx#freeswitcherl)
+
+Subpages (click to expand)
+
+* [IVR using mod\_erlang\_event](./mod-erlang-event/IVR-using-mod_erlang_event_30867811.mdx#how)
+
+---
+
+## 0\. Status
+
+Historical note (click to expand)
+
+This note has been created by John Boteler on 2014.04.10, and haven't been changed since. Although there was no major update in the [source](https://github.com/signalwire/freeswitch/tree/master/src/mod/event%5Fhandlers/mod%5Ferlang%5Fevent) in at least 7 years, so this may still be accurate.
+
+Maturing, I'll try to provide backwards compatibility for 2 FreeSWITCH releases if I have to make an API change.
+
+TODO
+
+* Ability to have multiple event handler pids per node, each with their own event subscriptions?
+* Figure out how to handle premature exits of spawned outbound processes
+* Allow log/event handler and handle call processes to be registered processes or pids
+* Check pids obtained via 'get\_pid' to determine the node they're on in case they're not the node we requested a pid from (load balancing)
+* Investigate supporting starting a gen\_server/gen\_fsm using [proc\_lib:spawn/4](http://proc%5Flibspawn) and enter\_loop
+* Make datastructures more [proplist](http://erlang.org/doc/man/proplists.html) friendly
+
+  
+## 1\. About
+
+[mod\_erlang\_event](./mod_erlang_event_1048926.mdx#api-) is a derivative of [mod\_event\_socket](mod_event_socket_1048924.mdx#11-acl) that sends events and receives commands in Erlang's [binary term format](http://erlang.org/doc/apps/erts/erl%5Fext%5Fdist.html). This allows FreeSWITCH™ to behave like just another Erlang node (albeit a hidden one). It uses the [ei library](http://www.erlang.org/doc/man/ei.html) to handle encoding/decoding the Erlang [binary format](http://erlang.org/doc/apps/erts/erl%5Fext%5Fdist.html), and the [ei\_connect](http://www.erlang.org/doc/man/ei%5Fconnect.html) functions to handle the network connections.
+
+About Erlang
+
+[Erlang](https://www.erlang.org/) is a general-purpose, concurrent, functional programming language, and a garbage-collected run-time system. It supports hot swapping, so that code can be changed without stopping a system.
+
+This module, just as [mod\_event\_socket](./mod_event_socket_1048924.mdx#11-acl), operates in two modes, **inbound** and **outbound**. 
+
+ESL modes of operation
+
+See [mod\_event\_socket](./mod_event_socket_1048924.mdx#11-acl) for a more detailed description on inbound and outbound modes.
+
+## 2\. Installation
+
+### 2.1\. Vanilla FreeSWITCH installation
+
+If FreeSWITCH has been installed from pre-built binaries (see [Installation](../Installation/index.mdx#about)), all documented modules come pre-compiled with it, along with their sample configuration files in the `<conf_dir>/autoload_configs/` directory.
+
+### 2.2\. Compiling from source
+
+You need Erlang (and its development headers) installed to compile this module. You must have Erlang development files installed **before** running the FreeSWITCH .`/configure` (or rerun `./configure` after having Erlang installed). The FreeSWITCH™ configure script now checks for the Erlang requirements, and configures the Makefile appropriately.
+
+To install Erlang, please go to <https://www.erlang.org/downloads>. All source files can be downloaded there, and each release has instructions for popular platforms and package managers.
+
+Historical notes (click to expand)
+
+Contents below may be out of date
+
+The sections below are probably outdated. At least, the "Windows" section talks about Erlang R13, which came out in 2009.
+
+### Windows 
+
+As of SVN r13766, the module is known to work on windows (but it's not terribly well tested). Unfortunately the ei.lib that ships with windows releases of erlang isn't suitable for being used inside a DLL due to issues with thread local storage. The work around for this is to build it yourself following the README.win32 instructions included with the erlang source distribution and after you've run configure edit the [eidefs.mk](http://eidefs.mk) and remove -DUSE\_DECLSPEC\_THREAD from the THR\_DEFS variable. Then you can just run \`make release\` in the libs/erl\_interface directory and then edit mod\_erlang\_event's project options to point at the erl\_interface/obj/win32/ei.lib for its linker flags. You'll probably also have to fix the include path in the compiler flags, too.
+
+To add the erlang module to the freeswitch solution, right click on the solution and choose Add->Existing Project and browse to its .vcproj file. Once it's added edit the solution's properties, go to dependencies and for the module, make it depend on the freeswitch core lib.
+
+ei binaries for compiling the module against R13B01 can be found [here](http://eagle.bsd.st/%7Eandrew/erl%5Finterface.zip). The release libs are in obj/win32 and the debug ones are in obj.debug/win32.
+
+###  OSX 
+
+If after compiling the module, loading it in FreeSWITCH gives you an error like
+
+```xml
+Error Loading module /usr/local/freeswitch/mod/mod_erlang_event.so
+**dlopen(/usr/local/freeswitch/mod/mod_erlang_event.so, 6): Symbol not found: ___erl_errno_place
+```
+
+make sure you've built both Erlang AND FreeSWITCH with the same architecture. Erlang defaults to building 32 bit (even on a 64 bit kernel for some reason) and FreeSWITCH seems to default to 64 bit. The easiest solution is to rebuild erlang with the --enable-darwin-64bit argument to configure. Note, however, that 'make clean' doesn't work right for Erlang and its best to have a fresh source tree if recompiling to a new architecture.
+
+## 3\. Configuration
+
+### Step 1\. Load [mod_erlang_event](./mod_erlang_event_1048926.mdx#api-) in FreeSWITCH
+
+First, make sure that `<conf_dir>/autoload_configs/modules.conf.xml` has the line **`<load module="mod_erlang_event"/>`** present, and is not commented out:
+
+**&lt;conf\_dir>/autoload\_configs/modules.conf.xml**
+
+```xml
+<configuration name="modules.conf" description="Modules">
+  <modules>
+    <!-- ... other modules ... -->
+    <load module="mod_erlang_event"/>
+    <!-- ... other modules ... -->
+  </modules>
+</configuration>
+```
+
+### Step 2\. Edit `<conf_dir>/autoload_configs/[erlang_event.conf.xml](https://github.com/signalwire/freeswitch/blob/master/conf/vanilla/autoload%5Fconfigs/erlang%5Fevent.conf.xml)`
+
+[mod\_erlang\_event](./mod_erlang_event_1048926.mdx#api-)'s configuration file (`<conf_dir>/autoload_configs/[erlang_event.conf.xml](https://github.com/signalwire/freeswitch/blob/master/conf/vanilla/autoload%5Fconfigs/erlang%5Fevent.conf.xml)`) is very similar to the one for [mod\_event\_socket](./mod_event_socket_1048924.mdx#11-acl), but some parameters are different. See **Configuration Parameters** below.
+
+**&lt;conf\_dir>/autoload\_configs/erlang\_event.conf.xml** Espandi fonte 
+
+```xml
+<configuration name="erlang_event.conf" description="Erlang Socket Client">
+  <settings>
+    <param name="listen-ip" value="0.0.0.0"/>
+    <param name="listen-port" value="8031"/>
+    <!-- Specify the first part of the node name
+         (the host part after the @ will be autodetected)
+         OR pass a complete nodename to avoid autodetection
+         eg. freeswitch@example or freeswitch@example.com.
+         If you pass a complete node name, the 'shortname' parameter has no effect. -->
+    <param name="nodename" value="freeswitch"/>
+    <!-- Specify this OR 'cookie-file' or $HOME/.erlang.cookie will be read -->
+    <param name="cookie" value="ClueCon"/>
+    <!-- Read a cookie from an arbitary erlang cookie file instead -->
+    <!--<param name="cookie-file" value="/$${temp_dir}/erlang.cookie"/>-->
+    <param name="shortname" value="true"/>
+    <!-- in additon to cookie, optionally restrict by ACL -->
+    <!--<param name="apply-inbound-acl" value="lan"/>-->
+    <!-- alternative is "binary" -->
+    <!--<param name="encoding" value="string"/>--> 
+    <!-- provide compatability with previous OTP release (use with care) -->
+    <!--<param name="compat-rel" value="12"/> -->
+  </settings>
+</configuration>
+```
+
+### Step 3\. Restart FreeSWITCH
+
+Use `sudo service freeswitch restart` where `systemd` is used (`reloadxml` won't be enough).
+
+## 4\. Configuration parameters
+
+The configuration parameters from [mod\_erlang\_event.c:1232](https://github.com/signalwire/freeswitch/blob/718d2341f7327feea52c840648e42b33eb9c69dd/src/mod/event%5Fhandlers/mod%5Ferlang%5Fevent/mod%5Ferlang%5Fevent.c#L1232):
+
+| Configuration parameter | Description                                                                                                                                                                                                                                                                                                                                                                                                                                                           | Accepted values                | Example                                       |
+| ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------ | --------------------------------------------- |
+| listen-ip               | Specify the IP address of the server where the Erlang application is located.                                                                                                                                                                                                                                                                                                                                                                                         | IP address                     | &lt;param name="listen-ip" value="0.0.0.0"/>     |
+| listen-port             | Specify the TCP port to listen on.By default, [mod\_erlang\_event](./mod_erlang_event_1048926.mdx#api-) listens on a different port (8031) than [mod\_event\_socket](./mod_event_socket_1048924.mdx#11-acl) (8021).                                                                                                                                                                                                                                                     | TCP port number                | &lt;param name="listen-port" value="8031"/>      |
+| cookie                  | Instead of a password in [mod\_event\_socket](./mod_event_socket_1048924.mdx#11-acl), [mod\_erlang\_event](./mod_erlang_event_1048926.mdx#api-) uses a **cookie**.See [Erlang Reference Manual](http://erlang.org/doc/reference%5Fmanual/users%5Fguide.html), [Distributed Erlang](http://erlang.org/doc/reference%5Fmanual/distributed.html) chapter, [13.7 Security](http://erlang.org/doc/reference%5Fmanual/distributed.html#security) section for more on cookies. | String                         | &lt;param name="cookie" value="ClueCon"/>        |
+| cookie-file             | TODO Never documented, see [source](https://github.com/signalwire/freeswitch/blob/718d2341f7327feea52c840648e42b33eb9c69dd/src/mod/event%5Fhandlers/mod%5Ferlang%5Fevent/mod%5Ferlang%5Fevent.c#L1232).                                                                                                                                                                                                                                                               | TODO File path?                | &lt;param name="cookie-file" value="?"/>         |
+| nodename                | Set the name of the FreeSWITCH C node.                                                                                                                                                                                                                                                                                                                                                                                                                                | String                         | &lt;param name="nodename" value="freeswitch"/>   |
+| shortname               | Whether to use the short name format for the FreeSWITCH C node.Erlang nodes with a short name can only talk to other nodes with a short name, and the same thing applies for nodes with long names.See **4.1 Short name vs. long name** section below.                                                                                                                                                                                                                | Boolean                        | &lt;param name="shortname" value="true"/>        |
+| encoding                | The encoding parameter indicates if you would prefer events to be encoded as Erlang binaries or as Erlang strings. [Binaries tend to be faster and consume less memory](http://erlang.org/pipermail/erlang-questions/2015-August/085631.html), but strings can be easier to work with.                                                                                                                                                                                | \[ string \| binary \]         | &lt;param name="encoding" value="binary"/>       |
+| compat-rel              | From the vanilla [erlang\_event.conf.xml](https://github.com/signalwire/freeswitch/blob/master/conf/vanilla/autoload%5Fconfigs/erlang%5Fevent.conf.xml): "_provide compatibility with previous OTP release (use with care)_".                                                                                                                                                                                                                                         | Integer                        | &lt;param name="compat-rel" value="12"/>         |
+| apply-inbound-acl       | Just as with [mod\_event\_socket](./mod_event_socket_1048924.mdx#11-acl), provide additional restrictions via [Access Control List (ACL)](../Networking/3965687.mdx#-acl-)s besides the cookie .                                                                                                                                                                                                                                                                                           | valid [ACL](../Networking/3965687.mdx#-acl-) name | &lt;param name="apply-inbound-acl" value="lan"/> |
+| max-event-bulk          | TODO Never documented, see [source](https://github.com/signalwire/freeswitch/blob/718d2341f7327feea52c840648e42b33eb9c69dd/src/mod/event%5Fhandlers/mod%5Ferlang%5Fevent/mod%5Ferlang%5Fevent.c#L1232).                                                                                                                                                                                                                                                               |                                |                                               |
+| max-log-bulk            | TODO Never documented, see [source](https://github.com/signalwire/freeswitch/blob/718d2341f7327feea52c840648e42b33eb9c69dd/src/mod/event%5Fhandlers/mod%5Ferlang%5Fevent/mod%5Ferlang%5Fevent.c#L1232).                                                                                                                                                                                                                                                               |                                |                                               |
+| stop-on-bind-error      | TODO Never documented, see [source](https://github.com/signalwire/freeswitch/blob/718d2341f7327feea52c840648e42b33eb9c69dd/src/mod/event%5Fhandlers/mod%5Ferlang%5Fevent/mod%5Ferlang%5Fevent.c#L1232).                                                                                                                                                                                                                                                               |                                |                                               |
+
+  
+### 4.1 Short name vs. long name
+
+From the [Erlang Reference Manual](http://erlang.org/doc/reference%5Fmanual/users%5Fguide.html), [Distributed Erlang](http://erlang.org/doc/reference%5Fmanual/distributed.html) chapter, [13.2 Nodes](http://erlang.org/doc/reference%5Fmanual/distributed.html#nodes) section (with minor edits):
+
+A **node** is an executing Erlang runtime system that has been given a name, using the command-line flag `-name` (long names) or `-sname` (short names).
+
+The format of the node name is an atom `name@host` .
+
+* `name` is the name given by the user.
+* `host` is the full host name if long names are used (i.e., FQDN), or the first part of the host name if short names are used (i.e., FQDN cropped to the first period).
+
+`node()` returns the name of the node.
+
+**Example:**
+
+% erl -name dilbert
+(dilbert@uab.ericsson.se)1> node().
+'dilbert@uab.ericsson.se'
+
+% erl -sname dilbert
+(dilbert@uab)1> node().
+dilbert@uab
+
+  
+`nodename` is the name of the remote Erlang node across the network that would handle the FreeSWITCH events. If the `shortname` parameter is turned on (i.e., set to `"true"`), the local Erlang node will be named using the "short name" convention, described above.
+
+So, for a module listening on the IP that resolves to "[example.com](http://example.com)" and the nodename set to "freeswitch",
+
+* with `shortname` **enabled**, the full nodename is 'freeswitch@example'
+* with `shortname` **disabled**, it will be ['freeswitch@example.com](http://confluence.freeswit.ch/mailto:)' instead.
+
+#### 4.1.1 How to set a custom name?
+
+To force the `nodename`, specify the whole name (e.g., ['freeswitch@example.com](http://confluence.freeswit.ch/mailto:)') in the 'nodename' tag; [mod\_erlang\_event](./mod_erlang_event_1048926.mdx#api-) will not try to guess what to call the node.
+
+Erlang nodes with a short name can only talk to other nodes with a short name, and the same thing applies for nodes with long names.
+
+## 5\. Message formats
+
+### Erlang API
+
+#### Accepted by the FreeSWITCH C node
+
+This should be parsed to get all messages accepted by the FreeSWITCH C node:
+
+<https://github.com/signalwire/freeswitch/blob/66aa064588e66fed1aa7488ba8f363939b157e51/src/mod/event%5Fhandlers/mod%5Ferlang%5Fevent/handle%5Fmsg.c#L1049>
+
+**Supported command tuples based on the above link**
+
+```erl
+{fetch_reply, ...}
+{set_log_level, ...}
+{event, ...}
+{filter, ...}
+{session_event, ...}
+{nixevent, ...}
+{session_nixevent, ...}
+{api, ...}
+{bgapi, ...}
+{sendevent, ...}
+{sendmsg, ...}
+{bind, ...}
+{handlecall, ...}
+{rex, ...}
+{setevent, ...}
+{session_setevent, ...}
+```
+
+#### Emitted by the FreeSWITCH C node
+
+##### `{event, ...` }
+
+Created using [ei\_encode\_switch\_event](https://github.com/signalwire/freeswitch/blob/15ad4c23e259c1c2dff58f89e9124e5f36dd2e94/src/mod/event%5Fhandlers/mod%5Ferlang%5Fevent/mod%5Ferlang%5Fevent.h#L254) (which is a C macro(?) calling [ei\_encode\_switch\_event\_tag](https://github.com/signalwire/freeswitch/blob/15ad4c23e259c1c2dff58f89e9124e5f36dd2e94/src/mod/event%5Fhandlers/mod%5Ferlang%5Fevent/ei%5Fhelpers.c#L129)) and [ei\_encode\_switch\_event\_header](https://github.com/signalwire/freeswitch/blob/15ad4c23e259c1c2dff58f89e9124e5f36dd2e94/src/mod/event%5Fhandlers/mod%5Ferlang%5Fevent/ei%5Fhelpers.c#L92) in [mod\_erlang\_event.c](https://github.com/signalwire/freeswitch/blob/718d2341f7327feea52c840648e42b33eb9c69dd/src/mod/event%5Fhandlers/mod%5Ferlang%5Fevent/mod%5Ferlang%5Fevent.c).
+
+  
+Events are received in the form:
+
+TODO Document this in **5\. Message formats**.
+
+```xml
+{event, [(UniqueID|'undefined'),
+         {EventHeaderKey, EventHeaderValue},
+         {EventHeaderKey2, EventHeaderValue2},
+         ...]} 
+```
+
+The event tuple consists of
+
+* the atom `event`,
+* followed by a variable length list of `{Key, Value}` tuples.
+
+The list's first value is
+
+* either a call's [UUID](../Dialplan/Channel-Variables_16352493.mdx#info-application-variable-names-variable_xxxx) (represented above as `UniqueID`)
+* or the atom `undefined` if the event doesn't relate to a call.
+
+The notion is to make it easier to pattern match for the purpose of the event, without traversing the entire list.
+
+##### Rough list of other emitted tuples
+
+These are only the ones whose creation is very straightforward (i.e., the [ei\_x\_encode\_tuple\_header](http://erlang.org/doc/man/ei.html#ei%5Fx%5Fencode%5Ftuple%5Fheader) is followed by [ei\_x\_encode\_atom](http://erlang.org/doc/man/ei.html#ei%5Fx%5Fencode%5Fatom) which roughly means `{atom, ...` }).
+
+From [mod\_erlang\_event.c](https://github.com/signalwire/freeswitch/blob/718d2341f7327feea52c840648e42b33eb9c69dd/src/mod/event%5Fhandlers/mod%5Ferlang%5Fevent/mod%5Ferlang%5Fevent.c):
+
+```erl
+{fetch, ...}
+{call, ...}
+{call_event, ...}
+{call_hangup, ...}
+{call_event, ...}
+{log, ...}
+{level, ...}
+{text_channel, ...}
+{file, ...}
+{func, ...}
+{line, ...}
+{data, ...}
+{user_data, ...}
+{error, ...}
+{freeswitch_sendmsg, ...}
+{get_pid, ...}
+```
+
+  
+---
+
+QUESTION: [mod\_event\_socket](./mod_event_socket_1048924.mdx#11-acl) has `execute` to run dialplan applications, but didn't see that documented here, nor in the source. Does that mean [mod\_erlang\_event](./mod_erlang_event_1048926.mdx#api-) does not support this?
+
+Other source links from an old comment: (click to expand)
+
+Couldn't see the received tuples documented anywhere, so looked it up in the \`mod\_erlang\_event\` source.
+
+Links are relative to the latest commit on them to date.
+
+\`{call, Data}\`
+
+<https://github.com/signalwire/freeswitch/blob/718d2341f7327feea52c840648e42b33eb9c69dd/src/mod/event%5Fhandlers/mod%5Ferlang%5Fevent/mod%5Ferlang%5Fevent.c#L646>
+
+\`{call\_event, Data}\`
+
+<https://github.com/signalwire/freeswitch/blob/718d2341f7327feea52c840648e42b33eb9c69dd/src/mod/event%5Fhandlers/mod%5Ferlang%5Fevent/mod%5Ferlang%5Fevent.c#L739>
+
+<https://github.com/signalwire/freeswitch/blob/718d2341f7327feea52c840648e42b33eb9c69dd/src/mod/event%5Fhandlers/mod%5Ferlang%5Fevent/mod%5Ferlang%5Fevent.c#L779>
+
+\`{get\_pid}\`
+
+See the part also below when invoking \`mod\_erlang\_event\` with \`myhandler:!\`.
+
+<https://github.com/signalwire/freeswitch/blob/718d2341f7327feea52c840648e42b33eb9c69dd/src/mod/event%5Fhandlers/mod%5Ferlang%5Fevent/mod%5Ferlang%5Fevent.c#L1548>
+
+Based on the examples, I'm also not sure what the syntax of \`event\` tuples should be, but the source to figure it out:
+
+<https://github.com/signalwire/freeswitch/blob/718d2341f7327feea52c840648e42b33eb9c69dd/src/mod/event%5Fhandlers/mod%5Ferlang%5Fevent/freeswitch.erl#L348>
+
+<https://github.com/signalwire/freeswitch/blob/718d2341f7327feea52c840648e42b33eb9c69dd/src/mod/event%5Fhandlers/mod%5Ferlang%5Fevent/freeswitch.erl#L165>
+
+<https://github.com/signalwire/freeswitch/blob/718d2341f7327feea52c840648e42b33eb9c69dd/src/mod/event%5Fhandlers/mod%5Ferlang%5Fevent/freeswitch.erl#L26>
+
+TODO
+
+Some messages only apply to outbound mode (e.g., `get_pid` ) so note these explicitly and direct readers to the relevant sections.
+
+  
+5.1\. Accepted
+
+5.2\. Emitted
+
+## 6\. Inbound mode
+
+The external Erlang application (running locally or remotely) controls the FreeSWITCH instance by sending messages to it (e.g., to check status, originate calls, register to receive events, execute applications).
+
+**An Erlang node needs to send `register_event_handler` as the very first step** to register the current process as an event handler (regardless whether inbound and outbound), otherwise no events will be received from the FreeSWITCH C node.
+
+### 6.1\. Example
+
+In these examples we're using the Erlang shell (`erl`) to communicate with FreeSWITCH™ using [mod\_erlang\_event](./mod_erlang_event_1048926.mdx#api-).
+
+#### 6.1.1\. Example configuration
+
+Let's assume FreeSWITCH is running, and that [mod\_erlang\_event](./mod_erlang_event_1048926.mdx#api-) is using the vanilla configuration (see section **3\. Configuration**):
+
+* `cookie` set to 'ClueCon',
+* `nodename` set to 'freeswitch'
+* `shortname` enabled.
+
+#### 6.1.2\. Start a distributed Erlang node locally with short names
+
+"locally" meaning that the Erlang node is started on the same machine where the FreeSWITCH instance is already running.
+
+The host name is '[example.com](http://example.com)', so the short node name will be `freeswitch@example`.
+
+TODO: What about remote Erlang nodes?
+
+Click to expand ...
+
+Update this section with info on how to achieve the same with remote nodes. My initial assumption was connecting remote nodes will only work with nodes with long names, but this seems to be wrong.
+
+1. Read up on it
+2. Add an example
+
+Some resources:
+
+* <https://learnyousomeerlang.com/distribunomicon>
+* <http://erlang.org/doc/man/epmd.html>
+* <https://stackoverflow.com/questions/51740621/connecting-to-production-node-when-short-name-is-set>
+* <https://stackoverflow.com/questions/26474591/connecting-erlang-nodes-when-an-internal-and-external-ip-address-are-at-play>
+
+```xml
+$ erl -sname test -setcookie ClueCon
+Erlang (BEAM) emulator version 5.6.4 [source] [async-threads:0] [hipe] [kernel-poll:false]
+```
+
+To start an Erlang node with a long name, use the `-name` switch instead.
+
+Don't forget to configure [mod\_erlang\_event](./mod_erlang_event_1048926.mdx#api-) accordingly, and that Erlang nodes with short names cannot communicate with ones set up using long names, and vice versa. See **Configuration** and **Configuration Parameters** sections above.
+
+The value provided to `-setcookie` is the same as the one used for the `cookie` parameter in the example [mod\_erlang\_event](./mod_erlang_event_1048926.mdx#api-) configuration above.
+
+#### 6.1.3\. Using [Event Socket Library](../Client-and-Developer-Interfaces/Event-Socket-Library/index.mdx#-new-) (ESL) commands
+
+In the previous section we got the external Erlang node up and running locally, it's time to try it out.
+
+All ESL commands can be used the same way from **outbound** **mode** as well. The only difference is that the FreeSWITCH instance will only "outsource" call processing to an Erlang node when a call matches an extension to an outbound socket in the dialplan.
+
+##### 6.1.3.1\. `api` command
+
+[Event Socket Library](../Client-and-Developer-Interfaces/Event-Socket-Library/index.mdx#-new-)'s `api` command allows sending [FreeSWITCH API](../Introduction/FreeSWITCH-API_30867723.mdx#-freeswitch--freeswitch-api-) commands to FreeSWITCH. We'll send the `status` command (note how the connection is negotiated automagically), and the FreeSWITCH [C node](http://erlang.org/doc/tutorial/cnode.html) will send the reply back to us asynchronously (all Erlang messages are asynchronous), so we have to explicitly receive it:
+
+```xml
+Eshell V5.6.4  (abort with ^G)
+
+(test@example)1> {foo, freeswitch@example} ! {api, status, ""}.
+{api,status,[]}
+
+(test@example)2> receive X -> X after 1000 -> timeout end.
+{ok,"Content-Type: text/html\n\nUP 0 years, 0 days, 0 hours, 0 minutes, 35 seconds, 692 milliseconds, 193 microseconds\n0 session(s) since startup\n0 session(s) 0/30\n"}
+```
+
+To see whether there is anything sitting in the current process' mailbox, we specified a `receive` block with a 1000 millisecond timeout. The result shows that we indeed received `status` 's result; it would've just returned the atom `timeout` otherwise.
+
+###### Why the `{Name, Node` } tuple when sending messages to the FreeSWITCH C node?
+
+Paraphrasing the [Erlang Reference Manual](http://erlang.org/doc/reference%5Fmanual/expressions.html#send):
+
+The general form of of the **send** operator (`!` ) is `Expr1 ! Expr2`. To send messages across distributed Erlang nodes, `Expr1` needs to evaluate to a tuple `{Name, Node}` where `Name` is either an atom or a pid referencing a process on a remote node.
+
+  
+###### Why the value of `Name` in `{Name, Node}` can be arbitrary when sending messages to the FreeSWITCH C node?
+
+Paraphrasing the [Erlang Interoperability Tutorial](http://erlang.org/doc/tutorial/cnode.html) section on C nodes:
+
+From Erlang's point of view, the C node is treated like a normal Erlang node. Thus, calling the functions `foo` and `bar` only involves sending a message to the C node asking for the function to be called, and receiving the result. **Sending a message requires a recipient**, that is, a process that can be defined using either a pid or a tuple, consisting of a registered name and a node name. **In this case, a tuple is the only alternative as no pid is known**:
+
+```erl
+{RegName, Node} ! Msg
+```
+
+The node name `Node` is to be the name of the C node.
+
+**The registered name, `RegName` , can be any atom.** The name can be
+
+* ignored by the C code, or,
+* for example, be used to distinguish between different types of messages.
+
+  
+Now, lets send an invalid command, and listen for the reply:
+
+```xml
+(test@example)3> {foo, freeswitch@example} ! {api, wtf, ""}, receive Y -> Y after 1000 -> timeout end.
+{error,"wtf: Command not found!\n"}
+```
+
+So, as we can see, the command `wtf` isn't valid. Note that in both cases, a 2 element tuple is returned. Depending on the result of the command, the first element is either the atom `ok` or `error.`
+
+Erlang variables are immutable
+
+Note that we had to use a different variable name (i.e., `Y` ) this time to receive the results. If we used `X` again, Erlang would search the process' mailbox for an event that matched what X was bound to.
+
+One could also do `f(X).` to forget the value of X in the shell. See the [erl manual](http://erlang.org/doc/man/shell.html), or type `help().` in `erl` . (The dots at the end of the commands are important.)
+
+##### 6.1.3.2\. `bgapi` command
+
+We'll now issue the `status` [FreeSWITCH API](../Introduction/FreeSWITCH-API_30867723.mdx#-freeswitch--freeswitch-api-) commands in the background using `bgapi`:
+
+```xml
+(test@example)4> {foo, freeswitch@example} ! {bgapi, status, ""}, receive Z -> Z after 1000 -> timeout end.
+{ok,"191d2b07-58ac-dd11-829b-000f1f68e553"}
+```
+
+Note that all we got was the `Job-UUID` of the background command.
+
+There are two ways to get the results:
+
+1. Use a `receive` block one more time to read the direct reply from the process' mailbox:  
+```xml  
+(test@example)5> receive A -> A after 1000 -> timeout end.  
+{bgok,"191d2b07-58ac-dd11-829b-000f1f68e553",  
+     "Content-Type: text/html\n\nUP 0 years, 0 days, 1 hour, 11 minutes, 8 seconds, 654 milliseconds, 138  
+        microseconds\n0 session(s) since startup\n0 session(s) 0/30\n"}  
+```  
+Note that the command's final result is tagged with `bgok` /`bgerror`.
+2. In addition to a directed reply, a normal `BACKGROUND_JOB` event (see [Event List](../Introduction/Event-System/Event-List_7143557.mdx#nat)) is also fired whenever a [FreeSWITCH API](../Introduction/FreeSWITCH-API_30867723.mdx#-freeswitch--freeswitch-api-) command is executed in the background, which you could alternately choose to receive. (See `events` in the "API" section below on how to subscribe to FreeSWITCH system events).
+
+api vs bgapi
+
+A [FreeSWITCH API](../Introduction/FreeSWITCH-API_30867723.mdx#-freeswitch--freeswitch-api-) commands called with `bgapi` 
+
+* will be **executed in its own thread**,
+* is **non-blocking**, and
+* will **only return a `Job-UUID`** for future reference.
+
+Once the command is finished executing, FreeSWITCH will fire a `BACKGROUND_JOB` event with the result, and the `Job-UUID` can be used to look up the result if multiple `BACKGROUND_JOB` events have been received. (Of course, one needs to subscribe to `BACKGROUND_JOB` events first.)
+
+See [Event Socket Library](../Client-and-Developer-Interfaces/Event-Socket-Library/index.mdx#-new-)'s "`bgapi`" section to see how to set custom a `Job-UUID` .
+
+##### 6.1.3.3\. Working with events
+
+(Work in progress)
+
+## 7\. Outbound mode
+
+A [dialplan extension](../Dialplan/XML-Dialplan/index.mdx#why) can open a connection to an external application (running locally or on a remote host), and forward all generated [system events](../Introduction/Event-System/Event-List_7143557.mdx#nat) to it whenever there is an incoming call matching the extension. If a scenario can be handled in an extension, then it can be processed by, and the workload offloaded to an external application.
+
+In general,
+
+1. An incoming call traverses the [dialplan](../Dialplan/XML-Dialplan/index.mdx#why),
+2. matches the extension that calls an outbound socket,
+3. **the call gets parked**, and
+4. system events relating to the call are then sent to **specified Erlang node**,
+5. where a process local to that node will continue handling the call.
+
+**An Erlang node needs to send `register_event_handler` as the very first step** to register the current process as an event handler (regardless whether inbound and outbound), otherwise no events will be received from the FreeSWITCH C node.
+
+### 7.1\. Dialplan `action`s
+
+#### 7.1.1\. Handle all incoming calls in one registered process
+
+**Syntax**
+
+```xml
+<action application="erlang" data="REGISTERED_PROCESS LONG_OR_SHORT_NODENAME"/>
+
+<!-- For example: -->
+<action application="erlang" data="myhandler mynode@myserver"/>
+```
+
+The extension will send the call to the registered process named `REGISTERED_PROCESS` (e.g., `myhandler`) on the (remote or local) Erlang node `LONG_OR_SHORT_NODENAME` (e.g., `mynode@myserver`).
+
+#### 7.1.2\. Return the PID of the process that will handle the call (via a registered process)
+
+**Syntax**
+
+```xml
+<action application="erlang" data="REGISTERED_PROCESS:! LONG_OR_SHORT_NODENAME"/>
+
+<!-- For example: -->
+<action application="erlang" data="myhandler:! mynode@server"/>
+```
+
+Instead of immediately sending all call events indiscriminately to the registered process to handle calls, FreeSWITCH will wait for a process ID (PID) to which all events for that call will be sent to. 
+
+The returned process ID could be that of
+
+* a newly spawned process, or
+* an already running process (e.g. a `gen_server` in the Erlang application already running on the external node).
+
+For every incoming call to the extension, the registered process (e.g., `myhandler`) will receive messages in the form:
+
+**Callback syntax**
+
+```erl
+{get_pid, UUID, Ref, Pid}
+```
+
+Where
+
+* `UUID` is the call's [UUID](../Dialplan/Channel-Variables_16352493.mdx#info-application-variable-names-variable_xxxx),
+* `Ref` is a [reference()](http://erlang.org/doc/reference%5Fmanual/data%5Ftypes.html#reference) created by the FreeSWITCH C node to uniquely identify the request, and
+* `Pid` is the ID of the process in the FreeSWITCH C node to send the response back to.
+
+The expected response is of the form:
+
+**Callback syntax**
+
+```erl
+{Ref, NewPid}
+```
+
+Where
+
+* `Ref` is the same as the `Ref` in the 4-tuple, returned as the first element of the tuple, and
+* `pid()` is the PID of the process that will handle the call.
+
+#### 7.1.3\. Return the PID of the process that will handle the call (via RPC)
+
+The notion is the same as in the previous section (i.e., FreeSWITCH will wait for a process ID (PID) to which all events for that call will be sent to), except no registered process is required. A [remote procedure call (RPC)](http://erlang.org/doc/man/rpc.html) is fired to the external Erlang node instead.
+
+TODO Add a mini glossary. E.g., using "external Erlang node" referring to the node that will handle the calls coming in to FreeSWITCH. Using the word "external" because (1) the actual node could be running locally (on the same machine as the FreeSWITCH instance) or remotely (on another machine), and (2) to emphasize that it is not the FreeSWITCH Erlang [C node](http://erlang.org/doc/tutorial/cnode.html) that is instantiated (\~> choose a better word) when mod\_erlang\_event is configured. The [C node](http://erlang.org/doc/tutorial/cnode.html) will convert FreeSWITCH system events into Erlang terms (e.g., `{call, _` } or `{call_event, _` } ) among others.
+
+**Syntax**
+
+```xml
+<action application="erlang" data="MODULE:FUNCTION LONG_OR_SHORT_NODENAME"/>
+
+<!-- For example: -->
+<action application="erlang" data="myhandler:launch mynode@myserver"/>
+```
+
+Whenever a call comes in to this extension, the equivalent of [rpc:call](http://erlang.org/doc/man/rpc.html#call-4)(LONG\_OR\_SHORT\_NODENAME, MODULE, FUNCTION, \[Ref\]) is invoked by the FreeSWITCH [C node](http://erlang.org/doc/tutorial/cnode.html) 
+
+`FUNCTION`'s has to have the type signature below
+
+**Callback syntax**
+
+```erl
+-spec FUNCTION(Ref) -> {Ref, pid()}
+```
+
+where
+
+* `Ref` is a `reference()` that is simply returned as the first element of the tuple, and
+* `pid()` is the PID of the process that will handle the call.
+
+The returned process ID could be that of
+
+* a newly spawned process, or
+* an already running process (e.g. a `gen_server` in the Erlang application already running on the external node).
+
+### 7.2\. Examples
+
+See section **6\. Inbound mode** on how to set up a distributed Erlang node, and how to use the [Event Socket Library](../Client-and-Developer-Interfaces/Event-Socket-Library/index.mdx#-new-) commands.
+
+TODO: Tidy up
+
+Fai clic qui per espandere...
+
+#### 7.2.1\. Handle call events
+
+```erl
+-module(myhandler).
+
+-export([start/0,run/0,launch/1]).
+
+start()->
+  %% Start our handler process, and
+  Pid = spawn(?MODULE,run,[]),
+  %% Register it with the same name as the module (i.e., myhandler)
+  register(?MODULE,Pid).
+
+run()->
+  %% Wait for messages from FreeSWITCH.
+  receive
+    %% A  new  call  is  starting, so  handle  it  in  this
+    %% registered  process (in  this  case,  print out  the
+    %% calls UUID).
+    {call, Data}->
+      %% `_Rest` is  a list of  all the channel  variables in
+      %% the form [{"<name>","<value"}].
+      %% (TODO: this should be documented at the "Erlang API" section below, with `call`, `call_event`, `event`, `get_pid`, and so on.)
+      {event, [UUID | _Rest]} = Data,
+      error_logger:info_msg("myhandler ~p: new call received, UUID is ~p~n",[self(), UUID]),
+      run();
+    %% Handling call events for already received calls.
+    {call_event, Data} ->
+      {event, [UUID | Rest]} = Data,
+      %% Find and print the name of the received event.
+      Name = proplists:get_value("Event-Name", Rest),
+      error_logger:info_msg("myhandler ~p: UUID ~p, event ~p~n",[self(), UUID,Name]),
+      run();
+    %% FreeSWITCH request to handle the call in a new process. See Erlang API and (probably) Step 3 below.
+    {get_pid, UUID, Ref, Pid} ->
+      NewPid = spawn(?MODULE, run, []),
+      error_logger:info_msg("myhandler ~p: request to spawn new handler process, returning ~p~n", [self(), NewPid]),
+      Pid ! {Ref, NewPid},
+      run()
+  end.
+```
+
+#### 7.2.2\. Distribute calls among Erlang processes
+
+For example, process calls with different area codes (see `Caller-ANI` in [Channel Variables](../Dialplan/Channel-Variables_16352493.mdx#about)) in separate Erlang processes that handle the specific area code. 
+
+This is the most general of the three strategies. It could be used to
+
+recreate the two preceding sections (2.2.1.1 and 2.2.1.2)
+
+utilize already running (and maybe registered) worker processes (i.e., juggle their PIDs around based on the task)
+
+only start a specific worker when it is necessary, and then reuse its PID (if it isn't a one-off process that is)
+
+?
+
+**Syntax**
+
+```xml
+<action application="erlang" data="myhandler:! mynode@server"/>
+```
+
+`myhandler:launch/1` with a single argument, a **unique reference**. The function is expected to return a tuple of the form `{Ref, NewPid}` where
+
+`NewPid` should be a spawned process, a newly launched `gen_server`, etc.
+
+`Ref` is the original reference passed in.
+
+**&lt;conf\_dir>/dialplan/default/ext\_123456\_erlang.xml**
+
+```xml
+<include>
+  <extension name="to_erlang">
+    <condition field="destination_number" expression="^123456$"> 
+      <action application="erlang" data="myhandler mynode@myserver"/>
+    </condition>
+  </extension>
+</include>
+```
+
+The `to_erlang` extension will send calls for destination number 123456 to a registered process called `myhandler` on the (possibly remote) Erlang node `mynode@myserver`.
+
+The `myhandler` process will handle all incoming calls to this extension **sequentially** (but this doesn't hinder anyone to spawn additional processes).
+
+**&lt;conf\_dir>/dialplan/default/123456\_erlang.xml**
+
+```xml
+<include>
+  <!-- ... --> 
+    <action application="erlang" data="myhandler:! mynode@server"/>
+  <!-- ... -->
+</include>
+```
+
+If the string after the : is a '!', then mod\_erlang\_event knows you want to send a new process request to the registered process 'myhandler' which will return a pid that all events for that call will be sent to. The message the registered process receives is of the form:
+
+{get_pid, UUID, Ref, Pid}
+
+Where Ref is a unique reference used to identify this request, UUID is the call's UUID and Pid is the process to send the response to. The expected response is of the form:
+
+{Ref, NewPid}
+
+Where Ref is the original reference passed with get\_pid and NewPid is the pid you'd like FreeSWITCH™ to send the events to.14877
+
+---
+
+The old new\_pid message, which didn't include the call's UUID is deprecated in favor of get\_pid as of SVN revision 14877 (09/15/09)
+
+---
+  
+  
+The module also supports true spawn/4 behaviour, but it turned out not to be so useful, so the [rpc:call](http://rpccall) functionality above replaced it.
+
+The myhandler example above supports all 3 outbound methods.
+
+##### 5.2.1.2 Spawn a process dynamically for each incoming call
+
+**&lt;conf\_dir>/dialplan/default/123456\_erlang.xml**
+
+```xml
+<include>
+  <extension name="to_erlang">
+    <condition field="destination_number" expression="^123456$"> 
+      <action application="erlang" data="myhandler:launch mynode@myserver"/>
+    </condition>
+  </extension>
+</include>
+```
+
+This will make a [remote procedure call (RPC)](http://erlang.org/doc/man/rpc.html) to `myhandler:launch/1` with a single argument, a **unique reference**. The function is expected to return a tuple of the form `{Ref, NewPid}` where
+
+`NewPid` should be a spawned process, a newly launched `gen_server`, etc.
+
+`Ref` is the original reference passed in.
+
+**myhandler.erl**
+
+```erl
+-module(myhandler).
+
+-export([start/0,run/0,launch/1]).
+
+start()->
+  %% Start our handler process, and
+  Pid = spawn(?MODULE,run,[]),
+  %% Register it with the same name as the module (i.e., myhandler)
+  register(?MODULE,Pid).
+
+run()->
+  %% Wait for messages from FreeSWITCH.
+  receive
+    %% A  new  call  is  starting, so  handle  it  in  this
+    %% registered  process (in  this  case,  print out  the
+    %% calls UUID).
+    {call, Data}->
+      %% `_Rest` is  a list of  all the channel  variables in
+      %% the form [{"<name>","<value"}].
+      %% (TODO: this should be documented at the "Erlang API" section below, with `call`, `call_event`, `event`, `get_pid`, and so on.)
+      {event, [UUID | _Rest]} = Data,
+      error_logger:info_msg("myhandler ~p: new call received, UUID is ~p~n",[self(), UUID]),
+      run();
+    %% Handling call events for already received calls.
+    {call_event, Data} ->
+      {event, [UUID | Rest]} = Data,
+      %% Find and print the name of the received event.
+      Name = proplists:get_value("Event-Name", Rest),
+      error_logger:info_msg("myhandler ~p: UUID ~p, event ~p~n",[self(), UUID,Name]),
+      run();
+    %% FreeSWITCH request to handle the call in a new process. See Erlang API and (probably) Step 3 below.
+    {get_pid, UUID, Ref, Pid} ->
+      NewPid = spawn(?MODULE, run, []),
+      error_logger:info_msg("myhandler ~p: request to spawn new handler process, returning ~p~n", [self(), NewPid]),
+      Pid ! {Ref, NewPid},
+      run()
+  end.
+
+%% Sample function to demonstrate RPC
+launch(Ref) ->
+  NewPid = spawn(?MODULE, run, []),
+  error_logger:info_msg("myhandler ~p: launch request, returning ~p~n", [self(), NewPid]),
+  {Ref, NewPid}.
+```
+
+**&lt;conf\_dir>/dialplan/default/ext\_123456\_erlang.xml**
+
+```xml
+<include>
+  <extension name="to_erlang">
+    <condition field="destination_number" expression="^123456$"> 
+      <action application="erlang" data="myhandler mynode@myserver"/>
+    </condition>
+  </extension>
+</include>
+```
+
+Every incoming call will be handled in a newly spawned Erlang process, and the instructions handling the calls will be the same for all of them.
+
+##  Example Outbound Connection 
+
+The gist is that an [XML Dialplan](../Dialplan/XML-Dialplan/index.mdx#why) extension will invoke the remote Erlang node to handle incoming traffic. Depending on the conditions set up with the extension, this traffic could be an incoming call to a range of destination numbers for example.
+
+### Step 1\. Implement the Erlang code 
+
+Running an Erlang module as a distributed Erlang node, locally or remotely, will handle all traffic that gets directed from an extension in the [FreeSWITCH dialplan](../Dialplan/XML-Dialplan/index.mdx#why).
+
+The below module demonstrates [mod\_erlang\_event](./mod_erlang_event_1048926.mdx#api-)'s Erlang API, and the parts will be explained in later steps. Save it as `myhandler.erl` for example.
+
+TODO cut this up into 3 pieces and include the relevant piece in each of the appropriate dialplan examples below. In the end show the full example, and dialplan. Or is there a better way?
+
+**myhandler.erl**
+
+```erl
+-module(myhandler).
+
+-export([start/0,run/0,launch/1]).
+
+start()->
+  %% Start our handler process, and
+  Pid = spawn(?MODULE,run,[]),
+  %% Register it with the same name as the module (i.e., myhandler)
+  register(?MODULE,Pid).
+
+run()->
+  %% Wait for messages from FreeSWITCH.
+  receive
+    %% A  new  call  is  starting, so  handle  it  in  this
+    %% registered  process (in  this  case,  print out  the
+    %% calls UUID).
+    {call, Data}->
+      %% `_Rest` is  a list of  all the channel  variables in
+      %% the form [{"<name>","<value"}].
+      %% (TODO: this should be documented at the "Erlang API" section below, with `call`, `call_event`, `event`, `get_pid`, and so on.)
+      {event, [UUID | _Rest]} = Data,
+      error_logger:info_msg("myhandler ~p: new call received, UUID is ~p~n",[self(), UUID]),
+      run();
+    %% Handling call events for already received calls.
+    {call_event, Data} ->
+      {event, [UUID | Rest]} = Data,
+      %% Find and print the name of the received event.
+      Name = proplists:get_value("Event-Name", Rest),
+      error_logger:info_msg("myhandler ~p: UUID ~p, event ~p~n",[self(), UUID,Name]),
+      run();
+    %% FreeSWITCH request to handle the call in a new process. See Erlang API and (probably) Step 3 below.
+    {get_pid, UUID, Ref, Pid} ->
+      NewPid = spawn(?MODULE, run, []),
+      error_logger:info_msg("myhandler ~p: request to spawn new handler process, returning ~p~n", [self(), NewPid]),
+      Pid ! {Ref, NewPid},
+      run()
+  end.
+
+%% Sample function to demonstrate RPC
+launch(Ref) ->
+  NewPid = spawn(?MODULE, run, []),
+  error_logger:info_msg("myhandler ~p: launch request, returning ~p~n", [self(), NewPid]),
+  {Ref, NewPid}.
+```
+
+Now compile it using `erlc` :
+
+```xml
+$ erlc myhandler.erl
+```
+
+### Step 2\. Start a distributed Erlang node and start handler process
+
+The example below a node with a short name (which is also reflected in the `erl` shell's prompt), but you can always start one with a long name using the `-name` switch instead.
+
+Don't forget to configure [mod\_erlang\_event](./mod_erlang_event_1048926.mdx#api-) accordingly! Erlang node with short names cannot communicate with ones set up using long names, and vice versa. See **Configuration** and **Configuration Parameters** sections above.
+
+```xml
+$ erl -sname mynode -setcookie ClueCon
+Erlang (BEAM) emulator version 5.5.5 [source] [async-threads:0] [hipe] [kernel-poll:false]
+
+Eshell V5.5.5  (abort with ^G)
+(mynode@myserver)1>
+```
+
+start up the `myhandler` process in the `mynode@myserver` Erlang node:
+
+  
+```xml
+Eshell V5.5.5  (abort with ^G)
+(mynode@myserver)1> myhandler:start().
+true
+```
+
+  
+The `-setcookie` value is the same as the one used for the `cookie` parameter in `<conf_dir>/autoload_configs/[erlang_event.conf.xml](https://github.com/signalwire/freeswitch/blob/master/conf/vanilla/autoload%5Fconfigs/erlang%5Fevent.conf.xml)`.
+
+### Step 3\. Add entry in dialplan to call the remote Erlang node
+
+#### Use an already running registered process
+
+Add an entry in your dialplan to redirect an inbound call to the Erlang application, by creating a new XML file for example:
+
+**&lt;conf\_dir>/dialplan/default/123456\_erlang.xml**
+
+```xml
+<include>
+  <extension name="to_erlang">
+    <condition field="destination_number" expression="^123456$"> 
+      <action application="erlang" data="myhandler mynode@myserver"/>
+    </condition>
+  </extension>
+</include>
+```
+
+The example above refers to a node that is set up using a short name, but one can change this in the `<conf_dir>/autoload_configs/[erlang_event.conf.xml](https://github.com/signalwire/freeswitch/blob/master/conf/vanilla/autoload%5Fconfigs/erlang%5Fevent.conf.xml)` configuration file (see **Configuration** and **Configuration Parameters** sections above).
+
+Don't forget to start the Erlang node accordingly! Erlang node with short names cannot communicate with ones set up using long names, and vice versa.
+
+This will send calls for destination number 123456 to a registered process called `myhandler` on the (possibly remote) Erlang node `mynode@myserver`.
+
+To test it,
+
+  
+Now dial extension 123456, and see what happens at the Erlang console:
+
+```xml
+ (mynode@myserver)2>
+=INFO REPORT==== 23-Jan-2009::11:59:38 ===
+myhandler: new call received, UUID is "4f77b818-e945-11dd-a442-9fe384e7e5a2"
+
+=INFO REPORT==== 23-Jan-2009::11:59:39 ===
+myhandler: UUID "4f77b818-e945-11dd-a442-9fe384e7e5a2", event "CHANNEL_PROGRESS"
+
+=INFO REPORT==== 23-Jan-2009::11:59:39 ===
+myhandler: UUID "4f77b818-e945-11dd-a442-9fe384e7e5a2", event "CHANNEL_PROGRESS_MEDIA"
+
+=INFO REPORT==== 23-Jan-2009::11:59:39 ===
+myhandler: UUID "4f77b818-e945-11dd-a442-9fe384e7e5a2", event "CHANNEL_PARK"
+```
+
+We've received all the events up to `CHANNEL_PARK` (see [Event List](../Introduction/Event-System/Event-List_7143557.mdx#nat) for more). Now hang up the call, since we didn't add any code to answer it or do anything more interesting:
+
+```xml
+=INFO REPORT==== 23-Jan-2009::11:59:43 ===
+myhandler: UUID "4f77b818-e945-11dd-a442-9fe384e7e5a2", event "CHANNEL_HANGUP"
+```
+
+You can answer the call, execute applications, hang up, etc. just as you would in an [XML Dialplan](../Dialplan/XML-Dialplan/index.mdx#why). You can also send commands to FreeSWITCH, just as with inbound mode.
+
+### Spawn a dynamic Erlang process to handle the call
+
+If you wanted to send events to a **dynamic process** instead of a registered one, you can instead do:
+
+**&lt;conf\_dir>/dialplan/default/123456\_erlang.xml**
+
+```xml
+<include>
+  <!-- ... --> 
+    <action application="erlang" data="myhandler:launch mynode@myserver"/>
+  <!-- ... -->
+</include>
+```
+
+This will make a [remote procedure call (RPC)](https://en.wikipedia.org/wiki/Remote%5Fprocedure%5Fcall) to `myhandler:launch` with a single argument, a **unique reference**. The function is expected to return a tuple of the form `{Ref, NewPid}` where
+
+`NewPid` should be a spawned process, a newly launched `gen_server`, etc.
+
+`Ref` is the original reference passed in.
+
+**&lt;conf\_dir>/dialplan/default/123456\_erlang.xml**
+
+```xml
+<include>
+  <!-- ... --> 
+    <action application="erlang" data="myhandler:! mynode@server"/>
+  <!-- ... -->
+</include>
+```
+
+If the string after the : is a '!', then [mod\_erlang\_event](./mod_erlang_event_1048926.mdx#api-) knows you want to send a new process request to the registered process 'myhandler' which will return a pid that all events for that call will be sent to. The message the registered process receives is of the form:
+
+{get_pid, UUID, Ref, Pid}
+
+Where Ref is a unique reference used to identify this request, UUID is the call's UUID and Pid is the process to send the response to. The expected response is of the form:
+
+{Ref, NewPid}
+
+Where Ref is the original reference passed with get\_pid and NewPid is the pid you'd like FreeSWITCH™ to send the events to.14877
+
+---
+
+The old new\_pid message, which didn't include the call's UUID is deprecated in favor of get\_pid as of SVN revision 14877 (09/15/09)
+
+---
+  
+  
+The module also supports true spawn/4 behaviour, but it turned out not to be so useful, so the [rpc:call](http://rpccall) functionality above replaced it.
+
+The myhandler example above supports all 3 outbound methods.
+  
+  
+## API 
+
+### Messages (get_pid, etc)
+
+### Commands
+
+The api is very similar to the one in [mod\_event\_socket](./mod_event_socket_1048924.mdx#11-acl), just expressed in Erlang terms. You can send any of these terms by using the ! operator as above.
+
+####  api  
+
+Send a [FreeSWITCH API](../Introduction/FreeSWITCH-API_30867723.mdx#-freeswitch--freeswitch-api-) command, a **blocking** call.
+
+Usage:
+
+{api, &lt;command>, &lt;arguments>}
+
+The 3rd element of the tuple (i.e., `<arguments>`) is currently mandatory.
+
+##### Examples
+
+**Examples**
+
+```erl
+{api, strftime, "%Y"}
+{api, status, ""}
+{api, originate, "sofia/mydomain.com/ext@yourvsp.com 1000"}
+```
+
+The result of the API call is sent as a message to the process that sent the message. The format of the reply is a tuple of the form `{ok|error, "some reply"}`, as seen above.
+
+####  bgapi 
+
+Same as the `api` command, but is **non-blocking**. The sending process gets 2 messages, the message indicating the event was accepted, and then sometime later the actual result of the `api` command. See the example in "_6.1.3.2\. `bgapi` command_" section.
+
+#### filter
+
+Specify event types to listen for.
+
+Before using `filter` , register the process as an event handler with `register_event_handler` , otherwise it will not receive any events.
+
+  
+This is not a "filter out" but rather a "**filter in**"; that is, when a filter is applied only the filtered values are received. Multiple filters on a socket connection are allowed.
+
+Usage:
+
+  {filter, '[add|delete] &lt;EventHeader1> &lt;ValueToFilter>'[, '[add|delete] &lt;EventHeader2> &lt;ValueToFilter>']}
+
+Where `ValueToFilter` has the following syntax:
+
+  [+|-][character_expression]
+
+or
+
+  /regex_expression/
+
+If the symbol "+" is used then events containing header will be sent. If the symbol "-" is used then events will be sent excluding events containing the header.
+
+If the expression is "`+value`" then events with header = value will be sent. If the expression is "-value" then events will be sent excluding events containing header with that value.
+
+If symbols "+" or "-" have been omitted, then symbol "+" is assumed.
+
+##### Examples
+
+The following example will subscribe to all events, and then create two filters: one to listen for `HEARTBEATS` and one to listen for `CHANNEL_EXECUTE` events.
+
+TODO The example does nothing what is described in the above sentence.
+
+TODO What is the difference between `filter` and `event` ?
+
+**Examples**
+
+```xml
+[user@localhost ~]# erl  -sname foo@localhost -setcookie ClueCon
+Erlang/OTP 17 [erts-6.2.1] [source] [64-bit] [smp:2:2] [async-threads:10] [hipe] [kernel-poll:false]
+Eshell V6.2.1  (abort with ^G)
+(foo@localhost)1> {foo, 'freeswitch@localhost'} ! register_event_handler.
+register_event_handler
+(foo@localhost)2> flush().
+Shell got ok
+ok
+(foo@localhost)3> {foo, 'freeswitch@localhost'} ! {filter, 'CC-Action agent-offering', 'CC-Queue support@default'}.
+{filter,'CC-Action agent-offering',
+        'CC-Queue support@default'}
+(foo@localhost)4> flush().
+Shell got {filter_command_processing_log,
+              [{"added","CC-Action","agent-offering"},
+               {"added","CC-Queue","support@localhost"}]}
+ok
+(foo@localhost)5> {foo, 'freeswitch@localhost'} ! {event, 'CUSTOM', 'callcenter::info'}.
+{event,'CUSTOM','callcenter::info'}
+(foo@localhost)6> flush().
+Shell got ok
+ok
+(foo@localhost)7>
+```
+
+####  register_event_handler 
+
+Send the atom `register_event_handler` to register the process that sent this as the process to receive all subscribed events. You need to use the `event` command to indicate what events to receive, none are subscribed by default. If you send this command again, the new sending process becomes the one the events are sent to.
+
+Usage:
+
+```erl
+{irrelevant_atom, freeswitch@your_host} ! register_event_handler.
+```
+
+  
+**An Erlang node needs to send `register_event_handler` as the very first step** to register the current process as an event handler (regardless whether inbound and outbound), otherwise no events will be received from the FreeSWITCH C node.
+
+Events are received in the form:
+
+TODO Document this in **5\. Message formats**.
+
+```xml
+{event, [(UniqueID|'undefined'),
+         {EventHeaderKey, EventHeaderValue},
+         {EventHeaderKey2, EventHeaderValue2},
+         ...]} 
+```
+
+The event tuple consists of
+
+* the atom `event`,
+* followed by a variable length list of `{Key, Value}` tuples.
+
+The list's first value is
+
+* either a call's [UUID](../Dialplan/Channel-Variables_16352493.mdx#info-application-variable-names-variable_xxxx) (represented above as `UniqueID`)
+* or the atom `undefined` if the event doesn't relate to a call.
+
+The notion is to make it easier to pattern match for the purpose of the event, without traversing the entire list.
+
+####  event 
+
+Subscribe to an event. See [mod\_event\_](./mod_event_socket_1048924.mdx#11-acl)[socket](./mod_event_socket_1048924.mdx#11-acl) for more.
+
+Before using `event` , register the process as an event handler with `register_event_handler` , otherwise it will not receive any events.
+
+Usage:
+
+TODO What is the exact syntax?
+
+##### Examples
+
+**Examples**
+
+```erl
+{event, 'ALL'}
+{event, 'CUSTOM', 'conference::maintenance'}
+{event, 'CHANNEL_CREATE', 'CHANNEL_DESTROY', 'CUSTOM', 'conference::maintenance', 'sofia::register', 'sofia::expire'} 
+```
+
+Erlang atoms beginning with uppercase letters or containing colons need to be quoted in single quotes.
+
+####  nixevent 
+
+Same syntax as event. Does the inverse.
+
+####  noevents 
+
+Just send the atom noevents to disable all events.
+
+####  register_log_handler
+
+Send the atom register\_log\_handler to make the current process the one to send log messages to. Logs are received in the format:
+
+```xml
+{log, [{level, LogLevel},
+       {text_channel, TextChannel},
+       {file, FileName},
+       {func, FunctionName},
+       {line, LineNumber},
+       {data, "Log message"}]}
+```
+
+Logs at DEBUG level by default.
+
+Sending this command again changes the process log messages are sent to to the sending process.
+
+####  set_log_level 
+
+Change the log level. Valid levels are defined switch\_types.h. Example:
+
+```xml
+{set_log_level, info}
+{set_log_level, error}
+```
+
+#### nolog
+
+Send nolog to disable logging.
+
+####  exit 
+
+Send exit to close the connection.
+
+####  sendevent
+
+```xml
+{sendevent, 'NOTIFY', [{"profile", "internal"}, {"event-string","check-sync;reboot=false"}, {"user", "false"},
+{"host", "192.168.10.4"}, {"content-type", "application/simple-message-summary"}]} 
+```
+
+#### sendmsg
+
+**Syntax**
+
+```xml
+{sendmsg, UUID, SendmsgCommandHeaders}
+```
+
+where
+
+* `UUID` is either a binary or a string,
+* `SendmsgCommandHeaders` is a list of key/value tuples specifying `sendmsg` commands (see section **3.9 `sendmsg`** in [mod\_event\_socket](./mod_event_socket_1048924.mdx#11-acl) ).
+
+**Example**
+
+```xml
+{sendmsg, "d9189508-7caf-dd11-829b-000f1f68e553", [{"call-command", "hangup"}, {"hangup-cause", "16"}]}
+```
+
+For more examples, see section **`freeswitch_msg.erl`** in [IVR using mod\_erlang\_event](./mod-erlang-event/IVR-using-mod_erlang_event_30867811.mdx#how) page.
+
+####  getpid
+
+Isn't this get\_pid?
+
+In the **Message formats** section above the list grepped from source shows `get_pid` . So which one is correct?
+
+Send `getpid` to receive `{ok,Pid}` where `Pid` is the fake Erlang process ID on the FreeSWITCH side. This is helpful if you want to link to the process so that, for example, FreeSWITCH can notice that your log handler process exited.
+
+####  handlecall
+
+```xml
+{handlecall, "129d1446-0063-122c-15aa-001a923f6a0f", mycallhandler}
+{handlecall, "129d1446-0063-122c-15aa-001a923f6a0f"} 
+```
+
+When using inbound mode, you can send the `handlecall` tuple to attach a handler to a call (specified by UUID) to process it outbound-style. The format of sent event messages are the same as using outbound mode.
+
+##### Syntax
+
+* **3-tuple version**: `mycallhandler` is the name of a registered process that will receive all events related to that call from FreeSWITCH.
+* **2-tuple version:** If the name of the registered process is omitted (i.e., only `{handlecall, UUID}` is sent), the call's events will be sent to the process that sent the message to the FreeSWITCH C-node.
+
+In either case, `UUID` can be a binary or a string.
+
+##### Use cases
+
+A call is originated from FreeSWITCH using inbound mode but you want to handle it in a specific way.
+
+## XML search bindings
+
+This module also supports [mod\_xml\_curl](https://wiki.freeswitch.org/wiki/Mod%5Fxml%5Fcurl "Mod xml curl") style bindings to allow FreeSWITCH™ to fetch configuration/directory/dialplan/etc from Erlang. However, unlike [mod\_xml\_curl](https://wiki.freeswitch.org/wiki/Mod%5Fxml%5Fcurl "Mod xml curl") (and the other modules with this functionality), the bindings are dynamic and not statically configured.
+
+### `bind` 
+
+To register the current process, send a `{bind, <BindType>}` message to [mod\_erlang\_event](./mod_erlang_event_1048926.mdx#api-), where `BindType` is an atom of one of the binding types supported (see the [mod\_xml\_curl](https://wiki.freeswitch.org/wiki/Mod%5Fxml%5Fcurl "Mod xml curl") documentation for these).
+
+The binding is automatically removed when the process or the entire node exits or disconnects.
+
+Multiple bindings for one section type are supported as of SVN r16697, the first one to respond wins.
+
+After a successful binding, you will receive messages of the following type:
+
+```xml
+{fetch, <Section>, <Tag>, <Key>, <Value>, <FetchID>, <Params>} 
+```
+
+where
+
+* `<Section>` is an atom describing the binding type (where `<Tag>` and `<Key>` are additional parameters; see [mod\_xml\_curl](https://wiki.freeswitch.org/wiki/Mod%5Fxml%5Fcurl "Mod xml curl"))  
+TODO What Erlang terms are accepted if `<Tag>` and/or `<Key>` has no value? Empty string?
+* `<FetchID>` is a UUID associated with the fetch request, and
+* `<Params>` is a list of key/value tuples with the parameters for this request.
+
+### `fetch_reply` 
+
+To tell the switch to take some action, send back a reply of the format:
+
+```xml
+{fetch_reply, <FetchID>, <XML>} 
+```
+
+where
+
+* `<FetchID>` is the ID you received in a `fetch` message, and
+* `<XML>` is the XML reply you want to send.
+
+`<FetchID>` and `<XML>` can be binaries or strings.
+
+## Console Commands
+
+There are only 2 right now:
+
+```xml
+erlang listeners - list all nodes connected and how many outbound sessions each has
+erlang sessions <nodename> - lists all the outbound sessions for the specified node 
+```
+
+Feel free to suggest any others that might be useful.
+
+## Debugging
+
+If you wish to see all the Erlang terms sent and received from the module, then
+
+1. add `#define EI_DEBUG to src/include/switch_am_config.h` and
+2. do a `make clean; make; make install` in the [mod\_erlang\_event](./mod_erlang_event_1048926.mdx#api-) directory.
+
+Now every Erlang message will be printed at DEBUG level to the logfile, and to the console if you enable debug messages at the console.
+
+## freeswitch.erl
+
+In the [mod\_erlang\_event](./mod_erlang_event_1048926.mdx#api-) source directory, there's an Erlang file called [freeswitch.erl](https://github.com/signalwire/freeswitch/blob/master/src/mod/event%5Fhandlers/mod%5Ferlang%5Fevent/freeswitch.erl). It's a a module to ease dealing with the above API. The module is fairly well documented, and exposes most of the API documented here. It will do all the low level send/recv stuff for you, so you can do stuff like:
+
+```xml
+ (test@example)3> freeswitch:api(freeswitch@example,status).
+```
+
+And the return value of that function call will be the result of the `api` command. The module also makes it easy to do `bgapi` commands effectively, as well as set up XML search bindings, event listeners and log handlers.
+  
+  
+## Comments:
+
+| Probably it is worth to add a reference to Erlang library here: <https://github.com/jamhed/fswitch> ![](/images/icons/contenttypes/comment_16.png) Posted by jamhed at ago 21, 2017 17:53 |
+| ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+
+Document generated by Confluence on nov 11, 2022 04:27

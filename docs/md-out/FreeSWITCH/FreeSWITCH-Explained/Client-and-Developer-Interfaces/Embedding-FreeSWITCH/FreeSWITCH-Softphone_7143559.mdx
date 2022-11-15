@@ -1,0 +1,208 @@
+
+# FreeSWITCH Softphone 
+
+ Created by  John Boteler on 2015.01.16
+
+# About
+
+Configuration ideas using PortAudio as a means to exchange audio between FreeSWITCH™ and the outside world.
+
+Most of the work on this page on the old wiki was prior to March of 2010\. Some configurations and variable names have changed since then.
+
+Click here to expand Table of Contents
+
+* 1 [Configuration](#configuration-)  
+   * 1.1 [Originating Calls](#-originating-calls-)  
+   * 1.2 [Receiving Calls](#-receiving-calls-)  
+   * 1.3 [Music on Hold](#-music-on-hold-)
+* 2 [FreeSWITCH as a Dedicated Soft Phone](#freeswitch-as-a-dedicated-soft-phone-)  
+   * 2.1 [Directory](#directory)  
+   * 2.2 [Dialplan](#dialplan)  
+   * 2.3 [SIP Profiles](#sip-profiles)  
+   * 2.4 [See Also](#see-also)
+
+# Configuration 
+
+See [mod\_portaudio](https://wiki.freeswitch.org/wiki/Mod%5Fportaudio "Mod portaudio") for initial setup information.
+
+##  Originating Calls 
+
+This example API will dial the FreeSWITCH conference bridge from portaudio. One advantage of this method vs. using "pa call" is that a dialplan is not necessary.
+
+originate {effective_caller_id_name=FreeSWITCH,effective_caller_id_number=9193869900}portaudio/auto_answer &bridge({originate_timeout=60}sofia/external/888@conference.freeswitch.org)
+
+##  Receiving Calls 
+
+Create the following dialplan entry
+
+**Port Audio Dialplan Example**
+
+```xml
+  <extension name="test">
+    <condition field="destination_number" expression="^3$">
+      <action application="bridge" data="portaudio"/>
+    </condition>
+  </extension>
+```
+
+And then call extension 3 with a softphone.
+
+On the console you will see **BRRRINNGGG** and then type
+
+pa answer
+
+##  Music on Hold 
+
+Some config will need to be done to specify a default MOH file.
+
+**portaudio.conf.xml**
+
+```xml
+<document type="freeswitch/xml">
+<!--
+#set "pa_ring_file=C:\\freeswitch\\sounds\\_ring.wav"
+-->
+<!--
+#set "pa_hold_file=C:\\freeswitch\\sounds\\_hold.wav"
+-->
+
+<section name="configuration" description="Various Configuration">
+...
+  <variables>
+    <variable name="pa_ring_file" value="$${pa_ring_file}"/>
+    <variable name="pa_hold_file" value="$${pa_hold_file}"/>
+...
+```
+
+# FreeSWITCH as a Dedicated Soft Phone 
+
+The following example configuration assumes an extension of 1000, area code of 208, and that `freeswitch.local` domain is pointed to the internal IP of FreeSWITCH.
+
+## Directory
+
+/conf/directory/default/freeswitch.local
+
+Setup the gateway.
+
+**Directory Gateway Configuration Example**
+
+```xml
+   <include>
+     <user id="1000">
+       <gateways>
+         <gateway name="freeswitch.local">
+         	<param name="username" value="1000"/>
+         	<param name="password" value="1234"/>
+         	<param name="from-user" value=""/>
+         	<param name="from-domain" value="freeswitch.local"/>
+         	<param name="expire-seconds" value="60"/>
+         	<param name="register" value="true"/>
+         	<param name="retry_seconds" value="30"/>
+         	<param name="extension" value="1000"/>
+         	<param name="context" value="default"/>
+         </gateway>
+       </gateways>
+       <params>
+         <param name="password" value="1234"/>
+       </params>
+     </user>
+   </include>
+```
+
+## Dialplan
+
+/conf/dialplan/default.xml
+
+The example below assumes that the gateway is `freeswitch.local` which is the local phone system. In the example below make sure to change 1208 to your area code.
+
+**Dialplan Example** Espandi fonte 
+
+```xml
+ <?xml version="1.0" encoding="utf-8"?>
+ <include>
+   <context name="default">
+     <extension name="freeswitch.local">
+       <condition field="destination_number" expression="^(\d{4})$">
+         <action application="export" data="nolocal:absolute_codec_string=PCMU"/>
+         <action application="set" data="effective_caller_id_number=5555551212"/>
+         <action application="set" data="effective_caller_id_name=FreeSWITCH"/>
+         <action application="bridge" data="sofia/gateway/freeswitch.local/$1"/>
+       </condition>
+     </extension>
+         
+     <extension name="freeswitch.local">
+       <condition field="destination_number" expression="^(\d{7})$">
+         <action application="export" data="nolocal:absolute_codec_string=PCMU"/>
+         <action application="set" data="effective_caller_id_number=5555551212"/>
+         <action application="set" data="effective_caller_id_name=FreeSWITCH"/>
+         <action application="bridge" data="sofia/gateway/freeswitch.local/1208$1"/>
+       </condition>
+     </extension>
+   
+     <extension name="freeswitch.local">
+       <condition field="destination_number" expression="^(\d{10})$">
+         <action application="export" data="nolocal:absolute_codec_string=PCMU"/>
+         <action application="set" data="effective_caller_id_number=5555551212"/>
+         <action application="set" data="effective_caller_id_name=FreeSWITCH"/>
+         <action application="bridge" data="sofia/gateway/freeswitch.local/1$1"/>
+       </condition>
+     </extension>
+   
+     <extension name="freeswitch.local">
+       <condition field="destination_number" expression="^(\d{11})$">
+         <action application="export" data="nolocal:absolute_codec_string=PCMU"/>
+         <action application="set" data="effective_caller_id_number=5555551212"/>
+         <action application="set" data="effective_caller_id_name=FreeSWITCH"/>
+         <action application="bridge" data="sofia/gateway/freeswitch.local/$1"/>
+       </condition>
+     </extension>
+   </context>
+ </include>
+```
+
+/conf/directory/default
+
+Remove all local extensions .xml files or rename them with .noload
+
+## SIP Profiles
+
+/conf/sip\_profiles/outbound.xml
+
+If FreeSWITCH is behind the same NAT then comment out ext-rtp-ip, and ext-sip-ip. "
+
+**Outbound SIP Profile**
+
+```xml
+ <include>
+   <context name="public">
+ 
+     <extension name="unloop">
+       <condition field="${unroll_loops}" expression="^true$"/>
+       <condition field="${sip_looped_call}" expression="^true$">
+ 	     <action application="deflect" data="${destination_number}"/>
+       </condition>
+     </extension>
+ 
+     <extension name="public_extensions">
+       <condition field="destination_number" expression="^(10[01][0-9])$">
+ 	     <action application="bridge" data="portaudio"/>
+       </condition>
+     </extension>
+ 
+     <extension name="public_did">
+       <condition field="destination_number" expression="^(1000)$">
+ 	     <action application="bridge" data="portaudio"/>
+       </condition>
+     </extension>
+ 
+   </context>
+ </include>
+```
+
+## See Also
+
+* [Mod\_portaudio](https://wiki.freeswitch.org/wiki/Mod%5Fportaudio "Mod portaudio")
+* [Examples](https://wiki.freeswitch.org/wiki/Examples "Examples")
+* Sample [softphone config](http://svn.freeswitch.org/svn/configs/softphone/)
+
+Document generated by Confluence on nov 11, 2022 04:27

@@ -1,0 +1,222 @@
+
+# SPA400 HowTo 
+
+ Created by  Mario G, last modified by  Belaid Areski on 2015.10.02
+
+Click here to expand Table of Contents
+
+* 1 [SPA400 Quirks](#spa400-quirks)
+* 2 [SPA400 HowTo ASSUMPTIONS](#spa400-howto-assumptions)
+* 3 [SPA400 DEVICE LIMITATIONS](#spa400-device-limitations)
+* 4 [SPA400 DEVICE CONFIGURATION](#spa400-device-configuration)
+* 5 [SPA400 FreeSWITCH Connection](#spa400-freeswitch-connection)
+* 6 [SPA400 CODEC CONFIGURATION](#spa400-codec-configuration)
+* 7 [SPA400 FreeSWITCH Connectivity](#spa400-freeswitch-connectivity)
+* 8 [SPA400 FreeSWITCH XML DialPlan HowTo](#spa400-freeswitch-xml-dialplan-howto)
+* 9 [Directing SPA400 Incoming Calls Example](#directing-spa400-incoming-calls-example)
+* 10 [Directing SPA400 Outgoing Calls Example:](#directing-spa400-outgoing-calls-example)
+
+## SPA400 Quirks
+
+  
+The SPA400 is a rather (ahem) "interesting" ATA.
+
+First item of note is that it will not register with FreeSWITCH. This is due to the inability of the Sofia module to register endpoints without a password. Frankly I find it frustrating as well, but that would involve getting the Sofia folks to change their perspective on the matter or getting the friendly folks at Sipura, errr Linksys, errr Cisco to add the capability into the SPA400 Firmware, all of which are not likely.
+
+## SPA400 HowTo ASSUMPTIONS
+
+This HowTo assumes that you have gotten the SPA400 configured and operational on your LAN and that you already have access to the web interface.
+
+This HowTo was created using an SPA400 with Firmware Revision 1.1.2.2\[[\[1\]](http://linksys.custhelp.com/cgi-bin/linksys.cfg/php/enduser/std%5Fadp.php?p%5Ffaqid=3655)\] and the assumption is that you have the same version installed.
+
+## SPA400 DEVICE LIMITATIONS
+
+Will not answer with less than 2 rings.
+
+Blind Transfer is known to be problematic.   
+_\*Note: This was found to be a bug in the Cisco 7960 used for testing. See Cisco 7960 Howto for details on the workaround if you have a similar configuration_
+
+Does not understand or use proxies.
+
+You have to tell the device to reboot in order for changes/alterations to take effect. (drove me nuts for weeks...)
+
+## SPA400 DEVICE CONFIGURATION
+
+Log into the SPA400 utilizing the web browser.
+
+Look at the top right hand side of the web interface for the device and validate that the Firmware revision is at least 1.1.2.2\[[\[2\]](http://linksys.custhelp.com/cgi-bin/linksys.cfg/php/enduser/std%5Fadp.php?p%5Ffaqid=3655)\]
+
+If the firmware is not at least 1.1.2.2, go to the Linksys support page and download the latest firmware available for the SPA400.
+
+_**\*\*NOTE:** After configuring the device you WILL need to click on the "Administration" Tab, then on the "Reboot" Tab and click the "Restart System" button in order for your changes to take effect._
+
+## SPA400 FreeSWITCH Connection
+
+On the SPA400 Web Interface Click on the Setup Tab, and then on the SPA9000 Interface tab.
+
+Select "Static Address" and type in the hostname /or/ IP Address of the FreeSWITCH profile you intend the SPA400 to connect to and the port you want it to connect to. You should use port 5080 in a default Freeswitch Windows installation for the incoming calls to work. If you enter a wrong port or leave it as 5060 (which is default), you will get an error saying you should add a new domain and user to forward the call.
+
+## SPA400 CODEC CONFIGURATION
+
+In the SPA400 Web interface click on the Setup Tab and then click on the Voice Tab.
+
+Select G.711U as the Preferred Codec and 20ms as the Packetization.
+
+_**\*note**: currently I have 20ms set for G.711U and G.711A with 30ms set for G.729A - your settings may need to be different depending on your configuration._
+
+Disable VAD (Pulldown tab set to OFF) for each codec until you're sure you're ready to try it.
+
+Consult the manual for configuring the other sections as per your requirements which will vary depending upon your environment.
+
+Scroll down to the bottom of the page and click "Save Settings"
+
+_**\*\*NOTE:** After configuring the device you WILL need to click on the "Administration" Tab, then on the "Reboot" Tab and click the "Restart System" button in order for your changes to take effect._
+
+## SPA400 FreeSWITCH Connectivity
+
+Click on the SPA9000 Interface Tab. In the UserID field, give your SPA400 a name.
+
+This name will be the destination\_number within the FreeSWITCH XML Dialplan.
+
+For this example we're going to use a UserID of "homespa400".
+
+If you don't want to treat each line differently, you're pretty much done at this stage for incoming calls, assuming you know how to create the XML Dialplan for the destination\_number of what you typed in for the UserID. If not see the XML Dialplan example further down this page and you should be able to figure it out.
+
+## SPA400 FreeSWITCH XML DialPlan HowTo
+
+Assuming you've followed the steps for SPA400 FreeSWITCH Connectivity above you will notice a section on that page entitled "Port ID" with:
+
+Port ID 1
+
+Port ID 2
+
+Port ID 3
+
+Port ID 4
+
+When a call comes in on any of the following lines it will contain what you specify in the Port ID field in the ${sip\_to\_user} variable.
+
+**For this example we will assume the following data is used:**
+
+Port ID 1 : 237168330999
+
+Port ID 2 : 237168379168
+
+Port ID 3 : doorbell
+
+Port ID 4 : 237168330756
+
+_**\*\*NOTE:** After configuring the device you WILL need to click on the "Administration" Tab, then on the "Reboot" Tab and click the "Restart System" button in order for your changes to take effect._
+
+## Directing SPA400 Incoming Calls Example
+
+The dialplan below dials several different users/endpoints depending on the criteria set forth in the Port ID and the UserID specified in the SPA400 Configuration.
+
+**In the example below you will want to replace the:**
+
+```xml
+<action application="playback" data="/opt/freeswitch/sounds/asterisk/pls-hold-while-try.wav"/>
+```
+
+with your own audio filename otherwise the caller will not hear any indication that the call is being redirected.
+
+Since the SPA400 will not answer on less than two rings it's advisable to play something to the caller to let them know that their call is being transferred at that moment. Otherwise what occurs is that the caller is under the impression that (X) rings have occurred when in fact the phones have only been rung (X-2) rings. The end result is that the caller usually hangs up before the callee has a chance to answer.
+
+Using the above configuration we can direct connections to specific endpoints with the following XML DialPlan segment:
+
+```xml
+<extension name="SPA400 Incoming">
+    <condition field="destination_number" expression="^(homespa400)$" break="never">
+      <action application="answer"/>
+      <action application="sleep" data="1000"/>
+      <action application="set" data="transfer_ringback=${us-ring}"/>
+      <action application="set" data="hangup_after_bridge=true"/>
+      <action application="ring_ready"/>
+      <action application="bind_meta_app" data="1 b s execute_extension::dx XML features"/>
+      <action application="bind_meta_app" data="2 b s record_session::$${base_dir}/recordings/${caller_id_number}.${strftime(%Y-%m-%d-%H-%M-%S)}.wav"/>
+      <action application="bind_meta_app" data="3 b s execute_extension::cf XML features"/>
+      <action application="set" data="continue_on_fail=NORMAL_TEMPORARY_FAILURE,USER_BUSY,NO_ANSWER,TIMEOUT,NO_ROUTE_DESTINATION"/>
+      <action application="set" data="call_timeout=60"/>
+      <action application="info" />
+    </condition>
+    <!-- The SPA400 utilizes the ${sip_to_user} SIP header variable in order to direct the call -->
+    <condition field="${sip_to_user}" expression="^(237168330999)$" break="never">
+      <action application="playback" data="/opt/freeswitch/sounds/asterisk/pls-hold-while-try.wav"/>
+      <action application="set" data="hangup_after_bridge=true"/>
+      <action application="set" data="continue_on_fail=NORMAL_TEMPORARY_FAILURE,USER_BUSY,NO_ANSWER,TIMEOUT,NO_ROUTE_DESTINATION"/>
+      <action application="set" data="call_timeout=60"/>
+      <action application="bridge" data="user/2301@$${domain},user/2302@$${domain},user/2303@$${domain},user/2304@$${domain},user/2305@$${domain}"/>
+    </condition>
+    
+    <condition field="${sip_to_user}" expression="^(doorbell)$" break="never">
+      <action application="playback" data="/opt/freeswitch/sounds/asterisk/pls-hold-while-try.wav"/>
+      <action application="set" data="hangup_after_bridge=true"/>
+      <action application="bridge" data="user/2301@$${domain},user/2302@$${domain},user/2303@$${domain},user/2304@$${domain},user/2305@$${domain}"/>
+    </condition>
+    
+    <condition field="${sip_to_user}" expression="^(237168379168)$" break="never">
+      <action application="playback" data="/opt/freeswitch/sounds/asterisk/pls-hold-while-try.wav"/>
+      <action application="set" data="hangup_after_bridge=true"/>
+      <action application="bridge" data="user/2301@$${domain},user/2302@$${domain},user/2303@$${domain},user/2304@$${domain},user/2305@$${domain}"/>
+    </condition>
+    
+    <condition field="${sip_to_user}" expression="^(237168330756)$">
+      <action application="playback" data="/opt/freeswitch/sounds/asterisk/pls-hold-while-try.wav"/>
+      <action application="set" data="hangup_after_bridge=true"/>
+      <action application="bridge" data="user/2301@$${domain},user/2302@$${domain},user/2303@$${domain},user/2304@$${domain},user/2305@$${domain}"/>
+    </condition>
+  </extension>
+```
+
+I had to put this into the conf/dialplan/public/00\_inbound\_did.xml file instead of the conf/dialplan/default.xml file, in a default Freeswitch Windows installation, to make it work.
+
+## Directing SPA400 Outgoing Calls Example:
+
+_**\*\*Note:** this has been tested in a limited manner, I will remove this note when it's fully tested._
+
+The SPA400 does provide a mechanism for selecting the outbound line to use when placing a call provided the SPA400 has at least Firmware Revision 1.1.2.2
+
+This code should go into the conf/dialplan/default.xml in a default Freeswitch Windows installation.
+
+This is done by preceeding the outgoing number with L1, L2, L3 or L4 as follows:
+
+The example below assumes a 7 digit outbound call like 2345678 and that the SPA400 is located at IP address 1.2.3.4.
+
+You may substitute the profile designated as "internal" for whatever profile suits your configuration. In the example below we're using Line 1 which is designated as L1\. To use line 2 one would use L2, etc...
+
+```xml
+<extension name="SPA400 Incoming">
+    <condition field="destination_number" expression="^([2-9][0-9][0-9][0-9][0-9][0-9][0-9])$" break="never">
+        <action application="bridge" data="sofia/internal/L1$1@1.2.3.4"/>
+    </condition>
+</extension>
+```
+
+You can also add different conditions to call different type of numbers. An example would be,
+
+```xml
+    <condition field="destination_number" expression="^([0][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9])$" break="never"> 
+        <action application="bridge" data="sofia/internal/L1$1@1.2.3.4"/>
+    </condition>
+```
+
+Adding the above code would allow you to call numbers that goes as 0-(XXX)-XXXXXXX. You should adjust this for the local phone system to be able to call numbers with an area code. Also very important is to add another condition to allow for the emergency numbers, which are usually 3 digits in most countries, such as 911.
+
+If you would like to make the outgoing call to use L1 first and if that is not available (busy) to use L2, you should change bridge line to something like;
+
+&lt;action application="bridge" data="sofia/internal/L1$1@1.2.3.4|sofia/internal/L2$1@1.2.3.4"/>
+
+t text.
+
+* 1 [SPA400 Quirks](#spa400-quirks)
+* 2 [SPA400 HowTo ASSUMPTIONS](#spa400-howto-assumptions)
+* 3 [SPA400 DEVICE LIMITATIONS](#spa400-device-limitations)
+* 4 [SPA400 DEVICE CONFIGURATION](#spa400-device-configuration)
+* 5 [SPA400 FreeSWITCH Connection](#spa400-freeswitch-connection)
+* 6 [SPA400 CODEC CONFIGURATION](#spa400-codec-configuration)
+* 7 [SPA400 FreeSWITCH Connectivity](#spa400-freeswitch-connectivity)
+* 8 [SPA400 FreeSWITCH XML DialPlan HowTo](#spa400-freeswitch-xml-dialplan-howto)
+* 9 [Directing SPA400 Incoming Calls Example](#directing-spa400-incoming-calls-example)
+* 10 [Directing SPA400 Outgoing Calls Example:](#directing-spa400-outgoing-calls-example)
+
+Document generated by Confluence on nov 11, 2022 04:28

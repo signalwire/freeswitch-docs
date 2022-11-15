@@ -1,0 +1,305 @@
+
+# Google Voice 
+
+ Created by  Sergio Filipe on 2016.12.23
+
+# About
+
+Making calls using google voice
+
+Click here to expand Table of Contents
+
+* 1 [Make Free Outgoing Calls to USA/Canada using Google Voice](#make-free-outgoing-calls-to-usacanada-using-google-voice)  
+   * 1.1 [Get yourself a new Gmail account (or pick an existing one) for use with FreeSWITCH](#get-yourself-a-new-gmail-account-or-pick-an-existing-one-for-use-with-freeswitch)  
+   * 1.2 [Set up FreeSWITCH - Dingaling to work with your Gmail account](#set-up-freeswitch---dingaling-to-work-with-your-gmail-account)  
+   * 1.3 [Run your FreeSWITCH and start calling USA & Canada for free - Phone Number Format ( 1XXXXXXXXXX )](#run-your-freeswitch-and-start-calling-usa--canada-for-free---phone-number-format--1xxxxxxxxxx-)  
+   * 1.4 [Outbound Caller ID](#outbound-caller-id)  
+   * 1.5 [Problems?](#problems)  
+         * 1.5.1 [Early Media Prevents Ringback](#early-media-prevents-ringback)  
+         * 1.5.2 [Immediate Call Hangups and Fast Busy](#immediate-call-hangups-and-fast-busy)  
+   * 1.6 [Receiving Calls From Google Voice](#receiving-calls-from-google-voice)
+* 2 [Test Notes](#test-notes)
+* 3 [See Also](#see-also)
+
+# Make Free Outgoing Calls to USA/Canada using Google Voice
+
+Google recently launched free voice calling to USA/CANADA phones right from Gmail. Tony opened the doors for this to work from any SIP client, using FreeSWITCH.
+
+NOTE: This was added on Wednesday afternoon, Sept 1\. You are best off doing a make current to get your FreeSWITCH install up-to-date.
+
+## Get yourself a new Gmail account (or pick an existing one) for use with FreeSWITCH
+
+```xml
+a) Go to www.gmail.com and Signup 
+b) Login to Gmail, and agree to try the new calling feature in the chat section (** This only seems to work from US region for now)
+```
+
+## Set up FreeSWITCH - Dingaling to work with your Gmail account
+
+  
+Install FreeSWITCH with [mod\_dingaling](../Modules/mod_dingaling_6587385.mdx#faq) enabled and enable it to load at runtime in Modules.conf.xml. Note that GNUTLS is required for this and that builds made available do not support it, so in order to make mod\_dingaling work (with GV) you'll need to compile FreeSWITCH on your own.
+
+In your installation directory, put the following text in your freeswitch/conf/jingle\_profiles/client.xml:
+
+```xml
+<include>
+  <profile type="client">
+    <param name="name" value="gtalk"/>
+    <param name="login" value="GV-ACCOUNT-NAME@gmail.com/talk"/>
+    <param name="password" value="MY-PASSWORD"/>
+    <param name="server" value="talk.google.com"/>
+    <param name="dialplan" value="XML"/>
+    <param name="context" value="public"/>
+    <param name="message" value="Hello from Freeswitch!"/>
+    <param name="rtp-ip" value="$${bind_server_ip}"/>
+    <param name="ext-rtp-ip" value="$${external_rtp_ip}"/>
+    <param name="auto-login" value="true"/>
+    <!-- SASL "plain" or "md5? -->
+    <param name="sasl" value="plain"/>
+    <!-- Enable TLS or not -->
+    <param name="tls" value="true"/>
+    <!-- disable to trade async for more calls -->
+    <param name="use-rtp-timer" value="true"/>
+    <param name="rtp-timer-name" value="none"/>
+    <!-- default extension -->
+    <param name="exten" value="2001"/>
+    <param name="vad" value="both"/>
+    <param name="candidate-acl" value="wan.auto"/>                       
+    <param name="local-network-acl" value="localnet.auto"/>
+  </profile>
+</include>
+```
+
+## Run your FreeSWITCH and start calling USA & Canada for free - Phone Number Format ( 1XXXXXXXXXX )
+
+Example dialplan
+
+```xml
+ <extension name="gvoice_out">
+   <condition field="destination_number" expression="^50(1\d{10})$">
+     <action application="set" data="hangup_after_bridge=true"/>
+     <action application="bridge" data="dingaling/gtalk/+$1@voice.google.com"/>
+   </condition>
+ </extension>
+```
+
+Note - You will need to match gtalk above with your dingaling profile name.
+
+To support each user in your system Call out using a separate GV account you can do the following, instead:
+
+```xml
+  <extension name="gvoice_out">
+  <condition field="destination_number"  expression="^1(\d{10})$">
+    <action application="set" data="hangup_after_bridge=true"/>
+    <action application="ring_ready"/>
+    <action application="bridge" data="dingaling/<your dingaling profile name ex. gtalk>/+1$1@voice.google.com"/>
+  </condition>
+```
+
+This assumes that you name each of your GV profiles like so gv1000 where 1000 is the username of a registered in directory user.
+
+## Outbound Caller ID
+
+It seems that if you have a Google Voice account already set up then the outbound caller ID is your Google Voice phone number. (It is for me.)
+
+* If you have a different scenario please document it here.
+
+## Problems?
+
+If you have lag or latency on your call of a second or more, try adding this to the jingle profile for that account:
+
+```xml
+<param name="rtp-timer-name" value="none"/>
+(as per http://freeswitch-users.2379917.n2.nabble.com/FIXED-Latency-on-Google-Voice-GTalk-td5741999.html)
+or <param name="use-rtp-timer" value="false"/>
+```
+
+And the do a reload mod\_dingaling
+
+  
+If you get the following message "We could not complete your call, please try again." Google has stopped accepting calls from you for a bit.
+
+The other thing we have noticed is you won't get ring back on calling some numbers.
+
+One minor issue is sometimes I heard robot-like sounds when dialing direct Google Voice call using FreeSWITCH dingaling channels
+
+### Early Media Prevents Ringback
+
+  
+I have early media played before I bridge to Google Talk, I have attempted to use ring\_ready, instant\_ringback=true, ransfer\_ringback=%(2000,4000,440.0,480.0) and ringback=%(2000,4000,440.0,480.0) with no success. If anyone finds a solution to this please post; excerpt of my dial plan:
+
+```xml
+<extension name="America Calling">
+    <condition field="destination_number" expression="^(1{0,1})(\d{10})$">
+    
+    <action application="set" data="ignore_early_media=true" />
+    
+    <action application="set" data="t38_passthru=true"/> <!-- for sending faxes: http://lists.freeswitch.org/pipermail/freeswitch-users/2011-March/069834.html -->
+    <action application="export" data="t38_passthru=true"/> 
+    	
+    <!-- see wiki for more 'continue_on_fail' fail types -->
+    <action application="set" data="continue_on_fail=CALL_REJECTED,GATEWAY_DOWN,RECOVERY_ON_TIMER_EXPIRE,NORMAL_TEMPORARY_FAILURE,DESTINATION_OUT_OF_ORDER,NORMAL_UNSPECIFIED"/>
+    <action application="set" data="hangup_after_bridge=true"/>
+    	
+    <action application="playback" data="shout://api.microsofttranslator.com/V2/Http.svc/Speak?language=en&format=audio/mp3&options=MaxQuality&appid=***MYAPPID***&text=Connecting+through+free+phone+line+dot+ca" />
+    <action application="bridge" data="sofia/gateway/voip.freephoneline.ca/$1$2"/>
+        
+    <action application="playback" data="shout://api.microsofttranslator.com/V2/Http.svc/Speak?language=en&format=audio/mp3&options=MaxQuality&appid=***MYAPPID***&text=Falling+back+to+google+talk+dot+com" />
+    <action application="set" data="ignore_early_media=true" />
+    <action application="ring_ready" />
+    <action application="bridge" data="dingaling/talk.google.com/+1$2@voice.google.com"/>
+
+    </condition>
+</extension>
+```
+
+As-of git commit 8c6b8edfea I got a proper ringback by setting ignore\_early\_media _(just in case)_ and using application ring\_ready before I bridge the call to **mod\_dingaling**.
+
+```xml
+<include>
+ <extension name="domestic.pbx.internal">
+  <condition field="${toll_allow}" expression="domestic" />
+  <condition field="destination_number" expression="^1?(\d{10})$">
+   <action application="set" data="hangup_after_bridge=true" />
+   <action application="set" data="ignore_early_media=true" />
+   <action application="ring_ready" />
+   <action application="bridge" data="dingaling/gtalk/+1$1@voice.google.com" />
+  </condition>
+ </extension>
+</include>
+```
+
+\--[Elisamuel Resto](https://wiki.freeswitch.org/wiki/User:Elisamuel%5FResto "User:Elisamuel Resto") 17:54, 21 August 2012 (UTC)
+
+Thank you Elisamuel unfortunately but that still didn't work for me.
+
+### Immediate Call Hangups and Fast Busy
+
+Recent version of FreeSWITCH enable the H264 video codec however that results in all outbound calls to fail immediately with a 'Fast Busy'. Logs show [voice.google.com](http://voice.google.com) hanging up. Removing the codec from the list in the **conf/autoload\_configs/dingaling.conf.xml** file fixes the issue.
+
+```xml
+<configuration name="dingaling.conf" description="XMPP Jingle Endpoint">
+  <settings>
+    <param name="debug" value="0"/>
+    <param name="codec-prefs" value="PCMU"/>
+    <!--<param name="codec-prefs" value="H264,PCMU"/>-->
+  </settings>
+
+  <X-PRE-PROCESS cmd="include" data="../jingle_profiles/*.xml"/>
+
+</configuration>
+```
+
+## Receiving Calls From Google Voice
+
+FreeSWITCH and [mod\_dingaling](https://wiki.freeswitch.org/wiki/Dingaling "Dingaling") now allow you to receive incoming Google Voice calls. You must have a Google Voice account to receive incoming DID calls.
+
+Note: You must remove h264 from conf/autoload\_configs/dingaling.conf.xml and just leave PCMU because Google Voice doesn't support it. (June/22/2012-76fae0cec0f8eb07695830f228616b5b8655641e)
+
+[mod\_dingaling](https://wiki.freeswitch.org/wiki/Dingaling "Dingaling") can also receive calls from Gmail users that click on an available Chat user, followed by the "Voice calling" button, and finally the "Call computer" button.
+
+Follow these steps in FreeSWITCH:
+
+* Update to latest FreeSWITCH git as of Friday afternoon, September 3, 2010.
+* Modify your jingle profile as follows:  
+   * Uncomment this line: &lt;param name="candidate-acl" value="wan.auto"/>  
+   * Edit the lines for dialplan, context, and extension as needed
+
+Log into Google Voice:
+
+* Click on Settings > Phones
+* Uncheck all phones
+* Check Google Chat
+* Log out of gmail ( Or turn off chat at the bottom of the gmail page)
+
+A sample jingle client file:
+
+```xml
+ <profile type="client">                                            
+   <param name="name" value="mercutioviz"/>                                
+   <param name="login" value="mercutio.viz@gmail.com/talk"/>                               
+   <param name="password" value="foobar"/>                            
+   <param name="dialplan" value="XML"/>                            
+   <param name="context" value="public"/>                             
+   <param name="message" value="Thanks GOOG!"/>               
+   <param name="rtp-ip" value="$${bind_server_ip}"/>                              
+   <param name="auto-login" value="true"/>                          
+   <param name="sasl" value="plain"/>                                
+   <param name="server" value="talk.google.com"/>                              
+   <param name="tls" value="true"/>                                 
+   <param name="use-rtp-timer" value="true"/>                       
+   <param name="exten" value="1002"/>                               
+   <param name="vad" value="both"/>                                 
+   <param name="candidate-acl" value="wan.auto"/>                       
+   <param name="local-network-acl" value="localnet.auto"/>
+ </profile>
+```
+
+ATTENTION: message param must be set to something - it will be the message shown to folks trying to chat with your account. NOTE: If you are making a copy of "client.xml" be sure to change this line: &lt;param name="name" value="$${xmpp\_client\_profile}"/> The "name" here is the name of your profile - it is used in the dialstring when making outbound calls.
+
+Make a call to your Google Voice number. Your phone should ring. (The above file is for a phone registered as user 1002.) Answer and talk! If you have call screening turned on then you can do the usual press 1 to accept and press 2 to send to voicemail.
+
+It seems that receiving of calls Fully doesn't work unless you have call screening Enabled, so please enable it. To automatically press 1 to accept, when you pick up your phone you need to change your dialplan. Put the following in your dialplan (same context as the receiving extension):
+
+```xml
+<extension name="google_in" continue="true">
+  <condition field="caller_id_name" expression="^(Google Voice)$" >
+      <action application="log" data="Google Voice Call Incoming" />
+      <action application="set" data="execute_on_answer=send_dtmf 1"/>
+  </condition>
+</extension>
+```
+
+Rewrite "Google Voice" Caller ID Name back to the calling party:
+
+```xml
+   <extension name="google_in" continue="true">
+     <condition field="caller_id_name" expression="^(Google Voice)$"/>
+     <condition field="caller_id_number" expression="^\+1?(\d{10})$">
+       <action application="log" data="Google Voice Call Incoming" />
+       <action application="set" data="execute_on_answer=send_dtmf 1"/>
+       <action application="cidlookup" data="$1"/>
+     </condition>
+   </extension>
+```
+
+You additionally need to enter the appropriate account information for [mod\_cidlookup](https://wiki.freeswitch.org/wiki/Mod%5Fcidlookup "Mod cidlookup") to work properly. I used [OpenCNAM](http://www.opencnam.com/) which provides a fee, simple, elegant, and RESTful API to get Caller ID data!
+
+NOTES:
+
+* You must be logged out of gmail (or turn off chat) to receive calls via FreeSWITCH/dingaling, otherwise GV will send the call to your gmail client
+* You must uncheck all other phones in your forwards to section. (I could not get dingaling to work simultaneously with ringing another phone.)
+
+# Test Notes
+
+I tested this configure, it seems that the followings are not working. (internet---FW(openwrt)--FS--sip phone)
+
+1\. Normal PSTN--call--GV#--forwarded to Gmail---FS--sip phone, doesn't work. 2\. Computer(other's gmail account)--Call Phone option---GV#--forwarded go Gmail---FS---sip phone, doesn't work.
+
+```xml
+  Another user reports that (1) works even if from time to time it goes to voice mail.
+```
+
+What works
+
+1\. Computer--call-Gmail-computer--FS--sip phone , works 2\. Dial PSTN with Gmail/GV, works.
+
+Also, "external-rtp-ip" with numeric value must be used for incoming call from "Gmail call computer". This setting is not necessary for calling out.
+
+```xml
+  Another user reports that this is working with external-rtp-ip from the normal FS stun process.
+```
+
+# See Also
+
+* [Dingaling](https://wiki.freeswitch.org/wiki/Dingaling.conf.xml)
+* [Google Voice API](https://wiki.freeswitch.org/wiki/Google%5FVoice%5FAPI "Google Voice API") \- Crusty old Python way of doing it. ;)
+  
+  
+## Comments:
+
+| 3D Игровые автоматы в казино онлайн - доступ для всех без исключения желающих и лишь по демо-счетам. Деньги возможно выводить из казино на настоящие счета в разных платежных системах, браузерные слоты на деньги, казино, лотерея и много прочего. https://onlineshopperdeals.co/ГЁГ­ГІГҐГ°Г­ГҐГІ-ГЄГ Г§ГЁГ­Г®/ https://onlineshopperdeals.co/ГЁГ­ГІГҐГ°Г­ГҐГІ-ГЄГ Г§ГЁГ­Г®/ https://onlineshopperdeals.co/ГЁГ­ГІГҐГ°Г­ГҐГІ-ГЄГ Г§ГЁГ­Г®/ - https://onlineshopperdeals.co/ГЁГ­ГІГҐГ°Г­ГҐГІ-ГЄГ Г§ГЁГ­Г®/ ![](/images/icons/contenttypes/comment_16.png) Posted by DerekABOSY at lug 14, 2021 08:58                                                                                          |
+| -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 3D Игровые автоматы в казино онлайн - доступ для всех без исключения без исключения жаждущих и только по демо-счетам. Деньги видимо выводить из казино на настоящие счета в многообразных платежных системах, браузерные слоты на денежные средства, казино, лотерея и много прочего. <https://seen.co.id/rejting-luchshih-kazino/stavki-na-sport-v-ukraine-140/> <https://seen.co.id/rejting-luchshih-kazino/stavki-na-sport-v-ukraine-140/> https://seen.co.id/rejting-luchshih-kazino/stavki-na-sport-v-ukraine-140/ - https://seen.co.id/rejting-luchshih-kazino/stavki-na-sport-v-ukraine-140/ ![](/images/icons/contenttypes/comment_16.png) Posted by DerekABOSY at lug 21, 2021 02:14 |
+
+Document generated by Confluence on nov 11, 2022 04:28

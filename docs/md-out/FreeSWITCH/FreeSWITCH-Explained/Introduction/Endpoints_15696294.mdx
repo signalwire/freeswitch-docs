@@ -1,0 +1,64 @@
+
+# Endpoints 
+
+ Created by  Duvid Rottenberg, last modified on 2017.08.28
+
+# About
+
+Every [call leg](./Call-Legs_7143972.mdx#0-about) (channel) is by definition a connection between FreeSWITCH and something else. That something else can be a VoIP phone, a PRI connection or even an audio device on your computer. Each type of device has their own protocol for setting up channels, negotiating [codecs](../Codecs-and-Media/index.mdx#about), sending and receiving media. In FreeSWITCH a channel itself is not tied to a specific protocol, instead it uses an Endpoint module to implement the protocol. This architecture allows us to bridge channels using different protocols. It also allows us to easily implement new protocols.
+
+You will sometimes see the term **Session**, this is a programmatic interface used by Endpoint modules to create and manage a channel.
+
+Click here to expand Table of Contents
+
+* 1 [Endpoints](#endpoints)
+* 2 [Dialstrings](#dialstrings)
+* 3 [Modules](#endpoints)
+
+# Endpoints
+
+There are 2 types of protocols used for communications.
+
+**Signaling** \- these protocols are responsible for notifying the other party of our intention to start a communication channel, negotiating all the details required for setting up the channel, status of the channel and ending the channel
+
+**Media** \- These protocols handle the actual media streams.
+
+The most popular signaling protocol for VoIP is SIP, In FreeSWITCH we use the [Sofia SIP Stack](../Configuration/Sofia-SIP-Stack/index.mdx#faq). The endpoint module that ties Sofia to FreeSWITCH is [mod\_sofia](../Modules/mod_sofia_1048707.mdx#about).
+
+For any type of internet calls RTP is usually used for the Media protocol. In fact RTP is actually built into the FreeSWITCH core.
+
+Another popular protocol is WebRTC (which uses SRTP). WebRTC is only a media protocol, it's not a signalling protocol. Many people use SIP as the signaling protocol for WebRTC. In FreeSWITCH we support that, however we also have our own signalling protocol called [Verto ](../Modules/mod_verto_3964934.mdx#about)which is designed to be javascript friendly.
+
+# Dialstrings
+
+How does FreeSWITCH know which endpoint module will handle a particular channel?
+
+For incoming channels it's pretty simple. When an endpoint module is loaded, it starts listening for connections using the information in the configuration file, the listener can be tied to an IP Address and port in case of a VoIP protocol, or it can be a physical port on a connected piece of hardware, in either case, the endpoint module that's listening on that port is the one that will handle the call.
+
+For outgoing channels, you have to specify which endpoint to use. When you start an outgoing channel, you use a dialstring to identify the recipient. The dialstring starts with the identity of the endpoint module that should be used, followed (optionally) by additional information specific to the module, then finally the destination number. The components of a dialstring are separated by a "/" For example to make a call using the SIP protocol your dialstring would look something like
+
+```xml
+sofia/external/18005551212
+```
+
+# Modules
+
+| Protocol             | Module                                           | Dialstring Prefix | Comments                                                                                                                                                                  |
+| -------------------- | ------------------------------------------------ | ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| SIP                  | [mod\_sofia](../Modules/mod_sofia_1048707.mdx#about)         | sofia             | This is the most commonly used endpoint                                                                                                                                   |
+| H.323                | [mod\_h323](../Modules/mod_h323_6587443.mdx#about)           | h323              |                                                                                                                                                                           |
+| H.323                | [mod\_opal](../Modules/mod_opal_6587390.mdx#about)           | opal/h323         |                                                                                                                                                                           |
+| IAX2                 | [mod\_opal](../Modules/mod_opal_6587390.mdx#about)           | opal/iax2         |                                                                                                                                                                           |
+| SCCP (Skinny)        | [mod\_skinny](../Modules/mod_skinny_3375354.mdx#docs)       | skinny            |                                                                                                                                                                           |
+| Jingle (google talk) | [mod\_dingaling](../Modules/mod_dingaling_6587385.mdx#faq) | dingaling         |                                                                                                                                                                           |
+| Skype                | [mod\_skypopen](../Modules/mod_skypopen_3966336.mdx#-sk-)   | skypopen          |                                                                                                                                                                           |
+| GSM                  | [mod\_gsmopen](../Modules/mod_gsmopen_7143567.mdx#list)     | gsmopen           | Supports voice & SMS over a GSM network                                                                                                                                   |
+| PortAudio            | [mod\_portaudio](../Modules/mod_portaudio_9634724.mdx#about) | portaudio         | For interacting with the sound card on your computer                                                                                                                      |
+| Verto                | [mod\_verto](../Modules/mod_verto_3964934.mdx#about)         | verto.rtc         | You can also use the verto\_contact function to generate the dialstring                                                                                                   |
+| WebRTC               | [mod\_rtc](../Modules/mod_rtc_3965027.mdx#about)             | rtc               | This endpoint is only for media, not signaling                                                                                                                            |
+| RTMP (flash)         | [mod\_rtmp](../Modules/mod_rtmp_5046427.mdx#api)           | rtmp              | You can also use the rtmp\_contact function to generate the dialstring                                                                                                    |
+| TDM                  | [mod\_freetdm](../Client-and-Developer-Interfaces/FreeTDM/index.mdx#--)          | freetdm           | Provides support for telephony cards from manufacturers such as Digium, Sangoma and Zaptel. Can communicate in most legacy telephony protocols such as ISDN, SS7 & analog |
+
+There are also a few pseudo Endpoint Modules that don't actually handle any calls themselves, but provide shortcuts or customized functionality to the other endpoints. These are listed on the [bridge](../Modules/mod_dptools_1970333.mdx#see-also) page.
+
+Document generated by Confluence on nov 11, 2022 04:24

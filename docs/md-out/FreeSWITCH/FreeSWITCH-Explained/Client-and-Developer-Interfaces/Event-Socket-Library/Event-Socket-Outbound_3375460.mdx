@@ -1,0 +1,481 @@
+
+# Event Socket Outbound 
+
+ Created by  John Boteler, last modified by  livem Chan on 2019.06.05
+
+# About
+
+Discussion and examples for using the Outbound Event Socket.
+
+[mod\_event\_socket](../../Modules/mod_event_socket_1048924.mdx#11-acl)'s "socket" app is similar to the network based fast-agi ([FAGI](http://www.voip-info.org/wiki/index.php?page=Asterisk+FastAGI)) of Asterisk. This application makes an outbound TCP connection to the specified ip:port and the other end can control the call in similar ways to an Asterisk AGI only the dialect is much different and it supports async operations e.g. telling the call to play foo.wav and getting an immediate return to listen for DTMF as the file plays rather than block till the file is over.
+
+This document focuses on the outbound operation mode of [mod\_event\_socket](../../Modules/mod_event_socket_1048924.mdx#11-acl), but take note that this module also operates in [inbound mode](../../Modules/mod_event_socket_1048924.mdx#11-acl).
+
+When you call outbound socket, FS automatically puts the call in PARK. You can validate that by monitoring the CHANNEL\_PARK event.
+
+When you use "**sync**" mode, **many things will not works** as you may expect. Particularly, you will **not get DTMF**s, etc. Please check "**async**" option.
+
+  
+Click to expand Table of Contents
+
+* 1 [Diagram](#diagram)
+* 2 [Configuration](#configuration)  
+   * 2.1 [Keywords](#keywords)  
+         * 2.1.1 [async](#events)  
+         * 2.1.2 [full](#events)  
+   * 2.2 [Variables](#variables)  
+         * 2.2.1 [socket\_resume](#socket_resume)  
+   * 2.3 [Examples](#server-examples)
+* 3 [Server Examples](#server-examples)  
+   * 3.1 [sock.pl](#sockpl)  
+   * 3.2 [Using Netcat](#using-netcat)  
+   * 3.3 [socket2me](#socket2me)  
+   * 3.4 [Java ESL Client](#java-esl-client)  
+   * 3.5 [Javascript / Node.js server](#javascript--nodejs-server-)
+* 4 [Events](#socket2me)  
+   * 4.1 [Verto Live Array](#verto-live-array)
+* 5 [FAQ](#events)  
+   * 5.1 [Q: Ordering and async keyword](#q-ordering-and-async-keyword-)  
+   * 5.2 [Q: Should I use sync mode or async mode?](#q-should-i-use-sync-mode-or-async-mode-)  
+   * 5.3 [Q: Why are API commands returning 'command not found'?](#q-why-are-api-commands-returning-command-not-found-)  
+   * 5.4 [Q: Can I bridge a call with an Outbound socket?](#q-can-i-bridge-a-call-with-an-outbound-socket-)
+
+# Diagram
+
+```xml
+    *************************************
+    *               |                   *
+    *   FreeSWITCH™ |  mod_event_socket *
+    *               |   127.0.0.1:9999  *
+    *                                   *
+    *************************************
+                ||       	   ||   	       	    
+                \/       	   \/
+         ******************      ******************
+         * Server A       *      * Server B       *
+         * 127.0.0.1:8022 *      * 127.0.0.1:8023 *
+         ******************      ******************
+
+```
+
+# Configuration
+
+The data syntax to invoke the event socket outbound from FreeSWITCH in the dialplan is &lt;ip>:&lt;port> \[&lt;keywords>\]
+
+```xml
+<action application="socket" data="address:port [async|full]"/>
+```
+
+  
+Since revision git-8c794ac on 14/03/2012 you can also connect to IPv6 addresses. When using IPv6 addresses the port parameter is required: &lt;action application="socket" data="::1:8021"/> connects to ::1 on port 8021\. Since this revision hostnames resolving to IPv6 addresses can be used.
+
+  
+## Keywords
+
+### async
+
+The "async" keyword indicates that all commands will return instantly, allowing voice processing to proceed and making it possible to monitor the socket for events while the stack of commands are executing.
+
+If the async keyword is absent then all calls on this channel will block until the command has finished.
+
+### full
+
+The "full" keyword indicates that the other end will have the full command set for event\_socket. This is the same command set on an event socket inbound connection so you can execute API commands, get global events, etc.
+
+If the "full" keyword is absent the command set and events are limited to that particular call.
+
+## Variables
+
+### socket_resume
+
+If this variable is set to true, the dialplan will resume execution with the next action after the call to the socket application. This can be used for example to allow you to do something intelligent in the dialplan if your IVR application dies in an unclean way. If there is a bridge active when the disconnect happens, it is killed. To do this from your application after the socket is already connected, issue the resume command.
+
+## Examples
+
+Here are examples of how to use it in the dialplan.
+
+```xml
+<action application="socket" data="127.0.0.1:8084"/>
+<action application="socket" data="127.0.0.1:8084 async"/> 
+<action application="socket" data="127.0.0.1:8084 full"/>
+<action application="socket" data="127.0.0.1:8084 async full"/>
+```
+
+  
+Event Lock
+
+If you are using async, you need to pay attention to potential race condition. The commands you send may not execute in sequential order. You may force the command to wait by setting event lock until the critical or long-running command finishes:
+
+sendmsg 
+call-command: set
+execute-app-name: foo=bar\n\n
+event-lock:true  
+ 
+You may obtain the same result (setting event-lock to true) in scripting using the setEventLock method of connection object:
+
+$con->setEventLock("1");
+
+  
+# Server Examples
+
+## sock.pl
+
+There are several example Perl scripts that use the ESL library. Here's good one to review:
+
+[libs/esl/perl/server2.pl](https://freeswitch.org/stash/projects/FS/repos/freeswitch/browse/libs/esl/perl/server2.pl)
+
+To run it you will need to compile ESL and perlmod. More information is available on the [ESL](./index.mdx#-new-) page.
+
+## Using Netcat
+
+Here is a small tutorial on how to use outbound event socket:
+
+This was used to call this via the dialplan:
+
+```xml
+<action application="socket" data="127.0.0.1:8084 async full"/>
+```
+
+Now lets make netcat listen for connections from our call.
+
+Linux :
+
+```bash
+nc -v -l 127.0.0.1 -p 8084
+```
+
+On CentOS 5.3 my syntax is this:
+
+```bash
+nc -v -l 127.0.0.1 8084
+```
+
+On Windows :
+
+```bash
+nc -v -L -n -p 8084
+```
+
+Connection from 127.0.0.1 port 8084 [tcp/*] accepted
+
+Once the connection is accepted you type:
+
+```xml
+connect\n\n
+```
+
+Note: The command 'connect' is the first command at your ESL server side to send to FreeSWITCH side.  
+      If without 'connect', FreeSWITCH side would response nothing and waiting.  
+      If first command is not 'connect', FreeSWITCH also output nothing and waiting.
+
+Once you do this you'll be presented the name value pairs of everything related to this call including all variables.
+
+Example:
+
+Espandi fonte 
+
+```xml
+Channel-Username: 1001
+Channel-Dialplan: XML
+Channel-Caller-ID-Name: 1001
+Channel-Caller-ID-Number: 1001
+Channel-Network-Addr: 10.0.1.241
+Channel-Destination-Number: 886
+Channel-Unique-ID: 40117b0a-186e-11dd-bbcd-7b74b6b4d31e
+Channel-Source: mod_sofia
+Channel-Context: default
+Channel-Channel-Name: sofia/default/1001%4010.0.1.100
+Channel-Profile-Index: 1
+Channel-Channel-Created-Time: 1209749769132614
+Channel-Channel-Answered-Time: 0
+Channel-Channel-Hangup-Time: 0
+Channel-Channel-Transfer-Time: 0
+Channel-Screen-Bit: yes
+Channel-Privacy-Hide-Name: no
+Channel-Privacy-Hide-Number: no
+Channel-State: CS_EXECUTE
+Channel-State-Number: 4
+Channel-Name: sofia/default/1001%4010.0.1.100
+Unique-ID: 40117b0a-186e-11dd-bbcd-7b74b6b4d31e
+Call-Direction: inbound
+Answer-State: early
+Channel-Read-Codec-Name: G722
+Channel-Read-Codec-Rate: 16000
+Channel-Write-Codec-Name: G722
+Channel-Write-Codec-Rate: 16000
+Caller-Username: 1001
+Caller-Dialplan: XML
+Caller-Caller-ID-Name: 1001
+Caller-Caller-ID-Number: 1001
+Caller-Network-Addr: 10.0.1.241
+Caller-Destination-Number: 886
+Caller-Unique-ID: 40117b0a-186e-11dd-bbcd-7b74b6b4d31e
+Caller-Source: mod_sofia
+Caller-Context: default
+Caller-Channel-Name: sofia/default/1001%4010.0.1.100
+Caller-Profile-Index: 1
+Caller-Channel-Created-Time: 1209749769132614
+Caller-Channel-Answered-Time: 0
+Caller-Channel-Hangup-Time: 0
+Caller-Channel-Transfer-Time: 0
+Caller-Screen-Bit: yes
+Caller-Privacy-Hide-Name: no
+Caller-Privacy-Hide-Number: no
+variable_sip_authorized: true
+variable_sip_mailbox: 1001
+variable_sip_auth_username: 1001
+variable_sip_auth_realm: 10.0.1.100
+variable_mailbox: 1001
+variable_user_name: 1001
+variable_domain_name: 10.0.1.100
+variable_accountcode: 1001
+variable_user_context: default
+variable_effective_caller_id_name: Extension%201001
+variable_effective_caller_id_number: 1001
+variable_sip_from_user: 1001
+variable_sip_from_uri: 1001%4010.0.1.100
+variable_sip_from_host: 10.0.1.100
+variable_sip_from_user_stripped: 1001
+variable_sip_from_tag: wrgb4s5idf
+variable_sofia_profile_name: default
+variable_sofia_profile_domain_name: 10.0.1.100
+variable_sofia_profile_domain_name: 10.0.1.100
+variable_sip_req_params: user%3Dphone
+variable_sip_req_user: 886
+variable_sip_req_uri: 886%4010.0.1.100
+variable_sip_req_host: 10.0.1.100
+variable_sip_to_params: user%3Dphone
+variable_sip_to_user: 886
+variable_sip_to_uri: 886%4010.0.1.100
+variable_sip_to_host: 10.0.1.100
+variable_sip_contact_params: line%3Dnc7obl5w
+variable_sip_contact_user: 1001
+variable_sip_contact_port: 2048
+variable_sip_contact_uri: 1001%4010.0.1.241%3A2048
+variable_sip_contact_host: 10.0.1.241
+variable_channel_name: sofia/default/1001%4010.0.1.100
+variable_sip_call_id: 3c2bb21af10b-ogphkonpwqet
+variable_sip_user_agent: snom300/7.1.30
+variable_sip_via_host: 10.0.1.241
+variable_sip_via_port: 2048
+variable_sip_via_rport: 2048
+variable_max_forwards: 70
+variable_presence_id: 1001%4010.0.1.100
+variable_sip_h_P-Key-Flags: keys%3D%223%22
+variable_switch_r_sdp: v%3D0%0D%0Ao%3Droot%201915884124%201915884124%20IN%20IP4%2010.0.1.241%0D%0As%3Dcall%0D%0Ac%3DIN%20IP4%2010.0.1.241%0D%0At%3D0%200%0D%0Am%3Daudio%2062258%20RTP/AVP%209%202%203%2018%204%20101%0D%0Aa%3Drtpmap%3A9%20g722/8000%0D%0Aa%3Drtpmap%3A2%20g726-32/8000%0D%0Aa%3Drtpmap%3A3%20gsm/8000%0D%0Aa%3Drtpmap%3A18%20g729/8000%0D%0Aa%3Drtpmap%3A4%20g723/8000%0D%0Aa%3Drtpmap%3A101%20telephone-event/8000%0D%0Aa%3Dfmtp%3A101%200-16%0D%0Aa%3Dptime%3A20%0D%0A
+variable_remote_media_ip: 10.0.1.241
+variable_remote_media_port: 62258
+variable_read_codec: G722
+variable_read_rate: 16000
+variable_write_codec: G722
+variable_write_rate: 16000
+variable_open: true
+variable_socket_host: 127.0.0.1
+variable_local_media_ip: 10.0.1.100
+variable_local_media_port: 62258
+variable_endpoint_disposition: EARLY%20MEDIA
+Content-Type: command/reply
+Socket-Mode: async
+Control: full
+```
+
+Now lets answer this call: (Note: sendmsg doesn't need uuid arg when in outbound mode)
+
+```xml
+sendmsg
+call-command: execute
+execute-app-name: answer\n\n
+```
+
+  
+Which will reply:  
+
+```xml
+Content-Type: command/reply
+Reply-Text: +OK
+```
+
+  
+This call is now answered but its sitting there waiting on your every command.
+
+Now lets play this call a sound file:
+
+```xml
+sendmsg
+call-command: execute
+execute-app-name: playback
+execute-app-arg: /tmp/swimp.raw\n\n
+```
+
+It is also possible to play tones:
+
+```xml
+sendmsg
+call-command: execute
+execute-app-name: playback
+execute-app-arg: tone_stream://%(2000,4000,440,480)\n\n
+```
+
+The reply should be:
+
+```xml
+Content-Type: command/reply
+Reply-Text: +OK
+```
+
+Now how do you stop the file playing? Here is how you would do that:
+
+```xml
+sendmsg
+call-command: execute
+execute-app-name: break\n\n
+```
+
+The reply should be:
+
+```xml
+Content-Type: command/reply
+Reply-Text: +OK
+```
+
+Now lets hang this call up:
+
+```xml
+sendmsg
+call-command: execute
+execute-app-name: hangup\n\n
+```
+
+  
+The reply should be:  
+
+```xml
+Content-Type: command/reply
+Reply-Text: +OK
+```
+
+  
+Netcat will exit now.
+
+You can also issue "myevents\\n\\n" or subscribe to other events in the normal way ie "events heartbeat\\n\\n"
+
+  
+In addition, you can execute API with:
+
+api uuid_bridge &lt;uuid> &lt;uuid>
+
+## socket2me
+
+We have someone working on a C library to use as an event socket library also. but in the meantime there is also a crude C example with no client library but just inline commands in [scripts/c/socket2me](http://svn.freeswitch.org/svn/freeswitch/trunk/scripts/c/socket2me/) this small C program demonstrates how you can use the interface to not only control the call but to also request a 2 way media stream and process the data. This application uses spandsp to implement a fax send/recv similar to asterisk's rxfax txfax only over the loopback interface.
+
+## Java ESL Client
+
+The [Java ESL Client](../Java-ESL/Java-ESL-Client_7144076.mdx#about) provides an Outbound socket mode, with a simple example of how to implement land run it.
+
+## Javascript / Node.js server 
+
+* Node.js esl module [(available using npm)](http://search.npmjs.org/#/esl) offers both a client and a server implementation. The code is [on github](https://github.com/shimaore/esl) with [documentation](http://shimaore.github.com/esl/esl.html). Examples: [Voicemail with CouchDB storage](https://github.com/shimaore/ccnq3/tree/master/applications/voicemail/node) and [CNAM injection](https://github.com/shimaore/ccnq3/blob/master/private/cnam-client/node/cnam-client.coffee) (short example showing how to set a variable using an async web query).
+
+# Events
+
+By default, the connected socket will not receive any FreeSWITCH events. You can issue the following event commands to let FreeSWITCH send events to the connected socket.
+
+Receive only events from this channel
+
+myevents
+
+Receive all events from FreeSWITCH
+
+event text all
+
+Get lingering events on a hung up channel
+
+linger
+
+To make sure you do not miss any events when the channel is hungup, you need to send the "linger command". I found this comment from Anthony Minessale on the FreeSWITCH-users mailing list.
+
+> it's a race,
+> 
+> sometimes the socket connection ends before the channel
+> 
+> the linger socket command was added to tell FS to wait for the last channel event before ending the connection
+> 
+> just send the command
+> 
+> linger
+
+  
+### Verto Live Array
+
+From a post to the freeswitch-users mailing list dated 2016.03.28 12:02 EDT the following JavaScript code snippet reveals the basics of how to get raw conference events using $.verto.livearray() from the Verto library:  
+
+**$.verto.livearray()**
+
+```js
+var la = new $.verto.liveArray(verto, data.pvtData.laChannel, data.pvtData.laName,
+  {subParams: {callID: dialog ? dialog.callID : null}, "onChange": function (obj, args) {
+
+  }});
+  la.onChange = function (obj, args) {
+  console.error("The change", args);
+  };
+```
+
+You can build on this template in your own JS code.
+
+  
+# FAQ
+
+## Q: Ordering and async keyword 
+
+_When using async keyword, is there any guarantee regarding ordering?_
+
+Once you send a command you always get the reply before anything else.
+
+In the case of a bgapi command, your reply will simply contain a job id, and when the command has actually finished it will send an event. See [Event\_Socket](../../Modules/mod_event_socket_1048924.mdx#11-acl)
+
+In some situations (for example, when using the bridge app) you want to ensure the application completely executes before the next command is parsed. Use the following to achieve this:
+
+event-lock: true
+
+When you send the command.
+
+Example:
+
+```xml
+SendMsg <uuid>
+call-command: execute
+execute-app-name: playback
+execute-app-arg: /tmp/test.wav
+event-lock: true
+```
+
+  
+You may obtain the same result (setting event-lock to true) in scripting using the setEventLock method of connection object:
+
+ $con->setEventLock("1");
+
+## Q: Should I use sync mode or async mode? 
+
+In sync mode many things may not work as you expect, for example no DTMFs are received. When you're playing a file in sync mode it blocks till the file is done playing. In async mode you are returned control instantly. You can stop the playback, transfer the call and various other things in async mode.
+
+## Q: Why are API commands returning 'command not found'? 
+
+Remember to use "async full" for full API.
+
+## Q: Can I bridge a call with an Outbound socket? 
+
+Yes you can, simple execute a 'Bridge'
+
+```xml
+sendmsg 
+call-command: execute
+execute-app-name: bridge
+execute-app-arg: {ignore_early_media=true}sofia/gateway/myGW/177808
+event-lock: true
+```
+
+The event-lock is key here, if you don't have it set, other events you might have sent can terminate the call, even if you've sent them _before_ the bridge command. Remember that if you want to hangup the call when the bridge completes, either look for the event \[CHANNEL\_UNBRIDGE\], or send a hangup event after the bridge.
+  
+  
+Document generated by Confluence on nov 11, 2022 04:27

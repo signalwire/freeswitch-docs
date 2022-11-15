@@ -1,0 +1,209 @@
+
+# Microsoft Exchange UM 
+
+ Created by  Mario G on 2014.04.30
+
+* 1 [Exchange 2007 UM](#exchange-2007-um)
+* 2 [Interconnectivity architecture](#interconnectivity-architecture)  
+   * 2.1 [Applicable interconnectivity settings](#applicable-interconnectivity-settings)
+* 3 [Example implementation](#example-implementation)  
+   * 3.1 [Outline](#outline)  
+   * 3.2 [Exchange 2007 setup](#exchange-2007-setup)  
+   * 3.3 [FreeSwitch setup](#freeswitch-setup)  
+   * 3.4 [Usage](#usage)
+* 4 [Limitations](#limitations)
+* 5 [Known issues](#known-issues)
+* 6 [References](#references)
+
+## Exchange 2007 UM
+
+Exchange 2007 offer a new role called Unified Messaging allowing TTS, ASR and DTMF navigation enabled telephony and voice services such as:
+
+Voicemail 2 emailFax 2 emailOutlook Voice AccessListen to new and saved e-mail and voice mail messages.Forward, reply, save, and delete e-mail and voice mail messages.Interact with their calendar.Locate a person in the global address list or personal contacts.Send a voice message to a personChange PIN, name, or greetings.Play on PhoneAuto attendantOutbound call
+
+## Interconnectivity architecture
+
+To interconnect Microsoft Exchange 2007 UM server with FreeSWITCH a trusted SIP trunking should be established between the two. To properly work, The UM server will have to have it’s URI type as a telephone extension. On the FreeSwitch side, the UM needs to be set up as a SIP gateway in the Sofia configuration. Although username and password are required for the FreeSwitch XML parser, they server no real purpose in this interconnectivity as the UM doesn’t check it therefore it’s recommended to use ACL. For Fax UM, either the FS or the UM can be set up to do Fax tone-detection. As default it is assumed that FS is detecting the fax tone and sends the T.38 data over.
+
+* As a base rule, the UM places all calls in the Exchange TUI (Telephony User Interface) portal, regardless to what DNIS was used, where users are asked to identify with extension and PIN numbers to be allowed to use that portal.
+* There are three exceptions for that base rule:  
+   1. **Identified caller** \- If the UM identify the caller-ID as an existing extension in the system, it will place the call in the TUI but will ask only for PIN code.  
+   2. **Leaving a message** – The UM assumes that a user will leave a message for an existing mailbox when the call has been diverted from an unreachable extension. This diversion needs to be emulated in the FS to work.  
+   3. **Auto Attendant** – To access the Exchange VUI (Voice User Interface) configurable Auto Attendant, the UM assumes the call was diverted from an unreachable auto-attendant extension.
+* To allow the UM to identify the caller (to shorten the authentication process), the FS needs to be configured to pass the originator’s Caller-ID.
+
+### Applicable interconnectivity settings
+
+* **Signaling:** SIP/TCP or SIP/TLS
+* **Codecs:** G.711a/μ and G723.1 (pass-through) although G.722 was mentioned to be tested with poor results.
+* **DTMF:** RFC2833 in-band format only.
+
+## Example implementation
+
+### Outline
+
+This implementation example is based on the existing out-of-the-box FreeSwitch XML configuration with few minor additions / modifications. In this example, the_italic_ settings should be customized to your deployment:
+
+* Freeswitch machine: _192.168.0.100_
+* Freeswitch domain name: _sip.cluecon.com_
+* Exchange machine: _192.168.0.200_
+* Exchange domain name: _exch.cluecon.com_
+* Domain (active directory) name: _CLUECON_
+* Extension _1000_ – UM enabled extension for username _ext1000_, PIN _1234_
+* Extension _9877_ – Auto Attendant
+* Extension _9876_ – Generic TUI portal
+* Extension _9664_ – operator extension (currently MoH)
+
+### Exchange 2007 setup
+
+Set a dial plan with URI type of ''telephone extension'' (using the Exchange Management Shell CLI):
+
+```xml
+new-UMDialPlan -Name:'4DigitDialPlan' -NumberOfDigitsInExtension:'4' -URIType 'TelExtn' -VoIPSecurity 'Unsecured'
+```
+
+Set the dial plan policy to allow 4 digit PIN with unlimited life time:
+
+```xml
+Set-UMMailboxPolicy -Identity '4DigitDialPlan Default Policy' -AllowCommonPatterns $true -AllowDialPlanSubscribers $true -AllowExtensions $true -AllowMissedCallNotifications $true -MinPINLength 4 -PINLifetime Unlimited
+```
+
+Set the FS as a gateway to the Exchange server:
+
+```xml
+new-UMIPGateway -Name:'freeSwitch' -Address:'sip.cluecon.com' -UMDialPlan:'4DigitDialPlan'
+```
+
+Set an auto attendant on extension _9877_:
+
+```xml
+new-UMAutoAttendant -Name:'FSAutoAttendant' -UMDialPlan:'4DigitDialPlan' -PilotIdentifierList:'9877' -Status:'Enabled' -SpeechEnabled:$true
+```
+
+Configure the Auto attendant to have the operator extension be _9664_:
+
+```xml
+Set-UMAutoAttendant -Identity AutoAttendant -AfterHoursTransferToOperatorEnabled $true -AllowExtensions $true -BusinessHoursTransferToOperatorEnabled $true -CallSomeoneEnabled $true -NameLookupEnabled $true -SendVoiceMsgEnabled $true -OperatorExtension '9664' -ContactScope GlobalAddressList
+```
+
+Enable the Exchange 2007 server with UM role:
+
+```xml
+Set-UMServer -Identity:'exch.cluecon.com' -DialPlans 4DigitDialPlan
+```
+
+Enable user _Ext1000_ with UM capabilities:
+
+```xml
+Enable-UMMailbox -Identity:'CLUECON\EXT1000' -Pin '1234' -PinExpired $false -UMMailboxPolicy:'4DigitDialPlan Default Policy' -Extensions '1000'
+```
+
+Optional: Enabling Fax detection on the Exchange - Change the EnableInbandFaxDetection setting to True in the \\Program Files\\Microsoft\\Exchange\\bin\\globcfg.xml file of the Exchange 2007 computer that has the Unified Messaging server role installed.
+
+### FreeSwitch setup
+
+Set up the Exchange as a gateway (i.e. /conf/sip\_profiles/default/exch.xml):
+
+```xml
+  <include>
+    <gateway name="exch.cluecon.com">
+      <param name="username" value="BOGUS"/>
+      <param name="password" value="BOGUS"/>
+      <param name="caller-id-in-from" value="true"/>
+      <param name="proxy" value="192.168.0.200"/>
+      <param name="register" value="false"/>
+      <param name="register-transport" value="tcp"/>
+    </gateway>
+  </include>
+```
+
+Set up the dial plan Local Extension handling (i.e. /conf/dialplan/default.xml):
+
+```xml
+  <extension name="Local_Extension">
+    <condition field="destination_number" expression="^(10[01][0-9])$">
+      <action application="set" data="dialed_ext=$1"/>
+      <action application="export" data="dialed_ext=$1"/>
+    </condition>
+    <condition field="destination_number" expression="^${caller_id_number}$">
+      <action application="answer"/>
+      <action application="sleep" data="1000"/>
+      <action application="export" data="sip_h_Diversion=${dialed_ext}"/>
+      <action application="bridge" data="{absolute_codec_string=PCMA}sofia/gateway/exch.cluecon.com/${dialed_ext}"/>
+      <anti-action application="bind_meta_app" data="1 b s execute_extension::dx XML features"/>
+      <anti-action application="bind_meta_app" data="2 b s record_session::$${base_dir}/recordings/${caller_id_number}.${strftime(%Y-%m-%d-%H-%M-%S)}.wav"/>
+      <anti-action application="bind_meta_app" data="3 b s execute_extension::cf XML features"/>
+      <anti-action application="set" data="transfer_ringback=${us-ring}"/>
+      <anti-action application="set" data="call_timeout=30"/>
+      <anti-action application="set" data="hangup_after_bridge=true"/>
+      <anti-action application="set" data="continue_on_fail=true"/>
+      <anti-action application="db" data="insert/call_return/${dialed_ext}/${caller_id_number}"/>
+      <anti-action application="db" data="insert/last_dial_ext/${dialed_ext}/${uuid}"/>
+      <anti-action application="bridge" data="user/${dialed_ext}@$${domain}"/>
+      <anti-action application="answer"/>
+      <anti-action application="sleep" data="1000"/>
+      <anti-action application="voicemail" data="default $${domain} ${dialed_ext}"/>
+      <anti-action application="export" data="sip_h_Diversion=${dialed_ext}"/>
+      <anti-action application="bridge" data="{absolute_codec_string=PCMA}sofia/gateway/exch.cluecon.com/${dialed_ext}"/>
+    </condition>
+  </extension>
+```
+
+Set up the dial plan Generic TUI portal handling (i.e. /conf/dialplan/default.xml):
+
+```xml
+  <extension name="TUI">
+    <condition field="destination_number" expression="^(9876)$">
+      <action application="bridge" data="{absolute_codec_string=PCMA}sofia/gateway/exch.cluecon.com/$1"/>
+    </condition>
+  </extension>
+```
+
+Set up the dial plan Auto Attendant handling (i.e. /conf/dialplan/default.xml):
+
+```xml
+  <extension name="AutoAttendant">
+    <condition field="destination_number" expression="^(9877)$">
+      <action application="export" data="sip_h_Diversion=$1"/>
+      <action application="bridge" data="{absolute_codec_string=PCMA}sofia/gateway/exch.cluecon.com/$1"/>
+    </condition>
+  </extension>
+```
+
+### Usage
+
+* Dialing from extension 1001 to 1000 (no answer) – Leave UM voicemail
+* Dialing from extension 1000 to 1000 – Access voice mail TUI (semi authorized)
+* Dialing from extension 1000 to 9876 – Access TUI (semi authorized)
+* Dialing from extension 1001 to 9876 – Access generic TUI (unauthorized)
+* Dialing from extension 1001 to 9877 – Access Auto Attendant menu
+* Dialing from extension 1001 to 9877 and asking for operator – Get transferred to extension 9664 (MoH)
+
+## Limitations
+
+Testing was done on:
+
+* FreeSwitch version 1.0.0 build
+* Exchange 2007 SP1 version 08.01.0278.002.
+
+Wasn't tested:
+
+* TLS and SRTP
+* T.38 faxing
+* G.723.1 codec
+
+## Known issues
+
+* **DTMF issue** \- After setting up and enabling UM on the Exchange server, it might not comply with RFC4733 and DTMF may only work in pass-through mode. This can be fixed with a cold-restart of the Exchange server.
+
+Note: this issue cannot be fixed reliably with Exchange 2007 UM , the real solution is to upgrade Exchange 2007 UM to Exchange 2010 UM, which I believe Microsoft finally got it right with the DTMF
+
+* **Different URI types** – If you insist using a non-extension URI types (such as SIP or E.164) be advised that the Diversion format needs to be different (&lt;[sip:1000@192.168.0.100](http://sip:1000@192.168.0.100)\>, +1000) but then the Exchange will not be able to match the FROM field with the Diversion for shorter authentication scenario.
+
+## References
+
+1. [Exchange 2007 Unified Messaging Cmdlets](http://technet.microsoft.com/en-us/library/aa997665%28EXCHG.80%29.aspx)
+2. [Ryan Newington's Exchange 2007 Unified Messaging Setup Guide](http://blog.lithiumblue.com/2007/04/accessing-exchange-2007-unified%5F29.html)
+3. [Mitch Roberson's Blog on Exchange UM connected to a PBX](http://ucspot.com/blogs/ocs/archive/2008/03/11/exchange-um-connected-to-a-pbx.aspx)
+
+Document generated by Confluence on nov 11, 2022 04:28

@@ -1,0 +1,110 @@
+
+# Provider WhistlePhone (USA) 
+
+ Created by  Mario G, last modified on 2014.05.31
+
+## [www.whistlephone.com](https://www.whistlephone.com)
+
+Last update: 8 March 2011
+
+WhistlePhone allows FREE calling (with a 20s ad announcement at the beginning on each call) to the continental US from anywhere in the World using its softphone hosted on a Mac/PC desktop computer or a supported Apple iPad, iPhone, and/or iPod Touch device. A WhistlePhone account can ONLY be created using its own softphone. So, one needs to download/install the softphone prior to create an account. Once an account is created, its SIP account is the assigned DID# (without 1) while its SIP password is the password used to login into its softphone. In order to be able to use the free calls 24/7, this requires the device to be online 24/7\. For a desktop computer, this equates to a waste in electricity. To overcome this, it is possible to configure a SIP trunk on a FreeSWITCH system to register to the WhistlePhone SIP server ([proxy.whistlephone.com](http://proxy.whistlephone.com)). Below is the SIP profiles for a WhistlePhone account:
+
+**conf/sip\_profiles/external/[WhistlePhone.com](http://WhistlePhone.com).xml**
+
+```xml
+<gateway name="WhistlePhone.com">
+   <param name="username" value="WHISTLE_PHONE_CID"/>
+   <param name="from-user" value="WHISTLE_PHONE_CID"/>
+   <param name="password" value="PASSWORD"/>
+   <param name="from-domain" value="proxy.whistlephone.com"/>
+   <param name="realm" value="proxy.whistlephone.com"/>
+   <param name="proxy" value="proxy.whistlephone.com"/>
+   <param name="expire-seconds" value="60"/>
+   <param name="register" value="true"/>
+   <param name="retry-seconds" value="30"/>
+</gateway>
+```
+
+Since WhistlePhone uses four SIP servers ([proxy1.whistlephone.com](http://proxy1.whistlephone.com), [proxy2.whistlephone.com](http://proxy2.whistlephone.com), [proxy3.whistlephone.com](http://proxy3.whistlephone.com), and [proxy4.whistlephone.com](http://proxy4.whistlephone.com)) to distribute its loads, this may pose a problem to FreeSWITCH in accepting an incoming invite if it is not from the same server where FreeSWITCH has registered to. To overcome this problem, we need to create a SIP profile that will register to all WhistlePhone SIP servers as shown below:
+
+**conf/sip\_profiles/external/[WhistlePhone.com](http://WhistlePhone.com).xml**
+
+```xml
+<gateway name="Proxy.WhistlePhone.com">
+   <param name="username" value="WHISTLE_PHONE_CID"/>
+   <param name="from-user" value="WHISTLE_PHONE_CID"/>
+   <param name="password" value="PASSWORD"/>
+   <param name="from-domain" value="proxy.whistlephone.com"/>
+   <param name="realm" value="proxy.whistlephone.com"/>
+   <param name="proxy" value="proxy.whistlephone.com"/>
+   <param name="expire-seconds" value="60"/>
+   <param name="register" value="true"/>
+   <param name="retry-seconds" value="30"/>
+</gateway>
+
+<gateway name="Proxy1.WhistlePhone.com">
+  <param name="username" value="WHISTLE_PHONE_CID"/>
+  <param name="from-user" value="WHISTLE_PHONE_CID"/>
+  <param name="password" value="PASSWORD"/>
+  <param name="from-domain" value="proxy.whistlephone.com"/>
+  <param name="realm" value="proxy.whistlephone.com"/>
+  <param name="proxy" value="proxy1.whistlephone.com"/>
+  <param name="expire-seconds" value="3600"/>
+  <param name="register" value="true"/>
+  <param name="retry-seconds" value="30"/>
+</gateway>
+
+<gateway name="Proxy2.WhistlePhone.com">
+  <param name="username" value="1WHISTLE_PHONE_CID"/>
+  <param name="from-user" value="WHISTLE_PHONE_CID"/>
+  <param name="password" value="PASSWORD"/>
+  <param name="from-domain" value="proxy.whistlephone.com"/>
+  <param name="realm" value="proxy.whistlephone.com"/>
+  <param name="proxy" value="proxy2.whistlephone.com"/>
+  <param name="expire-seconds" value="3600"/>
+  <param name="register" value="true"/>
+  <param name="retry-seconds" value="30"/>
+</gateway>
+
+<gateway name="Proxy3.WhistlePhone.com">
+  <param name="username" value="WHISTLE_PHONE_CID"/>
+  <param name="from-user" value="WHISTLE_PHONE_CID"/>
+  <param name="password" value="PASSWORD"/>
+  <param name="from-domain" value="proxy.whistlephone.com"/>
+  <param name="realm" value="proxy.whistlephone.com"/>
+  <param name="proxy" value="proxy3.whistlephone.com"/>
+  <param name="expire-seconds" value="3600"/>
+  <param name="register" value="true"/>
+  <param name="retry-seconds" value="30"/>
+</gateway>
+
+<gateway name="Proxy4.WhistlePhone.com">
+  <param name="username" value="WHISTLE_PHONE_CID"/>
+  <param name="from-user" value="WHISTLE_PHONE_CID"/>
+  <param name="password" value="PASSWORD"/>
+  <param name="from-domain" value="proxy.whistlephone.com"/>
+  <param name="realm" value="proxy.whistlephone.com"/>
+  <param name="proxy" value="proxy4.whistlephone.com"/>
+  <param name="expire-seconds" value="3600"/>
+  <param name="register" value="true"/>
+  <param name="retry-seconds" value="30"/>
+</gateway>
+```
+
+Use the following dialplan to process outbound calls.
+
+**conf/dialplan/default/[WhistlePhone.com](http://WhistlePhone.com).xml** (for outbound calls)
+
+```xml
+<extension name="Proxy.WhistlePhone.com">
+  <condition field="destination_number" expression="^1?([2-9]\d{2}[2-9]\d{6})$">
+     <action application="set" data="effective_caller_id_name=YOURNAMEHERE"/>
+     <action application="set" data="effective_caller_id_number=YOURDIDHERE"/>
+     <action application="bridge" data="sofia/gateway/Proxy.WhistlePhone.com/1$1"/>
+  </condition>
+</extension> 
+```
+
+**NOTICE**: This is just a quick hack to get the job done. If you know of an efficient way to do this, please feel free to update the above XML sip\_profile for WhistlePhone.
+
+Document generated by Confluence on nov 11, 2022 04:28

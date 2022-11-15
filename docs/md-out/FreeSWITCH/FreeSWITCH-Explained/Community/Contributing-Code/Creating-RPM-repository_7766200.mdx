@@ -1,0 +1,164 @@
+
+# Creating RPM repository 
+
+ Created by  Sergey Safarov, last modified by  Humberto Diógenes on 2016.08.29
+
+* 1 [Pre Requirements](#pre-requirements)  
+   * 1.1 [Installing mock utility](#installing-mock-utility)  
+   * 1.2 [Creating distribution specific config files](#creating-distribution-specific-config-files)
+* 2 [Creating repo](#creating-repo)  
+   * 2.1 [Creating SRPM packages](#creating-srpm-packages)  
+   * 2.2 [Creating RPM packages](#creating-rpm-packages)
+* 3 [Literature](#creating-repo)
+
+# About
+
+This article explain how to create RPM repository of FreeSwitch modules and of FreeSwitch dependency libs.
+
+# Pre Requirements
+
+Before you start you need to make sure that the host on which you are compiling RPM packages have:
+
+1. operating system RHEL 7, CentOS 7, Fedor 21 or newer;
+2. installed git, curl, rpmbuild and createrepo utilities;
+3. installed "mock" package from operation system repository or from EPEL repository;
+4. about 8Gb free space.
+
+To get information about used operation system execute command "cat /etc/redhat-release". Example below
+
+**Checking used operation system**
+
+\[root@buildhost \~\]# cat /etc/redhat-release   
+CentOS Linux release 7.1.1503 (Core)
+
+To install git, curl, rpmbuild and createrepo utilities execute command "yum install git curl rpm-build". Example below
+
+**Installing git, curl and rpm-build utilities**
+
+\[root@buildhost \~\]# yum -y install git curl rpm-build createrepo
+
+## Installing mock utility
+
+Fedora disro contain mock utility in system repo. Some other distro require install mock utility from external repo. On RHEL and CentOS before installing mock utility required install EPEL repo. Example below.
+
+**installing EPEL repository on CentOS and RHEL**
+
+\[root@buildhost \~\]# curl -O <http://dl.fedoraproject.org/pub/epel/7/x86%5F64/e/epel-release-7-5.noarch.rpm>
+
+\[root@buildhost \~\]# rpm -Uvh epel-release-7\*.rpm
+
+Mock utility can be installed via executing command "yum install mock python-ctypes". Example below
+
+**installing mock utility**
+
+\[root@buildhost \~\]# yum -y install mock python-ctypes
+
+Next, you need to create a user under the rights of which RPM packages will be made 
+
+**Creating build user and affiliation him to mock group** 
+
+\[root@buildhost \~\]# useradd build  
+\[root@buildhost \~\]# usermod -G mock build
+
+## Creating distribution specific config files
+
+For CentOS, RHEL operation system mock config files must be created. For Fedora distros mock config files has been installed with mock utility.
+
+**installing mock config file for CentOS**
+
+\[root@buildhost \~\]# curl -o /etc/mock/centos-7-x86_64.cfg <https://freeswitch.org/confluence/download/attachments/7766200/centos-7-x86%5F64.cfg>
+
+# Creating repo
+
+## Creating SRPM packages
+
+First, you must get the scripts that perform repository assembly
+
+**Downloading repo creation scripts**
+
+\[root@buildhost \~\]# su - build  
+Last login: Mon Jun 15 10:11:36 GMT 2015 on pts/0  
+\[build@buildhost \~\]$ mkdir WORKDIR  
+\[build@buildhost \~\]$  cd WORKDIR/  
+\[build@buildhost WORKDIR\]$ echo git clone <https://freeswitch.org/stash/scm/sd/freeswitch-video-deps.git>  
+\[build@buildhost WORKDIR\]$ git clone <https://freeswitch.org/stash/scm/~safarov/freeswitch-video-deps.git>[ ](https://freeswitch.org/stash/scm/sd/freeswitch-video-deps.git)Cloning into 'freeswitch-video-deps'...  
+remote: Counting objects: 82, done.  
+remote: Compressing objects: 100% (75/75), done.  
+remote: Total 82 (delta 29), reused 0 (delta 0)  
+Unpacking objects: 100% (82/82), done.
+
+Next, you need to prepare SRPM packages via executing "stage1.sh" command. Example below.
+
+**Creating SRPM packages**
+
+\[build@buildhost WORKDIR\]$ ./freeswitch-video-deps/rpm-systemd/stage1.sh && ls -1 rpmbuild/\*src.rpm  
+Trying clone repo "openh264"  
+Cloning into 'openh264'...
+
+**\--- strings has been cutted ---**
+
+Compressing "libg7221"  
+Creating SRPM of "libg7221"  
+warning: Could not canonicalize hostname: [fs2.voip.rcsnet.ru](http://fs2.voip.rcsnet.ru)   
+Wrote: /home/build/WORKDIR/rpmbuild/g722\_1-0.2.0-1.el7.centos.src.rpm  
+rpmbuild/broadvoice-0.1.0-1.el7.centos.src.rpm  
+rpmbuild/flite-2.0.0-0.el7.centos.src.rpm  
+rpmbuild/g722\_1-0.2.0-1.el7.centos.src.rpm  
+rpmbuild/ilbc-0.0.1-1.el7.centos.src.rpm  
+rpmbuild/libav-11.3-0.el7.centos.src.rpm  
+rpmbuild/libcodec2-2.59-1.el7.centos.src.rpm  
+rpmbuild/libsilk-1.0.8-1.el7.centos.src.rpm  
+rpmbuild/libvpx2-2.0.0-1.el7.centos.src.rpm  
+rpmbuild/libyuv-0.0.1280-0.el7.centos.src.rpm  
+rpmbuild/mongo-c-driver-1.1.0-1.el7.centos.src.rpm  
+rpmbuild/openh264-1.3.0-8.1.el7.centos.src.rpm  
+rpmbuild/opus-1.1-1.el7.centos.src.rpm  
+rpmbuild/sngtc-1.3.6-1.el7.centos.src.rpm  
+rpmbuild/soundtouch-1.7.1-1.el7.centos.src.rpm  
+rpmbuild/vlc-2.2.0-1.el7.centos.src.rpm
+
+## Creating RPM packages
+
+Next, you need to prepare RPM packages via executing " stage2.sh " command with appropriate distro config file as argument. Example below.
+
+**Creating RPM packages**
+
+\[build@buildhost WORKDIR\]$ ./freeswitch-video-deps/rpm-systemd/stage2.sh centos-7-x86\_64  
+\[build@buildhost WORKDIR\]$ ./WORKDIR/freeswitch-video-deps/rpm-systemd/stage2.sh  
+INFO: mock.py version 1.2.7 starting (python version = 2.7.5)...  
+Start: init plugins  
+INFO: selinux enabled  
+Finish: init plugins  
+Start: run
+
+**\--- strings has been cutted ---**
+
+Saving Primary metadata  
+Saving file lists metadata  
+Saving other metadata  
+Generating sqlite DBs  
+Sqlite DBs complete
+
+Resulted RPM packages will be located at "\~/WORKDIR/MOCKED" subfolders.
+
+# Literature
+
+[Install EPEL and additional repositories on CentOS and Red Hat](http://www.rackspace.com/knowledge%5Fcenter/article/install-epel-and-additional-repositories-on-centos-and-red-hat)
+
+[Using Mock to test package builds](https://fedoraproject.org/wiki/Using%5FMock%5Fto%5Ftest%5Fpackage%5Fbuilds)
+
+[Mocking RPMs on CentOS](http://www.openfusion.net/linux/mocking%5Frpms)
+
+# Attachments
+
+[centos-7-x86\_64.cfg](/attachments/7766200/8290307.cfg)
+
+## Attachments:
+
+![](/images/icons/bullet_blue.gif) [centos-7-x86\_64.cfg](/attachments/7766200/8290308.cfg) (application/octet-stream)  
+![](/images/icons/bullet_blue.gif) [centos-7-x86\_64.cfg](/attachments/7766200/8290309.cfg) (application/octet-stream)  
+![](/images/icons/bullet_blue.gif) [centos-7-x86\_64.cfg](/attachments/7766200/8290310.cfg) (application/octet-stream)  
+![](/images/icons/bullet_blue.gif) [centos-7-x86\_64.cfg](/attachments/7766200/8290311.cfg) (application/octet-stream)  
+![](/images/icons/bullet_blue.gif) [centos-7-x86\_64.cfg](/attachments/7766200/8290307.cfg) (application/octet-stream)  
+
+Document generated by Confluence on nov 11, 2022 04:28

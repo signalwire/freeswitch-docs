@@ -1,0 +1,385 @@
+
+# Zapata zaptel interface 
+
+ Created by  Italo Monteiro, last modified on 2016.12.23
+
+# About
+
+The BSD Telephony project Zapata created the original Zaptel interface. This interface is how Zaptel-based cards work. This page explains that the low-level interface.
+
+If you're interested in how to configure FreesSWITCH to interface with Zaptel-compatible hardware, how to install Zaptel kernel drivers, and similar information, see [here](../index.mdx#--) for details.
+
+Click here to expand Table of Contents
+
+* 1 [License](#license)
+* 2 [struct: zt\_params](#-freeswitch--zapata-zaptel-interface-)
+* 3 [struct: zt\_confinfo](#struct-zt_maintinfo)
+* 4 [struct: zt\_gains](#-freeswitch--zapata-zaptel-interface-)
+* 5 [struct: zt\_spaninfo](#struct-zt_maintinfo)
+* 6 [struct: zt\_maintinfo](#struct-zt_maintinfo)
+* 7 [struct: zt\_lineconfig](#struct-zt_maintinfo)
+* 8 [struct: zt\_chanconfig](#struct-zt_maintinfo)
+* 9 [struct: zt\_tone\_def\_header](#-freeswitch--zapata-zaptel-interface-)
+* 10 [struct: zt\_bufferinfo](#struct-zt_maintinfo)
+* 11 [struct: zt\_dialparams](#-freeswitch--zapata-zaptel-interface-)
+* 12 [struct: zt\_dialoperation](#struct-zt_maintinfo)
+* 13 [Event Definitions](#-freeswitch--zapata-zaptel-interface-)
+* 14 [IOCTLS Defines](#ioctls-defines)
+
+## License
+
+The [zapata](./index.mdx#see-also-) library is public domain and is still functional. We are documenting the Zaptel public interface here, which the zapata library or anyone else for that matter could use to talk to zaptel.
+
+```xml
+/* 
+ * BSD Telephony Of Mexico "Zapata" Telecom Library, version 1.10  12/10/01
+ *
+ *   Part of the "Zapata" Computer Telephony Technology.
+ *
+ *   See http://www.bsdtelephony.com.mx
+ *
+ *
+ *  The technologies, software, hardware, designs, drawings, scheumatics, board
+ *  layouts and/or artwork, concepts, methodologies (including the use of all
+ *  of these, and that which is derived from the use of all of these), all other
+ *  intellectual properties contained herein, and all intellectual property
+ *  rights have been and shall continue to be expressly for the benefit of all
+ *  mankind, and are perpetually placed in the public domain, and may be used,
+ *  copied, and/or modified by anyone, in any manner, for any legal purpose,
+ *  without restriction. 
+ *
+ *   TTY/TDD functionality heavily based upon 'rtty' program by Jesus Arias.
+ */
+
+```
+
+##   
+struct: zt\_params
+
+12 ints, 1 40 byte char array, and 11 ints. Passed to the ioctl ZT\_GET\_PARAMS and ZT\_SET\_PARAMS
+
+```xml
+int channel_number;		 --  Channel number
+int span_number;		 --  Span itself
+int channel_position;	 --  Channel number in span
+int	signal_type;   --  read-only
+int signal_cap;	  --  read-only
+int rxisoffhook;  --  read-only
+int rxbits;	 --  read-only
+int txbits;	 --  read-only
+int txhooksig;	 --  read-only
+int rxhooksig;	 --  read-only
+int curlaw;	 --  read-only  -- one of ZT_LAW_MULAW or ZT_LAW_ALAW
+int idlebits;	 --  read-only  -- What is considered the idle state
+char channel_name[40];	 --  Name of channel
+int	prewinktime;
+int	preflashtime;
+int	winktime;
+int	flashtime;
+int	starttime;
+int	rxwinktime;
+int	rxflashtime;
+int	debouncetime;
+int	pulsebreaktime;
+int	pulsemaketime;
+int	pulseaftertime;
+```
+
+##   
+struct: zt\_confinfo
+
+3 ints passed to ioctl ZT\_GETCONF ZT\_SETCONF and ZT\_CONFLINK
+
+```xml
+int	channel; -- channel number, 0 for current
+int	conference_number; -- conference number
+int	conference_mode; -- conferencing mode
+```
+
+##   
+struct: zt\_gains
+
+1 int, 2 unsigned 256 byte char arrays. Used in ZT\_GETGAINS and ZT\_SETGAINS
+
+```xml
+int	channel; -- channel number, 0 for current
+unsigned char rxgain[256]; -- Receive gain table
+unsigned char txgain[256]; -- Transmit gain table
+```
+
+##   
+struct: zt\_spaninfo
+
+1 int, 1 20 byte char array, 1 40 byte char array, and 12 int. Used in ZT\_SPANSTAT
+
+```xml
+int spanno; -- span number (or -1 to use name)
+char name[20]; -- Name of span
+char desc[40]; -- Description of span
+int alarms; -- alarms status
+int txlevel; -- what TX level is set to
+int rxlevel; -- current RX level
+int bpvcount; -- current BPV count
+int crc4count; -- current CRC4 error count
+int ebitcount; -- current E-bit error count
+int fascount; -- current FAS error count
+int irqmisses; -- current IRQ misses
+int syncsrc; -- span # of current sync source, or 0 for free run
+int numchans; -- number of configured channels on this span
+int totalchans; -- total number of channels on the span
+int totalspans; -- total number of zaptel spans in entire system
+```
+
+ ## struct: zt_maintinfo
+
+2 int, Used in ZT\_MAINT
+
+```xml
+int spanno; -- span number 1-2
+int command; -- command
+```
+
+##   
+struct: zt\_lineconfig
+
+1 int, 1 char 20 bytes char array, 3 ints Used in ZT\_SPANCONFIG
+
+```xml
+int span; -- Which span number (0 to use name)                                                                                                         
+char name[20]; -- Name of span to use                                                                                                                      
+int lbo; -- line build-outs                                                                    
+int lineconfig; -- line config parameters (framing, coding)                                                                                                 
+int sync; -- what level of sync source we are
+```
+
+##   
+struct: zt\_chanconfig
+
+1 int, 1 40 byte char array, 4 int and 1 16 byte char array. Passed to the ioctl ZT\_CHANCONFIG
+
+```xml
+int chan; -- Channel we're applying this to (0 to use name)
+char name[40]; -- Name of channel to use
+int sigtype; -- Signal type
+int deflaw; -- Default law (ZT_LAW_DEFAULT, ZT_LAW_MULAW, or ZT_LAW_ALAW
+int master; -- Master channel if sigtype is ZT_SLAVE
+int idlebits; -- Idle bits (if this is a CAS channel) or channel to monitor (if this is DACS channel)
+char netdev_name[16];  name for the hdlc network device
+```
+
+##   
+struct: zt\_tone\_def\_header
+
+3 int, 1 40 byte char array. Passed to the ioctl ZT\_LOADZONE
+
+```xml
+int count; -- How many samples follow                                                                                                              
+int zone; -- Which zone we are loading                                                                                                              
+int ringcadence[ZT_MAX_CADENCE]; -- Ring cadence in ms (0=on, 1=off, ends with 0 value)                                                                
+char name[40]; -- Informational name of zone
+```
+
+##   
+struct: zt\_bufferinfo
+
+6 ints passed to ioctls ZT\_SET\_BUFINFO and ZT\_GET\_BUFINFO
+
+```xml
+int txbufpolicy;	-- Policy for handling receive buffers 
+int rxbufpolicy;	-- Policy for handling receive buffers 
+int numbufs;		-- How many buffers to use 
+int bufsize;		-- How big each buffer is 
+int readbufs;		-- How many read buffers are full (read-only) 
+int writebufs;		-- How many write buffers are full (read-only)
+```
+
+##   
+struct: zt\_dialparams
+
+3 ints passed to ioctls ZT\_GET\_DIALPARAMS and ZT\_SET\_DIALPARAMS
+
+```xml
+int mfv1_tonelen;	-- MF tone length (KP = this * 5/3) 
+int dtmf_tonelen;	-- DTMF tone length 
+int reserved[4];	-- Reserved for future expansion -- always set to 0
+```
+
+##   
+struct: zt\_dialoperation
+
+1 int and 1 char array of ZT\_MAX\_DTMF\_BUF size passed to ioctls ZT\_DIAL
+
+```xml
+int op;
+char dialstr[ZT_MAX_DTMF_BUF];
+```
+
+##   
+Event Definitions
+
+| Zaptel Events                                                                    |                                       |                                                                     |                  |
+| -------------------------------------------------------------------------------- | ------------------------------------- | ------------------------------------------------------------------- | ---------------- |
+| ZT\_EVENT\_NONE                                                                  | 0                                     | Return Value for GET/WAIT Event, no event                           |                  |
+| ZT\_EVENT\_ONHOOK                                                                | 1                                     | Return Value for GET/WAIT Event, Went Onhook                        |                  |
+| ZT\_EVENT\_RINGOFFHOOK                                                           | 2                                     | Return Value for GET/WAIT Event, Went Offhook or got Ring           |                  |
+| ZT\_EVENT\_WINKFLASH                                                             | 3                                     | Return Value for GET/WAIT Event, Got Wink or Flash                  |                  |
+| ZT\_EVENT\_ALARM                                                                 | 4                                     | Return Value for GET/WAIT Event, Got Alarm                          |                  |
+| ZT\_EVENT\_NOALARM                                                               | 5                                     | Return Value for GET/WAIT Event, Got No Alarm (after alarm)         |                  |
+| ZT\_EVENT\_ABORT                                                                 | 6                                     | Return Value for GET/WAIT Event, HDLC Abort frame                   |                  |
+| ZT\_EVENT\_OVERRUN                                                               | 7                                     | Return Value for GET/WAIT Event, HDLC Frame overrun                 |                  |
+| ZT\_EVENT\_BADFCS                                                                | 8                                     | Return Value for GET/WAIT Event, Bad FCS                            |                  |
+| ZT\_EVENT\_DIALCOMPLETE                                                          | 9                                     | Return Value for dial complete                                      |                  |
+| ZT\_EVENT\_RINGERON                                                              | 10                                    | Return Value for ringer going on                                    |                  |
+| ZT\_EVENT\_RINGEROFF                                                             | 11                                    | Return Value for ringer going off                                   |                  |
+| ZT\_EVENT\_HOOKCOMPLETE                                                          | 12                                    | Return Value for hook change complete                               |                  |
+| ZT\_EVENT\_BITSCHANGED                                                           | 13                                    | Return Value for bits changing on a CAS / User channel              |                  |
+| ZT\_EVENT\_PULSE\_START                                                          | 14                                    | Return Value for the beginning of a pulse coming on its way         |                  |
+| ZT\_EVENT\_TIMER\_EXPIRED                                                        | 15                                    | Timer event -- timer expired                                        |                  |
+| ZT\_EVENT\_TIMER\_PING                                                           | 16                                    | Timer event -- ping ready                                           |                  |
+| ZT\_EVENT\_POLARITY                                                              | 17                                    | Polarity reversal event                                             |                  |
+| ZT\_EVENT\_RINGBEGIN                                                             | 18                                    | Ring Begin event                                                    |                  |
+| ZT\_EVENT\_EC\_DISABLED                                                          | 19                                    | Echo can disabled event                                             |                  |
+| ZT\_EVENT\_REMOVED                                                               | 20                                    | Channel was disconnected. Hint user to close channel                |                  |
+| ZT\_EVENT\_PULSEDIGIT                                                            | (1 &lt;&lt; 16)                             | This is OR'd with the digit received                                |                  |
+| ZT\_EVENT\_DTMFDOWN                                                              | (1 &lt;&lt; 17)                             | Same for DTMF key down event                                        |                  |
+| ZT\_EVENT\_DTMFUP                                                                | (1 &lt;&lt; 18)                             | Same for DTMF key up event                                          |                  |
+| Conference modes                                                                 |                                       |                                                                     |                  |
+| ZT\_CONF\_MODE\_MASK                                                             | 0xff                                  | mask for modes                                                      |                  |
+| ZT\_CONF\_NORMAL                                                                 | 0                                     | normal mode                                                         |                  |
+| ZT\_CONF\_MONITOR                                                                | 1                                     | monitor mode (rx of other chan)                                     |                  |
+| ZT\_CONF\_MONITORTX                                                              | 2                                     | monitor mode (tx of other chan)                                     |                  |
+| ZT\_CONF\_MONITORBOTH                                                            | 3                                     | monitor mode (rx & tx of other chan)                                |                  |
+| ZT\_CONF\_CONF                                                                   | 4                                     | conference mode                                                     |                  |
+| ZT\_CONF\_CONFANN                                                                | 5                                     | conference announce mode                                            |                  |
+| ZT\_CONF\_CONFMON                                                                | 6                                     | conference monitor mode                                             |                  |
+| ZT\_CONF\_CONFANNMON                                                             | 7                                     | conference announce/monitor mode                                    |                  |
+| ZT\_CONF\_REALANDPSEUDO                                                          | 8                                     | real and pseudo port both on conf                                   |                  |
+| ZT\_CONF\_DIGITALMON                                                             | 9                                     | Do not decode or interpret                                          |                  |
+| ZT\_CONF\_MONITOR\_RX\_PREECHO                                                   | 10                                    | monitor mode (rx of other chan) - before echo can is done           |                  |
+| ZT\_CONF\_MONITOR\_TX\_PREECHO                                                   | 11                                    | monitor mode (tx of other chan) - before echo can is done           |                  |
+| ZT\_CONF\_MONITORBOTH\_PREECHO                                                   | 12                                    | monitor mode (rx & tx of other chan) - before echo can is done      |                  |
+| ZT\_CONF\_FLAG\_MASK                                                             | 0xff00                                | mask for flags                                                      |                  |
+| ZT\_CONF\_LISTENER                                                               | 0x100                                 | is a listener on the conference                                     |                  |
+| ZT\_CONF\_TALKER                                                                 | 0x200                                 | is a talker on the conference                                       |                  |
+| ZT\_CONF\_PSEUDO\_LISTENER                                                       | 0x400                                 | pseudo is a listener on the conference                              |                  |
+| ZT\_CONF\_PSEUDO\_TALKER                                                         | 0x800                                 | pseudo is a talker on the conference                                |                  |
+| Tone Defines                                                                     |                                       |                                                                     |                  |
+| ZT\_TONE\_ZONE\_MAX                                                              | 128                                   |                                                                     |                  |
+| ZT\_TONE\_ZONE\_DEFAULT                                                          | \-1                                   | To restore default                                                  |                  |
+| ZT\_TONE\_STOP                                                                   | \-1                                   |                                                                     |                  |
+| ZT\_TONE\_DIALTONE                                                               | 0                                     |                                                                     |                  |
+| ZT\_TONE\_BUSY                                                                   | 1                                     |                                                                     |                  |
+| ZT\_TONE\_RINGTONE                                                               | 2                                     |                                                                     |                  |
+| ZT\_TONE\_CONGESTION                                                             | 3                                     |                                                                     |                  |
+| ZT\_TONE\_CALLWAIT                                                               | 4                                     |                                                                     |                  |
+| ZT\_TONE\_DIALRECALL                                                             | 5                                     |                                                                     |                  |
+| ZT\_TONE\_RECORDTONE                                                             | 6                                     |                                                                     |                  |
+| ZT\_TONE\_INFO                                                                   | 7                                     |                                                                     |                  |
+| ZT\_TONE\_CUST1                                                                  | 8                                     |                                                                     |                  |
+| ZT\_TONE\_CUST2                                                                  | 9                                     |                                                                     |                  |
+| ZT\_TONE\_STUTTER                                                                | 10                                    |                                                                     |                  |
+| ZT\_TONE\_MAX                                                                    | 16                                    |                                                                     |                  |
+| ZT\_TONE\_DTMF\_BASE                                                             | 64                                    |                                                                     |                  |
+| \------------------------------------------------------------------------------- |                                       |                                                                     |                  |
+| ZT\_LAW\_DEFAULT                                                                 | 0                                     | Default law for span                                                |                  |
+| ZT\_LAW\_MULAW                                                                   | 1                                     | Mu-law                                                              |                  |
+| ZT\_LAW\_ALAW                                                                    | 2                                     | A-law                                                               |                  |
+| \------------------------------------------------------------------------------- |                                       |                                                                     |                  |
+| ZT\_MAX\_DTMF\_BUF                                                               | 256                                   | Define the max # of outgoing DTMF or MFv1 digits to queue in-kernel |                  |
+| ZT\_CHUNKSIZE                                                                    | 8                                     | 8 samples = 1 ms                                                    |                  |
+| ZT\_MAX\_BLOCKSIZE                                                               | 8192                                  |                                                                     |                  |
+| ZT\_DEFAULT\_MTU\_MRU                                                            | 2048                                  |                                                                     |                  |
+| \------------------------------------------------------------------------------- |                                       |                                                                     |                  |
+| ZT\_FLUSH\_READ                                                                  | 1                                     | Flush and stop the read (input) process                             |                  |
+| ZT\_FLUSH\_WRITE                                                                 | 2                                     | Flush and stop the write (output) process                           |                  |
+| ZT\_FLUSH\_BOTH                                                                  | (ZT\_FLUSH\_READ \| ZT\_FLUSH\_WRITE) | Flush and stop both (input and output) processes                    |                  |
+| ZT\_FLUSH\_EVENT                                                                 | 4                                     | Flush the event queue                                               |                  |
+| ZT\_FLUSH\_ALL                                                                   | (ZT\_FLUSH\_READ \| ZT\_FLUSH\_WRITE  | ZT\_FLUSH\_EVENT)                                                   | Flush everything |
+| \------------------------------------------------------------------------------- |                                       |                                                                     |                  |
+| ZT\_IOMUX\_READ                                                                  | 1                                     | Flag Value for IOMUX, read available                                |                  |
+| ZT\_IOMUX\_WRITE                                                                 | 2                                     | Flag Value for IOMUX, write available                               |                  |
+| ZT\_IOMUX\_WRITEEMPTY                                                            | 4                                     | Flag Value for IOMUX, write done                                    |                  |
+| ZT\_IOMUX\_SIGEVENT                                                              | 8                                     | Flag Value for IOMUX, signalling event available                    |                  |
+| ZT\_IOMUX\_NOWAIT                                                                | 256                                   | Flag Value for IOMUX, Do Not Wait if nothing to report              |                  |
+| \------------------------------------------------------------------------------- |                                       |                                                                     |                  |
+| ZT\_ONHOOK                                                                       | 0                                     | Value for ZT\_HOOK, set to ON hook                                  |                  |
+| ZT\_OFFHOOK                                                                      | 1                                     | Value for ZT\_HOOK, set to OFF hook                                 |                  |
+| ZT\_WINK                                                                         | 2                                     | Value for ZT\_HOOK, wink (off hook momentarily)                     |                  |
+| ZT\_FLASH                                                                        | 3                                     | Value for ZT\_HOOK, flash (on hook momentarily)                     |                  |
+| ZT\_START                                                                        | 4                                     | Value for ZT\_HOOK, start line                                      |                  |
+| ZT\_RING                                                                         | 5                                     | Value for ZT\_HOOK, ring line (same as start line)                  |                  |
+| ZT\_RINGOFF                                                                      | 6                                     | Value for ZT\_HOOK, turn ringer off                                 |                  |
+| Maintenance Modes                                                                |                                       |                                                                     |                  |
+| ZT\_MAINT\_NONE                                                                  | 0                                     | Normal Mode                                                         |                  |
+| ZT\_MAINT\_LOCALLOOP                                                             | 1                                     | Local Loopback                                                      |                  |
+| ZT\_MAINT\_REMOTELOOP                                                            | 2                                     | Remote Loopback                                                     |                  |
+| ZT\_MAINT\_LOOPUP                                                                | 3                                     | Send Loopup Code                                                    |                  |
+| ZT\_MAINT\_LOOPDOWN                                                              | 4                                     | Send Loopdown Code                                                  |                  |
+| ZT\_MAINT\_LOOPSTOP                                                              | 5                                     | Stop Sending Loop Codes                                             |                  |
+| Alarm Condition Bits                                                             |                                       |                                                                     |                  |
+| ZT\_ALARM\_NONE                                                                  | 0                                     | No Alarms                                                           |                  |
+| ZT\_ALARM\_RECOVER                                                               | 1                                     | Recovering from Alarm                                               |                  |
+| ZT\_ALARM\_LOOPBACK                                                              | 2                                     | In Loopback                                                         |                  |
+| ZT\_ALARM\_YELLOW                                                                | 4                                     | Yellow Alarm                                                        |                  |
+| ZT\_ALARM\_RED                                                                   | 8                                     | Red Alarm                                                           |                  |
+| ZT\_ALARM\_BLUE                                                                  | 16                                    | Blue Alarm                                                          |                  |
+| ZT\_ALARM\_NOTOPEN                                                               | 32                                    | N/A                                                                 |                  |
+| Dial Operation bits                                                              |                                       |                                                                     |                  |
+| ZT\_DIAL\_OP\_APPEND                                                             | 1                                     | N/A                                                                 |                  |
+| ZT\_DIAL\_OP\_REPLACE                                                            | 2                                     | N/A                                                                 |                  |
+| ZT\_DIAL\_OP\_CANCEL                                                             | 3                                     | N/A                                                                 |                  |
+
+## IOCTLS Defines
+
+Here are a list of ioctls that use the public interface to zaptel kernel drivers. These are used in the Public domain Zapata Library.
+
+ZT\_CODE = 'J' used in ioctls.
+
+| ZT\_GET\_BLOCKSIZE  | \_IOW (ZT\_CODE, 1, int)                           | Get Transfer Block Size.                                                                                                               |
+| ------------------- | -------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| ZT\_SET\_BLOCKSIZE  | \_IOW (ZT\_CODE, 2, int)                           | Set Transfer Block Size.                                                                                                               |
+| ZT\_FLUSH           | \_IOW (ZT\_CODE, 3, int)                           | Flush Buffer(s) and stop I/O                                                                                                           |
+| ZT\_SYNC            | \_IOW (ZT\_CODE, 4, int)                           | Wait for Write to Finish                                                                                                               |
+| ZT\_GET\_PARAMS     | \_IOR (ZT\_CODE, 5, struct zt\_params)             | Get channel parameters                                                                                                                 |
+| ZT\_SET\_PARAMS     | \_IOW (ZT\_CODE, 6, struct zt\_params)             | Set channel parameters                                                                                                                 |
+| ZT\_HOOK            | \_IOW (ZT\_CODE, 7, int)                           | Set Hookswitch Status                                                                                                                  |
+| ZT\_GETEVENT        | \_IOR (ZT\_CODE, 8, int)                           | Get Signalling Event                                                                                                                   |
+| ZT\_IOMUX           | \_IOWR (ZT\_CODE, 9, int)                          | Wait for something to happen (IO Mux)                                                                                                  |
+| ZT\_SPANSTAT        | \_IOWR (ZT\_CODE, 10, struct zt\_spaninfo)         | Get Span Status                                                                                                                        |
+| ZT\_MAINT           | \_IOW (ZT\_CODE, 11, struct zt\_maintinfo)         | Set Maintenance Mode                                                                                                                   |
+| ZT\_GETCONF         | \_IOWR (ZT\_CODE, 12, struct zt\_confinfo)         | Get Conference Mode                                                                                                                    |
+| ZT\_SETCONF         | \_IOWR (ZT\_CODE, 13, struct zt\_confinfo)         | Set Conference Mode                                                                                                                    |
+| ZT\_CONFLINK        | \_IOW (ZT\_CODE, 14, struct zt\_confinfo)          | Setup or Remove Conference Link                                                                                                        |
+| ZT\_CONFDIAG        | \_IOR (ZT\_CODE, 15, int)                          | Display Conference Diagnostic Information on Console                                                                                   |
+| ZT\_GETGAINS        | \_IOWR (ZT\_CODE, 16, struct zt\_gains)            | Get Channel audio gains                                                                                                                |
+| ZT\_SETGAINS        | \_IOWR (ZT\_CODE, 17, struct zt\_gains)            | Set Channel audio gains                                                                                                                |
+| ZT\_SPANCONFIG      | \_IOW (ZT\_CODE, 18, struct zt\_lineconfig)        | Set Line (T1) Configurations and start system                                                                                          |
+| ZT\_CHANCONFIG      | \_IOW (ZT\_CODE, 19, struct zt\_chanconfig)        | Set Channel Configuration                                                                                                              |
+| ZT\_CONFMUTE        | \_IOW (ZT\_CODE, 20, int)                          | Set Conference to mute mode                                                                                                            |
+| ZT\_SENDTONE        | \_IOW (ZT\_CODE, 21, int)                          | Send a particular tone (see ZT\_TONE\_\*)                                                                                              |
+| ZT\_SETTONEZONE     | \_IOW (ZT\_CODE, 22, int)                          | Set your region for tones (see ZT\_TONE\_ZONE\_\*)                                                                                     |
+| ZT\_GETTONEZONE     | \_IOR (ZT\_CODE, 23, int)                          | Retrieve current region for tones (see ZT\_TONE\_ZONE\_\*)                                                                             |
+| ZT\_DEFAULTZONE     | \_IOW (ZT\_CODE, 24, int)                          | Master unit only -- set default zone (see ZT\_TONE\_ZONE\_\*)                                                                          |
+| ZT\_LOADZONE        | \_IOW (ZT\_CODE, 25, struct zt\_tone\_def\_header) | Load a tone zone from a ZT\_tone\_def\_header                                                                                          |
+| ZT\_FREEZONE        | \_IOW (ZT\_CODE, 26, int)                          | Free a tone zone                                                                                                                       |
+| ZT\_SET\_BUFINFO    | \_IOW (ZT\_CODE, 27, struct zt\_bufferinfo)        | Set buffer policy                                                                                                                      |
+| ZT\_GET\_BUFINFO    | \_IOR (ZT\_CODE, 28, struct zt\_bufferinfo)        | Get current buffer info                                                                                                                |
+| ZT\_GET\_DIALPARAMS | \_IOR (ZT\_CODE, 29, struct zt\_dialparams)        | Get dialing parameters                                                                                                                 |
+| ZT\_SET\_DIALPARAMS | \_IOW (ZT\_CODE, 30, struct zt\_dialparams)        | Set dialing parameters                                                                                                                 |
+| ZT\_DIAL            | \_IOW (ZT\_CODE, 31, struct zt\_dialoperation)     | Append, replace, or cancel a dial string                                                                                               |
+| ZT\_AUDIOMODE       | \_IOW (ZT\_CODE, 32, int)                          | Set a clear channel into audio mode                                                                                                    |
+| ZT\_ECHOCANCEL      | \_IOW (ZT\_CODE, 33, int)                          | zero to disable echo cancellation and non-zero to enable echo cancellation. Num between 32 and 256 will set taps in the echo canceller |
+| ZT\_CHANNO          | \_IOR (ZT\_CODE, 34, int)                          | Return a channel's channel number (useful for the /dev/zap/pseudo type interfaces                                                      |
+| ZT\_DIALING         | \_IOR (ZT\_CODE, 35, int)                          | Return a flag indicating whether channel is currently dialing                                                                          |
+| ZT\_HDLCRAWMODE     | \_IOW (ZT\_CODE, 36, int)                          | Set a clear channel into HDLC w/out FCS checking/calculation mode                                                                      |
+| ZT\_HDLCFCSMODE     | \_IOW (ZT\_CODE, 37, int)                          | Set a clear channel into HDLC w/ FCS mode                                                                                              |
+| ZT\_SPECIFY         | \_IOW (ZT\_CODE, 38, int)                          | Specify a channel on /dev/zap/chan -- must be done before any other ioctl's and is only valid on /dev/zap/chan                         |
+| ZT\_SETLAW          | \_IOW (ZT\_CODE, 39, int)                          | Temporarily set the law on a channel to ZT\_LAW\_DEFAULT, ZT\_LAW\_ALAW, or ZT\_LAW\_MULAW. Is reset on close.                         |
+| ZT\_SETLINEAR       | \_IOW (ZT\_CODE, 40, int)                          | Temporarily set the channel to operate in linear mode when non-zero or default law if 0                                                |
+| ZT\_HDLCPPP         | \_IOW (ZT\_CODE, 41, int)                          | Set a clear channel into HDLC w/ PPP interface mode                                                                                    |
+| ZT\_GETCONFMUTE     | \_IOR (ZT\_CODE, 49, int)                          | Get Conference to mute mode                                                                                                            |
+| ZT\_ECHOTRAIN       | \_IOW (ZT\_CODE, 50, int)                          | Request echo training in some number of ms (with muting in the mean time)                                                              |
+| ZT\_STARTUP         | \_IOW (ZT\_CODE, 99, int)                          | Startup a span                                                                                                                         |
+| ZT\_SHUTDOWN        | \_IOW (ZT\_CODE, 100, int)                         | Shutdown a span                                                                                                                        |
+
+Document generated by Confluence on nov 11, 2022 04:28

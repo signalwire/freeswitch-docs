@@ -1,0 +1,183 @@
+
+# mod_valet_parking 
+
+ Created by  Belaid Areski, last modified by  Matthew Vale on 2017.07.05
+
+# About
+
+Places a channel "on hold" in the switch, instead of in the phone. Allows for a number of different options, including:
+
+* Set caller in a place where the channel won't be hung up on while waiting for someone to talk to.
+* Generic "hold" mechanism, where you transfer a caller to it.
+
+_valet\_park_ differs from [park](https://wiki.freeswitch.org/wiki/Misc.%5FDialplan%5FTools%5Fpark "Misc. Dialplan Tools park") in that calls are parked and retrieved with "parking lot" numbers. A call is placed into a parking lot with a blind transfer to a valet\_park extension. Calls can be retrieved by calling the same extension. Alternatively, an extension can be set up to ask the caller which parking stall from which to retrieve a call.
+
+Valet parking uses a very simple formula: the first person put into a parking stall will be parked and on hold, listening to hold music. The next person put into (or who dials into) that parking stall will be bridged to the person already parked. The two parties are now bridged and the parking stall is now available.
+
+Click here to expand Table of Contents
+
+* 1 [Examples](#examples)  
+   * 1.1 [Blind Transfer](#blind-transfer)  
+   * 1.2 [Ask Caller Retrieval](#ask-caller-retrieval)  
+   * 1.3 [Valet Autoselect Parking Stall](#valet-autoselect-parking-stall)  
+   * 1.4 [Bind meta app for transfering](#bind-meta-app-for-transfering)  
+   * 1.5 [Using Presence](#using-presence)
+* 2 [Events](#events)
+* 3 [Channel Variables](#channel-variables)
+* 4 [API valet\_info](#api-valet_info)
+* 5 [DTMF](#api-valet_info)
+* 6 [See Also](#see-also)
+
+# Examples
+
+Below are several examples of how to implement valet parking.
+
+## Blind Transfer
+
+```xml
+ <action application="valet_park" data="mylot 5555"/>
+```
+
+The above will automatically put the call into "mylot, parking stall number 5555." The next call to this extension will be bridged to the parked caller. Here is a more complete example:
+
+```xml
+<extension name="valet_parking_dest_ext">
+  <condition field="destination_number" expression="^(60\d[1-9])$">
+    <action application="answer"/>
+    <action application="valet_park" data="valet_lot $1"/>
+  </condition>
+</extension>
+```
+
+The above example matches calls made to 6001-6099 and automatically performs a valet park on the caller. If no one is in the parking stall then the call is parked, listening to hold music. If someone is already in the parking stall then the two calls are bridge and the parking stall is available again. Here is an example call flow:
+
+Alice answers a call from Bob.  
+Alice transfers Bob to 6001 and hangs up.  
+Bob is now in parking stall 6001, hearing MOH.  
+Alice calls Charlie and tells him that he has a call parked in 6001.  
+Charlie calls 6001.  
+Charlie and Bob are now bridged and parking stall 6001 is now empty.
+
+## Ask Caller Retrieval
+
+The usage for the ask method is:
+
+```xml
+ <action application="valet_park" data="[lot] ask [min digits] [max digits] [timeout] [prompt]"/>
+```
+
+This example goes along with the one listed under the blind transfer section above:
+
+```xml
+<extension name="valet_parking_dest_ext">
+  <condition field="destination_number" expression="^(6000)$">
+    <action application="answer"/>
+    <action application="valet_park" data="valet_lot ask 1 11 10000 ivr/ivr-enter_ext_pound.wav"/>
+  </condition>
+</extension>
+```
+
+In this case, the one retrieving the parked call will dial 6000 and then dial the stall number and #. Here's the example call flow:
+
+Alice answers a call from Bob.  
+Alice transfers Bob to 6001 and hangs up.  
+Bob is now in parking stall 6001, hearing MOH.  
+Alice calls Charlie and tells him that he has a call parked in 6001.  
+Charlie calls 6000, waits for prompt, then dials 6001#.  
+Charlie and Bob are now bridged and parking stall 6001 is now empty.
+
+Having a single extension for park retrieval allows for extra features, like programming a button on phone that dials into the valet parking lot. 
+
+## Valet Autoselect Parking Stall
+
+You can let the valet choose the slot for you like this:
+
+```xml
+ <extension name="park-in">
+    <condition field="destination_number" expression="^(8500)$">
+       <action application="valet_park" data="my_lot auto in 8501 8599"/>
+    </condition>
+ </extension>
+
+ <extension name="park-out">
+    <condition field="destination_number" expression="^(8600)$">
+       <action application="valet_park" data="my_lot auto out 8501 8599"/>
+    </condition>
+ </extension>
+```
+
+The above extension will find the first stall between 8501 and 8599, park the call there, and then voice the stall number to the transferring user. The call can then be retrieved in the normal fashion by dialing the slot number:
+
+```xml
+ <extension name="park-out">
+   <condition field="destination_number" expression="^(85\d\d)$">
+     <action application="answer"/>
+     <action application="valet_park" data="my_lot $1"/>
+   </condition>
+ </extension>
+```
+
+The advantage to this method is that calls parked in this stall will queue up in FIFO fashion, so a receptionist can "stack" calls up and then pop them off one at a time in the order that they were parked.
+
+## Bind meta app for transfering
+
+you can add this before any call
+
+```xml
+<action application="bind_meta_app" data="1 a s valet_park::my_lot auto in 8001 8999"/>
+```
+
+so when on the phone you can dial \*1 to park the call to the next free slot 8001-8999
+
+## Using Presence
+
+When using git head after October 18, 2011, it is now possible to subscribe to the status of an individual slot or the entire lot. To do this simply subscribe to park+my\_lot for the status of the entire lot or park+&lt;slotnumber> to monitor the status of an individual slot. Note that for a multi domain environment the lot name must include the domain name.
+
+For example:
+
+```xml
+<action application="valet_park" data="my_lot@${domain_name} $1"/>
+```
+
+# Events
+
+Custom events with subclass valet\_parking::info
+
+```xml
+hold
+bridge
+exit
+```
+
+# Channel Variables
+
+valet_parking_timeout  - Timeout in Seconds
+valet_parking_orbit_exten - Extensions to transfer to when timeout happens.
+valet_parking_orbit_dialplan - What dialplan (defaults to current sessions dialplan)
+valet_parking_orbit_context - What context (defaults to current sessions context)
+
+valet_hold_music - Set hold music (defaults to ${hold_music} value)
+valet_announce_slot - Enable/disable the park slot announcement (default announcement is enabled)
+
+# API valet_info
+
+Use api valet\_info, you can find the status of parking lots. This is can be useful because if you blind transfer a second call to an occupied parking lot, it is connected to the parked call. That means that two customers might talk to each other. A sample output is like this. The lot is park@example.com and parking extension 10 has a call with that uuid.
+
+```xml
+ <lots>
+   <lot name="park@example.com">
+     <extension uuid="abcdabcd-1234-5678-1234-1234567890ab">10</extension>
+   </lot>
+ </lots>
+```
+
+# DTMF
+
+valet\_parking will listen for DTMF # and when received will break out of media. This currently cannot be disabled or changed
+
+# See Also
+
+* [park](./mod-dptools/6586687.mdx#0-about) \- traditional park
+* [mod\_fifo](./mod_fifo_3966031.mdx#-add) \- Alternative means of parking and retrieving calls
+
+Document generated by Confluence on nov 11, 2022 04:27

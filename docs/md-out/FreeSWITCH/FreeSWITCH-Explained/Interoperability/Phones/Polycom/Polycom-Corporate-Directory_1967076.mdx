@@ -1,0 +1,283 @@
+
+# Polycom Corporate Directory 
+
+ Created by  Mario G, last modified by  Nathan Neulinger on 2016.02.16
+
+# About
+
+Polycom offers configuration of a "corporate directory", which fetches entries from an LDAP-Server. This page describes how to set up a minimal OpenLDAP-based contacts directory on Debian, aimed at LDAP noobs like me.
+
+This documentation is based on [UC Admin Guide 3.3.4](http://support.polycom.com/global/documents/support/setup%5Fmaintenance/products/voice/spip%5Fssip%5FAdmin%5FGuide%5FUCS%5Fv3%5F3%5F0.pdf), [Corporate Directory Best Practices](http://support.polycom.com/global/documents/support/technical/products/voice/Corporate%5FDirectory%5FBest%5FPractices%5FTB41137.pdf) and Polycom UC Software Version 3.3.4 obviously.
+
+Click to expand Table of Contents
+
+* 1 [slapd Server On Debian Squeeze](#slapd-server-on-debian-squeeze)  
+   * 1.1 [Basic installation and configuration](#basic-installation-and-configuration)  
+   * 1.2 [Add contact information to the directory](#add-contact-information-to-the-directory)
+* 2 [Configure the phone](#configure-the-phone)
+* 3 [Debugging](#-freeswitch--polycom-corporate-directory-)
+
+# slapd Server On Debian Squeeze
+
+## Basic installation and configuration
+
+Install slapd and ldap-utils
+
+```xml
+# apt-get install slapd ldap-utils
+```
+
+Reconfigure slapd
+
+```xml
+# dpkg-reconfigure -plow slapd
+```
+
+The package configuration will ask you a few questions:
+
+* Omit OpenLDAP server configuration? **No**
+* DNS domain name: **my\_domain**
+* Organization name: **my\_organization**
+* Adminstrator password: **my\_secret**
+* Database backend to use: **HDB**
+* Do you want the database to be removed when slapd is purged?: **Yes**(I actually had to purge once, so this makes for a clean start)
+* Move old database: **Yes** (If you reconfigure a second time, it will complain that there's already a backup-file in /var/backups/\*.ldapd and reconfiguration will fail - it's safe to delete this file, then restart reconfiguration)
+* Allow LDAPv2 protocol?: **No**
+
+Add caseIgnoreOrderingMatch to core.schema
+
+We now have to add "ORDERING caseIgnoreOrderingMatch" to the surname- and givenName-Attributes, because Polycom uses simple search expressions like '>=' and '&lt;=' when querying the LDAP-addressbook.
+
+```xml
+root@uunet # /etc/init.d/slapd stop
+root@uunet # vim /etc/ldap/slapd.d/cn\=config/cn\=schema/cn\=\{0\}core.ldif
+```
+
+In this file, substitute
+
+**surname original**
+
+```xml
+olcAttributeTypes: {1}( 2.5.4.4 NAME ( 'sn' 'surname' ) DESC 'RFC2256: last (family) name(s) for which the entity is known by' SUP name )
+```
+
+with
+
+**surname ORDERING**
+
+```xml
+olcAttributeTypes: {1}( 2.5.4.4 NAME ( 'sn' 'surname' ) DESC 'RFC2256: last (family) name(s) by which the entity is known' SUP name ORDERING caseIgnoreOrderingMatch)
+```
+
+Replace
+
+**givenName original**
+
+```xml
+olcAttributeTypes: {35}( 2.5.4.42 NAME ( 'givenName' 'gn' ) DESC 'RFC2256: first name(s) for which the entity is known by' SUP name )
+```
+
+with
+
+**givenName ORDERING**
+
+```xml
+olcAttributeTypes: {35}( 2.5.4.42 NAME ( 'givenName' 'gn' ) DESC 'RFC2256: first name(s) by which the entity is known' SUP name ORDERING caseIgnoreOrderingMatch)
+```
+
+  
+Start slapd
+
+**start slapd**
+
+```xml
+root@uunet # /etc/init.d/slapd start
+```
+
+## Add contact information to the directory
+
+Go to your home-directory and create a some ldif-files with the content we want to add to LDAP:
+
+**Create Directories**
+
+```xml
+root@uunet # cd
+root@uunet # mkdir directory_files
+root@uunet # cd directory_files
+```
+
+Create a file for the organizationUnit "people" that holds a user-account we need for the phones to login:
+
+**people.ldif**
+
+```xml
+root@uunet # vim people.ldif
+   dn: ou=people,dc=my_domain
+   ou: people
+   description: holds users of the directory
+   objectClass: organizationalUnit
+```
+
+Create a file for the polycom-User which we use for the phone-login:
+
+**polycom\_user.ldif**
+
+```xml
+ # vim polycom_user.ldif
+   dn: uid=polycom,ou=people,dc=my_domain
+   changetype: add
+   displayName: polycom
+   cn: polycom
+   givenname: polycom
+   objectclass: top
+   objectclass: person
+   objectclass: organizationalPerson
+   objectclass: inetorgperson
+   uid: polycom
+   sn: polycom
+   userPassword: supersecret #Change the password!
+```
+
+Create a file for the organizationalUnit "contacts", that holds the contact-information:
+
+**phonebook.ldif**
+
+```xml
+# vim phonebook.ldif
+   dn: ou=contacts,dc=my_domain
+   ou: contacts
+   description: lists all contacts
+   objectClass: organizationalUnit
+```
+
+Create a file for the contaction-information of contact "John Doe" of "ACME Corporation".
+
+The Polycom phones don't seem to understand parenthesis (perhaps other special characters also) so they won't show a contact if any attribute-value has a parenthesis in it.
+
+**phonebook.ldif**
+
+```xml
+ # vim phonebook.ldif
+ dn: cn=John Doe,ou=contacts,dc=my_domain
+ changetype: add
+ givenName: John
+ sn: Doe
+ cn: John Doe
+ o: ACME Corporation
+ telephoneNumber: 0043123456789
+ objectClass: inetOrgPerson
+ objectClass: top
+```
+
+Parse files with ldapadd to add their content to the database
+
+Change "`my_domain`" to your server. `Password` is the one you entered during reconfiguration.
+
+**ldapadd**
+
+```xml
+root@uunet # ldapadd -x -D "cn=admin,dc=my_domain" -W -v -f people.ldif
+ ldap_initialize( <DEFAULT> )
+ Enter LDAP Password: 
+ add ou:
+ 	  contacts
+ add description:
+ 	  lists all contacts
+ add objectClass:
+ 	  organizationalUnit
+ adding new entry "ou=contacts,dc=my_domain"
+ modify complete
+```
+
+Repeat with all the files you've created, in order.
+
+# Configure the phone
+
+Assuming you are already using the excellent file-based [Polycom Configuration](./Polycom-Configuration_1967052.mdx#fonts), add these entries to your sip.cfg (or custom-config):
+
+**sip.cfg**
+
+```xml
+<dir>
+     <dir.corp
+         dir.corp.address="$server_ip" 
+         dir.corp.port="389" 
+         dir.corp.transport="TCP" 
+         dir.corp.baseDN="ou=contacts,dc=my_domain" 
+         dir.corp.scope="sub" 
+         dir.corp.filterPrefix="" 
+         dir.corp.user="uid=polycom,ou=people,dc=my_domain"
+         dir.corp.pageSize="32" 
+         dir.corp.password="supersecret"
+         dir.corp.cacheSize="128" 
+         dir.corp.leg.pageSize="8"
+         dir.corp.leg.cacheSize="32"
+         dir.corp.autoQuerySubmitTimeout="1" 
+         dir.corp.viewPersistence="0">
+         dir.corp.leg.viewPersistence="0">
+         dir.corp.sortControl="0" 
+         <dir.corp.attribute
+             dir.corp.attribute.1.name="sn" 
+             dir.corp.attribute.1.label="last name" 
+             dir.corp.attribute.1.type="last_name" 
+             dir.corp.attribute.1.searchable="1" 
+             dir.corp.attribute.1.filter="" 
+             dir.corp.attribute.1.sticky="0" 
+             dir.corp.attribute.2.name="givenName" 
+             dir.corp.attribute.2.label="first name" 
+             dir.corp.attribute.2.type="first_name" 
+             dir.corp.attribute.2.filter="" 
+             dir.corp.attribute.2.sticky="0" 
+             dir.corp.attribute.2.searchable="1" 
+             dir.corp.attribute.3.name="telephoneNumber" 
+             dir.corp.attribute.3.label="phone number" 
+             dir.corp.attribute.3.type="phone_number" 
+             dir.corp.attribute.3.filter="" 
+             dir.corp.attribute.3.sticky="0" 
+             dir.corp.attribute.3.searchable="0" 
+             dir.corp.attribute.4.name="o" 
+             dir.corp.attribute.4.label="company name" 
+             dir.corp.attribute.4.type="other" 
+             dir.corp.attribute.4.filter="" 
+             dir.corp.attribute.4.sticky="0" 
+             dir.corp.attribute.4.searchable="1" 
+         </dir.corp.attribute>
+         <dir.corp.backGroundSync
+             dir.corp.backGroundSync.period="3600">
+         </dir.corp.backGroundSync>
+        <dir.corp.vlv
+             dir.corp.vlv.allow="1" 
+             dir.corp.vlv.sortOrder="sn givenName telephoneNumber">
+         </dir.corp.vlv>
+    </dir.corp>
+ </dir>
+```
+
+```xml
+ <feature feature.corporateDirectory.enabled="1"/>
+ <softkey
+   softkey.feature.directories="1"
+ />
+```
+
+Adapt these values according to your personal settings and preferences. Use the password of the user "polycom", not "admin". All parameters are documented in detail in the [UC Admin Guide 3.3.4](http://support.polycom.com/global/documents/support/setup%5Fmaintenance/products/voice/spip%5Fssip%5FAdmin%5FGuide%5FUCS%5Fv3%5F3%5F0.pdf). YMMV if you use version 4 of the UC-software.
+
+Reboot your phone to fetch the configuration. Press the new softkey "Dir" (Or the "Directories" button if you have one and you should see a menu item "Corporate Directory...". Enter it and you can use the search function to search for firstname, lastname and companyname. Unfortunately the companyname is only displayed in the contact details.
+
+Of course, you can add additional attributes such as email, address, hair color, etc. to be able to search for them.
+
+# Debugging
+
+Search the directory:
+
+```xml
+ldapsearch -D "uid=polycom,ou=people,dc=my_domain" -b "ou=contacts,dc=my_domain" -w supersecret -h 127.0.0.1 "(sn=*)"
+```
+
+## Comments:
+
+| Please fix this typo:ldapsearch -D "uid=polycom,ou=people,dc='my\_domain" -b "ou=contacts,dc=my\_domain" -w supersecret -h 127.0.0.1 "(sn=\*)"Must beldapsearch -D "uid=polycom,ou=people,dc=my\_domain" -b "ou=contacts,dc=my\_domain" -w supersecret -h 127.0.0.1 "(sn=\*)" RegardsCharlie ![](/images/icons/contenttypes/comment_16.png) Posted by at giu 02, 2014 16:53 |
+| -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| fixed ![](/images/icons/contenttypes/comment_16.png) Posted by nneul at feb 16, 2016 13:31                                                                                                                                                                                                                                                                                  |
+
+Document generated by Confluence on nov 11, 2022 04:28

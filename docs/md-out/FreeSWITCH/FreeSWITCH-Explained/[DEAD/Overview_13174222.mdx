@@ -1,0 +1,601 @@
+
+# Overview 
+
+ Created by  Pedro Henrique Peixoto on 2017.01.13
+
+# About
+
+General Overview
+
+Click here to expand Table of Contents
+
+* 1 [Overview](#overview)  
+   * 1.1 [\=](#overview)
+
+# Overview
+
+Adapted, largely from \[[fredshack.com](http://www.fredshack.com/docs/freeswitch.html)\]
+
+Building a telephony server with FreeSwitch Introduction Freeswitch is an alternative to Asterisk to build a telephony server. It is also open-source, was launched by a member of the Asterisk development teamp who wanted to rewrite the whole thing from scratch to cleanly separate the switching part from the PBX part (Asterisk mixes the two due to its monolithic architecture). Unlike Asterisk, Freeswitch was meant to be cross-platform from the the start, and is available for Windows in addition to \*nix.
+
+OpenZAP supports direct access to Sangoma cards through the wanpipe interface, and indirect access to Digium-compatible cards through the Zaptel interface; Because of this, as of April 2009, Windows users can only use Sangoma cards, or rely on an external VoIP gateway. Edit March 2010: OpenZap has been replaced with FreeTDM.
+
+Here's a list of hardware that have been tested with Freeswitch. What can you do with Freeswitch? Here's a list. A web-based interface to the FS users mailing list is available here.
+
+And here's the reason why Freeswitch authors chose XML over eg. INI files.
+
+The big picture Freeswitch is configured through different XML files loaded through the main freeswitch.xml. At runtime when FreeSwitch parses all the files, the resultant file is located as log/freeswitch.xml.fsxml.
+
+Contexts are a set of extensions located in conf/dialplan/ (eg. Default, Public, etc.), and effectively define the dialplan. A call can go through different contexts over the length of the call, eg. an unauthenticated call from a VoIP provider first go through the Public context before before forwarded to an IVR context, and end up being connected to an internal extension.
+
+Profiles define User Agents ("end points of a phone call", says Wikipedia), and handles connections on a given IP and port number. This enables Freeswitch to support multiple companies on the same host while providing enhanced security. By default, Freeswitch comes with two profiles: Internal (private LAN), and External (Internet-accessible, public LAN.)
+
+In a dialplan, profiles make use of contexts (eg. &lt;param name="context" value="public"/>). What users can do depends on whether they authenticated (eg. local users making internal and outgoing calls) or not (eg. incoming calls from remote VoIP provider.) For security reason, it's a good idea to have the Internal and External profiles use their own dialplan.
+
+Users (extensions) are configured through files in conf/directory/. Each extension maps to a context (&lt;variable name="user\_context" value="default"/>). If you need to perform more complex actions, use the dialplan to call external scripts.
+
+  
+Gateways, a.k.a. trunks, don't need to authenticate with Freeswitch, and are configured in conf/directory/default/
+
+conf/autoload\_configs contains a lot of XML files, but only those listed in modules.conf.xml will actually be loaded automatically by Freeswitch.
+
+IVR sound files in English are located under sounds/en/us/callie/ivr/8000/
+
+Voice mail is saved under storage
+
+## \=
+
+Using Freeswitch with a Digium FXO PCI card
+
+If you use a PCI telephony card, you must first install Asterisk's Dahdi/Zaptel interface, followed by Freeswitch's OpenZap which relies on Dahdi.
+
+Setting up Dahdi lspci -vv (Check that the hardware is detected) adduser asterisk; mkdir /etc/asterisk (to avoid errors during compile/install) cd /usr/src Download and unzip the latest Dahdi driver + tools from Asterisk make make install make config If you need to set options, eg. set the wctdm driver to work in France, vi /etc/modprobe.d/dahdi.conf:
+
+options wctdm opermode=FRANCE
+
+If you need to set eg. tones for France, vi /etc/dahdi/genconf\_parameters: "lc\_country fr" vi /etc/modprobe.d/dahdi.blacklist.conf: Comment out modules you do NOT want to blacklist Add "blacklist netjet" Reboot to get rid of the NetJet module that is loaded instead of the Wctdm module, and run "lsmod" to check that netjet/ISDN are gone Either run "dahdi\_genconf modules", or edit /etc/dahdi/system.conf manually /etc/init.d/dahdi start, and check /var/log/messages For Freeswitch to be able to access the Dahdi devices, edit /etc/udev/rules.d/dahdi.rules, followed by "/etc/init.d/dahdi restart" In case of trouble, take a look at OpenVox's Troubleshooting of Analog cards
+
+Dahdi Configuration /etc/dahdi/
+
+genconf\_parameters: Parameters that affect the dahdi\_genconf configuration generator, eg. "lc\_country fr" so that dahdi\_genconf uses France for tone generation init.conf: Settings for Dahdi initialization scripts. Replaces /etc/sysconfig/zaptel, /etc/defaults/zaptel modules: Created by dahdi\_genconf; Controls which modules are loaded system.conf: Generated by dahdi\_genconf, and read by dahdi\_cfg /etc/modprobe.d/dahdi.blacklist.conf
+
+Used to disable loading modules causing trouble for Dahdi, eg. netjet
+
+/etc/modprobe.d/dahdi.conf
+
+This file sets module options. Dahdi tools in /usr/sbin/ To check hardware installed: dahdi\_hardware To check hardware installed: dahdi\_scan dahdi\_genconf: Reads /etc/dahdi/genconf\_parameters to generate /etc/dahdi/system.conf and/etc/asterisk/dahdi\_channels.conf After editing /etc/dahdi/system.conf, run "dahdi\_cfg -vv" To check timer: dahdi\_test dahdi\_speed dahdi\_tool: Equivalent of zttool Setting up OpenZap cd /usr/src/freeswitch Edit modules.conf: Uncomment "../../libs/openzap/mod\_openzap" Follow the instructions on how to compile Freeswitch vi /usr/local/freeswitch/conf/openzap.conf
+
+\[span zt FXO\] name => OpenZAP fxo-channel => 1
+
+vi /usr/local/freeswitch/conf/autoload\_configs/openzap.conf.xml
+
+&lt;analog\_spans>
+
+Run the Freeswitch console fs\_cli, type "load mod\_openzap", followed by "oz list" To have OpenZap be loaded automatically when Freeswitch starts, edit /usr/local/freeswitch/conf/autoload\_configs/modules.conf.xml, and uncomment &lt;load module ="mod\_openzap"/> As OpenZap ignores the tones information from Dahdi and uses its own information, check that the tones information for your country are available in /usr/local/freeswitch/conf/tones.conf (examples) Testing If you experience echo, one thing to try is using the Open-source Line Echo Canceller (OSLEC).
+
+Connecting FXO port to dialplan to extensions <http://wiki.freeswitch.org/wiki/Zaptel%5FTutorial#Simple%5FDialplan>
+
+<http://wiki.freeswitch.org/wiki/OpenZAP#Dialplan%5FConfiguration>
+
+Removing Dahdi In case you wish to remove Dahdi so you can downgrade to Zaptel:
+
+/etc/init.d/dahdi stop rm -f /etc/init.d/dahdi rm -Rf /etc/dahdi/ rm -f /etc/modprobe.d/dahdi.\* rm -Rf /usr/share/dahdi/ rm -f /usr/sbin/dahdi\_\* cd /usr/src/dahdi-linux/linux ; make uninstall reboot to check Installing Zaptel NOTE: Seems like Zaptel isn't compatible with more recent version of Linux. And since Zaptel has been replaced with Dadhi...
+
+yum install kernel-devel kernel-headers yum install gcc newt-devel libusb-devel cd /usr/src wget <http://downloads.asterisk.org/pub/telephony/zaptel/zaptel-1.4-current.tar.gz> cd /usr/src/zaptel-1.4.12.1 ./install\_prereq test ./configure make menuselect make make install make config Connecting to the PSTN A Freeswitch server can handle conversations over the analog phone network either by connecting out through ADSL to a VoIP provider on the Internet, or by connecting the server to a phone line on the premises through an SIP/PSTN gateway.
+
+In this latter case, there are two options: Either an external device like the Linksys SPA-3102, or a PCI card from Digium, Sangoma, OpenVox, Atcom, etc. Sangoma also offers a two-FXO USB device.
+
+Advantages
+
+Disadvantages
+
+External device
+
+OS-independent, so Freeswitch can run on any computer Cheaper than PCI cards Provides an FXS port to connect an analog handset More cables than a PCI card (power, Ethernet, PSTN) Possible echo issue with SIP/PSTN connections PCI card
+
+More compact (onlye one cable: From card to PSTN wall plug) More reliable than entry-level, external SIP/PSTN gateways Requires a desktop computer With one exception, only run under Linux Possible incompatibility with some motherboards Connecting Freeswitch to a PSTN line through the Linksys 3102
+
+Here are few things to keep in mind:
+
+contexts = diaplans SIP profiles = for enhanced security, an extension must belong to a given profile extensions = belongs to an SIP profile and is set to use a given dialplan settings in XML files under autoload\_configs/\*.xml are loaded even if the relevant module is not loaded through modules.conf.xml (list of modules) <http://www.aoakley.com/articles/2008-01-08.php> (uses the 3102 independantly, without Freeswitch)
+
+Home VOIP system using FreeSwitch and a Linksys 3102 voice gateway (UK Guide)
+
+SPA3102 FreeSwitch HowTo
+
+Reset the unit by plugging a handset in the Phone plug, and dialing \*\*\*\* followed by 73738#, and confirm with 1 Since we won't use the 3102 as a router to connect two Ethernet networks, plug the 3102 to the LAN through its "Internet" connector, dial \*\*\* to enter the voice menu, followed by 110# to get its IP address, and 7932# followed by 1#, and 1 to enable the embedded web server Aim your browser at <http://linksys-ip/admin/advanced> (where linksys-ip is the 3102 IP address) Router Wan Setup
+
+Connection Type = Static IP
+
+Static IP = 192.168.0.253
+
+Netmask = 255.255.255.0
+
+Gateway = 192.168.0.254
+
+Primary DNS = 212.27.54.252
+
+Secondary DNS = 208.67.220.220
+
+Primary NTP Server = 0.fr.pool.ntp.org
+
+Secondary NTP Server = 1.fr.pool.ntp.org
+
+Enable WAN Web Server = yes
+
+Lan Setup
+
+Networking service = Bridge (so we can connect to the 3102 through either its Internet or Ethernet port; The LAN IP address is ignored)
+
+Voice System
+
+Enable Web Admin Access = yes
+
+Syslog/debug server = 192.168.0.1
+
+SIP
+
+SIP TCP Port Min/Max = 5060
+
+RTP Port Min/Max (Must be port-mapped on NAT router, or can 3102 punch holes itself?)
+
+"RTP Packet Size" should be changed from 0.030 to 0.020 to avoid problems ("When you make outbound call using analog phone attached to the FXS port and the person you call hears choppy voice")
+
+NAT Support Parameters : what is VIA?
+
+STUN Enable = yes
+
+STUN Test Enable = ?
+
+STUN Server = stun.ekiga.net
+
+EXT IP?
+
+EXT RTP Port Min
+
+Regional (France)
+
+Dial Tone = 440@-10; 10(\*/0/1)
+
+Second Dial Tone = 420@-19,520@-19;10(\*/0/1+2)
+
+Busy Tone = 440@-10; 10(0.5/0.5/1)
+
+Ring Back Tone = 440@-10; 10(1.5/3.5/1)
+
+Time Zone = GTM +1
+
+DST Rule = start=3/-1/7/2;end=10/-1/7/3;save=1
+
+FXS Port Impedance = 600
+
+Caller ID Method = ETSI FSK
+
+Caller ID FSK Standard = bell 202
+
+Line 1
+
+Line Enable = yes
+
+NAT Mapping Enable = no
+
+SIP Port = 5062
+
+Proxy = FS server
+
+User ID + Password = SIP account on FS server
+
+Register = ?
+
+Make/Ans Call Without Reg = ?
+
+Dial Plan = ?
+
+PSTN Line
+
+Line Enable = yes
+
+NAT Mapping Enable = no
+
+SIP Port = 5061
+
+Proxy = FS server
+
+User ID + Password
+
+Preferred Codec = G711U
+
+Dial Plan 1 = (S0&lt;:9999>) //Incoming calls from POTS sent to extension 9999 on FS server
+
+VoIP-To-PSTN Gateway Enable = ?
+
+Line 1 VoIP Caller DP = 1
+
+PSTN-To-VoIP Gateway Enable = ?
+
+PSTN Ring Thru Line 1 = no
+
+PSTN CID For VoIP CID = yes
+
+PSTN Caller Default DP = 1
+
+VoIP Answer Delay = 0
+
+PSTN Answer Delay = 0
+
+PSTN Ring Thru Delay = 1
+
+PSTN Ring Timeout = 5
+
+Detect CPC = yes
+
+Detect Polarity Reversal = yes
+
+Detect Disconnect Tone = yes
+
+Disconnect Tone = 480@-30,620@-30;4(.25/.25/1+2)
+
+FXO Port Impedance = 370+620||310nF
+
+User 1
+
+PSTN User
+
+Installing an X100P card from www.x100p.com cd /usr/src wget <http://downloads.asterisk.org/pub/telephony/zaptel/zaptel-1.4.12.1.tar.gz> tar xzvf ./zaptel-1.4.12.1.tar.gz cd zaptel-1.4.12.1/ ./configure make make install make config vim /etc/sysconfig/zaptel, and comment out modules you don't need (keep $MODULES wcfxo) cd /etc ; mv zaptel.conf zaptel.conf.orig vim /etc/zaptel.conf (for France): loadzone=fr defaultzone=fr fxsks=1 modprobe wctdm OR modprobe wcfxo? modprobe zaptel lsmod, and check that wcfxo, zaptel, and crc\_ccitt are loaded ztcfg -vv (if it says "ZT\_CHANCONFIG failed on channel 1: No such device or address (6)", it's a false alarm)
+
+  
+Tried:
+
+/etc/zaptel.conf: fxsks=1 is last statement in file In BIOS, set PCI slot to use IRQ7 Booted grub with acpi=no Booted grub with noapic (Linux gets stuck) Flashed BIOS with F2 version Removed Zaptel 1.4.12.1, rebooted, downloaded and compiled Dahdi 2.2.0.2 (no config/configure -> make all; make install; make config; dahdi\_genconf modules) Rebooted: FXO PCI Master abort... Shutdown: Replaced with a SCSI card which worked fine, retried the X100P... which now shows up in demsg :-/ But... while lspci does return "Communication controller: Motorola SM56 PCI Modem", it's not listed in "cat /proc/interrupts" Also, when using the following for /etc/dahdi/system.conf...
+
+loadzone=fr defaultzone=fr fxsks=1
+
+... and running "/etc/init.d/dahdi restart": "Running dahdi\_cfg: DAHDI\_CHANCONFIG failed on channel 1: No such device or address (6)"
+
+dahdi\_cfg -vv : "DAHDI\_CHANCONFIG failed on channel 1: No such device or address (6)"
+
+The problem is with high-speed USB ports. I kept getting Unknown DAA errors. Soon as I disabled the USB ports everything worked as it should. It was the same case with EVERY motherboard I tried.
+
+It was frustrating because everything worked fine in my old computer, but when I upgraded it was not.
+
+Zaptel Version: 1.4.12.1
+
+Echo Canceller: MG2
+
+Configuration
+
+###### \==========
+
+Channel map:
+
+Channel 01: FXS Kewlstart (Default) (Slaves: 01)
+
+1 channels to configure.
+
+ZT\_CHANCONFIG failed on channel 1: No such device or address (6)
+
+If you have any zaptel hardware it is now recommended to edit /etc/sysconfig/zaptel and set there an optimal value for the variable MODULES .
+
+I think that the zaptel hardware you have on your system is:
+
+pci:0000:03:00.0 wcfxo- 1057:5608 Wildcard X100P
+
+/sbin/ztcfg
+
+Need to first install Zaptel/Dahdi?
+
+lspci -v to check that the card is recognized cat /proc/interrupts to check that the card was assigned an IRQ. If not listed here, If still NOK, "remove any unneeded peripheral from the PCi bus, toggle the plug-n-play option in your bios. If you have a "Reset Hardware Configuration" or something like that turn it on. Also try a different PCI slot.
+
+Systems running chipsets from SIS, nvidia and some VIA (so pretty much all AMD) dont handle those cards very well at all.
+
+acpi noaicp nosmp etc..etc
+
+echotraining =x
+
+"
+
+<http://www.novavox.co.uk/support/issues.html>
+
+<http://wiki.freeswitch.org/wiki/Zaptel%5FTutorial>
+
+<http://wiki.freeswitch.org/wiki/OpenZAP>
+
+<http://downloads.asterisk.org/pub/telephony/zaptel/>
+
+Does OpenZap work with Dadhi 2.x?
+
+<http://downloads.asterisk.org/pub/telephony/zaptel/zaptel-1.4.12.1.tar.gz>
+
+Playing with Freeswitch Important commands
+
+Some important commands that you send through the bin/fs\_cli command-line interface:
+
+To check the different profiles: sofia status To check who is connected: sofia status profile internal To only watch SIP packets: "console loglevel 0", followed by "sofia profile internal siptrace on" To reload the whole set of XML files: reloadxml GUI for FreeSwitch
+
+wikiPBX (instructions) Fusionpbx Configuring a Siemens 580IP
+
+Leave the handset on its cradle long enough to fully charge the battery, then connect the base station to the router so it gets an IP configuration through DHCP. To check what IP address was assigned and configure the handset from a web browser, open the Menu and navigate to "IP Address".
+
+By default, System PIN = 0000
+
+Settings > Telephony > Connections > Configure "IP1" to connect the 580IP to Freeswitch
+
+Domain = IP address of Freeswitch server
+
+Registrar = IP address of Freeswitch server
+
+In case the 580IP is used to register with another SIP server besides Freeswitch, here's how to configure things so that the handset if you prefer to have it handle the dialplan instead of Freeswitch:
+
+If I want to use a different line manually, specify its number (eg. 5551234#2 to use line #2) as listed in "Telephony > Connections".
+
+In case you want all outgoing calls to be handled by the Freeswitch server, ie. not make use of the 580IP dialplan feature, add the VoIP gateways to the Freeswitch server, and just create a single connection in the Siemens in "Telephony > Number Assignment".
+
+Issues What is the use of the "Telephony > Dialling Plans > Dialling Plans" section?
+
+When should I use "Telephony > Number Assignment > Call Manager"?
+
+What to try
+
+Common extensions for testing:
+
+1000, 1001, ..., 1019 - Generic SIP extensions 5000 - demo IVR (requires sounds and music files to be installed) 9995 - five second delay echo test 9996 - standard echo test 9999 - music on hold (requires music files to be installed) Enable mod\_python, and have Python scripts be called by the dialplan
+
+Configure SIP accounts, including voicemail and sending e-mail.
+
+IVR
+
+Connect a PSTN/VoIP gateway
+
+Investigating issues
+
+fs\_cli> console loglevel \[0-7\] (where 1=EMERG and 7=DEBUG)
+
+fs\_cli> sofia loglevel &lt;all|default|tport|iptsec|nea|nta|nth\_client|nth\_server|nua|soa|sresolv|stun> \[0-9\]
+
+fs\_cli> sofia loglevel all 0
+
+fs\_cli > sofia profile &lt;profilename> siptrace on|off
+
+fs\_cli > sofia tracelevel info #details in log/freeswitch.log file
+
+<http://wiki.freeswitch.org/wiki/Sofia#Debugging%5FSofia-SIP>
+
+Configuration files
+
+Here's a diagram to get the big picture.
+
+By default, configuration files live in /usr/local/freeswitch/conf/. The XML files are either stand-alone or include references to other XML files.
+
+Note that an X-PRE-PROCESS line cannot be commented out, and must be removed entirely if not needed.
+
+Information is available in the Getting Started Guide, and the Freeswitch default configuration layout.
+
+Configuration data is stored in XML files under /usr/local/freeswitch/conf/ . This layout is in no way required, you can minimize the configuration to just one file if needed. The main config file is called freeswitch.xml, you don't need to change it in any way, it just loads all other config files.
+
+freeswitch.xml FS doesn't need more than the hard-coded conf/freeswitch.xml, but it's a much better idea to have it load different XML files from sub-directories to handle SIP accounts, dialplans, etc. At runtime when FreeSwitch parses all the files, the resultant file is located as log/freeswitch.xml.fsxml. freeswitch.xml contains multiple sections, each used by a different component in FreeSwitch: "configuration", "diaplan", "directory", and "phrases" (to locate sound files).
+
+vars.xml Used to define global variables
+
+conf/dialplan/ This is the directory where you'll customize your dialplan; Equivalent to Asterisk's extensions.conf
+
+Diaplans are located in conf/dialplan/ . Everything in the public context is available to everyone, while everything in "default" context are only available to users that have registered with FreeSWITCH. Logically, this should be "internal", but I guess "default" is a legacy.
+
+You can define in the user profiles (in the directory) which context they belong to, and you can define the public context in the sofia configuration. Contexts are a logical grouping of extensions. You may have multiple extensions contained within a single context.
+
+dialplan: This is the place where you setup your dialplan. There are some examples of how to configure your dialplan included. (recipes); put your custom diaplan entries into the extensions subdirectory under conf/dialplan. You may create one or more XML files in this subdirectory, all of which will be included in the dialplan thanks to an "include" directive in the default.xml file. By keeping your customized extensions separate from default.xml you will be able to update default.xml without having to re-enter your custom extensions.
+
+conf/autoload\_configs/ A list of modules that are automatically loaded when Freeswitch starts; modules.conf.xml tells Freeswitch which modules to load. There are certain modules required for operation so you should not edit this file unless you know that you wish to add or remove a specific module.
+
+The sofia.conf.xml file includes other xml files (conf/sip\_profiles/\*.xml) to define multiple "profiles" (ie. contexts; See below).
+
+Note that by default, all XML configuration files under autoload\_configs/ are parsed, even if a module is commented out in modules.conf.xml, but Freeswitch will only actually use settings for modules that are explicitely listed in modules.conf.xml
+
+conf/directory/ A list of SIP extensions, one XML file per extensions. User authentication is available under conf/directory/ . For instance, a connection to a remote VoIP gateway can be done through either the external profile or through information in directory/.
+
+directory: The directory contains all users that may register and use freeswitch as their pbx.; holds authentication credentials for other sip endpoints that will register to freeswitch (most commonly users). The directory configuration default is configured to process the glob $PREFIX/conf/directory/default/\*.xml by the configuration included in freeswitch.xml $PREFIX/conf/directory/\*.xml.
+
+conf/sip\_profiles/ Tells FS how to talk sip. Each profile has its own port. Unlike other softswitches (like Asterisk), FreeSWITCH allows you to handle media (calls, video, etc.) differently based on where the equipment is attached to your network. This assists with security as well as providing added functionality. SIP Profiles allow you to define paths to devices or carriers that may live inside or outside your network. These paths can be of many different types, but must consist of a unique combination of port and IP pairs.
+
+  
+You could have SIP profiles for your internal network, or multiple profiles for each subnet of your internal network, or even completely different protocols like IPv6 as profile definitions. This helps FreeSWITCH identify how to route different types of calls when necessary, and also gives you the flexibility to tailor your dialplans based on what path a call originates to/from. The default profiles are located in: $PREFIX/conf/sip\_profiles/PROFILE\_NAME.xml -- where PROFILE\_NAME is the name of the profile.
+
+A list of contexts, eg. Internal, External, etc. This adds security and lets Freeswitch handle media that take different forms (voice, video, etc.). A profil consists in an IP address + Port number, and contains information that will be inherited by devices using this profile
+
+A profile is a SIP UA (an endpoint), which communicates with other SIP endpoints. An obvious reason for multiple profiles is to tell Sofia how to handle calls meant for remote SIP users behind the NAT router, and calls meant for local SIP users located on the same LAN as the originating caller.
+
+Each profile contains a complete description of a SIP UA. When FreeSWITCH starts, it reads sofia.conf.xml and starts up a separate UA for each profile in the configuration file.
+
+In FS, SIP equipments can have different profiles, and are located under SIP\_Profiles/. By default, there is an internal profile (register by connecting to FS on UDP5060) and an external profile (Connect to FS on UDP5080; nat.xml is deprecated.)
+
+The default profiles are located in: $PREFIX/conf/sip\_profiles/PROFILE\_NAME.xml -- where PROFILE\_NAME is the name of the profile.In order to secure your FreeSwitch it is wise to link your outbound (external) profile to a dialplan context other than 'default', which in the default configuration is the where authenticated users are placed.
+
+The default port for external connections is 5080\. This also means if you are trying to connect a phone remotely to your FreeSWITCH box, you must set it to connect on port 5080, or change your ports around.
+
+Working with the XML files
+
+Type "reloadxml" in the FS console to apply changes made to XML files.
+
+Creating a new SIP account, and adding it to the Internal SIP profile/context
+
+cd conf/directory/default/ ; cp 1000.xml 1234.xml; vi 1234.xml
+
+Adding a new VoIP gateway
+
+<http://wiki.freeswitch.org/wiki/SIP%5FProvider%5FExamples> conf/directory/default/
+
+There are two ways to define VoIP gateways, depending if they're common to all SIP users, or user-specific. More information in Clarification: Gateways. A list of examples to connect to SIP providers is available here.
+
+Create a new XML file in conf/sip\_profiles/external
+
+For outbound calls, add a new file in conf/dialplan/default/. Important: Freeswitch uses the files in their alphanumerical order, so 00\_ is called before 01\_
+
+For inbound calls, add a new files in conf/dialplan/public/
+
+A fuller example:
+
+cd conf/sip\_profiles/external; cp example.xml mygw.xml; vi mygw.xml: &lt;include>
+
+```xml
+ <gateway name="outbound.mygw">
+   <param name="username" value="****yourusername"/>
+   <param name="password" value="****yourpassword"/>
+   <param name="proxy" value="****outboundurl"/>
+   <param name="register" value="false"/>
+ </gateway>
+ <gateway name="inbound.mygw">
+   <param name="username" value="****yourusername"/>
+   <param name="password" value="****yourpassword"/>
+   <param name="extension" value="1000"/>
+   <param name="proxy" value="****inboundurl"/>
+   <param name="register-proxy" value="****inboundurl"/>
+ </gateway>
+```
+
+&lt;/include> Creating a new dialplan (including an IVR), and linking it to the new SIP account
+
+Note: Since filenames determine the order in which Freeswitch loads XML files depends on their filename, make sure existing files in the same folder aren't loaded before yours.
+
+Here's how to create an outbound dialplan:
+
+cd conf/dialplan/default; vi 00\_outbound\_mygw.xml &lt;include>
+
+```xml
+  <extension name="dialmygw">
+    <condition field="destination_number" expression="^(\d{7,11})$">
+      <action application="set" data="effective_caller_id_number=${outbound_caller_id_number}"/>
+      <action application="set" data="effective_caller_id_name=${outbound_caller_id_name}"/>
+      <action application="bridge" data="sofia/gateway/outbound.mygw/$1"/>
+    </condition>
+  </extension>
+```
+
+&lt;/include> Here's how to create an inbound dialplan:
+
+cd conf/dialplan/public; vi 00\_inbound\_mygw.xml &lt;include>
+
+```xml
+ <extension name="public_did">
+   <condition field="destination_number" expression="^(.*)$">
+     <action application="set" data="domain_name=$${domain}"/>
+     <action application="transfer" data="1000 XML default"/>
+   </condition>
+ </extension>
+```
+
+&lt;/include> In order to secure your FreeSwitch it is wise to link your outbound profile to a dialplan context other than 'default', which in the default configuration is the where authenticated users are placed.
+
+Note: The nat.xml file (and profile) have been deprecated. Use the external profile and port 5080\. Scripts can access Freeswitch through its Even Socket Library.
+
+[http://wiki.freeswitch.org/wiki/Javascript\_Examples](../Client-and-Developer-Interfaces/JavaScript/Javascript-Examples/index.mdx#about)
+
+Diaplans For security reason, it is recommended to link the outbound profile ("External") to its own dialplan, different from the one used for internal calls ("Internal", previously known as "Default").
+
+By default, note that the Internal profile listens for incoming connections on UDP5060 while the External profile listens on UDP5080.
+
+[http://wiki.freeswitch.org/wiki/Dialplan\_XML](../Dialplan/XML-Dialplan/index.mdx#why)
+
+Freeswitch and NAT firewalls Here are some ports that Freeswitch uses and will have to go through firewalls:
+
+UDP 3478: STUN service; Used for NAT traversal UDP 3479: STUN service; Used for NAT traversal UDP/TCP 5060: SIP UAS; Used for SIP signalling (Standard SIP Port, for default Internal Profile) UDP/TCP 5070: SIP UAS; Used for SIP signalling (For default "NAT" Profile) UDP/TCP 5080: SIP UAS; Used for SIP signalling (For default "External" Profile) UDP 16384-32768: RTP/ RTCP multimedia streaming; Used for audio/video data in SIP and other protocols General NAT example scenarios
+
+Securing Freeswitch This is especially important if the Freeswitch box is open to the Internet to let remote SIP users connect to FS, or access a web server running on the same box.
+
+Remove any unneeded applications Disable unneeded services Use a NAT firewall, especially one that can capture illegitimate login requests and block those IP addresses from getting into your system Configure SSH and Apache to listen to non-standard ports Create a user account specifically to be used with SSH, and configure SSH to only allow connections from this user (eg. useradd mysshuser; passwd mysshuser; vi /etc/ssh/sshd\_config : AllowUsers mysshusers AND PermitRootLogin no AND Port 196; restart SSHd) SIP: Choose secure passwords for accounts, and double-check the SIP profiles that allow dialing out through the POTS
+
+Q&A In vars.xml, what is default\_password used for?
+
+&lt;X-PRE-PROCESS cmd="set" data="default\_password=1234"/>
+
+It's the SIP default password if none given in user files under conf/directory/default/:
+
+1. cat 1000.xml
+
+&lt;include>
+
+```xml
+ <user id="1000" mailbox="1000">
+   <params>
+     <param name="password" value="$${default_password}"/>
+     <param name="vm-password" value="1000"/>
+   </params>
+```
+
+What are the options to connect a FS server to a POTS line?
+
+To act as a VoIP gateway, you can use external solutions like Sangoma's USB device, or Ethernet-based solutions like Linksys' SPA-3102 or GrandStream's HT503.
+
+If you'd rather use a PCI card: As of April 2009, FS' OpenZAP interface can talk to hardware either directly (only Sangoma cards are supported), or indirectly through the Zaptel interface (which isn't available for Windows).
+
+How to configure routers to allow remote IP clients to connect to Freeswitch and/or POTS VoIP gateway?
+
+SIP TCP/UDP 5060 - 5090
+
+RTP UDP 16384 - 32768
+
+? What about the connection between VoIP gateway and a remote SIP client?
+
+How to install FS as a service in Windows?
+
+[http://wiki.freeswitch.org/wiki/FreeSwitch\_FAQ](./FAQ/index.mdx#sip)
+
+What is mod\_spidermonkey?
+
+The Mozilla SpiderMonkey Javascript (ECMA Script) engine
+
+What is mod\_sofia?
+
+"This module wraps the sofia SIP library from Nokia."
+
+How to check my voicemail?
+
+Dial 4000, followed by the extension # and password (with the test accounts, password=extension) Articles to read in the Freeswitch wiki DONE Docs/MainPage [http://wiki.freeswitch.org/](../Index_1048632.mdx#indice-spazio) DONE Download <http://wiki.freeswitch.org/wiki/Download%5FFreeSWITCH> DONE Install guide [Installation](../Installation/index.mdx#about) DONE Configuring FreeSWITCH [Getting Started](https://freeswitch.org/confluence/display/FSSI/Getting+started) DONE [Default Configuration](../Configuration/Default-Configuration_6587388.mdx#mod_vp8) Admin documentation <http://wiki.freeswitch.org/wiki/Documentation> (Includes examples, debugging, JavaScript examples, etc.) User documentation <http://wiki.freeswitch.org/wiki/Documentation/User%5FDocumentation> conf/freeswitch.xml conf/Vars.xml conf/autoload_configs/modules.conf.xml conf/autoload_configs/sofia.conf.xml conf/directory/ (user configuration) conf/sip_profiles/ (internal, external) conf/dialplan/ (Dialplan_XML, recipes) From Asterisk to Freeswitch Freeswitch FAQ [SPA3102 How-To](../Interoperability/Phones/Linksys/SPA3102-HowTo_1966971.mdx#security) Home VOIP system using FreeSwitch and a Linksys 3102 voice gateway (UK Guide) by Rob Smart How To Set Up a Linksys SPA3102 VOIP Router/ATA for BT UK Other stuff to read SIP and NAT firewalls
+
+local setup (FreeSwitch and SIP phones) remote setup (SIP phone + possible utility to check that the firewall is SIP-friendly) Options: STUN + port maping, UPnP or nat-pmp (to automate port mapping), IAX
+
+ATCOM IAX Hard phones (530P?)
+
+DIAX softphone (looks ugly)
+
+I've used both AT530 and AT530P ip phones, they have good voice quality and somehow resistent to harsh environment like offices ;) , except the keypad which after a year or more just sometimes types two digits with one push on a button. The AG188N ATA is also a good choise and we have some installation which work without any problem yet.
+
+<http://www.snomindia.com/snomsoftphone.htm>
+
+[http://www.zoiper.com](http://www.zoiper.com/)
+
+Pika Warp: their support and development enviroment sucks
+
+[http://www.pikatechnologies.com](http://www.pikatechnologies.com/)
+
+<http://pikawarp.org/?page%5Fid=172>
+
+<http://blackfin.uclinux.org/gf/project/asterisk/forum/?%5Fforum%5Faction=ForumMessageBrowse&thread%5Fid=36059&action=ForumBrowse&forum%5Fid=120><http://www.rowetel.com/ucasterisk/baps.html>
+
+<http://www.rowetel.com/ucasterisk/> <http://forum.voiptel.no/index.php?board=1.0>
+
+<http://forum.voiptel.no/index.php?board=3.0> <http://blog.voiptel.no/>
+
+<http://www.plugcomputer.org/>
+
+<http://hackaday.com/2009/02/25/sheevaplug-tiny-linux-server/>
+
+<http://www.dataevolution.com/dectop%20info%202.htm>
+
+<http://www.cartft.com/catalog/il/1081>
+
+<http://www.intel.com/products/desktop/motherboards/D945GSEJT/D945GSEJT-overview.htm>
+
+<http://www.cartft.com/catalog/il/1058>
+
+<http://www.cartft.com/catalog/il/1087>
+
+<http://www.amazon.com/IEEE802-11N-Wireless-Broadband-MZK-W04NU-Designed/dp/B000YDS0YG>
+
+What to Do With a $99 Wall Wart Linux Server
+
+GSM gateways: EdgePBX, PORTech MV-370, OpenVox G400P (+ at least one GSM module + SIM card)
+
+<http://blogs.zdnet.com/Greenfield/?p=233> <http://robsmart.co.uk/2009/06/02/freeswitch%5Flinksys3102/>
+
+<http://www.aoakley.com/articles/2008-01-08.php>
+
+Document generated by Confluence on nov 11, 2022 04:28

@@ -1,0 +1,172 @@
+
+# mod_opal 
+
+ Created by  Maximiliano Guerra de Medeiros, last modified by  John Boteler on 2015.01.16
+
+# About
+
+mod\_opal is a multi-protocol capable endpoint module, based on the [Opal](http://www.opalvoip.org/) telephony library. It adds H.323 and IAX2 support to FreeSWITCH.
+
+This module is still considered beta quality. It may or may not work as expected and some features may be missing.
+
+  
+Click here to expand Table of Contents
+
+* 1 [Status](#status)
+* 2 [Installation](#installation)
+* 3 [Manual Build](#manual-build)
+* 4 [Configuration](#configuration)
+* 5 [Usage](#usage)
+* 6 [Applications](#applications)
+* 7 [API commands](#api-commands)
+* 8 [Events](#events)
+* 9 [Channel Variables](#channel-variables)
+* 10 [Known Bugs](#known-bugs)
+* 11 [See Also](#see-also)
+
+# Status
+
+Beta. This module is available since FreeSWITCH 1.0.2 (svn revision #10734, 2008-12-12)
+
+# Installation
+
+If you would like to try mod\_opal be sure to use the 'buildopal.sh' script in the build subdirectory of the FreeSWITCH source directory. This script will install OPAL and the required PTLIB. Also, be sure to update your FreeSWITCH installation to the latest Git. [Michael S Collins, 2009-05-04](http://www.freeswitch.org/node/179)
+
+# Manual Build
+
+You need to install Opal and it's dependencies first, before you can install mod\_opal. Here's a short list of instructions:
+
+mod\_opal needs the current svn versions of ptlib and Opal
+
+Install ptlib first:
+
+```xml
+cd /root
+svn co https://svn.code.sf.net/p/opalvoip/code/ptlib/trunk ptlib
+cd ptlib
+./configure --prefix=/usr
+make
+make install
+```
+
+Opal is next:
+
+```xml
+cd ..
+svn co https://svn.code.sf.net/p/opalvoip/code/opal/trunk opal
+cd opal
+PKG_CONFIG_PATH=/usr/lib/pkgconfig ./configure --prefix=/usr
+make
+make install
+```
+
+Now you're ready to build mod\_opal:
+
+```xml
+cd freeswitch # or whatever your freeswitch source directory is called
+make mod_opal
+make mod_opal-install
+```
+
+# Configuration
+
+  
+The configuration is separated into a global ("settings") and a listener section.
+
+opal.conf.xml:
+
+```xml
+<configuration name="opal.conf" description="Opal Endpoints">
+  <settings>
+    <param name="trace-level" value="4"/>
+    <param name="context" value="default"/>
+    <param name="dialplan" value="XML"/>
+    <param name="codec-prefs" value="PCMU"/>
+  </settings>
+  <listeners>
+    <listener name="default">
+      <param name="h323-ip" value="$${local_ip_v4}"/>
+      <param name="h323-port" value="1720"/>
+    </listener>
+  </listeners>
+</configuration>
+```
+
+This configuration creates a new H.323 listener for the host's main ip detected by FreeSWITCH on port 1720 (the H.323 default port).
+
+To permit incoming calls to the FS server edit the vars.xml file and set the var domain\_name which will use opal/h323 to redirect calls to extensions.
+
+Add this into vars.xml files:
+
+```xml
+<X-PRE-PROCESS cmd="set" data="domain_name=$${local_ip_v4}"/>
+```
+
+The FS server is now ready and knows who sent the h323 calls from the external equipment.
+
+# Usage
+
+These examples may be wrong
+
+```xml
+originate opal/h323:foo@bar.com &echo
+originate opal/iax2:foo@bar.com &echo
+```
+
+Example: call to extensions 26xx into the Server Cisco Call Manager that support H.323.  
+Add this into /opt/freeswitch/conf/dialplan/default.xml:
+
+```xml
+<extension name="ext-26xx">
+  <condition field="destination_number" expression="^(26\d{2})$">
+    <action application="set" data="dialed_extension=$1"/>
+    <action application="export" data="dialed_extension=$1"/>
+    <!-- bind_meta_app can have these args <key> [a|b|ab] [a|b|o|s] <app> -->
+    <action application="bind_meta_app" data="1 b s execute_extension::dx XML features"/>
+    <action application="bind_meta_app" data="2 b s record_session::$${base_dir}/recordings/${caller_id_number}.${strftime(%Y-%m-%d-%H-%M-%S)}.wav"/>
+    <action application="bind_meta_app" data="3 b s execute_extension::cf XML features"/>
+    <action application="set" data="transfer_ringback=$${hold_music}"/>
+    <action application="set" data="call_timeout=30"/>
+    <action application="set" data="hangup_after_bridge=true"/>
+    <action application="set" data="continue_on_fail=true"/>
+    <action application="db" data="insert/${ip_server_cisco_call_manager}-call_return/${dialed_extension}/${caller_id_number}"/>
+    <action application="db" data="insert/${ip_server_cisco_call_manager}-last_dial_ext/${dialed_extension}/${uuid}"/>
+    <action application="db" data="insert/${ip_server_cisco_call_manager}-last_dial/${called_party_callgroup}/${uuid}"/>
+    <!-- Permite que el tono de llamada se escuche localmente, si no lo colocan no se escuchara el tono de llamada-->
+    <action application="set" data="ringback=$${us-ring}"/>
+    <action application="set" data="instant_ringback=true"/>
+    <action application="bridge" data="opal/h323:${dialed_extension}@${ip_server_cisco_call_manager}"/>
+    <action application="answer"/>
+    <action application="sleep" data="1000"/>
+    <action application="voicemail" data="default ${ip_server_cisco_call_manager} ${dialed_extension}"/>
+  </condition>
+</extension>
+```
+
+# Applications
+
+none
+
+# API commands
+
+none
+
+# Events
+
+none
+
+# Channel Variables
+
+none
+
+# Known Bugs
+
+Features missing etc.
+
+# See Also
+
+* [Freeswitch Endpoints](https://freeswitch.org/confluence/label/FREESWITCH/endpoints)
+* [h323plus](http://www.h323plus.org/)
+* [opal](http://www.opalvoip.org/wiki/index.php)
+
+Document generated by Confluence on nov 11, 2022 04:27

@@ -1,0 +1,130 @@
+
+# Polycom Presence Setup 
+
+ Created by  Mario G, last modified by  John Boteler on 2014.07.21
+
+# About
+
+The Polycom Soundpoint IP Series phones use SIP Notify and Presence to enable BLF (Busy Lamp Field) support. This allows one to monitor the status of other phones on the switch.
+
+Click to expand Table of Contents
+
+* 1 [Pre Requisites](#pre-requisites)
+* 2 [Configuration](#configuration)  
+   * 2.1 [Enable Presence](#enable-presence--)  
+   * 2.2 [Allocate BLF Key](#allocate-blf-key)  
+   * 2.3 [Buddy Watch](#buddy-watch--)  
+   * 2.4 [Enhanced BLF](#enhanced-blf)
+* 3 [Answering A Call](#answering-a-call)
+
+# Pre Requisites
+
+* Polycom Firmware 3.1
+* Externally provisioned (tftp, ftp, http all work).
+
+# Configuration
+
+## Enable Presence  
+
+Modify sip.cfg to enable the presence feature.
+
+**sip.cfg**
+
+```xml
+<feature feature.1.name="presence" feature.1.enabled="1" ...
+```
+
+## Allocate BLF Key
+
+Ensure only the first line is registered. Leave the second line unregistered so it is free to act as a BLF. You can verify in the phone's configuration `MACADDR-phone.cfg:`
+
+```xml
+  <OVERRIDES ... reg.1.lineKeys="1" ... />
+```
+
+There should be no reg.2.lineKeys="2" in there.
+
+## Buddy Watch  
+
+Presence works through Buddies with Polycom. Either add speed dial entries through the phone's Directories feature, or add entries in your remote directory file (000000000000-directory.xml) with the &lt;bw> tag. Busy Lamp Field operates on the principle of Buddy Watch (thus &lt;bw>). You can enable Buddy Watch on speed dial entries manually through the Directories interface. The &lt;sd> tag affects the order in which speed dial contacts will occupy your available line keys. sd is a unique index whereas bw is 1 or 0\. For more information see the 3.1 SIP Admin Guide at polycom.com. Below is an example directory file:
+
+**Example Polycom Directory**
+
+```xml
+<?xml version="1.0" standalone="yes"?>
+<directory>
+	<item_list>
+		<item>
+			<fn>Tom</fn>
+			<ct>1001</ct>
+			<sd>1</sd>
+			<bw>1</bw>
+		</item>
+		<item>
+			<fn>Harry</fn>
+			<ct>1002</ct>
+			<sd>2</sd>
+			<bw>1</bw>
+		</item>
+	</item_list>
+</directory>
+```
+
+If setup correctly, the light should be off when the line is not in use, solid when the line is in use, and blinking if there is a problem. You can test the problem state by killing FreeSWITCH™ and waiting for the polycom to notice.
+
+## Enhanced BLF
+
+Configuration with productivity license installed  
+
+The following paragraph was added to this wiki-page in response to findings in [this discussion on the mailinglist](http://lists.freeswitch.org/pipermail/freeswitch-users/2011-April/071665.html), reader discretion advised (i.e. please read the discussion):  
+
+"Enhanced BLF" configuration as described below is supported on firmware 3.2.0 and newer. Therefore the configuration below does not seem to work on SoundPoint IP 301, 501, 600, 601 and SoundStation IP 4000, which are only supported by firmware up to 3.1.7
+
+See[UC\_Software\_Release\_Notes\_3\_3\_1F.pdf](http://downloads.polycom.com/voice/voip/uc/UC%5FSoftware%5FRelease%5FNotes%5F3%5F3%5F1F.pdf) page 44 for details."
+
+Enhanced BLF is also not available on **IP 320/330, 321/331/335, 5000, 6000, 7000 and VVX 1500/-C/-D** due to firmware- and hardware-restrictions (See page 3 and 4 of the aforementioned document).
+
+\--[Peletiah](https://wiki.freeswitch.org/wiki/User:Peletiah "User:Peletiah") 16:53, 26 April 2011 (UTC)
+
+  
+**Enhanced BLF** provides ringing indication and directed call pick-up capability.
+
+Once a productivity license has been installed, the BLF configuration can be added to the phone1.cfg (resp. in a phone-specific settings file like "${MAC}-settings.cfg).
+
+The following should be configured at the phone's file (e.g. phone1.cfg or MAC-address-settings.cfg):
+
+**phone1.cfg**
+
+```xml
+<attendant 
+ attendant.reg="1" attendant.ringType="1"
+ attendant.behaviors.display.spontaneousCallAppearances.normal="1" 
+ attendant.behaviors.display.spontaneousCallAppearances.automata="1"
+ attendant.behaviors.display.remoteCallerID.normal="1"
+ attendant.behaviors.display.remoteCallerID.automata="1" 
+ attendant.resourceList.1.type="automata"
+```
+
+append to the above for each user you want to watch:
+
+**phone1.cfg continued**
+
+```xml
+ attendant.resourceList.1.address="8000" attendant.resourceList.1.label="FirstUserName"
+ attendant.resourceList.2.address="8002" attendant.resourceList.2.label="SecondUserName"
+/>
+```
+
+And finally, the following line should be added into local-sip.cfg:
+
+**local-sip.cfg**
+
+```xml
+    <call call.directedCallPickupString="**"  />
+```
+
+# Answering A Call
+
+On a FreeSWITCH installation with a default dialplan, "intercept-ext" in conf/dialplan/default.xml is configured to catch `**${destination_number}`. Pressing the line-button on a ringing extension will cause the phone to call intercept-ext with \*\* and the ringing extension number to connect the phone to the caller - a perfect setup for an attendant console.
+
+Document generated by Confluence on nov 11, 2022 04:28

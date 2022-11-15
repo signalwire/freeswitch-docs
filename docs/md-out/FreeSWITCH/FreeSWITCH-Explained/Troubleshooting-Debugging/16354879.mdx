@@ -1,0 +1,160 @@
+
+# Energy Levels, Silence Thresholds, Silence Hits 
+
+ Created by  Joshua Young, last modified on 2018.03.06
+
+# About
+
+This article is aimed at guiding you through source code modifications to you help you discover the actual reported values FreeSWITCH uses to determine silence and modify your threshold/hits values accordingly to provide optimal usage of silence detection. This particular exercise will modify the "record" app as provided by mod\_dptools.
+
+Click here to expand Table of Contents
+
+* 1 [Locate your specific line in source, where we'll add more lines](#locate-your-specific-line-in-source-where-well-add-more-lines)  
+   * 1.1 [So what you'll experience should be similar to this:](#so-what-youll-experience-should-be-similar-to-this)  
+   * 1.2 [Caveats](#-freeswitch--energy-levels-silence-thresholds-silence-hits-)
+
+# Locate your specific line in source, where we'll add more lines
+
+There are several areas in source code that deal with engergy levels, silence threshold, and silence hits (Like in wait\_for\_silence, or conference) but were specifically gonna target "record" area of source code for this modification.
+
+```xml
+cd /usr/src/freeswitch
+grep -nF "fh->silence_hits = org_silence_hits;" src/switch_ivr_play_say.c
+```
+
+should see output like this: (my version of code shows like 861)
+
+```xml
+861:                            fh->silence_hits = org_silence_hits;
+```
+
+You're line numbers may not be exact! All depending on your version of source code, It's the general area, but use the line number you grep command gave you ![(sorriso)](/images/icons/emoticons/smile.svg)
+
+so now I will goto line 861 in emacs for that file:
+
+```xml
+emacs +861 src/switch_ivr_play_say.c
+```
+
+and it currently looks like this: (we have not added our custom code yet)
+
+```xml
+        if (!asis && fh->thresh) {
+            int16_t *fdata = (int16_t *) read_frame->data;
+            uint32_t samples = read_frame->datalen / sizeof(*fdata);
+            uint32_t score, count = 0, j = 0;
+            double energy = 0;
+
+            for (count = 0; count < samples * read_impl.number_of_channels; count++) {
+                energy += abs(fdata[j++]);
+            }
+            score = (uint32_t) (energy / (samples / divisor));
+            if (score < fh->thresh) {
+                if (!--fh->silence_hits) {
+                    switch_channel_set_variable(channel, "silence_hits_exhausted", "true");
+                    break;
+                }
+            } else {
+                fh->silence_hits = org_silence_hits;
+            }
+        }
+```
+
+we are going to add this code to the above function:
+
+```xml
+            if (switch_channel_var_true(channel, "debug_energy_level")) {
+                    switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_CRIT, "Energy Level: %g\n", energy);
+                    switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_CRIT, "Silence Threshold/Score: %u\n", score);
+                    switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_CRIT, "Silence Hits: %d\n\n", fh->silence_hits);
+            }
+```
+
+we'll insert the code right before the last curly brace, so when we're done, the complete edit should look like this:
+
+```xml
+        if (!asis && fh->thresh) {
+            int16_t *fdata = (int16_t *) read_frame->data;
+            uint32_t samples = read_frame->datalen / sizeof(*fdata);
+            uint32_t score, count = 0, j = 0;
+            double energy = 0;
+
+            for (count = 0; count < samples * read_impl.number_of_channels; count++) {
+                energy += abs(fdata[j++]);
+            }
+            score = (uint32_t) (energy / (samples / divisor));
+            if (score < fh->thresh) {
+                if (!--fh->silence_hits) {
+                    switch_channel_set_variable(channel, "silence_hits_exhausted", "true");
+                    break;
+                }
+            } else {
+                fh->silence_hits = org_silence_hits;
+            }
+            if (switch_channel_var_true(channel, "debug_energy_level")) {
+                    switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_CRIT, "Energy Level: %g\n", energy);
+                    switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_CRIT, "Silence Threshold/Score: %u\n", score);
+                    switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_CRIT, "Silence Hits: %d\n\n", fh->silence_hits);
+            }
+        }
+
+
+```
+
+now we need to recompile the core module, and restart FreeSWITCH:
+
+```xml
+make core-install
+service freeswitch restart
+```
+
+now to see this thing in action well create an extension (311 in my case) and be sure to set the "debug\_engergy\_level" channel variable, which will enable the log lines on fs\_cli:
+
+```xml
+    <extension name="record energy levels">
+      <condition field="${destination_number}" expression="^311$">
+        <action application="answer"/>
+        <action application="set" data="playback_terminator=#"/>
+        <action application="set" data="debug_energy_level=true"/>
+        <action application="record" data="$${recordings_dir}/${uuid}.wav 60 40 5"/>
+        <action application="log" data="CRIT \n\n ${uuid} \n variable_slience_hits_exhausted = ${silence_hits_exhausted}"/>
+      </condition>
+    </extension>
+```
+
+When you call 311 you should see these lines in fs\_cli:
+
+```xml
+2018-03-06 17:24:22.674030 [CRIT] switch_ivr_play_say.c:865 Energy Level: 262968
+2018-03-06 17:24:22.674030 [CRIT] switch_ivr_play_say.c:866 Silence Threshold/Score: 1643
+2018-03-06 17:24:22.674030 [CRIT] switch_ivr_play_say.c:867 Silence Hits: 500
+```
+
+These lines move rapidly, and you'll see the Energy and Score values change toward the inflection of your voice, and Hits will steadily drop when silence below the threshold is encountered, but will reset back to 500 once noise is detected again.
+
+### So what you'll experience should be similar to this:
+
+60 = second max record time, set to 0 for indefinite  
+40 = threshold value compared to score, if score above thresh then no hit, if score below thresh then yes hit  
+ 5 = seconds of acclumulated hits before exhausting maximum silence tolerated
+
+When making a call from my mobile phone, on speaker phone, about arms distance from me, I noticed that the Score was average 25-30... So I decieded to set my threshold just above that at 40.
+
+Everytime I refrain from speaking, the Score drops below the threshold of 40, so then Silence Hits begins counting down from 500...  
+but everytime i speak up, the Silence Hits bounces back up to 500 and begins countdown again... Hold my tongue long enough, the count down depletes and places "silence\_hits\_exhausted=true" on the channel.
+
+On my deskphone, when operating on the speakerphone, the Score was averaging about 13-18... so I could safely put my thresh hold at 20-25.  
+But while operating over the handset, the Score was lower, averaging 6-8... so setting my threshold somewhere above that, say 12-15, should be sufficient.
+
+And I noticed when calling in from gateway, the Score held solidly at 8 when I wasnt speaking... So if that's the expected traffic type, I could safely set my threshold to 10 or 11.
+
+Additionally, I induced white noise via a battery powered radio to simulate noisy environment... I tweaked the volume up to where the Score was averaging about 500, and set my threshold to 750\. Things worked as expected.  
+Amidst all the induced white noise, FreeSWITCH was able to determine when I was speaking, and when I wasnt, simply by making proper adjustments to Silence Threshold and Silence Hits values.
+
+### Caveats
+
+If you choose a threshold value that's below the average score you discover in logs, the Silence Hits will never count down, and you'll be stopped at the 60 second record marker.
+
+And if you also chose 0 max record time for indefinite recording, in addition to a threshold lower than your average score, your recording will continue forever until you hang up, or storage space brings your box to a grinding halt ![(sorriso)](/images/icons/emoticons/smile.svg)
+
+Document generated by Confluence on nov 11, 2022 04:28

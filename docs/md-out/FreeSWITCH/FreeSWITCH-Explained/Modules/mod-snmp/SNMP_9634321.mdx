@@ -1,0 +1,292 @@
+
+# SNMP 
+
+ Created by  Belaid Areski, last modified on 2015.10.02
+
+# About
+
+_There is also work in progress to integrate FreeSWITCH into SNMP servers (such as snmpd) using [Agent X](http://en.wikipedia.org/wiki/Agent%5FExtensibility%5FProtocol) through [mod\_snmp](../mod_snmp_6586926.mdx#about)_
+
+Click here to expand Table of Contents
+
+* 1 [SNMP Integration with FreeSWITCH](#snmp-integration-with-freeswitch)  
+   * 1.1 [Preparing the data](#-preparing-the-data-)  
+   * 1.2 [SNMP config](#-snmp-config-)
+* 2 [How to setup Net-SNMP with Cacti to monitor FreeSWITCH](#how-to-setup-net-snmp-with-cacti-to-monitor-freeswitch)
+
+# SNMP Integration with FreeSWITCH
+
+This is a work in progress. Once I actually get a script running, I'll commit it to Freeswitch-Contrib
+
+snmpd is a Linux server process that allows the running of arbitrary executables/scripts to publish data to an snmp OID. snmpd is how Linux itself publishes stats to SNMP Clients.
+
+##  Preparing the data 
+
+Before you can query the information via SNMP you need to make it available. This is done by preparing several scripts of your liking and make them execute by SNMP daemon.
+
+  
+ The following are some of scripts being used on my system:
+
+activeChannels.sh - a script that extracts the number of active channels on the system
+
+```xml
+#!/bin/sh
+
+CHANNELS=`/usr/local/freeswitch/bin/fs_cli -x "show channels count" | grep total | awk {'print $1'}`
+echo $CHANNELS
+exit $CHANNELS
+
+```
+
+currentCallsPerSec.sh - a script that extracts calls per second value on the system
+
+```xml
+#!/bin/sh
+
+CALLS=`/usr/local/freeswitch/bin/fs_cli -x "status" | grep "/" | awk {'print $1'}`
+echo $CALLS
+exit $CALLS
+
+```
+
+_**NOTE:**_ In recent versions of FS output of 'status' has changed and old command work no more, suggested variants:
+
+```xml
+fs_cli -x "status" | grep -o -P "(?<=\(s\) )[0-9]+(?=/)"
+```
+
+OR
+
+```xml
+fs_cli -x "status" | grep -o -E "[0-9]+/[0-9]+$"|awk -F/ {'print $1'}
+```
+
+simCalls.sh - a script that extracts the number of ongoing calls on the system
+
+```xml
+#!/bin/sh
+
+CALLS=`/usr/local/freeswitch/bin/fs_cli -x "show calls count" | grep total | awk {'print $1'}`
+echo $CALLS
+exit $CALLS
+```
+
+sipgen.sh - a script that triggers a call generator(sipp) and performs an end-to-end callon your FS system.
+
+```xml
+#!/bin/bash
+
+if [ $# -ne 3 ]; then
+   echo "Usage: $0 ./sipgen.sh <TARGET_PHONE> <NUM_CALLS_IN_INTERVAL[count]> <CALLS_INTERVAL[msec]>"
+   exit 1
+fi
+
+SIPP=/usr/bin/sipp
+TARGET_IP=`/sbin/ifconfig eth0 | grep "inet addr" | cut -d ":" -f2 | cut -d " " -f1`
+TARGET_SERVICE="300030"
+TARGET_PHONE="16094191500"
+TEMPLATE_FILE="/usr/local/bin/sipgen/myTemplate.xml"
+INF_FILE="/usr/local/bin/sipgen/myService.inf"
+MAX_CALLS="1"
+MAX_SIM="4000"
+#PRERUN_COM="rm -rf *.log"
+
+TICKETS=$2
+PERIOD=$3
+
+if [ "$TICKETS" == "" ]; then
+  TICKETS="1"
+fi
+
+if [ "$PERIOD" == "" ]; then
+  PERIOD="100"
+fi
+
+CMD=`$SIPP $TARGET_IP -sf $TEMPLATE_FILE -s $TARGET_SERVICE$TARGET_PHONE -r $TICKETS -rp $PERIOD -inf $INF_FILE -m $MAX_CALLS -l $MAX_SIM 1>/dev/null 2>/dev/null`
+echo $?
+```
+
+##  SNMP config 
+
+Im not going to explain how to install and configure SNMP daemon as there is plenty of reference on the internet regarding this topic. One of them is here(<http://www.it-slav.net/blogs/2008/11/11/install-and-configure-snmp-on-rhel-or-centos/>) so have a look.
+
+Anyhow, we assume SNMP daemon is installed and working on the system.
+
+Now, using your preferred text editor, open snmpd.conf and add the reference to the shell scripts mentioned above.
+
+```xml
+# -----------------------------------------------------------------------------
+
+
+########################################################## #####################
+# Executables/scripts
+#
+
+#
+#  You can also have programs run by the agent that return a single
+#  line of output and an exit code.  Here are two examples.
+#
+#  exec NAME PROGRAM [ARGS ...]
+#
+#  NAME:     A generic name.
+#  PROGRAM:  The program to run. Include the path!
+#  ARGS:     optional arguments to be passed to the program
+
+# a simple hello world
+exec activeChannels /usr/local/bin/activeChannels.sh
+exec currentCallsPerSec /usr/local/bin/currentCallsPerSec.sh
+exec simCalls /usr/local/bin/simCalls.sh
+exec checkCallFlowCPS /usr/local/bin/sipgen/sipgen.sh 1234 1 10
+
+# Run a shell script containing:
+#
+# #!/bin/sh
+# echo hello world
+# echo hi there
+# exit 35
+#
+# Note:  this has been specifically commented out to prevent
+# accidental security holes due to someone else on your system writing
+# a /tmp/shtest before you do. Uncomment to use it.
+#
+#exec shelltest /bin/sh /tmp/shtest
+
+# Then,
+# % snmpwalk -v 1 localhost public .1.3.6.1.4.1.2021.8
+# enterprises.ucdavis.extTable.extEntry.extIndex.1 = 1
+# enterprises.ucdavis.extTable.extEntry.extIndex.2 = 2
+# enterprises.ucdavis.extTable.extEntry.extNames.1 = "echotest"
+# enterprises.ucdavis.extTable.extEntry.extNames.2 = "shelltest"
+# enterprises.ucdavis.extTable.extEntry.extCommand.1 = "/bin/echo hello world"
+# enterprises.ucdavis.extTable.extEntry.extCommand.2 = "/bin/sh /tmp/shtest"
+# enterprises.ucdavis.extTable.extEntry.extResult.1 = 0
+# enterprises.ucdavis.extTable.extEntry.extResult.2 = 35
+# enterprises.ucdavis.extTable.extEntry.extOutput.1 = "hello world."
+# enterprises.ucdavis.extTable.extEntry.extOutput.2 = "hello world."
+# enterprises.ucdavis.extTable.extEntry.extErrFix.1 = 0
+# enterprises.ucdavis.extTable.extEntry.extErrFix.2 = 0
+
+# Note that the second line of the /tmp/shtest shell script is cut
+# off. Also note that the exit status of 35 was returned.
+
+# -----------------------------------------------------------------------------
+```
+
+After you updated the snmp.conf file, you can try to get the values from the SNMP daemon.
+
+Here is an example how to get your values:
+
+```xml
+~$ snmpwalk -v 1 myHost -c myCommunityString .1.3.6.1.4.1.2021.8    
+UCD-SNMP-MIB::extIndex.1 = INTEGER: 1
+UCD-SNMP-MIB::extIndex.2 = INTEGER: 2
+UCD-SNMP-MIB::extIndex.3 = INTEGER: 3
+UCD-SNMP-MIB::extIndex.4 = INTEGER: 4
+UCD-SNMP-MIB::extNames.1 = STRING: activeChannels
+UCD-SNMP-MIB::extNames.2 = STRING: currentCallsPerSec
+UCD-SNMP-MIB::extNames.3 = STRING: simCalls
+UCD-SNMP-MIB::extNames.4 = STRING: checkCallFlowCPS
+UCD-SNMP-MIB::extCommand.1 = STRING: /usr/local/bin/activeChannels.sh
+UCD-SNMP-MIB::extCommand.2 = STRING: /usr/local/bin/currentCallsPerSec.sh
+UCD-SNMP-MIB::extCommand.3 = STRING: /usr/local/bin/simCalls.sh
+UCD-SNMP-MIB::extCommand.4 = STRING: /usr/local/bin/sipgen/sipgen.sh 1234 1 10
+UCD-SNMP-MIB::extResult.1 = INTEGER: 0
+UCD-SNMP-MIB::extResult.2 = INTEGER: 0
+UCD-SNMP-MIB::extResult.3 = INTEGER: 0
+UCD-SNMP-MIB::extResult.4 = INTEGER: 0
+UCD-SNMP-MIB::extOutput.1 = STRING: 0
+UCD-SNMP-MIB::extOutput.2 = STRING: 0
+UCD-SNMP-MIB::extOutput.3 = STRING: 0
+UCD-SNMP-MIB::extOutput.4 = STRING: 0
+UCD-SNMP-MIB::extErrFix.1 = INTEGER: noError(0)
+UCD-SNMP-MIB::extErrFix.2 = INTEGER: noError(0)
+UCD-SNMP-MIB::extErrFix.3 = INTEGER: noError(0)
+UCD-SNMP-MIB::extErrFix.4 = INTEGER: noError(0)
+UCD-SNMP-MIB::extErrFixCmd.1 = STRING: 
+UCD-SNMP-MIB::extErrFixCmd.2 = STRING: 
+UCD-SNMP-MIB::extErrFixCmd.3 = STRING: 
+UCD-SNMP-MIB::extErrFixCmd.4 = STRING: 
+
+```
+
+You can also query a specific value directly. Perform snmpwalk with "-On" to list it numerically:
+
+```xml
+~$ snmpwalk -v 1 -On myHost -c myCommunityString .1.3.6.1.4.1.2021.8 
+.1.3.6.1.4.1.2021.8.1.1.1 = INTEGER: 1
+.1.3.6.1.4.1.2021.8.1.1.2 = INTEGER: 2
+.1.3.6.1.4.1.2021.8.1.1.3 = INTEGER: 3
+.1.3.6.1.4.1.2021.8.1.1.4 = INTEGER: 4
+.1.3.6.1.4.1.2021.8.1.2.1 = STRING: activeChannels
+.1.3.6.1.4.1.2021.8.1.2.2 = STRING: currentCallsPerSec
+.1.3.6.1.4.1.2021.8.1.2.3 = STRING: simCalls
+.1.3.6.1.4.1.2021.8.1.2.4 = STRING: checkCallFlowCPS
+.1.3.6.1.4.1.2021.8.1.3.1 = STRING: /usr/local/bin/activeChannels.sh
+.1.3.6.1.4.1.2021.8.1.3.2 = STRING: /usr/local/bin/currentCallsPerSec.sh
+.1.3.6.1.4.1.2021.8.1.3.3 = STRING: /usr/local/bin/simCalls.sh
+.1.3.6.1.4.1.2021.8.1.3.4 = STRING: /usr/local/bin/sipgen/sipgen.sh 1234 1 10
+.1.3.6.1.4.1.2021.8.1.100.1 = INTEGER: 0
+.1.3.6.1.4.1.2021.8.1.100.2 = INTEGER: 0
+.1.3.6.1.4.1.2021.8.1.100.3 = INTEGER: 0
+.1.3.6.1.4.1.2021.8.1.100.4 = INTEGER: 0
+.1.3.6.1.4.1.2021.8.1.101.1 = STRING: 0
+.1.3.6.1.4.1.2021.8.1.101.2 = STRING: 0
+.1.3.6.1.4.1.2021.8.1.101.3 = STRING: 0
+.1.3.6.1.4.1.2021.8.1.101.4 = STRING: 0
+.1.3.6.1.4.1.2021.8.1.102.1 = INTEGER: noError(0)
+.1.3.6.1.4.1.2021.8.1.102.2 = INTEGER: noError(0)
+.1.3.6.1.4.1.2021.8.1.102.3 = INTEGER: noError(0)
+.1.3.6.1.4.1.2021.8.1.102.4 = INTEGER: noError(0)
+.1.3.6.1.4.1.2021.8.1.103.1 = STRING: 
+.1.3.6.1.4.1.2021.8.1.103.2 = STRING: 
+.1.3.6.1.4.1.2021.8.1.103.3 = STRING: 
+.1.3.6.1.4.1.2021.8.1.103.4 = STRING:
+```
+
+Than pick the OID of your liking and get the value of your interest.
+
+```xml
+~$ snmpwalk -v 1 -On myHost -c myCommunityString .1.3.6.1.4.1.2021.8.1.100.2
+.1.3.6.1.4.1.2021.8.1.100.2 = INTEGER: 1
+
+
+~$ snmpwalk -v 1 -On myHost -c myCommunityString .1.3.6.1.4.1.2021.8.1.100.4
+.1.3.6.1.4.1.2021.8.1.100.4 = INTEGER: 0
+```
+
+# How to setup Net-SNMP with Cacti to monitor FreeSWITCH
+
+**Step 1:** Follow the link below to install SNMP, Cacti, and other dependencies.
+
+<http://www.cyberciti.biz/faq/fedora-rhel-install-cacti-monitoring-rrd-software/>
+
+**Step 2:** Add a script to be executed in SNMP process. Let's say that I want to monitor concurrent calls, I would create a script; for instance, I called it "curcalls" as shown below:
+
+```xml
+#!/bin/bash
+/usr/local/freeswitch/bin/fs_cli -x 'show calls count' | grep total | awk '{print $1}'
+```
+
+**Step 3:** Add the following line in your snmpd.conf file.
+
+```xml
+exec curcalls /usr/local/bin/curcalls
+```
+
+**Step 4:** Check to see whether you can retrieve the information from SNMP. For example,
+
+```xml
+#snmpwalk -v 1 localhost -c public .1.3.6.1.4.1.2021.8.1.101
+```
+
+You should see the response with the result similar to below.
+
+```xml
+UCD-SNMP-MIB::extOutput.1 = STRING: 123
+```
+
+**Step 5:** Adjust the configuration on Cacti based on your need by using the “SNMP - Generic OID Template"
+
+* Note: If you experienced an error like this: UCD-SNMP-MIB::extOutput.1 = STRING: \[ERROR\] libs/esl/fs\_cli.c:1206 main() Error Connecting \[Socket Connection Error\], check your SELINUX settings.
+
+Document generated by Confluence on nov 11, 2022 04:27

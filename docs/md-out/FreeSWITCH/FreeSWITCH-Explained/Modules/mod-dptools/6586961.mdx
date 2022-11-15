@@ -1,0 +1,133 @@
+
+# mod_dptools: say 
+
+ Created by  Maximiliano Guerra de Medeiros, last modified by  Attila Gulyas on 2019.12.23
+
+---
+
+Table of Contents (click to expand)
+
+* [0\. About](#0-about)
+* [1\. Syntax](#1-syntax)  
+   * [1.1 say](#11-say-)  
+   * [1.2 say\_string](#12-say_string-)  
+         * [1.2.1 Usage](#121-usage)
+* [2\. Dialplan examples](#2-dialplan-examples)  
+   * [2.1 Talking Clock](#21-talking-clock)
+* [3\. See Also](#3-see-also)
+
+---
+
+## 0\. About
+
+The `say` application will use the pre-recorded sound files to read or say various things like dates, times, digits, etc.
+
+It can read digits, numbers, dollar amounts, date/time values, IP addresses, spell out alpha-numeric text, including punctuation marks, and so on. 
+
+There's a transcript of the pre-recorded files in the source under [docs/phrase/phrase\_en.xml](https://github.com/signalwire/freeswitch/blob/master/docs/phrase/phrase%5Fen.xml).
+
+Call the specific "type" say api as below. The method is used to modify the way the data is annunciated (counted, iterated, or pronounced).
+
+## 1\. Syntax
+
+### 1.1 `say` 
+
+```xml
+say <module_name>[:<lang>] <say_type> <say_method> [gender] <text>
+```
+
+Where
+
+| Parameter    | Description                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |                        |          |          |                                 |               |               |                                     |                   |               |                         |                                                                                                       |
+| ------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------- | -------- | -------- | ------------------------------- | ------------- | ------------- | ----------------------------------- | ----------------- | ------------- | ----------------------- | ----------------------------------------------------------------------------------------------------- |
+| module\_name | Module name is usually the channel language (such as en , es ).[TODO](https://github.com/signalwire/freeswitch/tree/master/src/mod/say) Are [these](https://github.com/signalwire/freeswitch/tree/master/src/mod/say) the available values?                                                                                                                                                                                                                                                               |                        |          |          |                                 |               |               |                                     |                   |               |                         |                                                                                                       |
+| say\_type    | Accepted values (from [the source](https://github.com/signalwire/freeswitch/blob/15ad4c23e259c1c2dff58f89e9124e5f36dd2e94/src/switch%5Fivr%5Fsay.c#L44)): NUMBER    \| ITEMS                                                                                                                                                                                                                                                                                                                              | general counts PERSONS | MESSAGES | CURRENCY | money-related TIME\_MEASUREMENT | CURRENT\_DATE | CURRENT\_TIME | dates and times CURRENT\_DATE\_TIME | SHORT\_DATE\_TIME | NAME\_SPELLED | spelling NAME\_PHONETIC | TELEPHONE\_NUMBER TELEPHONE\_EXTENSION URL IP\_ADDRESS EMAIL\_ADDRESS POSTAL\_ADDRESS ACCOUNT\_NUMBER |
+| say\_method  | Accepted values (from [the source](https://github.com/signalwire/freeswitch/blob/15ad4c23e259c1c2dff58f89e9124e5f36dd2e94/src/switch%5Fivr%5Fsay.c#L35)), and assuming the input value was "42":**pronounced** \- cardinal number, e.g. "forty two"**iterated** \- nominal number, e.g. "four two"**counted** \- ordinal number, e.g. "forty second"[TODO](https://github.com/signalwire/freeswitch/tree/master/src/mod/say) There is also N/A and PRONOUNCED\_YEAR but not sure when the former is used. |                        |          |          |                                 |               |               |                                     |                   |               |                         |                                                                                                       |
+| gender       | Accepted values (from [the source](https://github.com/signalwire/freeswitch/blob/15ad4c23e259c1c2dff58f89e9124e5f36dd2e94/src/switch%5Fivr%5Fsay.c#L67)) for languages with gender-specific grammar (such as French or German): FEMININE MASCULINE NEUTER                                                                                                                                                                                                                                                 |                        |          |          |                                 |               |               |                                     |                   |               |                         |                                                                                                       |
+
+### 1.2 `say_string` 
+
+`say_string` is a new method of doing `say` , and use it in `mod_say_en` and `mod_say_ru` . We can do more to centralize the `say` things, and go back and apply it to other languages. Using this method you can set the desired file extension as well.
+
+```xml
+say_string <module_name>[.<ext>] <lang>[.<ext>] <say_type> <say_method> [<say_gender>] <text> 
+```
+
+See **1.1 `say`** section above for the parameter descriptions.
+
+#### 1.2.1 Usage
+
+From [CLI](../../Client-and-Developer-Interfaces/1048948.mdx#or):
+
+```xml
+eval ${say_string en.gsm en current_date_time pronounced ${strepoch()}} 
+```
+
+From [dialplan](../../Dialplan/XML-Dialplan/index.mdx#why):
+
+```xml
+<action application="playback" data="${say_string en.wav en current_date_time pronounced ${strepoch()}}" /> 
+```
+
+## 2\. Dialplan examples
+
+```xml
+<!-- use in a phrase macro, different from using in the dialplan-->
+<action function="say" data="733#" method="iterated" type="name_spelled"/>
+
+<!-- spelled out alpha-numeric + ascii code, like "a-b-seven-three-three-pound", ASCII code 32-47 and, 58-62, 92-122 -->
+<action application="say" data="en name_spelled iterated ab733#"/>
+
+<!-- spell out called number, like "one-two-three-four-five" -->
+<action application="say" data="en name_spelled iterated ${destination_number}"/>
+
+<!-- read number, like "twelve thousand, three hundred forty-five" -->
+<action application="say" data="en number pronounced 12345"/>
+
+<!-- read IP address, like "one two dot three four dot five six dot seven eight" -->
+<action application="say" data="en ip_address iterated 12.34.56.78"/>
+
+<!-- read IP address, like "twelve dot thirty-four dot fifty-six dot seventy-eight" -->
+<action application="say" data="en ip_address pronounced 12.34.56.78"/>
+
+<!-- pronounce a dollar value, even works for negatives, like "negative one dollar and ninety-six cents."-->
+<action application="say" data="en CURRENCY PRONOUNCED -1.96"/>
+
+<!-- pronounce a short date/time (like "Wednesday, 2:23PM") -- substitute [timestamp]
+with a UTC timestamp -->
+<action application="say" data="en short_date_time pronounced [timestamp]"/>
+```
+
+`say <language> number` works up to 999999999 (9 digits) in current languages.
+
+### 2.1 Talking Clock
+
+```xml
+<extension name="Talking Clock Time" ><!--e.g. 10:56pm-->
+  <condition field="destination_number" expression="9190">
+    <action application="say" data="en CURRENT_TIME pronounced ${strepoch()}"/>
+    <action application="hangup"/>
+  </condition>
+</extension>
+
+<extension name="Talking Clock Date" ><!--e.g. March 8, 2011-->
+  <condition field="destination_number" expression="9191">
+    <action application="say" data="en CURRENT_DATE pronounced ${strepoch()}"/>
+    <action application="hangup"/>
+  </condition>
+</extension>
+
+<extension name="Talking Clock Date and Time" ><!--e.g. March 8, 2011 10:56pm-->
+  <condition field="destination_number" expression="9192">
+    <action application="say" data="en CURRENT_DATE_TIME pronounced ${strepoch()}"/>
+    <action application="hangup"/>
+  </condition>
+</extension>
+```
+
+## 3\. See Also
+
+* [Dialplan](../../Dialplan/index.mdx#0-about)
+* [mod\_dptools: speak](./6587123.mdx#0-about)
+
+Document generated by Confluence on nov 11, 2022 04:27

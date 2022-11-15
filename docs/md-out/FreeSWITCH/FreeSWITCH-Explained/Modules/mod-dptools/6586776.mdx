@@ -1,0 +1,158 @@
+
+# mod_dptools: playback 
+
+ Created by  Jonatas Oliveira, last modified by  Attila Gulyas on 2020.01.15
+
+---
+
+Table of Contents (click to expand)
+
+* 1 [0\. About](#0-about)
+* 2 [1\. Usage](#1-usage)
+* 3 [2\. Examples](#2-examples)  
+   * 3.1 [2.1 Play a file, and don't allow it to be interrupted](#21-play-a-file-and-dont-allow-it-to-be-interrupted)  
+   * 3.2 [2.2 Play file from a specific position](#22-play-file-from-a-specific-position)  
+   * 3.3 [2.3 Setting Specific Playback Variables](#23-setting-specific-playback-variables)  
+   * 3.4 [Playback from remote server](#playback-from-remote-server)
+* 4 [3\. Supported file types](#3-supported-file-types)  
+   * 4.1 [3.1 mod\_sndfile](#-freeswitch--mod_dptools-playback-)  
+   * 4.2 [3.2 mod\_shout](#-freeswitch--mod_dptools-playback-)  
+   * 4.3 [3.3 See also](#33-see-also)
+
+---
+
+## 0\. About
+
+Plays a sound file on the current [channel](../../Introduction/Call-Legs_7143972.mdx#0-about).
+
+In order to be able to play MP3 files, [mod\_shout](../mod_shout_3965531.mdx#21-play) needs to be built and loaded.
+
+TODO Use [mod\_vlc](../mod_vlc_13173380.mdx#--) for anything else (i.e., M4A, AAC, etc.)?
+
+Stop playback
+
+To stop playback, use the `uuid_break` [API](../../Introduction/FreeSWITCH-API_30867723.mdx#-freeswitch--freeswitch-api-) command. See [mod\_commands](../mod_commands_1966741.mdx#--) for usage.
+
+## 1\. Usage
+
+```xml
+<action application="playback" data="<sound-file-to-play>[@@<seek-offset>]"/> 
+```
+
+  
+| Parameter          | Description                                                                                                                                                                                                                                                                                               | Examples                          |
+| ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------- |
+| sound-file-to-play | Path to sound file, in a format that is understood by [libsndfile](https://en.wikipedia.org/wiki/Libsndfile) (see **3\. Supported File Types** section below). Path can be relative to the working directory or fully qualified absolute path to the file.                                                | sounds/soundfile.wav/tmp/test.wav |
+| seek-offset        | The number of samples to specify a playback start position (i.e., seek into the file). This would be useful for a sound file that contained a number of short prompts, to build a phrase from individual words or phonemes.You could also use the [mod\_dptools:say](./6586961.mdx#0-about) for such applications. | 7000                              |
+
+## 2\. Examples
+
+### 2.1 Play a file, and don't allow it to be interrupted
+
+```xml
+<action application="set" data="playback_terminators=none"/> 
+<action application="playback" data="sounds/soundfile.wav"/>
+```
+
+The [playback\_terminators](../../../Channel-Variables-Catalog/playback_terminators_16353264.mdx#0-about) [channel variable](../../Dialplan/Channel-Variables_16352493.mdx#about) is set to `none` to disable stopping the playback on [DTMF](../../Introduction/Glossary_13173966.mdx#dtmf) input. (The default terminator is `*`.)
+
+The terminator used is available in [playback\_terminator\_used](../../../Channel-Variables-Catalog/playback_terminator_used_16353270.mdx#playback_terminator_used). See [Channel Variables Catalog](../../../Channel-Variables-Catalog/index.mdx#comments) for more.
+
+### 2.2 Play file from a specific position
+
+You can also append `@@<seek-offset>` (where `seek-offset` is the number of samples) to the file name to specify a playback start position. This works in a predictable way in PCM files, less predictably with compressed files such as mp3.
+
+**playback example**
+
+```xml
+<action application="playback" data="/tmp/test.wav@@8000"/>
+```
+
+Assuming this file was sampled at 8000 samples/second, the `@@8000` suffix will seek 1 second into the file, and start playback there.
+
+### 2.3 Setting Specific Playback Variables
+
+```xml
+<action application="playback" data="{var1=val1,var2=val2}sounds/soundfile.wav"/>
+```
+
+The prefix `{var1=val1,var2=val2}` defines variables that will be sent in [PLAYBACK\_START](../../Introduction/Event-System/Event-List_7143557.mdx#playback_start) and [PLAYBACK\_STOP](../../Introduction/Event-System/Event-List_7143557.mdx#playback_stop) events, thus this is especially handy when building [event socket](../../Introduction/Glossary_13173966.mdx#event-socket) applications. In the events, the variables will be named the same way as the variable names you configured (in this case, `var1` and `var2`).
+
+Please note that in FreeSWITCH versions older than the commit below, variables could be set in the suffix after the filename, instead of in the prefix. So if you experience problems on older versions, you must upgrade your application to reflect these changes.
+
+Variable names in the events themselves used to be prefixed with `playback_variable_`, but not anymore.
+
+```xml
+commit 042347802b2b4972a11212df0c84921b91b71d64
+Author: Anthony Minessale <anthm@freeswitch.org>
+Date: Wed Feb 20 16:34:13 2013 -0600
+```
+
+### Playback from remote server
+
+```xml
+<action application="playback" data="http://example.com/media/hello_world.wav"/>
+```
+
+## 3\. Supported file types
+
+FreeSWITCH has an abstraction layer for file formats. Anyone can write a format module which allows file formats to be utilized from any of the places that would process them.
+
+Most formats support both reading and writing; the ones that do not are identified below.
+
+TODO 
+
+* Where is this "abstraction layer for file formats" documented?
+* Where is it implemented?
+* What modules are using it? (Assume that all of the ones below.)
+* Which are the ones supporting "both reading and writing"?
+
+### 3.1 [mod_sndfile](../mod_sndfile_32178375.mdx#-freeswitch--mod_sndfile-)
+
+This uses [libsndfile](http://www.mega-nerd.com/libsndfile/), and therefore supports any format usable by it. See the latest list of supported formats at [libsndfile](http://www.mega-nerd.com/libsndfile/), but here is a subset of it:
+
+* AIFF (Apple/SGI) (extension "aiff")
+* AU (Sun/NeXT) (extension "au")
+* AVR (Audio Visual Research) (extension "avr")
+* CAF (Apple Core Audio File) (extension "caf")
+* HTK (HMM Tool Kit) (extension "htk")
+* IFF (Amiga IFF/SVX8/SV16) (extension "iff")
+* MAT4 (GNU Octave 2.0 / Matlab 4.2) (extension "mat")
+* MAT5 (GNU Octave 2.1 / Matlab 5.0) (extension "mat")
+* PAF (Ensoniq PARIS) (extension "paf")
+* PVF (Portable Voice Format) (extension "pvf")
+* RAW (header-less) (extension "raw" or "r8" )
+* SD2 (Sound Designer II) (extension "sd2")
+* SDS (Midi Sample Dump Standard) (extension "sds")
+* SF (Berkeley/IRCAM/CARL) (extension "sf")
+* VOC (Creative Labs) (extension "voc")
+* W64 (SoundFoundry WAVE 64) (extension "w64")
+* WAV (Microsoft) (extension "wav")
+* WAV (NIST Sphere) (extension "wav")
+* WAVEX (Microsoft) (extension "wav")
+* XI (FastTracker 2) (extension "xi")
+
+### 3.2 [mod_shout](../mod_shout_3965531.mdx#21-play)
+
+Additionally, [mod\_shout](../mod_shout_3965531.mdx#21-play) supplies MP3 support for files and Shoutcast streams.
+
+### 3.3 See also
+
+* The [Channel Variables](../../Dialplan/Channel-Variables_16352493.mdx#channel-variable-scope-example) channel variable.
+* [mod\_dptools: loop\_playback](./16351422.mdx#about)
+* [mod\_dptools: endless\_playback](./6586560.mdx#about)
+* [mod\_dptools: file\_string](./6586646.mdx#0-about)
+* [mod\_dptools: displace\_session](./6586781.mdx#about) \- allows you to mix audio
+* [mod\_dptools: speak](./6587123.mdx#0-about)
+* [mod\_local\_stream](../mod_local_stream_6587466.mdx#api)
+* [mod\_native\_file](../mod_native_file_6587161.mdx#about)
+* [tone\_stream](./mod-dptools:-gentones/Tone_stream_6586599.mdx#about)
+  
+  
+## Comments:
+
+| Can I use playback a audio file 3 times ?Any Example ? Not use for or while in script.Thanks. ![](/images/icons/contenttypes/comment_16.png) Posted by livem at nov 08, 2017 03:54 |
+| --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [mod\_dptools: loop\_playback](./16351422.mdx#about) ![](/images/icons/contenttypes/comment_16.png) Posted by livem at gen 17, 2019 06:57                                                 |
+
+Document generated by Confluence on nov 11, 2022 04:27
