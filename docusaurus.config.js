@@ -6,9 +6,8 @@ const darkCodeTheme = require("prism-react-renderer/themes/dracula");
 
 /** @type {import('@docusaurus/types').Config} */
 const config = {
-  title: "My Site",
-  tagline: "Dinosaurs are cool",
-  url: "https://your-docusaurus-test-site.com",
+  title: "FreeSWITCH Documentation",
+  url: "https://developer.signalwire.com",
   baseUrl: "/freeswitch/",
   onBrokenLinks: "warn",
   onBrokenMarkdownLinks: "warn",
@@ -47,7 +46,7 @@ const config = {
     /** @type {import('@docusaurus/preset-classic').ThemeConfig} */
     ({
       navbar: {
-        title: "FreeSWITCH Documentation",
+        //title: "FreeSWITCH Documentation",
         logo: {
           alt: "FreeSWITCH Documentation",
           src: "img/logo.svg",
