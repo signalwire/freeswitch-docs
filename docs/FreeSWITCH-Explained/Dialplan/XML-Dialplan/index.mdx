@@ -3,7 +3,7 @@
 
  Created by  Jim Hayes, last modified by  John Boteler on 2022.10.02
 
-# About
+## About
 
 The XML dialplan is the default dialplan used by FreeSwitch. XML is easily edited by hand without requiring special tools, other than a text editor. 
 
@@ -53,7 +53,7 @@ Click to expand Table of Contents
    * 9.20 [Example 21: Block outbound caller ID](#example-21-block-outbound-caller-id-)  
    * 9.21 [Example 22: Play MOH while doing a database lookup](#example-22-play-moh-while-doing-a-database-lookup-)
 
-## Learning Prerequisites
+### Learning Prerequisites
 
 Understanding this documentation requires an understanding of [regular expressions](../../Examples/Regular-Expression/index.mdx#42x). XML dialplans use the common Perl Compatible Regular Expression (PCRE) matching syntax on fields, which decreases the "learning curve" when creating and maintaining dialplans.
 
@@ -61,7 +61,7 @@ Simple dialplans can be created by anyone with a working knowledge of PCRE synta
 
 Authors of moderately complex XML dialplans would benefit from in-depth PCRE experience along with a working knowledge of variables and flow-control used in scripting or programming languages.
 
-## Learning Goals 
+### Learning Goals 
 
 After reading this document, you should be able to:
 
@@ -139,7 +139,7 @@ Click here to expand Table of Contents
          * 9.21.9 [Testing the dialplan with a command line](#testing-the-dialplan-with-a-command-line)  
          * 9.21.10 [Setting up SIP Diversion Header for call forward](#setting-up-sip-diversion-header-for-call-forward)
 
-## The 10,000 Foot View
+### The 10,000 Foot View
 
 This overview uses the [Sofia](../../Configuration/Sofia-SIP-Stack/index.mdx#faq) SIP driver, [mod\_sofia](../../Modules/mod_sofia_1048707.mdx#about), as the source and destination (i.e., an endpoint) for calls handled by a dialplan. Other drivers have similar mechanisms.
 
@@ -157,7 +157,7 @@ If the conditions for your extension are not met, there are optional action defi
 
 Of course these are just the basic concepts needed to start working with the XML dialplan. If you are familiar with other programming or scripting languages, XML dialplans offer logical operations and control-flow options allowing you to create amazingly complex dialplans. But don't think the XML dialplan is the answer to all your problems. Complex XML dialplans are sometimes difficult to read and understand, which is why other dialplan processors are available. That said, the XML dialplan is a good place to start, and usually does the bulk of the work when FreeSWITCH™ processes a call.
 
-## Introductory Example
+### Introductory Example
 
 This following example shows a dialplan that understands how to route calls to only two extensions, 500 and 501\. But before it can be used, you'll need to tell the SIP driver the name of the dialplan (called the **context**) to use when a call needs processing. 
 
@@ -210,7 +210,7 @@ Things to notice
 * Creating a dialplan like this for thousands of extensions would be tedious and not very efficient. After reading this document, how would you construct a dialplan for 1000 extensions using only one extension definition?
 
   
-## Dialplan Configuration Directory Structure 
+### Dialplan Configuration Directory Structure 
 
 Find under: `${conf_dir}/dialplan/`
 
@@ -248,9 +248,9 @@ Things to notice
 * Files are loaded in alphabetical order, so beginning file names with a number is a good practice to ensure the bits and pieces of your dialplan are loaded in the proper sequence, if needed.
 
   
-## Beginning Concepts
+### Beginning Concepts
 
-### Context
+#### Context
 
 Contexts are a logical grouping of extensions.
 
@@ -263,7 +263,7 @@ The context tag has only one required parameter called name. This is the name th
 ```
 
   
-### Extensions
+#### Extensions
 
 Inside each context are one or more extensions. Extensions are destinations for a call. In FreeSWITCH™, extensions are the primary way calls are routed. Don't be fooled by the name, since an extension does not always have a real phone attached. An extension can be used to process call routing logic, security restrictions, outgoing trunk selection and more.
 
@@ -293,7 +293,7 @@ By default, when an extension is matched in your dialplan, the enclosed actions 
 <extension name="500" continue="true">
 ```
 
-### Conditions
+#### Conditions
 
 Conditions do the hard work in a dial-plan. They are extremely flexible and, as such, are sometimes challenging to construct. This document will start with simple examples and progress to more complex examples.
 
@@ -309,7 +309,7 @@ Conditions allow you to match regular expressions against channel variables asso
 
 Each condition is parsed using the Perl Compatible Regular Expression library. (See the [Perl Compatible Regular Expression](http://perldoc.perl.org/perlre.html) documentation to learn more.)
 
-#### Example 1: Capturing Digits
+##### Example 1: Capturing Digits
 
 The next example will use a feature of PCRE to show how to route a local call to the local [Telco/PTT](../../Introduction/Glossary_13173966.mdx#telco). (Local providers often insist that local calls be stripped of their country/area/city code.)
 
@@ -339,7 +339,7 @@ A destination number of 12135551212 would set $1 to 5551212 and then send the ca
 
 Use caution when substituting captured text, especially when building numbers. Perhaps the local phone company requires that all local calls have the digit 5 added to the local number. We would be tempted to write "sofia/gateway/LocalTelco/$15", but that would be wrong. Surrounding the variable in braces fixes the ambiguity: "sofia/gateway/LocalTelco/${1}5" This works for all FreeSWITCH™ variables, and often improves the readability of your dialplan.
 
-#### Example 2: Logical AND
+##### Example 2: Logical AND
 
 Suppose you wanted to redirect a call for extension 500 to extension 531, but only on Sunday.
 
@@ -359,13 +359,13 @@ This does the trick:
 
 ```
 
-##### Things to Notice
+###### Things to Notice
 
 * We use the "anti-action" here to ensure that if the final condition fails, the call will go to the proper place.
 * Don't be fooled: FreeSWITCH™ does not evaluate all the conditions to make its decision. This design pattern only works because FreeSWITCH™ stops processing an extension after the first condition failure.
 * Keep in mind that you must observe correct XML syntax when using this structure. Be sure to close all conditions except the last one with />. The last condition contains the final actions to be run, and is closed on the line following the last action.
 
-#### Example 3: Logical OR
+##### Example 3: Logical OR
 
 It is possible to emulate the logical OR operation available in many programming languages, using multiple conditions. In this situation, if one of the conditions matches, the actions are executed.
 
@@ -445,7 +445,7 @@ Notice the `inline="true"` option added to the actions that set the `calling_use
 The `inline="true"` options causes the variable to be set immediately, when the first condition matches. With out it, our example would not work properly because all the condition blocks would be checked before the variable was actually set. This would make the third condition block useless.
 
   
-#### Example 4: Logical XOR
+##### Example 4: Logical XOR
 
 We've seen how the regex= clause can be used to implement AND and OR. For completeness, here is a final example showing how to use XOR. The actions are executed if either the first or second regular expression matches, but not if both match.
 
@@ -462,7 +462,7 @@ We've seen how the regex= clause can be used to implement AND and OR. For comple
 </extension> 
 ```
 
-### Actions and Anti-Actions
+#### Actions and Anti-Actions
 
 The final parts of an extension definition are its actions. These cause FreeSWITCH™ to do things on your behalf, like connect a call or provide other functions. The list of available actions is long and varied, and can be found [here](../../Modules/mod_dptools_1970333.mdx#-c). Some of the more useful actions are:
 
@@ -480,13 +480,13 @@ It bears repeating: Actions are not executed "in-line" with the conditions they 
 
 1In some cases, the action may support the inline="true" option which causes the action to execute along with its matching condition. Not all dialplan applications support this. The set application is probably the most likely place you would use this feature, as we showed in [this example](#dialplan-variables). 
 
-#### Anti-Actions
+##### Anti-Actions
 
 In a few of our introductory examples, we showed the use of the `anti-action` expression. As its name implies, anti-actions are executed when the condition they are contained in evaluate to false.
 
 For every condition, if the condition's actions aren't executed, the anti-actions will be executed, and vice-versa.
 
-### Dialplan Variables
+#### Dialplan Variables
 
 So far you've seen the basic pieces of the dialplan and its structure. The examples have shown the basic use of:
 
@@ -501,7 +501,7 @@ Variables are named bits of information that are stored for later use. When a di
 
 We will touch on a few common variables here to solidify their proper use and demonstrate some features of variable substitution in FreeSWITCH™ .
 
-#### Accessing Variables
+##### Accessing Variables
 
 There are three kinds of variables available for you to access in your XML dialplan:
 
@@ -509,7 +509,7 @@ There are three kinds of variables available for you to access in your XML dialp
    * Global variables  
    * Built-in variables (time, date, etc.)
 
-##### Channel Variables
+###### Channel Variables
 
 Channel variables can be used to get information about a call and **control its behavior** as it progresses through your dialplan. Channel variables contain a wealth of information about the call being processed and an amazing array of options that can be set. You access the contents of a channel variable by surrounding its name with ${ }. For example, to append the default SIP domain to the end of a dial string, you can just reference `${domain_name}` in the dial string text, and its value will be substituted automatically:
 
@@ -536,7 +536,7 @@ For the complete list of Channel Variables and alternate ways to use them in dia
 | bridge\_hangup\_cause | The [reason](../../Troubleshooting-Debugging/Hangup-Cause-Code-Table_3964945.mdx#about) a call ended, for example NO\_ANSWER, NORMAL\_CLEARING or USER\_BUSY |
 
   
-##### Built-In Variables
+###### Built-In Variables
 
 Built-in variables are accessed by name, **without using the customary $ prefix**.
 
@@ -582,9 +582,9 @@ The range operation can be used on times and dates as well.
 
 The range operator for dates is "**\~**", _**not**_  "–"
 
-## Advanced Concepts
+### Advanced Concepts
 
-### Nested Conditions
+#### Nested Conditions
 
 Conditions can be nested one inside each other. Nested conditions is hard, very very hard to get right. You may want to use a script, instead (yes, yes, you want to use a script). See [mod\_lua](../../Modules/mod_lua_1048944.mdx#--) for Lua scripting.
 
@@ -652,7 +652,7 @@ There are a lot of things you can change to test this example:
 Depending on how you nest conditions within conditions, you will get a nested order result, or a line order result.  
 Please observe the following two examples and the execution order of each.
 
-### Line order vs nested order during execution
+#### Line order vs nested order during execution
 
 ![](/attachments/3966106/19595480.png)paste examples
 
@@ -730,7 +730,7 @@ EXECUTE verto.rtc/2902 log(ERR 10 Nest Level 1d)
   
 Advanced Condition/Action Rules
 
-#### break="on-true"
+##### break="on-true"
 
 Here is a more complex example, using the `break="on-true"` and `break="on-false"` statements to perform time-based routing for a support organization. The user dials extension 1100\. The actual support extension is 1105 and is staffed every day from 8am to 10pm, except Friday, when it is staffed between 8am and 1pm. At all other times, calls to 1100 are sent to the support "after-hours" mailbox.
 
@@ -749,13 +749,13 @@ Here is a more complex example, using the `break="on-true"` and `break="on-false
 </extension>
 ```
 
-##### Thing to Notice
+###### Thing to Notice
 
 The `break="on-true"` statement causes the extension to halt processing when the condition test evaluates to True. In the example above, if the call arrives in the designated support hours, the call is transferred and the rest of the conditions **are not processed**.
 
 By default, `break="on-false"` behavior is assumed if it is not specified.
 
-#### break="never"
+##### break="never"
 
 In this example, we use the `break="never"` statement to cause the first condition to always "fall through" to the next condition even if the first condition is false. This is useful to set various flags as part of extension processing. This example sets the variable `begins_with_one` if the destination number begins with 1\. 
 
@@ -770,7 +770,7 @@ In this example, we use the `break="never"` statement to cause the first conditi
 </extension>
 ```
 
-#### Asterisk Pattern Matching
+##### Asterisk Pattern Matching
 
 In addition to PCRE FreeSWITCH also supports Asterisk [patterns](http://www.voip-info.org/wiki/view/Asterisk+Dialplan+Patterns). Any expression starting with an underscore (\_) will be processed using asterisk pattern matching. See [mod\_dialplan\_asterisk](../../Modules/mod_dialplan_asterisk_3966416.mdx#about).
 
@@ -792,7 +792,7 @@ Since \* is normally reserved in regular expressions, its use in Asterisk patter
 </extension>
 ```
 
-## Example Library
+### Example Library
 
 This example shows how to ensure that all expressions match before executing actions, otherwise the anti-actions will be executed. In this case, the SIP gateway must be the default provider, and it must be an emergency call, and the auto-answer option must be enabled and stored in the database:
 
@@ -817,7 +817,7 @@ This example shows how to ensure that all expressions match before executing act
 ```
 
   
-#### Caller Profile Fields vs. Channel Variables
+##### Caller Profile Fields vs. Channel Variables
 
 One thing that may seem confusing is the distinction between a [caller profile field](../Caller-Profile-Field_7144625.mdx#about) (the built-in variables) and a channel variable.
 
@@ -857,7 +857,7 @@ Asterisk users must read!
   
 The XML Dialplan has the ability to test a number of conditions based upon variables with expressions; however, it needs to be understood that some variables may not be available for conditional testing until the first transfer or execute\_extension is performed (see workarounds below).
 
-##### Why
+###### Why
 
 In essence the XML Dialplan is to be used for Call Routing rather than for complex or extensive conditional tests and evaluations. This is why FreeSWITCH makes Lua, JavaScript, Perl, Python and other APIs available since they are far better alternatives than coming up with a convoluted XML solution, or worse yet some arcane and convoluted acronym such as "AEL".
 
@@ -867,14 +867,14 @@ The reason for this is that FreeSWITCH does the **hunting** and the **executing*
 
 This is why you may find that your XML condition is failing even though the variable and its value are displayed with the &lt;action application="info"/>.
 
-##### Workarounds
+###### Workarounds
 
 The workaround for this is to either implement the vast majority of your dialplan logic within Lua, JavaScript or one of the other Dialplan scripting languages, OR execute an extension which will make those variables you seek to do conditional evaluations on available for parsing within your XML Dialplan condition.
 
 **NOTE:** Since [f21b4a21374](https://freeswitch.org/stash/projects/FS/repos/freeswitch/commits/f21b4a2137410550b4ba9ee493ec27a555b53e90) it is possible for certain applications to be run **[inline](#inline-actions)** . This means that they are executed at hunting time which has the effect that channel variables set by these applications **are** available to the following conditions at hunting time.
 
   
-#### Actions and Anti-Actions
+##### Actions and Anti-Actions
 
 So far, we've seen example dialplan entries that contain conditions along with the actions that run when the conditions match.
 
@@ -890,11 +890,11 @@ In this example, the value of ${my\_var} is compared with 12, and a message is l
 ```
 
   
-#### Available Actions
+##### Available Actions
 
 See [Modules](../../Modules/index.mdx#about)and [dialplan functions](../../Modules/mod_dptools_1970333.mdx#-c)
 
-#### Inline Actions
+##### Inline Actions
 
 You may set an extra attribute **inline="true"** on an action so that it will be executed during the hunting phase of the dialplan:
 
@@ -949,7 +949,7 @@ Applications that are allowed to be run **inline** are:
 
 Also keep in mind that inline executed applications don't show up in your call detail records like normally run applications do.
 
-#### Complete Syntax
+##### Complete Syntax
 
 ```xml
 <!-- For enumerated attributes the first value on the list is the default -->
@@ -965,7 +965,7 @@ Also keep in mind that inline executed applications don't show up in your call d
 
 ```
 
-#### Summary
+##### Summary
 
 Extension hunting stops at the first extension where conditions evaluate to true and continue="false" (the default).
 
@@ -985,17 +985,17 @@ If condition is true, each &lt;action> is collected for execution; if false, eac
 If require-nested="true" (the default) and nested conditions evaluate to false, no &lt;anti-action> is collected. (Is this intentional?)
 
   
-#### Other Dialplan Pearls of Wisdom
+##### Other Dialplan Pearls of Wisdom
 
 The dialplan is parsed once when the call hits the dialplan parser in the ROUTING state. With one pass across the XML the result will be a complete list of instructions installed into the channel based on parsed &lt;action> or &lt;anti-action> tags.
 
 Those accustomed to Asterisk may expect the call to follow the dialplan by executing the applications as it parses them, allowing data obtained from one action to influence the next action. This is **not** the case, with the exception being the `${api func(api arg ${var_name})}` field type where a pluggable API call from a module may be executed as the parsing occurs. This is meant to be used to draw real-time information such as date and time or other quickly accessible information and should **not** be abused. In other words, do not execute long-running processes in the middle of the dialplan.
 
-#### Auto Hunt
+##### Auto Hunt
 
 You many turn on [auto\_hunt](../Variables-Master-List_16352570.mdx#auto_hunt) and then if the Extension name precisely equals the dialed number, FreeSWITCH will jump to this extension to begin the searching. It may or may not match the conditions, though.
 
-#### Dialing through gateways
+##### Dialing through gateways
 
 "gateway" is treated as a keyword by mod\_sofia, it obviously means the call will be placed through a configured gateway. This is an exception for the pattern sofia/profilename/extension@ip-address.
 
@@ -1012,7 +1012,7 @@ If a gateway, for instance, is named "gw", the bridge string for sending a call 
 `destination_number` is a FreeSWITCH variable; it shouldn't be changed.
 
   
-## Examples
+### Examples
 
 **NOTE:** if you plan to include your extension in a separated .XML file:
 
@@ -1020,7 +1020,7 @@ please disable or change enum extension if you don't need it
 
 add the tag &lt;include> and close it with &lt;/include>
 
-### Example 1: Matching a condition
+#### Example 1: Matching a condition
 
 The incoming call will be bridged only if it comes from 192.168.1.1\. If it does, the destination number will be captured in $1, and the call will be bridged to the same number, at 192.168.2.2.
 
@@ -1059,7 +1059,7 @@ The call will **not** be routed properly because the captured destination number
 </extension>
 ```
 
-### Example 2: Matching multiple conditions (AND) 
+#### Example 2: Matching multiple conditions (AND) 
 
 In this example we need to match a called number beginning with the prefix 1 AND match the incoming IP address at the same time.
 
@@ -1074,7 +1074,7 @@ In this example we need to match a called number beginning with the prefix 1 AND
 
 Notice that although we match with the rule 1(\\d+)$ we don't use the variable $1 which would contain only the rest of the dialed number with the leading 1 stripped off, we use the variable $0 which contains the original destination number.
 
-### Example 3: Stripping leading digits
+#### Example 3: Stripping leading digits
 
 In this example we need to match a called number beginning with 00 but we also need to strip the leading digits. Assuming that FreeSWITCH™ receives the number 00123456789 and we need to strip the leading 00 digits, then we can use the following extension:
 
@@ -1090,7 +1090,7 @@ If you anticipate receiving non-digits, or you want to match on more than just d
 
 Exercise caution when using regular expressions containing (`.*`) or (`.+`). The more specific the regular expression, the less chance that your system can be exploited by an unauthorized user.
 
-### Example 4: Adding a prefix
+#### Example 4: Adding a prefix
 
 In this example, numbers beginning with 00 are transformed into the same number, only beginning with 011 instead. If FreeSWITCH™ receives 00123456789, we should dial 011123456789:
 
@@ -1102,7 +1102,7 @@ In this example, numbers beginning with 00 are transformed into the same number,
 </extension>
 ```
 
-### Example 5: SIP Profiles (dialing with different configurations) 
+#### Example 5: SIP Profiles (dialing with different configurations) 
 
 In this example we will demonstrate the use of profiles when using a FreeSWITCH endpoint that supports profiles, like [mod\_sofia](../../Configuration/Sofia-SIP-Stack/index.mdx#faq). Assuming that we want to use different call settings (codecs, DTMF modes, etc) for sending the calls to different IP addresses, we can create different profiles. For example, in the configuration of sofia.conf, we see an example profile named "test", which we rename to profile1 for this example, and add a profile2 for comparison:
 
@@ -1154,7 +1154,7 @@ to send the call in G.711 uLaw and
 ```
 
   
-### Example 6: Calling registered user
+#### Example 6: Calling registered user
 
 This example shows how to bridge to devices that have registered with your FreeSWITCH box. In this example we assume that you have setup a sofia profile called 'local\_profile' and your phones are registering with the domain `example.com`.
 
@@ -1172,7 +1172,7 @@ The `%` instead of `@` in the dial string indicates an endpoint that is register
 ```
 
   
-### Example 7: Action failover on failed action
+#### Example 7: Action failover on failed action
 
 The following example shows how it is possible to call another action if the first action fails.
 
@@ -1196,7 +1196,7 @@ DOES hangup the channel, the second action will NOT be called.
 
 DOES NOT hangup the channel, the second action will be called.
 
-### Example 8: Check user is authenticated
+#### Example 8: Check user is authenticated
 
 The following example requires that a caller be authenticated before passing through. It was yanked from a mailing list post.
 
@@ -1213,7 +1213,7 @@ The following example requires that a caller be authenticated before passing thr
 ```
 
   
-### **Example 9: Routing DID to an extension**
+#### **Example 9: Routing DID to an extension**
 
 To route incoming calls which come in to a certain DID to a fixed extension 1001, do something LIKE the following (from a mailing list post) (where XXXxxxxxxx is the phone number of your incoming DID)
 
@@ -1259,7 +1259,7 @@ FYI, calls from the "public" go into the public context where they then need to 
 
 $${domain} a variable that is set in vars.xml to the domain, most likely your IP or the host name.
 
-### Example 10: Route to a gateway extension with custom caller id
+#### Example 10: Route to a gateway extension with custom caller id
 
 In this example we demonstrate an outgoing call with 10 digits from extension 1000 then route it to the `asterlink.com` gateway. This examples shows how to route for a specific extension and allows custom caller id for that extension.
 
@@ -1275,7 +1275,7 @@ In this example we demonstrate an outgoing call with 10 digits from extension 10
 ```
 
   
-### Example 11: Route based on number prefix
+#### Example 11: Route based on number prefix
 
 In this example we demonstrate routing to different destination based on NPANXX. Also how to respond to the calling party with a different failure message than the destination sends to FreeSWITCH.
 
@@ -1305,7 +1305,7 @@ In this example we demonstrate routing to different destination based on NPANXX.
 ```
 
   
-### Example 12: Handle calls which match no extension
+#### Example 12: Handle calls which match no extension
 
 In this example we demonstrate how to catch invalid extensions/Destinations.
 
@@ -1322,7 +1322,7 @@ See [mod\_enum](../../Modules/mod_enum_6587333.mdx#enum).
 ```
 
   
-### Example 13: Call Screening
+#### Example 13: Call Screening
 
 In this example, we ask the caller for a name, connect to the called party and announce that name. The called party may then press 1 to accept the call, or hang up. If the called party hangs up, the caller is connected with voicemail.
 
@@ -1349,7 +1349,7 @@ In this example, we ask the caller for a name, connect to the called party and a
 ```
 
   
-### Example 14: Media recording
+#### Example 14: Media recording
 
 This extension is used to play/record media in audio (wav) format recording / playback extension
 
@@ -1373,7 +1373,7 @@ Thanks to rupa for the help.
 ```
 
   
-### Example 15: Speaking Clock
+#### Example 15: Speaking Clock
 
 This example will speak time using the Flite text to speech engine.
 
@@ -1393,7 +1393,7 @@ See: [mod\_flite](../../Modules/mod_flite_3965160.mdx#about)
 ```
 
   
-### Example 16: Block certain codes
+#### Example 16: Block certain codes
 
 This extension example is to demonstrate how to block certain NPAs that you do not want to terminate based on caller id area codes and respond with SIP:503 to your origination so that they can route advance if they have another carrier to terminate the call.
 
@@ -1407,7 +1407,7 @@ This extension example is to demonstrate how to block certain NPAs that you do n
 ```
 
   
-### Example 17: Receive fax from inbound did
+#### Example 17: Receive fax from inbound did
 
 To use the predefined fax\_receive extension in freeswitch/conf/dialplan/default.xml for inbound calls, put this in freeswitch/conf/dialplan/public/fax.xml:
 
@@ -1430,7 +1430,7 @@ Then in freeswitch/conf/vars.xml you set your fax number to 1234 or whatever:
 ```
 
   
-### Example 18: Add international call prefix to effective_caller_id_number on incoming BRI calls
+#### Example 18: Add international call prefix to effective_caller_id_number on incoming BRI calls
 
 When using FreeTDM with zaphfc on a BRI line, the incoming calls received will not contain the international call prefix in the caller\_id\_number. This extension adds it to the effective\_caller\_id\_number.
 
@@ -1515,7 +1515,7 @@ Please replace "disa\_target" to you extension number.
 
 You can use this technique to dial into your box from a pstn / mobile phone and get a dialtone to do anything with.
 
-### Example 20: Fix invalid caller ID 
+#### Example 20: Fix invalid caller ID 
 
 If you run into a problem where your B-Leg do not like the invalid caller ID; for instance, you have an INVITE message with From: header as From: &lt;sip:Unavailable@Unavailable.invalid:5060> You can force the invalid number to be replaced by a fixed caller ID number. The following example checks for a valid NANPA CLID:
 
@@ -1529,7 +1529,7 @@ If you run into a problem where your B-Leg do not like the invalid caller ID; fo
 ```
 
   
-### Example 21: Block outbound caller ID 
+#### Example 21: Block outbound caller ID 
 
 To have caller ID block for calling party by dialing \*67 follows by the dial number, you can do the following:
 
@@ -1545,7 +1545,7 @@ To have caller ID block for calling party by dialing \*67 follows by the dial nu
 ```
 
   
-### Example 22: Play MOH while doing a database lookup 
+#### Example 22: Play MOH while doing a database lookup 
 
 If you want to play MOH while doing a data dip that takes a long time, the non-ESL way to do this by making the dialplan use the FSAPI via variable expansion to call luarun on the script. This way a new thread will be launched to execute the Lua script.
 
@@ -1573,7 +1573,7 @@ api:execute("uuid_break", sessionId) -- break the MOH
 
 SIP dialing has several options. Here are some aspects of what you might call the anatomy of a SIP dialstring.
 
-#### Dialing A SIP URI
+##### Dialing A SIP URI
 
 Basic syntax is: sofia/my\_profile/user@host Host can be a name or an IP address, for example:
 
@@ -1584,7 +1584,7 @@ sofia/my_profile/1234@192.168.0.1
   
 This would dial 1234 at host 192.168.0.1 via the profile "my\_profile". If you use a name instead of an IP address, Sofia will try to resolve the name as a NAPTR or SRV record before trying it as a standard A record.
 
-#### Dialing A Registered User
+##### Dialing A Registered User
 
 There are two options depending upon whether or not there is an [alias](../../Modules/mod_commands_1966741.mdx#command-2) for the domain.  
 Without an alias you can do this:
@@ -1609,7 +1609,7 @@ Also you can do it this way for users defined in the [directory](../../Directory
 user/1234@mydomain.com
 ```
 
-#### Dialing Through A Gateway (SIP Provider)
+##### Dialing Through A Gateway (SIP Provider)
 
 A gateway is a means for making outbound calls through a SIP provider. For example:
 
@@ -1628,7 +1628,7 @@ sofia/gateway/mygateway.com/1234@mygateway.com <==== WRONG WRONG WRONG
 ```
 
   
-#### Dialing With A Specific Transport
+##### Dialing With A Specific Transport
 
 Sometimes you will need to specify the transport, for example TCP, UDP, TLS, or SCTP.  
 This can be done by appending a semicolon and the transport method. For example:
@@ -1638,7 +1638,7 @@ sofia/my_profile/1234@192.168.0.1;transport=tcp
 ```
 
   
-#### Specifying The Codec
+##### Specifying The Codec
 
 Occasionally you may want to force the system to use a specific codec. This syntax will accomplish that:
 
@@ -1650,7 +1650,7 @@ Occasionally you may want to force the system to use a specific codec. This synt
 In this example, XXXX represents the codec to be used. The possible codec values are listed [here](../../Codecs-and-Media/Audio-Codecs_1048675.mdx#--).   
 Additional dialstring examples from [Absolute Codec String variable](../Variables-Master-List_16352570.mdx#absolute_codec_string).
 
-#### Getting Fancy With PortAudio
+##### Getting Fancy With PortAudio
 
 If you have PortAudio running and would like to specify the codec you need to originate first and bridge second:
 
@@ -1659,7 +1659,7 @@ originate {absolute_codec_string=XXXX}sofia/default/foo@bar.com bridge:portaudio
 ```
 
   
-#### Changing the SIP Contact user
+##### Changing the SIP Contact user
 
 FreeSWITCH normally uses mod\_sofia@ip:port for the internal SIP contact. To change this to foo@ip:port, there is a variable, sip\_contact\_user:
 
@@ -1668,7 +1668,7 @@ FreeSWITCH normally uses mod\_sofia@ip:port for the internal SIP contact. To cha
 ```
 
   
-#### Using a Custom SIP URI
+##### Using a Custom SIP URI
 
 FreeSWITCH allows you to specify custom URI's as needed. For example, you may need to interoperate with equipment that accepts a URI only if it is formatted in a particular way. The key is to prefix your SIP URI with "sip:" in the dialstring. For example:
 
@@ -1679,7 +1679,7 @@ sofia/my_profile/sip:xxxx;phone-context=cdp.udp@somedomain.com;user=phone
   
 The above example will send the the URI exactly as specified after the "sip:" prefix.
 
-#### Testing the dialplan with a command line
+##### Testing the dialplan with a command line
 
   
 ```xml
@@ -1694,19 +1694,19 @@ originate {toll_allow=international}loopback/0116628888888/default hangup inline
 ```
 
   
-#### Setting up SIP Diversion Header for call forward
+##### Setting up SIP Diversion Header for call forward
 
 ```xml
 <action application="export" data="sip_h_Diversion=<sip:2134445555@1.2.3.4>;reason=unavailable"/>
 ```
   
   
-## Attachments:
+### Attachments:
 
 ![](/images/icons/bullet_blue.gif) [LineVsNestedOrder.png](/attachments/3966106/19595477.png) (image/png)  
 ![](/images/icons/bullet_blue.gif) [ExecutionOrder.png](/attachments/3966106/19595480.png) (image/png)  
 
-## Comments:
+### Comments:
 
 | Don't forget in the regex examples that we might want to use the \\d{4} format or atleast explain it as \\d{4} is the same as \\d\\d\\d\\d and can allow for variable length ![](/images/icons/contenttypes/comment_16.png) Posted by silik0n at ago 12, 2014 15:28 |
 | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |

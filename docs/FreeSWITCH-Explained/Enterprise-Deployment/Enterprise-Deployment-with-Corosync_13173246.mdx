@@ -3,7 +3,7 @@
 
  Created by  Waldyr de Souza, last modified by  John Boteler on 2020.08.20
 
-# About
+## About
 
 by [Emmanuel Schmidbauer2](https://freeswitch.org/confluence/display/~vipkilla)
 
@@ -40,9 +40,9 @@ Click here to expand Table of Contents
          * 4.2.1 [To Do](#-freeswitch--enterprise-deployment-with-corosync-)
 * 5 [See also](#-freeswitch--enterprise-deployment-with-corosync-)
 
-# Network Configuration
+## Network Configuration
 
-## Add each node to hosts file
+### Add each node to hosts file
 
 ```xml
 root@fs01-a:~# echo "10.10.10.8   fs01-a" >> /etc/hosts
@@ -51,14 +51,14 @@ root@fs01-b:~# echo "10.10.10.8   fs01-a" >> /etc/hosts
 root@fs01-b:~# echo "10.10.10.9   fs01-b" >> /etc/hosts
 ```
 
-## Create SSH keys
+### Create SSH keys
 
 ```xml
 root@fs01-a:~# ssh-keygen -t dsa -f ~/.ssh/id_dsa -N ""
 root@fs01-b:~# ssh-keygen -t dsa -f ~/.ssh/id_dsa -N ""
 ```
 
-## Create SSH key to other server
+### Create SSH key to other server
 
 ```xml
 root@fs01-a:~# scp -P 22 .ssh/id_dsa.pub root@fs01-b:/root/
@@ -69,7 +69,7 @@ root@fs01-b:~# cat id_dsa.pub >> .ssh/authorized_keys
 root@fs01-b:~# rm -rf fs01-a.pub
 ```
 
-## Allow FreeSWITCH to bind to nonlocal IP
+### Allow FreeSWITCH to bind to nonlocal IP
 
 Add the following line to /etc/sysctl.conf
 
@@ -101,9 +101,9 @@ net.ipv4.ip_nonlocal_bind = 1
   
 If you don't, you did something wrong, if you do, continue...
 
-# Corosync/Pacemaker
+## Corosync/Pacemaker
 
-## Install Corosync & Pacemaker
+### Install Corosync & Pacemaker
 
 ```xml
 apt-get install pacemaker crmsh -y
@@ -111,7 +111,7 @@ apt-get install pacemaker crmsh -y
 
 corosync is included as a dependency of pacemaker
 
-## Configure Corosync
+### Configure Corosync
 
 ```xml
 root@fs01-a:~# export ais_port=4000
@@ -143,7 +143,7 @@ OpenAIS is deprecated in favor of corosync.
 <https://github.com/corosync/openais>
 
   
-##   
+###   
 The LSB (Linux Standards Base) Script
 
 Copy and paste this script into /etc/init.d/FSSofia on both nodes.
@@ -222,14 +222,14 @@ root@fs01-a:~# chmod +x /etc/init.d/FSSofia
 root@fs01-b:~# chmod +x /etc/init.d/FSSofia
 ```
 
-## Restart Corosync
+### Restart Corosync
 
 ```xml
 root@fs01-a:~# /etc/init.d/corosync restart
 root@fs01-b:~# /etc/init.d/corosync restart
 ```
 
-## crm configure show
+### crm configure show
 
 Configure corosync/pacemaker as follows
 
@@ -262,11 +262,11 @@ rsc_defaults $id="rsc-options" \
        resource-stickiness="100"
 ```
 
-# Configure FreeSWITCH
+## Configure FreeSWITCH
 
 Set FreeSWITCH to listen on the floating IP and configure ODBC.
 
-## sofia.conf.xml
+### sofia.conf.xml
 
 You should have the following parameters set in sofia.conf.xml on both nodes. The Database needs to be shared between the two+ nodes. Please see the databases wiki for the proper odbc connection string.
 
@@ -280,7 +280,7 @@ You should have the following parameters set in sofia.conf.xml on both nodes. Th
 <param name="ext-sip-ip" value="10.10.10.11"/>
 ```
 
-## Configure sip_profiles
+### Configure sip_profiles
 
 You should edit all sip profiles that you wish to use (typically internal.xml and external.xml). Adding the following line to tell these modules how to connect to your shared database and to track the active calls.
 
@@ -289,7 +289,7 @@ You should edit all sip profiles that you wish to use (typically internal.xml an
 <param name="track-calls" value="true"/>
 ```
 
-## switch.conf.xml
+### switch.conf.xml
 
 You should have the following parameters set in switch.conf.xml on both nodes
 
@@ -299,7 +299,7 @@ You should have the following parameters set in switch.conf.xml on both nodes
 <param name="core-recovery-db-dsn" value="database:username:password"/>
 ```
 
-## Other XML Files
+### Other XML Files
 
 These are not necessary for everyone that wants HA. But you may need to add in the "odbc-dsn" parameter depending on what you are using freeswitch for:
 
@@ -308,7 +308,7 @@ These are not necessary for everyone that wants HA. But you may need to add in t
 <param name="odbc-dsn" value="database:username:password"/>
 ```
 
-## Start FreeSWITCH
+### Start FreeSWITCH
 
 Start FreeSWITCH on both nodes.
 
@@ -317,7 +317,7 @@ root@fs01-a:~# /etc/init.d/freeswitch start
 root@fs01-b:~# /etc/init.d/freeswitch start
 ```
 
-## Start Corosync
+### Start Corosync
 
 Start Corosync on both nodes.
 
@@ -326,7 +326,7 @@ root@fs01-a:~# /etc/init.d/corosync start
 root@fs01-b:~# /etc/init.d/corosync start
 ```
 
-## Start Pacemaker
+### Start Pacemaker
 
 Start Corosync on both nodes.
 
@@ -335,18 +335,18 @@ root@fs01-a:~# /etc/init.d/pacemaker start
 root@fs01-b:~# /etc/init.d/pacemaker start
 ```
 
-# TEST!
+## TEST!
 
 Make a call and don't hang up.
 
-## CLI on both FS nodes
+### CLI on both FS nodes
 
 ```xml
 root@fs01-a:~# /usr/local/freeswitch/bin/fs_cli
 root@fs01-b:~# /usr/local/freeswitch/bin/fs_cli
 ```
 
-## Crash the primary server
+### Crash the primary server
 
 ```xml
 freeswitch@default> fsctl crash
@@ -354,11 +354,11 @@ freeswitch@default> fsctl crash
 
 Voilà, the call should continue almost instantly on the standby server!
 
-### To Do
+#### To Do
 
 TODO: Fill in how to setup/install corosync
 
-# See also
+## See also
 
 [Enterprise Deployment](./index.mdx#about)
 

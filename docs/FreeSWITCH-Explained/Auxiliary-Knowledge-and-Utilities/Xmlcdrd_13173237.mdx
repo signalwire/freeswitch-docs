@@ -16,17 +16,17 @@ Click here to expand Table of Contents
    * 1.5 [Build](#--)  
    * 1.6 [More complex example of radius accounting with stop packets](#xmlcdrd-fastcgi-cdr-logger)
 
-# Xmlcdrd FastCGI CDR Logger
+## Xmlcdrd FastCGI CDR Logger
 
-## Overview
+### Overview
 
 Xmlcdrd is a FastCGI daemon that works together with [mod\_xml\_cdr](../Modules/mod_xml_cdr_6587377.mdx#faq) to process CDR records. Right now xmlcdrd can store CDR fields into MySQL tables, submit Radius accounting (stop) packets and run custom Lua scripts on CDR. Functionality of xmlcdrd could be extended by writing plugins for other databases or different script languages,so expect ODBC plugin soon.
 
-## How does it work
+### How does it work
 
 Xmlcdrd is run with FastCGI compliant web server. It has been tested with lighttpd version 1.4, but could work with any server which supports FastCGI. When fcgi receives the CDR, it parses it and stores the configured XML entries (variables) into a hash table. Then it matches variables against "plugin metrics" and passes that hash table to plugins main function on successful match. Serveral instances of xmlcdrd can be started if one instance is not enough for CDR processing. All xmlcdrd logging goes to the stderr, so it's inside web servers error logs.
 
-## Requirements
+### Requirements
 
 Mandatory:
 
@@ -41,7 +41,7 @@ Optional:
 
 * Database Server: Mysql server / mysql C client libs for mysqlcdr plugin. Luaexec can use virtually any database via luasql.odbc and unix-odbc.
 
-## Configuration overview
+### Configuration overview
 
 Variables and plugins are configured in a main configuraton file xmlcdr.conf. You can declare as many variables as you want.
 
@@ -109,7 +109,7 @@ Plugins = (
 );
 ```
 
-###   
+####   
 Mod\_xml\_cdr Configuration
 
 Make sure that encode and disable-100-continue are active in xml_cdr.conf.xml
@@ -133,7 +133,7 @@ Enable the fast cgi in lighttpd config:
     )
 ```
 
-###   
+####   
 mysqlcdr plugin
 
 Mysqlcdr plugin fills configured variables into a SQL statement and then executes it. All variables are escaped with mysql\_real\_escape\_string function. Plugin accepts single initialization option - name of a configuration file. Example configuration file:
@@ -151,7 +151,7 @@ stmt_template="insert into cdr (caller_id_number, effective_caller_id_number, de
 #end of mysqlcdr config file
 ```
 
-###   
+####   
 luaexec plugin
 
 Luaexec plugin allows you to write a custom scripts for CDR processing. Lua has a rich set of addon libraries for accessing file system, databases, e.t.c. You need a Lua shared library to build the plugin. If you don’t like the idea of CDR processing with interpreter, “configure" the build with –disable-luaexec parameter. Lua is fast and can be precompiled into a byte-code for faster execution. Right now Luaexec is not very optimized for speed, but I’m able to make around 100 inserts per second with a single instance of xmlcdrd and luasql.odbc addon. Inserts should run even faster on a fine tuned database and descent hardware. Lua script must define following functions: function luaexec\_init(), luaexec\_main() and luaexec\_free(). luaexec\_init() and luaexec\_free() are called only once on initialization and destruction of plugin. Function luaexec\_main() is called every time plugin is executed. Luaexec exports two functions: xcdr\_varget("name\_of\_variable") - returns the value of variable given the name of variable or NULL if variable was not found. xcdr\_prn\_debug ("debug str") - sends the string to syslog with DEBUG level.
@@ -235,7 +235,7 @@ vsas = (
 );
 ```
 
-##   
+###   
 Build
 
 Code is located under freeswitch-contrib Git tree nazim/xmlcdrd.
@@ -252,7 +252,7 @@ To disable the compilation of particual plugin use --disable switch when running
  --disable-radcdr        Disable building of radcdr plugin
 ```
 
-##   
+###   
 More complex example of radius accounting with stop packets
 
 This is an example of radius accounting with radcdr plugin. Please note that this configuration sends only "stop" radis accounting packets "start" packets are not supported. A lot of billing systems support accounting in that way, so absent "start" packets is not an issue in most cases. Xmlcdrd allows you to include different VSA's in a "stop" packets, depending on a call CDR variables.

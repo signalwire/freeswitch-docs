@@ -3,7 +3,7 @@
 
  Created by  Giacomo Vacca, last modified on 2017.08.11
 
-# About
+## About
 
 This page derives from a document written initially by Dragos and Giacomo in October 2016 (you can find the [original attached here](/attachments/12517398/12517399.pdf) for historical reasons). It is an attempt to provide a general view of the interaction between FreeSWITCH and Opus, under several points of view: use, configuration, development, debug, installation. This is based on FreeSWITCH v1.6, in particular v1.6.12.
 
@@ -56,7 +56,7 @@ Click to expand Table of Contents
    * 11.1 [Dragos presentation at ClueCon 2017](#dragos-presentation-at-cluecon-2017)
 * 12 [Recommended reads](#recommended-reads)
 
-# Introduction
+## Introduction
 
 FreeSWITCH is an open source telephony platform supporting communication technologies such as SIP and WebRTC. Opus is an audio codec with high resilience to packet loss, thanks to its Forward Error Correction (FEC) techniques.
 
@@ -72,7 +72,7 @@ The _mod\_opus_ module supports two variants of Opus: one at 48 KHz which can be
 
 Update: opus@16000h added (FS version 1.6.16)
 
-# Using Opus in FreeSWITCH
+## Using Opus in FreeSWITCH
 
 Opus can be loaded just like the other codecs in FreeSWITCH.
 
@@ -100,7 +100,7 @@ CODEC_NAME@SAMPLE_RATEh@PTIMEi@CHANNELSc
 
 Note the "h" , "i" and "c" tokens, "h" for sample rate , "i" for ptime, "c" for number of channels.
 
-## Examples
+### Examples
 
 ```xml
 <action application="set" data="codec_string=OPUS"/>
@@ -126,7 +126,7 @@ You can use this if your VOIP software wants one of those ptimes.
 
 This implies 20 ms ptime.
 
-# User Manual
+## User Manual
 
 Opus is configured through the config file _PATH\_TO\_CONFIG/autoload\_configs/opus.conf.xml_.
 
@@ -149,7 +149,7 @@ The decoder params are:
 
 We are referencing the local encoder and the local decoder. Some of these params when sent to a peer (through SDP offer/answer ) change their roles and a local encoder param will become a remote decoder param. The FMTP params are also marking characteristics of the local encoder and are shaping its functionality.
 
-## Configuration Parameters
+### Configuration Parameters
 
 We are showing the configuration parameters with the hardcoded values from mod\_opus.c. If one of these params is not set in in the config file (opus.conf.xml), then it will have a default value as shown below. These values are not the ones from the default config file .
 
@@ -318,9 +318,9 @@ The encoder will adjust its bitrate based on what the other side reports (packet
 
 This is available starting from FreeSWITCH v1.6.11.
 
-# Examples of configuration
+## Examples of configuration
 
-## WebRTC configuration
+### WebRTC configuration
 
 For opus@48000h:
 
@@ -341,7 +341,7 @@ For opus@48000h:
 </configuration>
 ```
 
-##   
+###   
 Transcoding only configuration
 
 For opus@8000h:
@@ -362,7 +362,7 @@ For opus@8000h:
 </configuration>
 ```
 
-#   
+##   
 SDP Offer/Answer for Opus streams
 
 This part refers generically to the SDP negotiation involved when dealing with Opus, but it's relevant to understand how FreeSWITCH works.
@@ -371,15 +371,15 @@ Both in standard SIP architectures and other WebRTC implementations, where the s
 
 When negotiating an Opus session it's important to distinguish between the encoder and decoder properties. The caller ("offerer") will indicate its willingness to use Opus (potentially with a list of other supported codecs, with a specific priority) with some optional parameters related to the encoding or decoding phase, to optimize resource utilization. The callee ("answerer") will respond, potentially using some optional parameters to refine the overall session configuration.
 
-## Mandatory parameters
+### Mandatory parameters
 
 Media type: must be "_audio_"
 
 Media subtype: defined as rtpmap, must be "_opus/48000/2_". 48000 refers to the sample rate. 2 refers to the number of channels. The media subtype doesn't change if the sample rate being negotiated is not 48000 or if there's no intention to use 2 channels. In other words that media subtype is always that string.
 
-## Optional parameters
+### Optional parameters
 
-### Decoder parameters
+#### Decoder parameters
 
 _ptime_: media type parameter indicating the desired frame size (in msec) that the decoder is willing to receive. This refers to the initial negotiation only, as it may change dynamically during a call. When not indicated, it defaults to 20 msec. When present, ptime is indicated in an "a=" attribute.
 
@@ -397,15 +397,15 @@ _useinbandfec_: media parameter indicating that the decoder is able to process i
 
 _usedtx_: media parameter indicating that the decoder prefers discontinuous transmission (DTX), i.e. the encoder should enable DTX and stop sending packets when source audio is absent. It can be 0 or 1, and defaults to 0 (continuous transmission).
 
-### Encoder parameters
+#### Encoder parameters
 
 _sprop-maxcapturerate_: media parameter indicating that the encoder won't capture at a sample rate higher than that value. This may hint the remote decoder to save computation resources, however the remote decoder is expected to handle correctly any legal sample rate.
 
 _sprop-stereo_: media parameter indicating that the encoder won't produce stereo audio. This may hint the remote decoder to intialize at a lower complexity, as it doesn't need the full Opus capabilities, and hence save resources.
 
-## SDP offers examples
+### SDP offers examples
 
-### Generic offer
+#### Generic offer
 
 ```xml
 m=audio 54312 RTP/AVP 101
@@ -414,7 +414,7 @@ a=rtpmap:101 opus/48000/2
 
 where 54312 is the candidate RTP port, 101 is the dynamic number assigned to opus, and opus is offered without any specific constraint. All the default values mentioned in the session about SDP negotiation apply.
 
-## Narrowband offer
+### Narrowband offer
 
 Offer with 8 KHz sample rate, bitrate limitation on the decoder (max average bitrate requested 20 Kbps) and indications on the desired ptime (40 msec preferred and max):
 
@@ -428,9 +428,9 @@ a=maxptime:40
 
 With such an offer incoming to FreeSWITCH, if negotiate-bitrate is set to 1 then FreeSWITCH will consider the offered value of maxaveragebitrate and use it to set the initial encoder bitrate if that value is smaller than the one configured in maxaveragebitrate configuration parameter in opus.conf.xml. All this will be anyway conditional to the packet-loss-percent value set in opus.conf.xml, since the call is of the narrowband type. So the initial bitrate for the encoder may be lower than the requested 14000 bps in this example.
 
-# Development
+## Development
 
-## FEC on the decoder
+### FEC on the decoder
 
 The function _switch\_opus\_decode()_ is called for each Opus frame to be decoded.
 
@@ -442,7 +442,7 @@ This function uses API function _opus\_packet\_parse()_ to break the frame in mu
 
 Inside an Opus frame there can be multiple SILK frames. Each of these frames can contain FEC information. This function looks at each SILK frame to see if there's FEC information in it, and it returns TRUE if it finds any. This is indispensable for the way the Opus (n-1) FEC works together with the FS jitter buffer because we'll know if we need to grab from the jitter buffer the same packet twice: once for playing FEC from it, and once to play the current voice payload itself.
 
-## FEC on the encoder
+### FEC on the encoder
 
 If packet loss is less or equal to 10%, we don't enforce FEC, but we still pass the packet loss percentage value to the encoder, so it would make some smart decisions on how to encode the voice further.
 
@@ -454,7 +454,7 @@ There is also a function called _switch\_opus\_get\_fec\_bitrate()_, which conta
 
 Physical explanation, on why this feature works: in case of network congestion, the network queues in remote devices start dropping entire packets, they would never drop just some bits or bytes from a packet. So we never lose bits or bytes, we lose entire packets. As long as we keep our packets small enough then a 20-30 bytes difference would not matter, since the remote packet queues will discard some of them anyway. But the packets that are not discarded will have some FEC information for the discarded ones, so part of the voice signal can be reconstructed by the decoder.
 
-## Codec Control (Congestion control)
+### Codec Control (Congestion control)
 
 There are two kinds of callbacks into _mod\_opus_, from switch\_rtp.c :
 
@@ -480,9 +480,9 @@ switch_core_media_codec_control(rtp_session->session, SWITCH_MEDIA_TYPE_AUDIO, S
 
 This will call switch\_opus\_control(), with param SCC\_AUDIO\_ADJUST\_BITRATE.
 
-# Debugging
+## Debugging
 
-## Introduction
+### Introduction
 
 It is possible to log very detailed information on opus frames being decoded and encoded.
 
@@ -492,10 +492,10 @@ For each frame FreesWITCH will log the size of data, whether FEC is present or n
 
 _There will be one log line per frame, so with 20 msec packetization this means 50 lines of logs per second per direction. Do not enable it on a Production server or it may fill the log files very quickly._
 
-##   
+###   
 How to work with the "opus\_debug" CLI command
 
-### Example
+#### Example
 
 ```xml
 2015-11-10 16:11:48.507949 [DEBUG] mod_opus.c:453 encode: opus_frames [1] samples [160] audio bandwidth [NARROWBAND] bytes [35] FEC[no] channels[1]
@@ -506,7 +506,7 @@ How to work with the "opus\_debug" CLI command
 
 You can see above 4 frames, 2 of them were just encoded ("encode:") , and 2 of them will be decoded immediately ("decode:"). All 4 frames are Narrowband and they all have an actual 160 samples frame size, corresponding to 20 ms ptime. Since the opus codec is VBR they differ in size, they are around 30-40 bytes. Two of them have FEC, and they are all mono (1 channel).
 
-### Example with PLC
+#### Example with PLC
 
 ```xml
 2015-11-13 07:19:19.525757 [DEBUG] mod_opus.c:453 decode: opus_frames [1] samples [320] audio bandwidth [NARROWBAND] bytes [80] FEC[yes] channels[1]
@@ -519,7 +519,7 @@ You can see above 4 frames, 2 of them were just encoded ("encode:") , and 2 of t
 
 You can see above one frame of 320 samples (corresponding to ptime 40) being decoded, then the next frames are missing, and PLC was done instead (there was no N+1 packet in the Jitter Buffer either).
 
-### Example with FEC
+#### Example with FEC
 
 ```xml
 2015-11-13 07:19:23.005774 [DEBUG] mod_opus.c:453 decode: opus_frames [1] samples [320] audio bandwidth [NARROWBAND] bytes [87] FEC[yes] channels[1]
@@ -555,7 +555,7 @@ a=rtcp:28505 IN IP4 10.0.0.145
 
 Note the _rtpmap_ line with the Opus RTP profile opus/48000/2, then the FMTP values, and then the telephone-event clock rate which should be 48000 for Opus, even if inside our opus frames we have a signal sampled at different rate.
 
-## Statistics of Decoder
+### Statistics of Decoder
 
 This is logged at the end of a call, and statistics about the total number of frames decoded, PLC performed and FEC frames decoded are reported:
 
@@ -563,7 +563,7 @@ This is logged at the end of a call, and statistics about the total number of fr
 0bd9616f-9867-4a75-8f15-5b703bbb4dda 2015-11-12 17:58:43.534824 [DEBUG] mod_opus.c:661 Opus decoder stats: Frames[7038] PLC[2247] FEC[29]
 ```
 
-##   
+###   
 Statistics of Encoder
 
 This is logged at the end of a call, with statistics about the number of frames that were encoded, and in particular the average bitrate of the encoded data.
@@ -574,7 +574,7 @@ This is logged at the end of a call, with statistics about the number of frames 
 
 The number of encoded frames with FEC is also logged, but note that this is only taken into account when _opus\_debug_ is on. The reason behind this is to avoid unnecessary debug/log logic for each encoded frame (i.e. from the typical 50 times/sec for 20 msec ptime, to potentially higher frequencies for smaller ptimes).
 
-## Debugging with Wireshark
+### Debugging with Wireshark
 
 It's possible to see the details of an opus session with tools like Wireshark, after the packets have been captured with any of the available tools like tcpdump and the like.
 
@@ -592,9 +592,9 @@ Wireshark can also analyze the RTP stream and show some metrics related to them,
 
 ![](/attachments/12517398/12812301.png)
 
-# APPENDIX – libopus
+## APPENDIX – libopus
 
-## Installing libopus
+### Installing libopus
 
 Debian distributions:
 
@@ -608,13 +608,13 @@ CentOS distributions:
 yum install libopus
 ```
 
-## Building libopus
+### Building libopus
 
 When libopus is not already available for your distribution, you can build it from source.
 
 libopus is built in a standard way; you can either use the available tarball or checkout from git.
 
-### Prepare source from tarball
+#### Prepare source from tarball
 
 ```xml
 wget http://downloads.xiph.org/releases/opus/opus-1.1.3.tar.gz
@@ -622,7 +622,7 @@ tar xvf opus-1.1.3.tar.gz
 cd opus-1.1.3
 ```
 
-### Prepare source from git
+#### Prepare source from git
 
 ```xml
 git clone https://git.xiph.org/opus.git
@@ -631,7 +631,7 @@ git checkout v1.1.3
 ./autogen.sh
 ```
 
-### Build
+#### Build
 
 ```xml
 ./configure
@@ -640,9 +640,9 @@ make check
 make install
 ```
 
-## Packaging libopus
+### Packaging libopus
 
-### Building libopus RPMs
+#### Building libopus RPMs
 
 ```xml
 yum install -y rpmdevtools libogg-devel gcc make wget
@@ -660,7 +660,7 @@ rpmbuild -v -bb opus.spec
 
 The packages will be in \~/rpmbuild/RPMS/x86\_64/, and this procedure generates both libopus and libopus-devel packages.
 
-# APPENDIX – Building mod_opus
+## APPENDIX – Building mod_opus
 
 First install libopus-dev (or libopus-devel).
 
@@ -676,7 +676,7 @@ codecs/mod_opus
 
 then build FreeSWITCH as usual.
 
-# Glossary
+## Glossary
 
 _Audio Codec (audio enCOder/DECoder)_: Software that compresses and decompresses a digital audio signal. Codecs are generally understood to be various mathematical models used to digitally encode (and compress) audio information. Most sound codecs process audio signals that are already digitalized in time and amplitude. Many of these models take into account the human brain’s ability to form an impression from incomplete information. The purpose of the various encoding algorithms is to strike a balance between efficiency and quality.
 
@@ -720,7 +720,7 @@ A sample is a value or set of values at a point in time and/or space.
 
 _VBR_: Variable Bit-Rate allows a codec to change its bitrate dynamically to adapt to the "difficulty'' of the audio being encoded. VBR can achieve lower bitrate for the same quality, or a better quality for a certain bitrate. Despite its advantages, VBR has two main drawbacks: first, by only specifying quality, there's no guarantee about the final average bitrate. Second, for some real-time applications like voice over IP (VoIP), what counts is the maximum bit-rate, which must be low enough for the communication channel.
 
-# References
+## References
 
 <https://en.wikipedia.org/wiki/Opus%5F%28audio%5Fformat%29>
 
@@ -736,17 +736,17 @@ _VBR_: Variable Bit-Rate allows a codec to change its bitrate dynamically to ada
 
 <https://opus-codec.org>
 
-## Dragos presentation at ClueCon 2017
+### Dragos presentation at ClueCon 2017
 
 [![]/images/fw-opus-codec.jpg](/download/attachments/freeswitch%5Fopus%5Fv3.pdf?version=1&modificationDate=1502443408771&api=v2)
 
-# Recommended reads
+## Recommended reads
 
 "FreeSWITCH Cookbook", <https://www.packtpub.com/networking-and-servers/freeswitch-cookbook>
 
 "Mastering FreeSWITCH", <https://www.packtpub.com/networking-and-servers/mastering-freeswitch>
 
-## Attachments:
+### Attachments:
 
 ![](/images/icons/bullet_blue.gif) [Freeswitch\_and\_the\_Opus\_Audio\_Codec\_1.0.pdf](/attachments/12517398/12517399.pdf) (application/pdf)  
 ![](/images/icons/bullet_blue.gif) [opus\_wireshark\_stream.png](/attachments/12517398/12812301.png) (image/png)  

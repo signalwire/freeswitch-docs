@@ -3,7 +3,7 @@
 
  Created by  Nguyen Van Nghia Em, last modified by  Martin Paterson on 2021.11.15
 
-# About
+## About
 
 Codec negotiation can be a confusing subject. If you are not familiar with [SDP](http://en.wikipedia.org/wiki/Session%5FDescription%5FProtocol) (Session Description Protocol) then this adds an extra layer of mystery. If you are new to the subject (or are just confused by what you've read and experienced) then consider this brief introduction and hopefully things will be a bit clearer.
 
@@ -29,7 +29,7 @@ Click to expand Table of Contents
          * 3.4.2 [Not correct](#codec-negotiation-in-freeswitch)
 * 4 [See Also](#codec-negotiation-in-freeswitch)
 
-# Codec Negotiation in FreeSWITCH
+## Codec Negotiation in FreeSWITCH
 
 FreeSWITCH supports two basic modes of codec negotiation: early and late. _Early_ negotiation means that the codec is negotiated between FreeSWITCH and the endpoint as soon as possible, even before FreeSWITCH needs to send media (such as ringing) or answer the the call. This occurs before an incoming call even hits the dialplan. _Late_ negotiation means to delay the choosing of the codec until after the call hits the dialplan and more information can be gathered. This additional information can be used to influence the negotiation process. Let's illustrate the differences between early- and late-negotiation.
 
@@ -77,11 +77,11 @@ The basic call flow in our second example has FreeSWITCH getting the A leg but \
 
 That's really all there is to the difference between early- and late-negotiation. Just keep this in mind: simply enabling late-negotiation does not automatically force the A leg to inherit the B leg's codec. It simply allows for "inherit codec" as one way of negotiating codecs. Late-negotiation allows for other codec negotiation tricks. Read on for a more specific description of codec negotiation in FreeSWITCH.
 
-## Early Negotiation
+### Early Negotiation
 
 This is the default behavior of FreeSWITCH, although most of the example configs turn on late negotiation in their profiles.  
 
-### General principle
+#### General principle
 
 * When leg A calls FreeSWITCH, the offered codecs will be compared against the content of inbound-codec-prefs in the relevant SIP profile. As soon as a codec offered by A matches a codec allowed by FS, it is selected as the codec for leg A. If none of the offered codecs matches the allowed codecs, the call fails.
 
@@ -99,9 +99,9 @@ What is happening:
 * FS checks the proposed codecs in order of priority (as listed in the SDP) against its list of allowed codecs (as configured in inbound-codec-prefs), and selects PCMA as the first authorized codec, so the codecs list becomes: PCMA/G729/PCMU.
 * FS proposes this codec list to B.
 
-### Early Negotiation parameters
+#### Early Negotiation parameters
 
-#### disable-transcoding
+##### disable-transcoding
 
 > This is a parameter you may set in the outbound SIP profile.  
 > This will force the codec proposed to leg B (outbound leg) to be the same as the codec negotiated on leg A (inbound leg).  
@@ -117,7 +117,7 @@ What is happening:
 > 
 > This parameter (only applicable when late-negotiation is off) will take the negotiated codec from leg A and offer it as the only option in leg B (ignoring any other codec settings) if the B leg cannot use that same codec the call will fail
 
-#### absolute_codec_string
+##### absolute_codec_string
 
 > This is a channel variable you may set in the dialplan, typically just before bridging.  
 > This will force the codecs list proposed to leg B, without taking into account anything else.  
@@ -134,7 +134,7 @@ What is happening:
 > 
 > _Note_: This parameter prevails on disable-transcoding. So if you disable transcoding in the outbound SIP profile and you use absolute\_codec\_string in the dialplan to set the outbound codec to be different from the inbound codec, transcoding will occur anyway.
 
-#### codec_string
+##### codec_string
 
 > This is a channel variable you may set in the dialplan, typically just before bridging.  
 > The defined codec list will override the one set in the outbound-codec-prefs parameter of the outbound profile.  
@@ -157,7 +157,7 @@ Also in either case the variable "codec\_string" on the A leg controls what code
 
 The variable "absolute\_codec\_string" is similar except it implies the implicit list of codecs and will disable the addition of the A leg codec to the list as described in the default behavior.
 
-## Late Negotiation (requires param)
+### Late Negotiation (requires param)
 
 &lt;param name="inbound-late-negotiation" value="true"/>
 
@@ -165,27 +165,27 @@ The variable "absolute\_codec\_string" is similar except it implies the implicit
 * The negotiation will take place when leg A is answered.
 * This allows you to route the call to a script and examine the sdp and rewrite the acceptable codecs with the "codec\_string" channel variable.
 
-#### [inherit_codec](https://wiki.freeswitch.org/wiki/Variable%5Finherit%5Fcodec "Variable inherit codec")
+##### [inherit_codec](https://wiki.freeswitch.org/wiki/Variable%5Finherit%5Fcodec "Variable inherit codec")
 
 > &lt;action application="set" data="inherit_codec=true"/>
 > 
 > inherit\_codec=true (only applicable when late-negotiation is enabled) will take the codec negotiated when the B leg answers and pass it to the A leg so it also uses the same codec (if the A leg supports it); otherwise, it will use whatever it can from its own list
 
-#### [ep_codec_string](https://wiki.freeswitch.org/wiki/Variable%5Fep%5Fcodec%5Fstring "Variable ep codec string")
+##### [ep_codec_string](https://wiki.freeswitch.org/wiki/Variable%5Fep%5Fcodec%5Fstring "Variable ep codec string")
 
 > This variable is only available if late negotiation is enabled on the profile. It's a readable string containing all the codecs proposed by the calling endpoint. This can be easily parsed in the dialplan.
 > 
 > &lt;action application="export" data="codec_string='${ep_codec_string}'"/>
 
-## Proxy Media
+### Proxy Media
 
 Codec Negotiation can not be made if proxy media is enabled and answer application not executed.
 
-## Incompatible Destination
+### Incompatible Destination
 
 See below, Mixing Media/Codecs on different legs, particularly _media\_mix\_inbound\_outbound\_codecs_ new variable.
 
-## Mixing Media/Codecs on different legs (transcoding)
+### Mixing Media/Codecs on different legs (transcoding)
 
 If you want FreeSWITCH to be able to match two legs with different codecs (where it transcodes) there are several variables you will need to set to make it possible. First you must set **_media\_mix\_inbound\_outbound\_codecs=true_** either globally (ie vars.xml) or on the b leg explicitly on the bridge (ie _&lt;action application="bridge" data="{media\_mix\_inbound\_outbound\_codecs=true}sofia/gateway/....">_ ).
 
@@ -195,15 +195,15 @@ Second you will want to turn off _inbound-late-negotiation_ and _inbound-zrtp-pa
 
 Finally you should make sure you have variables like _disable-transcoding,inherit\_codec,bypass\_media,proxy\_media_ all set to false (as these are all tangential to what we want to accomplish).
 
-# Warnings 
+## Warnings 
 
 If your sdp contains codecs with different ptime preferences and ptime is specified in sdp, sofia will not send a ptime attr.
 
  2010-10-18 11:47:52.234322 [WARNING] sofia_glue.c:213 Codec G723 payload 4 added to sdp wanting ptime 30 but it's already 20 (G729:18:20), disabling ptime.
 
-# Examples
+## Examples
 
-## Modifying the codec when using proxy media mode
+### Modifying the codec when using proxy media mode
 
 Here is a dialplan example that will allow you to change the codec preference order and still enjoy the low cpu usage of proxy\_media mode. It is similar to subst() in openser/opensips/kamailio textops module.
 
@@ -236,7 +236,7 @@ Here is a dialplan example that will allow you to change the codec preference or
   &lt;/extension>
 &lt;/context>
 
-## Rewriting SDP
+### Rewriting SDP
 
 switch\_r\_sdp:
 
@@ -245,7 +245,7 @@ switch\_r\_sdp:
  ]]>
 &lt;/action>
 
-## Disable G.729b on outbound
+### Disable G.729b on outbound
 
 &lt;extension name="disable-annexB" continue="true">
   &lt;condition field="${switch_r_sdp}" expression="/(.*)(m=audio \d+ RTP\/AVP)(.*)( 18 )(.*)/s">
@@ -253,9 +253,9 @@ switch\_r\_sdp:
   &lt;/condition>
 &lt;/extension>
 
-## Codec Negotiation when proxy media enabled
+### Codec Negotiation when proxy media enabled
 
-### Correct
+#### Correct
 
 &lt;extension name="test_proxy_media">
   &lt;condition field="source" expression="mod_sofia">
@@ -264,7 +264,7 @@ switch\_r\_sdp:
   &lt;/condition>
 &lt;/extension>
 
-### Not correct
+#### Not correct
 
 &lt;extension name="test_proxy_media">
   &lt;condition field="source" expression="mod_sofia">
@@ -272,7 +272,7 @@ switch\_r\_sdp:
   &lt;/condition>
 &lt;/extension>
 
-# See Also
+## See Also
 
 * [Codecs and Media](./index.mdx#about)
 * [Audio Codecs](./Audio-Codecs_1048675.mdx#--)

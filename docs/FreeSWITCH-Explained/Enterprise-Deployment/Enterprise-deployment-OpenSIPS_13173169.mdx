@@ -3,7 +3,7 @@
 
  Created by  João Vitor, last modified by  John Boteler on 2020.08.19
 
-# About
+## About
 
 A load balancer setup can share load between multiple FS hosts according to load. A single ingress IP can be presented to the customer for the entire cluster simplifying the customer configuration (this can be combined with [DNS SRV](https://wiki.freeswitch.org/wiki/Enterprise%5Fdeployment%5FDNS%5FSRV "Enterprise deployment DNS SRV") to give failover between data centres). The load balancer will measure load on each server in the cluster and send calls to the least loaded server. This ensures that the call load is spread among servers evenly, so no server
 
@@ -25,19 +25,19 @@ Click here to expand Table of Contents
    * 2.3 [CDRs](#-freeswitch--enterprise-deployment-opensips-)
 * 3 [See Also](#-freeswitch--enterprise-deployment-opensips-)
 
-## Loadbalancer Configuration
+### Loadbalancer Configuration
 
 For redundancy you should have two servers that act as load balancers. These will be in an active-passive configuration, i.e. all traffic goes via the active server the passive server is promoted to active if the active server fails or is taken down for maintenance. They each have their own IP so that they can be accessed independantly (e.g. via SSH for maintenance) and share a virtual IP which is assigned to the current active server. SIP traffic is accepted on the virtual IP.
 
 It is recommended that lb1 and lb2 have multiple ways to communicate, to prevent a split brain situation where both lb1 and lb2 think the other is offline and both start listening on the virtual IP.
 
-### Heartbeat
+#### Heartbeat
 
 Heartbeat is responsible for assigning the virtual IP to a server and detecting when the other server fails.
 
 You will need to create 3 files in /etc/heartbeat: authkeys, [ha.cf](http://ha.cf), haresources. These files must be identical on both lb1 and lb2.
 
-#### authkeys
+##### authkeys
 
 This file stores one or more authentication methods, and selects which to use with the auth statement. For example:
 
@@ -51,7 +51,7 @@ auth 2
   
 The key here is used to authenticate communication between nodes in the cluster and prevents malicious servers being able to trick a node into going offline. As a result it should be kept secret and very secure. CRC should never be used in production as it provides no authentication, just error checking.
 
-#### [ha.cf](http://ha.cf)
+##### [ha.cf](http://ha.cf)
 
 This is only an example. Timings can be adjusted to suit your needs. This uses a serial cable and network broadcast to check the other node but 1 or more of serial, unicast, multicast and broadcast can be used and none is required (apart from there must be at least one communication method).
 
@@ -87,7 +87,7 @@ respawn hacluster /usr/lib/heartbeat/ipfail
 apiauth ipfail gid=haclient uid=hacluster
 ```
 
-####   
+#####   
 haresources
 
 This file controls what resources are configured on the load balancer servers, this is where the virtual IP is configured. The format is:
@@ -105,7 +105,7 @@ For example:
 lb1 IPaddr2::100.100.100.100/255.255.255.0/bond0
 ```
 
-###   
+####   
 Sysctl
 
 OpenSIPS will bind to the virtual IP. This will result in an error on the passive server which prevents OpenSIPS starting up since it will be attempting to listen on an IP that does not belong to it. This can be avoided by setting the Linux option net.ipv4.ip\_nonlocal\_bind=1.
@@ -339,7 +339,7 @@ service opensips restart
 
 Done!
 
-### MySQL Cluster
+#### MySQL Cluster
 
 For calls to failover without dropping, the dialogs module must share its information in a shared database. This then means that on failover UDP calls will not be dropped since OpenSIPS will still know where to forward any SIP packets passing through the passive (now active) server as they'll be in its database. TCP calls cannot failover as gracefully in this way because the TCP connection will not be known to Linux/OpenSIPS on the passive server.
 
@@ -349,11 +349,11 @@ There are multiple methods for setting up a shared database. You can have a sing
 
 For a fully redundant setup, you should have at least 2 management servers, 2 data nodes and 2 sql nodes. All can be on the same hardware or on dedicated hardware. For this example they'll all run on lb1 and lb2, but in real usage it might be advisable to move them onto separate servers to reduce the load on the load balancer servers. This could be a LAN which lb1 & lb2 are also on, to remove them from the public Internet (this is advisable since MySQL Cluster uses no authentication/encryption).
 
-## FreeSWITCH Configuration
+### FreeSWITCH Configuration
 
 FreeSWITCH needs very little additional configuration to function with the load balancer setup. Your existing setup will mostly work just fine. There are a couple of areas that will need attention though.
 
-### Authentication
+#### Authentication
 
 User authentication would just fine, as the 401 Not Authorized and authentication headers are forwarded by the SIP proxy.
 
@@ -361,15 +361,15 @@ ACLs might be trickier however, since the requests will all come from the virtua
 
 _TODO: is it possible to get FreeSWITCH to authenticate against an ACL from a value in a header if the request comes from an IP matching a proxy ACL? If so OpenSIPS could add an IP header_
 
-### SIP Registrations
+#### SIP Registrations
 
 REGISTER requests will go to a host in FreeSWITCH cluster. For the other hosts to know about the registration they will need to store the mod\_sofia data in a shared database (single database, master-master replication or MySQL cluster). All hosts must also be configured to handle calls for the same domain, and the registration must be to this domain.
 
-### CDRs
+#### CDRs
 
 The network IP logged in the CDRs will be that of the load balancer not the client's IP, this should be beared in mind.
 
-## See Also
+### See Also
 
 * [Enterprise Deployment](https://wiki.freeswitch.org/wiki/Enterprise%5FDeployment "Enterprise Deployment")
 * [OpenSIPS using dispatcher](https://wiki.freeswitch.org/wiki/OpenSIPS%5Fconfiguration%5Ffor%5F2%5For%5Fmore%5FFreeSWITCH%5Finstalls "OpenSIPS configuration for 2 or more FreeSWITCH installs") \- Using OpenSIPS to provide load balancing using dispatcher.
@@ -377,7 +377,7 @@ The network IP logged in the CDRs will be that of the load balancer not the clie
 * [OpenSIPS project](http://www.opensips.org/)
 * [OpenSIPS dispatcher module documentation](http://www.opensips.org/html/docs/modules/devel/dispatcher.html)
 * [OpenSIPS load\_balancer module documentation](http://www.opensips.org/html/docs/modules/devel/load%5Fbalancer.html)
-* #### [MySQL Cluster](http://mysql.com/products/database/cluster/)
+* ##### [MySQL Cluster](http://mysql.com/products/database/cluster/)
 * <http://opensips.org/pub/events/2016-05-10%5FOpenSIPS-Summit%5FAmsterdam/Giovanni%5FMaruzzelli-OpenSIPS%5FSummit2016-FreeSWITCH%5FHA.pdf>
 
 

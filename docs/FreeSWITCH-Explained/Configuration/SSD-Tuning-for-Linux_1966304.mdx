@@ -3,7 +3,7 @@
 
  Created by  Mario G, last modified by  John Boteler on 2015.01.16
 
-# About
+## About
 
 Notes on optimizing FreeSWITCH™ performance using Solid State Drives and especially preventing early failures of these unique storage devices.
 
@@ -38,17 +38,17 @@ Click to expand Table of Contents
          * 3.10.3 [Never Do This!](#never-do-this)  
          * 3.10.4 [FreeSWITCH's core.db I/O bottleneck](#freeswitchs-coredb-io-bottleneck)
 
-# Preface
+## Preface
 
 I spent a months researching **S**olid **S**tate **D**rives before replacing a **H**ard **D**isk **D**rive in July 2012\. I learned two things: First, SSDs have unique characteristics that if taken into account, can improve speed and longevity. Second, most people are not aware of the considerations or don't bother with them. This information was compiled from months of research and testing, and is not unique to FreeSWITCH™. However, FreeSWITCH™ can benefit from the much faster startup times. This is a minor update to that information. FreeSWITCH™ users be sure to read [FreeSWITCH's core.db I/O bottleneck](#freeswitchs-coredb-io-bottleneck) below.
 
 by Mario G
 
-# Introduction
+## Introduction
 
 This introduces SSD performance considerations and illustrates how to implement a "tuned" SSD on Linux. _This article is not meant to explain the details of SSD operation._ There are many well written articles providing very detailed information, some referenced below. The objective here is to _pull the information together_ to quickly obtain SSD performance and longevity. If you are converting from an HDD to an SSD and want it performing at it's best _make sure you prepare a plan first!_ These considerations are identical for other operating systems but different commands and utilities are required.
 
-# The Problem
+## The Problem
 
 SSD performance is largely ignored because it's so easy to do so! When most people replace an HDD with an SSD they simply partition the SSD and copy data to it. If tuning steps are not performed the SSD will still function like an HDD, however, _it is not a good idea_. Unless SSD tuning considerations and preparation steps are taken:
 
@@ -57,9 +57,9 @@ SSD performance is largely ignored because it's so easy to do so! When most peop
 3. SSD performance degrades faster over time. In one benchmark, it got slower than an HDD!
 4. The life of the SSD is reduced.
 
-## What You Should Know
+### What You Should Know
 
-### The Basics
+#### The Basics
 
 If you just want to get it done without understanding the mechanics jump to the [Objectives](http://wiki.freeswitch.org/wiki/SSD%5FTuning%5Ffor%5FLinux#Objectives) section. However, if you want to understand _the purpose_ of the actions below you must understand that unlike an HDD, an SDD has characteristics that are very important to remember for tuning:
 
@@ -70,7 +70,7 @@ If you just want to get it done without understanding the mechanics jump to the 
 * Only blocks can be erased.
 * In order to reuse pages that contain invalid data, the valid data must be first copied to another block, then the old block erased. This is called "Garbage Collection".
 
-### SSD trim, Partition Alignment, and Erase Block Size
+#### SSD trim, Partition Alignment, and Erase Block Size
 
 SSD functional details are complex and there are many well written articles to explain them, during this project I compiled about 20 very good web sites. The following are a great place to start:
 
@@ -82,20 +82,20 @@ SSD functional details are complex and there are many well written articles to e
 * <https://wiki.archlinux.org/index.php/SSD#Tips%5Ffor%5FMaximizing%5FSSD%5FPerformance>
 * <http://wiki.debian.org/SSDoptimization>
 
-## Objectives
+### Objectives
 
 There are two objectives:
 
 * Reduce the _number_ of writes, accomplished using tmpfs, trim support, and other techniques.
 * Reduce the _size_ of data written, accomplished with partition alignment and formatted block size.
 
-## Decision Time
+### Decision Time
 
-### Select Your SSD
+#### Select Your SSD
 
 Make sure the SSD has trim support and is known to work on your operating system, especially if GPT partitioning will be used. All SSD release since 2013 support trim. Note that the trim command can invoke a slowdown in an SSD due to the duration of the function, this is offset by the benefits. The SATA 3.1 specification provides for a new Queued Trim Command, that allows SATA SSDs to execute trim without impacting normal operation. Hopefully, this will eventually show up in SSDs and Linux support soon.
 
-### Decide Partitioning Format
+#### Decide Partitioning Format
 
 Most people will keep the same partition table format as the HDD to be replaced, however, consider changing if it uses the old and ancient **M**aster **B**oot **R**ecord format. The newer **G**UID **P**artition **T**able format has many advantages, some are:
 
@@ -116,29 +116,29 @@ In our case, the original HDD used MBR partitioning, and LVM circumvented the li
 2. Eliminate LVM since there could be potential trim issues, also reduces complexity.
 3. All future motherboards will be UEFI and GPT is required for UEFI.
 
-### Decide Which File System to Use
+#### Decide Which File System to Use
 
 _Activating SSD trim support is mandatory tuning_. Trim is not supported for all file systems on all Linux kernels so it's very important that you select a file system that has trim support in your kernel version. Starting with 3.7 of the kernel, mounting with trim is supported for btrfs, ext4, (v)fat, gfs2, jfs, nilfs2, and xfs file systems. There is an fstrim utility that can be used with btrfs, ext3, etx4, ocfs2, and xfs.
 
-### Increase Use of tmpfs
+#### Increase Use of tmpfs
 
 Since reducing writes to the SSD is the major objective you should decide what directories can be moved to tmpfs. I decided to move /tmp, some /var and even thumbnails to tmpfs. Another critical item to move to tmpfs is the web browser and/or server cache. You will have to decide how much you can move based on available memory, the more the better. Of course, keep in mind all tmpfs is cleared with each reboot.
 
-### Journalling
+#### Journalling
 
 Some sites recommend turning journalling off for the file system to reduce writes. I felt more comfortable leaving journalling on which turned out to be a wise decision since there were kernel crashes during this work unrelated to the SSD. No data was lost at any time. If you decide to turn journalling off, a web search will show you how.
 
-## AHCI is Required!
+### AHCI is Required!
 
 SSD trim support is very important! The Linux kernel requires the SATA controller set to AHCI mode to use trim support. Most motherboards have an option in the BIOS or UEFI, just make sure its set for AHCI.
 
-## Prepare the SSD for Partitioning
+### Prepare the SSD for Partitioning
 
-### Update Firmware
+#### Update Firmware
 
 Always use the latest firmware since SSDs are far more complicated than HDDs and there are a constant stream of fixes from vendors. At the time of this writing the vendor with the GPT problem is still fixing it. Our Intel SSD had a firmware update before the install.
 
-### Perform a Secure Erase
+#### Perform a Secure Erase
 
 Never take an SSD that has been used and simply copy over it! If you read about how SSDs work you learned that previous data can cause a slowdown, and an _operating system format will not resolve the problem, in fact, it may make it worse_. To demonstrate the issue let's compare the SSD and HDD with this process:
 
@@ -184,13 +184,13 @@ This not only resets all the cells but clears the password as well.
 
 Additional information can be found at <https://wiki.archlinux.org/index.php/SSD%5FMemory%5FCell%5FClearing> and many other sites.
 
-## Partition the SSD
+### Partition the SSD
 
-### Partition Alignment
+#### Partition Alignment
 
 _Partition alignment turns out to be one of the most important items to get right but is very complicated_. There are many web articles about partition alignment that you can spend weeks reading. I decided to use the gparted live CD to partition because it has an easy option to align partitions on a megabyte boundary which solves the problem. That wastes a few bytes but gets it right. I highly recommend aligning on 1 meg boundaries to avoid the issue. Getting this wrong will cost a lot of time since you have to start over with a security erase.
 
-### Partition Table Type
+#### Partition Table Type
 
 Remember the MBR/GPT decision? Now is the time to use it. If you're not changing from MBR to GPT skip to [Formatting the File System](http://wiki.freeswitch.org/wiki/SSD%5FTuning%5Ffor%5FLinux#Formatting%5Fthe%5FFile%5FSystem), otherwise, determine if a special "bios\_boot" partition must be added to the beginning of the SSD:
 
@@ -216,11 +216,11 @@ Grub2 is the boot manager, it requires a 2 megabyte bios partition with the bios
 
 When grub2 is installed as the boot manager to this SSD, it will automatically load the bios partition. There is no need to ever reference it. If a different boot manager is used you will need to find the GPT requirements for your boot manager although most are very similar.
 
-## Formatting the File System
+### Formatting the File System
 
 Unlike an HDD, when data is rewritten to an SSD the old data is deleted and the new data written to a different area, the old data must eventually be erased by the SSD. Another difference is that although the smallest data that can be written is a page such as 4k, the smallest data that can be erased is the much larger erase block size which may be 512k! If your SSD is MLC then 4k formatting will be fine, if it's an SLC the erase block size is much smaller and varies depending on SSD model. The details are described in the links provided above. Most often the default file system block size is fine, although you may want to look into this if your SSD uses SLC flash.
 
-## Prepare FSTAB Entries
+### Prepare FSTAB Entries
 
 You should prepare the new FSTAB entries _before_ copying a source drive to avoid copying data moved to tmpfs. Changes made to this system include:
 
@@ -251,13 +251,13 @@ This is the FSTAB used, the first six are the SSD partitions:
  tmpfs                /root/.thumbnails    tmpfs defaults,noatime,mode=1777   0  0
  tmpfs                /home/mario/.thumbnails    tmpfs defaults,noatime,mode=1777   0  0
 
-## Prepare the Source Drive
+### Prepare the Source Drive
 
 _Before copying_ data from the source drive you should delete all of the files you decided to move to tmpfs. Once the data is copied and the new fstab is used you will not have access to the old data. It's best not to copy it in the first place anyway. If you are booted from the partition you are to copy from it would be better to copy it somewhere else first so the files can be deleted easily. If you turned off browser disk caching, etc. don't forget to delete the old HDD caches before copying to the SSD.
 
-## Linux Tuning
+### Linux Tuning
 
-### Elevator Setting
+#### Elevator Setting
 
 Most Linux systems use I/O scheduling algorithms designed for HDDs. For instance, some order disk writes to the same device to reduce total seek time. Since SSDs are so fast and don't have any seek time, the I/O scheduler for an SSD should be deactivated because it adds unnecessary overhead. There are two ways to achieve this:
 
@@ -265,7 +265,7 @@ Most Linux systems use I/O scheduling algorithms designed for HDDs. For instance
 2. If the main drive is an SSD and there is a very low use HDD, consider adding elevator=noop to the kernel boot options.
 3. if the system uses SSDs and HDDs heavily, noop should be activated only for the SSDs, not the HDDs. This usually involves adding a startup script. How this is accomplished varies depending on the Linux distribution so you need to do some basic research for your distribution. You may find this useful: <https://wiki.archlinux.org/index.php/SSD#I.2FO%5FScheduler>
 
-### Swappiness
+#### Swappiness
 
 This only applies if the swap file is moved to the SSD. The swappiness value affects the activity of the swap file. If you placed the swap file on the SSD you should _reduce_ the swappiness of Linux. There are many good explanations but simply put: Linux tries to anticipate when something _might_ need to be swapped and does it anyway. By reducing swappiness Linux is less likely to do this so swap writes are reduced. Swappiness is a value from 0 to 100, the higher the more swappiness. You can check your current value using:
 
@@ -278,12 +278,12 @@ There are a couple of different ways to change swappiness permanently. I changed
 
 Research showed that reducing swappiness when using HDDs also resulted in better performance.
 
-### Never Do This!
+#### Never Do This!
 
 * Never perform defragmentation, it serves no purpose but to increase SSD wear and slow it down.
 * Never use utilities that overwrite a file repeatedly such as shred, unlike an HDD each SSD rewrite is to a different area, the rm command is sufficient.
 
-### FreeSWITCH's core.db I/O bottleneck
+#### FreeSWITCH's core.db I/O bottleneck
 
 On a normal configuration, core.db is written to disk almost every second, generating hundreds of block-writes per second. To avoid this problem, turn /usr/local/freeswitch/db into an in-memory filesystem. If you use SSDs, it is CRITICAL that you move coe.db to a RAM disk to prolong the life of the SSD.
 
