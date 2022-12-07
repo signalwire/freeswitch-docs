@@ -53,12 +53,18 @@ const config = {
           src: "img/logo.svg",
         },
         items: [
-          // {
-          //   type: "doc",
-          //   docId: "intro",
-          //   position: "left",
-          //   label: "Tutorial",
-          // },
+          {
+            type: "doc",
+            docId: "FreeSWITCH-Explained/index",
+            position: "left",
+            label: "FreeSWITCH Explained",
+          },
+          {
+            type: "doc",
+            docId: "Channel-Variables-Catalog/index",
+            position: "left",
+            label: "Variables",
+          },
           {
             href: "https://github.com/signalwire/freeswitch",
             label: "GitHub",
