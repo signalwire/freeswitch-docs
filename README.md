@@ -1,7 +1,8 @@
-# Website
+# FreeSWITCH Documentation
 
-This website is built using [Docusaurus 2](https://docusaurus.io/), a modern static website generator.
+This repository contains the documentation for FreeSWITCH, published at https://developer.signalwire.com/freeswitch.
 
+## Instructions for contributors
 ### Installation
 
 ```
@@ -24,11 +25,11 @@ $ yarn build
 
 This command generates static content into the `build` directory and can be served using any static contents hosting service.
 
-### Deployment
-
-Docker:
+### Building the Docker image
 
 ```
 $ docker build -t freeswitch-docs .
 $ docker run --rm -it -p 8080:80 freeswitch-docs
 ```
+
+The site will be available on port 8080 on your local machine.
