@@ -31,12 +31,11 @@ const config = {
           routeBasePath: "/",
           // Please change this to your repo.
           // Remove this to remove the "edit this page" links.
-          editUrl:
-            "https://github.com/facebook/docusaurus/tree/main/packages/create-docusaurus/templates/shared/",
+          editUrl: "https://github.com/signalwire/freeswitch-docs/tree/main/",
         },
         blog: false,
         theme: {
-          customCss: require.resolve("./src/css/custom.css"),
+          customCss: require.resolve("./src/css/custom.scss"),
         },
       }),
     ],
@@ -65,12 +64,19 @@ const config = {
             label: "Variables",
           },
           {
+            href: "pathname:///../guides",
+            label: "SignalWire",
+            position: "left",
+            target: "_self",
+          },
+          {
             href: "https://github.com/signalwire/freeswitch",
             label: "GitHub",
             position: "right",
           },
         ],
       },
+      colorMode: { disableSwitch: true, defaultMode: "light" },
       footer: {
         style: "dark",
         links: [
@@ -121,6 +127,8 @@ const config = {
         darkTheme: darkCodeTheme,
       },
     }),
+
+  plugins: ["docusaurus-plugin-sass"],
 };
 
 module.exports = config;
