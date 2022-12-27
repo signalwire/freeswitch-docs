@@ -1,0 +1,159 @@
+
+# CentOS 7 and RHEL 7 for FreeSWITCH Enterprise 
+
+ Created by  Andrey Volk, last modified by  Christopher Rienzo on 2022.03.15
+
+## About
+
+FreeSWITCH Enterprise project has been moved to GitHub: <https://github.com/signalwire/stack>   
+Please open new issues in: <https://github.com/signalwire/stack/issues>
+
+This article contains FreeSWITCH™ installation instructions on hosts with CentOS7 or RHEL7 operating system.
+
+  
+Click to expand Table of Contents
+
+* 1 [Installing from RPM Packages](#installing-from-rpm-packages)  
+   * 1.1 [Release](#-freeswitch--centos-7-and-rhel-7-for-freeswitch-enterprise-)  
+   * 1.2 [Dev repo for Testing](#-freeswitch--centos-7-and-rhel-7-for-freeswitch-enterprise-)  
+   * 1.3 [Debug](#-freeswitch--centos-7-and-rhel-7-for-freeswitch-enterprise-)
+* 2 [Building from source](#-freeswitch--centos-7-and-rhel-7-for-freeswitch-enterprise-)  
+   * 2.1 [Release](#-freeswitch--centos-7-and-rhel-7-for-freeswitch-enterprise-)  
+   * 2.2 [Dev branch for Testing](#-freeswitch--centos-7-and-rhel-7-for-freeswitch-enterprise-)
+
+## Installing from RPM Packages
+
+**Easy Way**
+
+### Release
+
+FreeSWITCH™ can be installed from packages as follows
+
+```bash
+echo "USER" > /etc/yum/vars/fsausername
+echo "PASS" > /etc/yum/vars/fsapassword
+yum install -y https://$(< /etc/yum/vars/fsausername):$(< /etc/yum/vars/fsapassword)@fsa.freeswitch.com/repo/yum-stack/fsa/centos-release/signalwire-stack-release-repo-0-1.noarch.rpm epel-release
+
+yum install -y freeswitch-config-vanilla freeswitch-lang-* freeswitch-sounds-*
+systemctl enable freeswitch
+```
+
+FreeSWITCH™ is now installed and can be accessed with
+
+**FreeSwitch CLI**
+
+```bash
+fs_cli -rRS
+```
+
+### Dev repo for Testing
+
+WARNING not suitable for production
+
+The master branch of FreeSWITCH™ can be installed from packages as follows
+
+```bash
+echo "USER" > /etc/yum/vars/fsausername
+echo "PASS" > /etc/yum/vars/fsapassword
+yum install -y https://$(< /etc/yum/vars/fsausername):$(< /etc/yum/vars/fsapassword)@fsa.freeswitch.com/repo/yum-stack/fsa/centos-dev/signalwire-stack-dev-repo-0-1.noarch.rpm epel-release
+```
+
+And then install as follows
+
+```bash
+yum install -y freeswitch-config-vanilla freeswitch-lang-* freeswitch-sounds-*
+systemctl enable freeswitch
+```
+
+### Debug
+
+FreeSWITCH™ Debug symbols can be installed with the following. Other package symbols are available also. Use **yum search &lt;package-name>** to find the symbols you want to install.
+
+```bash
+yum install -y yum-utils
+yum install freeswitch-debuginfo
+yum install sofia-sip-debuginfo.x86_64
+ldconfig
+
+```
+
+Use the following example to install system debug symbols.
+
+```bash
+debuginfo-install glibc
+ldconfig
+
+```
+
+Use yum info to see what repo the package was installed from
+
+```bash
+yum info spandsp
+
+```
+
+**Compiling from source code**
+
+## Building from source
+
+### Release
+
+FreeSWITCH™ can be built from source if you desire but it is not recommended.
+
+```bash
+echo "USER" > /etc/yum/vars/fsausername
+echo "PASS" > /etc/yum/vars/fsapassword
+yum install -y https://$(< /etc/yum/vars/fsausername):$(< /etc/yum/vars/fsapassword)@fsa.freeswitch.com/repo/yum-stack/fsa/centos-release/signalwire-stack-release-repo-0-1.noarch.rpm epel-release
+yum-builddep -y freeswitch
+yum install -y yum-plugin-ovl centos-release-scl rpmdevtools yum-utils git
+yum install -y devtoolset-7-gcc*
+
+scl enable devtoolset-7 'bash'
+
+cd /usr/local/src
+git clone -b release https://github.com/signalwire/stack.git freeswitch
+cd /usr/local/src/freeswitch
+./bootstrap.sh -j
+./configure --enable-portable-binary \
+            --prefix=/usr --localstatedir=/var --sysconfdir=/etc \
+            --with-gnu-ld --with-python --with-erlang --with-openssl \
+            --enable-core-odbc-support --enable-zrtp
+make
+make -j install
+make -j cd-sounds-install
+make -j cd-moh-install
+```
+
+  
+### Dev branch for Testing
+
+WARNING not suitable for production
+
+FreeSWITCH™ can be built from source if you desire but it is not recommended.
+
+  
+```bash
+echo "USER" > /etc/yum/vars/fsausername
+echo "PASS" > /etc/yum/vars/fsapassword
+yum install -y https://$(< /etc/yum/vars/fsausername):$(< /etc/yum/vars/fsapassword)@fsa.freeswitch.com/repo/yum-stack/fsa/centos-dev/signalwire-stack-dev-repo-0-1.noarch.rpm epel-release
+yum-builddep -y freeswitch
+yum install -y yum-plugin-ovl centos-release-scl rpmdevtools yum-utils git
+yum install -y devtoolset-7-gcc*
+
+scl enable devtoolset-7 'bash'
+
+cd /usr/local/src
+git clone https://github.com/signalwire/stack.git freeswitch
+cd /usr/local/src/freeswitch
+./bootstrap.sh -j
+./configure --enable-portable-binary \
+            --prefix=/usr --localstatedir=/var --sysconfdir=/etc \
+            --with-gnu-ld --with-python --with-erlang --with-openssl \
+            --enable-core-odbc-support --enable-zrtp
+make -j
+make -j install
+make -j cd-sounds-install
+make -j cd-moh-install
+```
+
+
