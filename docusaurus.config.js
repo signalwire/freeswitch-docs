@@ -126,6 +126,27 @@ const config = {
         theme: lightCodeTheme,
         darkTheme: darkCodeTheme,
       },
+      algolia: {
+        appId: "2NBPM6ETKJ",
+        apiKey: "4489aa468117b5bfbcb83f7b0addddc9",
+        indexName: "freeswitch-docs",
+        externalUrlRegex: `.*`,
+        /**
+         * We need to set this to false, otherwise the query is done with
+         * default filters such as "docusaurus_tag:docs-default-current", which
+         * exclude all the content from README.
+         *
+         * Look for default facetFilters.
+         */
+        contextualSearch: false,
+        /**
+         * We need to disable the searchPage because the results there are not
+         * accurate (they don't respect the contextualSearch setting value).
+         *
+         * Reference: https://github.com/facebook/docusaurus/issues/3805
+         */
+        searchPagePath: false,
+      },
     }),
 
   plugins: ["docusaurus-plugin-sass"],
