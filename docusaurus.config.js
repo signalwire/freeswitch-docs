@@ -11,7 +11,7 @@ const config = {
   baseUrl: "/freeswitch/",
   onBrokenLinks: "warn",
   onBrokenMarkdownLinks: "warn",
-  favicon: "img/favicon.ico",
+  favicon: "img/favicon.webp",
 
   // Even if you don't use internalization, you can use this field to set useful
   // metadata like html lang. For example, if your site is Chinese, you may want
@@ -31,12 +31,11 @@ const config = {
           routeBasePath: "/",
           // Please change this to your repo.
           // Remove this to remove the "edit this page" links.
-          editUrl:
-            "https://github.com/facebook/docusaurus/tree/main/packages/create-docusaurus/templates/shared/",
+          editUrl: "https://github.com/signalwire/freeswitch-docs/tree/main/",
         },
         blog: false,
         theme: {
-          customCss: require.resolve("./src/css/custom.css"),
+          customCss: require.resolve("./src/css/custom.scss"),
         },
       }),
     ],
@@ -65,12 +64,19 @@ const config = {
             label: "Variables",
           },
           {
+            href: "pathname:///../guides",
+            label: "SignalWire",
+            position: "left",
+            target: "_self",
+          },
+          {
             href: "https://github.com/signalwire/freeswitch",
             label: "GitHub",
             position: "right",
           },
         ],
       },
+      colorMode: { disableSwitch: true, defaultMode: "light" },
       footer: {
         style: "dark",
         links: [
@@ -120,7 +126,30 @@ const config = {
         theme: lightCodeTheme,
         darkTheme: darkCodeTheme,
       },
+      algolia: {
+        appId: "2NBPM6ETKJ",
+        apiKey: "4489aa468117b5bfbcb83f7b0addddc9",
+        indexName: "freeswitch-docs",
+        externalUrlRegex: `.*`,
+        /**
+         * We need to set this to false, otherwise the query is done with
+         * default filters such as "docusaurus_tag:docs-default-current", which
+         * exclude all the content from README.
+         *
+         * Look for default facetFilters.
+         */
+        contextualSearch: false,
+        /**
+         * We need to disable the searchPage because the results there are not
+         * accurate (they don't respect the contextualSearch setting value).
+         *
+         * Reference: https://github.com/facebook/docusaurus/issues/3805
+         */
+        searchPagePath: false,
+      },
     }),
+
+  plugins: ["docusaurus-plugin-sass"],
 };
 
 module.exports = config;
