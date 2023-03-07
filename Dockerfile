@@ -1,4 +1,4 @@
-FROM node:19 AS builder
+FROM node:16 AS builder
 WORKDIR /app
 
 # Install dependencies
