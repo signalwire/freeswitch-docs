@@ -81,11 +81,11 @@ const config = {
         style: "dark",
         links: [
           {
-            title: "Docs",
+            title: "Video",
             items: [
               {
-                label: "Tutorial",
-                to: "/docs/intro",
+                label: "Youtube",
+                href: "https://www.youtube.com/freeswitch",
               },
             ],
           },
@@ -93,16 +93,12 @@ const config = {
             title: "Community",
             items: [
               {
-                label: "Stack Overflow",
-                href: "https://stackoverflow.com/questions/tagged/docusaurus",
-              },
-              {
-                label: "Discord",
-                href: "https://discordapp.com/invite/docusaurus",
+                label: "Forums",
+                href: "https://forum.signalwire.community/",
               },
               {
                 label: "Twitter",
-                href: "https://twitter.com/docusaurus",
+                href: "https://twitter.com/freeswitch",
               },
             ],
           },
@@ -110,8 +106,8 @@ const config = {
             title: "More",
             items: [
               {
-                label: "Blog",
-                to: "/blog",
+                label: "Cluecon",
+                href: "https://www.cluecon.com/",
               },
               {
                 label: "GitHub",
