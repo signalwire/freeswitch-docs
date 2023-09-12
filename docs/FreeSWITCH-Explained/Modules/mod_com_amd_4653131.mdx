@@ -1,7 +1,7 @@
 
 # mod_com_amd 
 
- 
+Answering Machine Detection (AMD) is an integral feature in any phone system. It is used to screen outbound calls to determine whether a human or machine (such as an IVR or voicemail system) answers the call. If a human answers, the call can be connected to a human agent. If a machine is detected, your system may want to end the call or leave a voicemail message.
 
 ## About
 
@@ -20,6 +20,10 @@ Click here to expand Table of Contents
    * 6.1 [XML Dialplan Example](#xml-dialplan-example)  
    * 6.2 [Lua Example](#lua-example)
 * 7 [Testing Dialplan](#testing-dialplan)
+
+## AMD using SignalWire 
+
+You can access the AMD feature with the [Compatibility API](https://developer.signalwire.com/compatibility-api/) which is designed to make migrating from other providers easy while giving you access to our next generation APIs and endpoints. Using the [create a call endpoint](https://docs.signalwire.com/reference/compatibility-sdks/v3/#api-reference-calls-create-a-call), you can use the Machine Detection parameter to enable AMD or, by using the `DetectMessageEnd` value, you can even listen for the end of a machine message.
 
 ## Introduction
 
@@ -620,5 +624,126 @@ See default.xml for simple examples
 ![](/images/icons/bullet_blue.gif) [Shopping\_Cart\_-\_FreeSWITCH\_Review\_Checkout.png](/attachments/4653131/4980743.png) (image/png)  
 ![](/images/icons/bullet_blue.gif) [Answering\_Machine.wav](/attachments/4653131/20709585.wav) (audio/x-wav)  
 ![](/images/icons/bullet_blue.gif) [Answering\_Machine.wav](/attachments/4653131/17170499.wav) (audio/x-wav)  
+
+## Creating a Call with AMD
+
+The Compatibility API can create an outbound call with AMD by setting certain parameters of a call to the [create a call endpoint](https://docs.signalwire.com/reference/compatibility-sdks/v3/#api-reference-calls-create-a-call). There are six applicable AMD parameters to note.
+
+- `MachineDetection`: Possible values are `Enable`, `DetectMessageEnd` and `none`. The default value is `none`, and machine detection is disabled. An `Enable` value will turn on detection and the result will be returned as soon as a machine is detected. Use this setting if you plan to hang up if a machine is detected. Setting `DetectMessageEnd` will wait for the end of a machine's message. Use this setting to wait for a machine's message to end before playing a message for their voicemail.
+
+- `MachineDetectionSilenceTimeout`: This is the time AMD will wait for an initial voice before returning `unknown`. The default is 5000 ms. Note that this uses a different unit than the `MachineDetectionTimeout`. Increasing the value may increase your chances of getting a detailed AMD result, but it may increase the determination time.
+
+- `MachineDetectionSpeechThreshold`: Set this time for how long SignalWire will detect speech before determining the speech is a machine. The default is 2400 ms. A human will generally have a short greeting like "Hello" or "Hello, Dr. Who's office. This is Rose." Machine greetings are generally longer. So, anything shorter than this setting will return a human determination and anything longer will return `machine`. Increasing the value may reduce the chances of returning `machine` when it was really a human speaking. Decreasing the value may reduce the chances of returning `human` when it was really a machine in the case of short machine greetings, but it is better to use the following parameter to address this case.
+
+- `MachineDetectionSpeechEndThreshold`: After this many milliseconds of silence, the incoming speech is considered complete. This is an important parameter to use with `MachineDetectionSpeechThreshold`. Let's see why with an example. If a machine greeting starts with "Hi, you have reached Dr. Who's office," then pauses for 1500 ms before saying "We're currently traveling, so please leave a message," you want your `MachineDetectionSpeechEndThreshold` to be longer than 1500 to use the whole greeting speech time for your `MachineDetectionSpeechThreshold` measurement. The default is 1200 ms. Increasing this value does delay the time needed for detection and may result in false `machine` returns if a human answers, pauses, then speaks again.
+
+- `MachineDetectionTimeout`: This is the time SignalWire will wait for machine detection to end before timing out. The default is 30 seconds, but you may wish to increase the value when using `DetectMessageEnd` to account for longer voicemail greetings. You may want to decrease the value when using `Enable` to limit the time for detection.
+
+- `MachineWordsThreshold`: How many words are counted before returning a machine result, with a default value of 6 words. If more words than this value are counted, it is interpreted as a machine. Generally human greetings use fewer words than machine greetings. This setting works much like `MachineDetectionSpeechThreshold`. Increasing the value may reduce false `machine` returns in the case of a longer human greeting (such as at a business). Decreasing the value may reduce false `human` returns, because even short a machine message will usually be more words than a human would use.
+
+The call may look something like the following:
+
+### cURL
+
+```c. title="https://example.signalwire.com/api/laml/2010-04-01/Accounts/{AccountSid}/Calls.json \"
+  -X POST \
+  --data-urlencode "Url=http://your-application.com/docs/voice.xml" \
+  --data-urlencode "To=+12223334444" \
+  --data-urlencode "From=+17778889999" \
+  --data-urlencode "MachineDetection=DetectMessageEnd" \
+  --data-urlencode "MachineDetectionTimeout=45" \
+  --data-urlencode "MachineDetectionSilenceTimeout=3000" \
+  --data-urlencode "MachineDetectionSpeechThreshold=3000" \
+  --data-urlencode "MachineDetectionSpeechEndThreshold=2000" \
+  --data-urlencode "MachineWordsThreshold=9" \
+  -u "YourProjectID:YourAuthToken"
+```
+### Node
+
+```js
+const { RestClient } = require("@signalwire/compatibility-api");
+const client = RestClient("YourProjectID", "YourAuthToken", {
+  signalwireSpaceUrl: "example.signalwire.com",
+});
+
+client.calls
+  .create({
+    url: "http://your-application.com/docs/voice.xml",
+    to: "+13105678901",
+    from: "+13103384645",
+    machineDetection: "DetectMessageEnd",
+    machineDetectionTimeout: 45,
+    MachineDetectionSilenceTimeout: 3000,
+    MachineDetectionSpeechThreshold: 3000,
+    MachineDetectionSpeechEndThreshold: 2000,
+    MachineWordsThreshold: 9,
+  })
+  .then((call) => console.log(call.sid))
+  .done();
+```
+
+The AMD results are returned to the URL you provided in the call request. They will look like the following:
+
+```CallSid=f82XXXXX-XXXX-XXXX-XXXX-XXXXXXXXc369
+AccountSid=28XXXXXX-XXXX-XXXX-XXXX-XXXXXXXX53b1
+From=+12223334444
+To=+17778889999
+Called=+17778889999
+CallStatus=initiated
+ApiVersion=2010-04-01
+Direction=outbound-api
+AnsweredBy=human
+```
+
+Notice that the AMD detection result is in the `AnsweredBy` parameter. So, you can access this value with `req.body.AnsweredBy.` Possible values of the `AnsweredBy` parameter depend on the AMD settings from your outbound call request.
+
+- If `Enable` was used, possible results are `machine_start`, `human`, `fax`, or `unknown`.
+- If `DetectMessageEnd` was used, possible results are `machine_end_beep`, `machine_end_silence`, `machine_end_other`, `human`, `fax`, or `unknown`.
+
+### Async AMD
+
+AMD is also available asynchronously. The call can be connected immediately so that you can start other logic while AMD is executed in the background. To enable async, you need to include the `AsyncAmd` parameter set it as `true`, provide an `AsyncAmdStatusCallback` URL that will receive the detection result, and set the `AsyncAmdStatusCallbackMethod` as a GET or POST method. Only with all of these pieces can your application execute AMD in the background and send the result to your status callback URL. While your application is performing other logic, it also can listen for the status callback to react accordingly.
+
+###cURL
+
+```c.
+curl https://example.signalwire.com/api/laml/2010-04-01/Accounts/{AccountSid}/Calls.json \
+  -X POST \
+  --data-urlencode "Url=http://your-application.com/docs/voice.xml" \
+  --data-urlencode "To=+12223334444" \
+  --data-urlencode "From=+17778889999" \
+  --data-urlencode "MachineDetection=DetectMessageEnd" \
+  --data-urlencode "MachineDetectionTimeout=45" \
+  --data-urlencode "AsyncAmd=true" \
+  --data-urlencode "AsyncAmdStatusCallback=https://your-api-endpoint.com/path" \
+  --data-urlencode "AsyncAmdStatusCallbackMethod=POST" \
+  -u "YourProjectID:YourAuthToken"
+```
+
+### Node 
+```js
+const { RestClient } = require("@signalwire/compatibility-api");
+const client = RestClient("YourProjectID", "YourAuthToken", {
+  signalwireSpaceUrl: "example.signalwire.com",
+});
+
+client.calls
+  .create({
+    url: "http://your-application.com/docs/voice.xml",
+    to: "+13105678901",
+    from: "+13103384645",
+    machineDetection: "DetectMessageEnd",
+    machineDetectionTimeout: 45,
+    asyncAmd: true,
+    asyncAmdStatusCallback: "https://your-api-endpoint.com/path",
+    asyncAmdStatusCallbackMethod: "POST",
+  })
+  .then((call) => console.log(call.sid))
+  .done();
+```
+
+## Wrap Up
+
+Answering Machine Detection can be a very useful tool for any phone system, especially for those with a high traffic volume. You can save agents time by only connecting calls when a human answers. You can see a full working example of an AMD-enabled call in our [Answering Machine Detection with Node.js guide](https://developer.signalwire.com/guides/Voice/amd-with-nodejs).
 
 
