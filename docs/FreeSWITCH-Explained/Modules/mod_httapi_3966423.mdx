@@ -7,41 +7,43 @@
 
 This module provides an HTTP based Telephony API using a standard FreeSWITCH application interface as well as a cached http file format interface.
 
+This module is designed to programmatically control the handling of inbound calls. When the HTTAPI application is
+executed, it initiates an HTTP request to a specified URL and waits for a response. The response includes instructions.
+After executing these instructions, HTTAPI will initiate another request. This cycle
+continues until either the call is disconnected or the HTTAPI application is terminated through a 'break' instruction.
+
 Click here to expand Table of Contents
 
-* 1 [Usage](#usage)  
-   * 1.1 [Example](#example)  
-   * 1.2 [Binding](#binding)  
+* 1 [Usage](#usage)
+   * 1.1 [Example](#example)
+   * 1.2 [Binding](#binding)
    * 1.3 [Work Tag](#work-tag)
 * 2 [Configuration](#configuration)
-* 3 [Answer and Early Media](#answer-and-early-media)  
+* 3 [Answer and Early Media](#answer-and-early-media)
    * 3.1 [When to answer](#when-to-answer)  
    * 3.2 [Answering calls](#answering-calls)
 
 ## Usage
 
-The file format plugin can be used like this:
-
-```xml
-<action application="playback" data="http://some.com/sounds/foo.wav"/>
-```
-
-This syntax is valid anywhere a filename parameter is requested in FreeSWITCH. If your URL contains query parameters (after a "?"), use
-
-```xml
-<action application="record" data="http://(file=/tmp/part1.ul,name=part1.PCMU)example.net/part1.PCMU?rev=47"/>
-```
-
-The available parameters are: file, profile, method, name.
-
-  
  The application is called like this:
 
 ```xml
-<action application="httapi" data="{url=http://some.host.com/app.cgi}"/>
+<action application="httapi" data="http://some.host.com/app.cgi"/>
 ```
 
-The target url is expected to be a CGI returning text/xml using the documentation below.
+We can pass additional parameters to the application like this:
+
+```xml
+<action application="httapi" data="{httpapi_profile=foo,method=POST,url=http://some.host.com/app.cgi}"/>
+```
+
+By default, HTTP GET request is used. Using method parameter as show above we can change it to POST.
+
+### Response format
+
+The response from the HTTP server is expected to be in XML format, with content type set to `text/xml`.
+
+**Note**: If content type is not set to `text/xml` then application will throw an error and try again infinitely.
 
 The format is roughly as described below (We could use a DTD maybe).
 
@@ -224,9 +226,10 @@ action              : Change the new target url
 ATTRS:
 action              : Change the new target url
 
-<getVar action temp-action permanent>
+  <getVariable name action temp-action permanent>
                     : Get a Channel variable (depends on permissions).
 ATTRS:
+name                : The variable name whose value to get
 action              : Change the new target url
 temp-action         : Change url to submit to, just for the next loop
 permanent           : Add as a permanent param or just once
@@ -281,6 +284,7 @@ user-agent                      : <string>              mod_httapi/1.0  User Age
 <permission name="" value="">
 *set-params                     : <params> tag can be parsed for session params
 set-vars                        : <variables> tag can be parsed to set channel vars
+get-vars                        : <getVariable> tag is enabled to get channel vars
 extended-data                   : Extended data is sent like full channel event data
 execute-apps                    : <execute> tag is enabled to execute apps
 expand-vars                     : Allow expansion of FS ${variables} (this opens up all FSAPI calls)
