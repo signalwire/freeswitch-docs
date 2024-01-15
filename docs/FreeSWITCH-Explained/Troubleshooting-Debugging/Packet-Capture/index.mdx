@@ -9,70 +9,79 @@ tags:
 
 # Packet Capture 
 
- 
-
 ## About
 
-Capturing SIP and RTP packets can reveal trouble with the configuration of FreeSWITCH or the endpoints connecting to it. A packet capture might be required by developers to help troubleshoot your installation.
+Capturing SIP and RTP packets can reveal trouble with the configuration of FreeSWITCHⓇ or the endpoints connecting to it. A packet capture might be required by developers to help troubleshoot your installation.
 
-  
 ## tcpdump
 
-SRC: <http://www.tcpdump.org/>
+<http://www.tcpdump.org/>
 
-Use tcpdump if you want a pcap to open up in Wireshark later. Else, use tshark if you want a "text only" view of the SIP traffic without all the headers and extra information.
+Use `tcpdump` if you want a pcap to open up in Wireshark later. Else, use tshark if you want a "text only" view of the SIP traffic without all the headers and extra information.
 
 ### Examples
 
 #### Basic Logging
 
-Real-time traffic dump (full packets) to stdout:
+Real-time traffic dump (full packets) to stdout
 
-  tcpdump -nq -s 0 -A -vvv -i eth0 port 5060
+```bash
+tcpdump -nq -s 0 -A -vvv -i eth0 port 5060
+```
 
 Dump to file:
 
-  tcpdump -nq -s 0 -i eth0 -w /tmp/dump.pcap port 5060 
+```bash
+tcpdump -nq -s 0 -i eth0 -w /tmp/dump.pcap port 5060 
+```
 
 Save a new time-stamped file approximately once per hour on the specified port
 
-  tcpdump -nq -s 0 -i eth0 -G3600 -w /tmp/trace/sip-%F--%H-%M-%S.pcap port 5060
+```bash
+tcpdump -nq -s 0 -i eth0 -G3600 -w /tmp/trace/sip-%F--%H-%M-%S.pcap port 5060
+```
 
 Daemonize and log 2 ports, rotate log every hour.
 
-  nohup tcpdump -nq -s 0 -i eth0 -G3600 -w /tmp/trace/sip-%F--%H-%M-%S.pcap port 5080 or port 5060 &
+```bash
+nohup tcpdump -nq -s 0 -i eth0 -G3600 -w /tmp/trace/sip-%F--%H-%M-%S.pcap port 5080 or port 5060 &
+```
 
 Daemonize and log 2 ports, rotate log every hour, and place into hierarchical directory structure.
 
-**tcpdump log example**
+#### tcpdump log example
 
 ```bash
- #!/bin/bash
- TD=`pidof tcpdump`
- if [ -n "$TD" ]; then
-   kill "$TD"
- fi
+#!/bin/bash
+TD=`pidof tcpdump`
+if [ -n "$TD" ]; then
+  kill "$TD"
+fi
 
- DIRS="/var/spool/pcap/`/bin/date '+%Y'`/ /var/spool/pcap/`/bin/date '+%Y'`/`/bin/date '+%m'`/ /var/spool/pcap/`/bin/date '+%Y'`/`/bin/date '+%m'`/`/bin/date '+%d'`/"
- for DIR in $DIRS
- do
-   if [ ! -d "$DIR" ]; then
-     mkdir "$DIR"
-   fi
- done
+DIRS="/var/spool/pcap/`/bin/date '+%Y'`/ /var/spool/pcap/`/bin/date '+%Y'`/`/bin/date '+%m'`/ /var/spool/pcap/`/bin/date '+%Y'`/`/bin/date '+%m'`/`/bin/date '+%d'`/"
+for DIR in $DIRS
+do
+  if [ ! -d "$DIR" ]; then
+    mkdir "$DIR"
+  fi
+done
 
- nohup tcpdump -nq -s 0 -i eth0 -G3600 -w '/var/spool/pcap/%Y/%m/%d/%H%M%S.pcap' port 5060 or port 5080 &> /opt/freeswitch/log/tcpdump.log &
+nohup tcpdump -nq -s 0 -i eth0 -G3600 -w '/var/spool/pcap/%Y/%m/%d/%H%M%S.pcap' port 5060 or port 5080 &> /opt/freeswitch/log/tcpdump.log &
 ```
 
 This should be run from cron / init services at the first minute of each new day.
 
 #### Capturing Calls For a Specific User 
 
-  sofia status profile $profile user $user_id
+```text
+sofia status profile $profile user $user_id
+```
 
 to get the remote ip/and port, then use:
 
-  tcpdump -i $INTERFACE -s 1500 -A host $IPADDRESS and port $SIPPORT
+```bash
+tcpdump -i $INTERFACE -s 1500 -A host $IPADDRESS and port $SIPPORT
+```
 
 ####  Using Wireshark to Analyze pcap Files 
 
@@ -80,11 +89,11 @@ Wireshark has some nice tools for analyzing your packet captures. See the tutori
 
 ## ngrep
 
-SRC: <http://ngrep.sourceforge.net/>
+<https://github.com/jpr5/ngrep/>
 
-[ngrep](https://packages.debian.org/wheezy/ngrep) on the Debian Wheezy repository
+[ngrep](https://packages.debian.org/bookworm/ngrep) on the Debian Bookworm repository
 
-**ngrep help** Expand source 
+**ngrep help**
 
 ```text
 USAGE:usage: ngrep <-hNXViwqpevxlDtTRM> <-IO pcap_dump> <-n num> <-d dev> <-A num>
@@ -118,26 +127,31 @@ USAGE:usage: ngrep <-hNXViwqpevxlDtTRM> <-IO pcap_dump> <-n num> <-d dev> <-A nu
    -F  is read the bpf filter from the specified file
    -N  is show sub protocol number
    -d  is use specified device instead of the pcap default
-
-EXAMPLES:
- ngrep -qt -W byline port 5060
- ngrep -d any port 5060 -W byline > outfile.txt
- ngrep -q '8005551212' -W byline port 5060 #<swk>:  only shows packets on 5060 with 8005551212 inside the payload
 ```
 
-For a more in–depth tutorial on using ngrep check out this [post](http://www.jonathanmanning.com/2009/11/17/how-to-sip-capture-using-ngrep-debug-sip-packets/) by Jonathan Manning. VIM users may be interested in this [syntax highlighter](http://www.vim.org/scripts/script.php?script%5Fid=2296).
+### Examples
 
-### HOMER Sip Capture
+```bash
+ngrep -qt -W byline port 5060
+ngrep -d any port 5060 -W byline > outfile.txt
+ngrep -q '8005551212' -W byline port 5060 #<swk>:  only shows packets on 5060 with 8005551212 inside the payload
+```
 
-SRC: <http://www.sipcapture.org>  
- DESC: SIP capturing server with HEP and IP-proto-4 (IPIP) & Monitoring Application with CallFlows, PCAP extraction, powerful search tools, statistics and API. Native HEP [capture agent](http://code.google.com/p/homer/wiki/HOWTO#Capture%5FAgent) integrated in FreeSWITCH
+For a more in–depth tutorial on using ngrep check out this [post](https://web.archive.org/web/20100430024834/http://www.jonathanmanning.com/2009/11/17/how-to-sip-capture-using-ngrep-debug-sip-packets/) by Jonathan Manning. VIM users may be interested in this [syntax highlighter](https://www.vim.org/scripts/script.php?script%5Fid=2296).
+
+## HOMER Sip Capture
+
+<https://www.sipcapture.org>  
+
+SIP capturing server with HEP and IP-proto-4 (IPIP) & Monitoring Application with CallFlows, PCAP extraction, powerful search tools, statistics and API. Native HEP [capture agent](https://github.com/sipcapture/captagent/wiki/Configuration) integrated in FreeSWITCH
 
 ## sipgrep
 
-SRC: <https://github.com/sipcapture/sipgrep>  
- DESC: Sipgrep is a powerful pcap-aware tool command line tool to sniff, capture, display and troubleshoot SIP signaling over IP networks, allowing the user to specify extended regular expressions matching against SIP headers.
+<https://github.com/sipcapture/sipgrep>  
 
-**sipgrep help** Expand source 
+Sipgrep is a powerful pcap-aware tool command line tool to sniff, capture, display and troubleshoot SIP signaling over IP networks, allowing the user to specify extended regular expressions matching against SIP headers.
+
+**sipgrep help** 
 
 ```text
 usage: sipgrep <-ahNViwgGJpevxlDTRMmqCJjxK> <-IO pcap_dump> <-n num> <-d dev> <-A num>
@@ -187,60 +201,91 @@ usage: sipgrep <-ahNViwgGJpevxlDTRMmqCJjxK> <-IO pcap_dump> <-n num> <-d dev> <-
    -P  is use specified portrange instead of default 5060-5061
    -d  is use specified device instead of the pcap default
    -z  is make statistics count maximum <duration> seconds
-
-
-Examples:
-#Find a dialog there From user contains '2323232'
-sipgrep -f 2323232
-
-#Find a dialog there To user contains '1111' and print dialog report
-sipgrep -f 1111 -G
-
-#Display only 603 replies without dialog match
-sipgrep '^SIP/2.0 603' -m
-
-#Display only OPTIONS and NOTIFY requests
-sipgrep '^(OPTIONS|NOTIFY)'
-
-#Display only SUBSCRIBE dialog
-sipgrep 'CSeq:\s?\d* (SUBSCRIBE|PUBLISH|NOTIFY)' -M
-
-#Kill friendly-scanner
-sipgrep -J
-
-#Kill friendly-scanner with custom UAC
-sipgrep -j sipvicious
-
-#Display dialogs and duplicate all traffic to HOMER sipcapture in HEPv3
-sipgrep -f 23333 -H udp:10.0.0.1:9061
-
-#collect all Calls/Regisrations dialogs during 120 seconds, print reports and exit.
-sipgrep -g -G -q 120
-
-# Find dialogs from user/number 0123456 to user/number 0654321, STDOUT line buffered
-sipgrep -f 0123456 -t 0654321 -l
-
-# Find dialogs from user/number 0123456, STDOUT line buffered, packet reassembly enabled
-sipgrep -f 0123456 -a -l debug.sip
- 
 ```
 
-##   
-pcapsipdump
+### Examples
 
-SRC: <http://sourceforge.net/projects/pcapsipdump/>  
- DESC: pcapsipdump is a tool for dumping SIP sessions (+RTP traffic, if available) to disk in a fashion similar to "tcpdump -w" (format is exactly the same), but one file per sip session (even if there are thousands of concurrect SIP sessions). As of SVN r128, there is limited but functional support for SIP over TCP. This functionality is not enabled by default and requires a specific make command:
+Find a dialog there From user contains '2323232'
 
+```bash
+sipgrep -f 2323232
+```
+
+Find a dialog there To user contains '1111' and print dialog report
+
+```bash
+sipgrep -f 1111 -G
+```
+
+Display only 603 replies without dialog match
+
+```bash
+sipgrep '^SIP/2.0 603' -m
+```
+
+Display only OPTIONS and NOTIFY requests
+
+```bash
+sipgrep '^(OPTIONS|NOTIFY)'
+```
+
+Display only SUBSCRIBE dialog
+
+```bash
+sipgrep 'CSeq:\s?\d* (SUBSCRIBE|PUBLISH|NOTIFY)' -M
+```
+
+Kill friendly-scanner
+
+```bash
+sipgrep -J
+```
+
+Kill friendly-scanner with custom UAC
+
+```bash
+sipgrep -j sipvicious
+```
+
+Display dialogs and duplicate all traffic to HOMER sipcapture in HEPv3
+
+```bash
+sipgrep -f 23333 -H udp:10.0.0.1:9061
+```
+
+collect all Calls/Regisrations dialogs during 120 seconds, print reports and exit.
+
+```bash
+sipgrep -g -G -q 120
+```
+
+Find dialogs from user/number 0123456 to user/number 0654321, STDOUT line buffered
+
+```bash
+sipgrep -f 0123456 -t 0654321 -l
+```
+
+Find dialogs from user/number 0123456, STDOUT line buffered, packet reassembly enabled
+
+```bash
+sipgrep -f 0123456 -a -l debug.sip
+```
+
+
+## pcapsipdump
+
+<http://sourceforge.net/projects/pcapsipdump/>  
+`pcapsipdump` is a tool for dumping SIP sessions (+RTP traffic, if available) to disk in a fashion similar to `tcpdump -w` (format is exactly the same), but one file per SIP session (even if there are thousands of concurrect SIP sessions). As of SVN r128, there is limited but functional support for SIP over TCP. This functionality is not enabled by default and requires a specific make command:
+
+```bash
 make CXXFLAGS=-DUSE_TCP=1
+```
 
-The pcapsipdump program will attempt to capture SIP dialogs regardless of port number. Note that older versions of pcapsipdump do only port 5060\. The trunk version of pcapsipdump is stable and is good for most production environments.
+The `pcapsipdump` program will attempt to capture SIP dialogs regardless of port number. Note that older versions of `pcapsipdump` do only port 5060. The trunk version of `pcapsipdump` is stable and is good for most production environments.
 
-### Example
+**pcapsipdump help**
 
-```xml
-/* store all SIP sessions on tmp folder */
-pcapsipdump -i eth0 -d /tmp/
-
+```text
 pcapsipdump version 0.2-trunk
 Usage: pcapsipdump [-fpUt] [-i <interface> | -r <file>] [-d <working directory>]
                    [-v level] [-R filter] [-m filter] [-n filter] [-l filter]
@@ -275,16 +320,21 @@ Usage: pcapsipdump [-fpUt] [-i <interface> | -r <file>] [-d <working directory>]
       %i (call-id), and call date/time (see 'man 3 strftime' for details)
  *    Trailing argument is pcap filter expression syntax, see 'man 7 pcap-filter'
 
+```
+### Example
 
+store all SIP sessions on tmp folder
+
+```bash
+pcapsipdump -i eth0 -d /tmp/
 ```
 
-##   
-tshark aka tethereal
+## tshark aka tethereal
 
-SRC: <http://www.wireshark.org>  
- DESC: Dump and analyze network traffic.
+<http://www.wireshark.org>  
+Dump and analyze network traffic.
 
-```xml
+```text
 TShark 0.99.4
 Dump and analyze network traffic.
 See http://www.wireshark.org for more information.
@@ -340,40 +390,51 @@ Miscellaneous:
   -h                       display this help and exit
   -v                       display version info and exit
   -o <name>:<value> ...    override preference setting
+```
 
+### Examples
 
-Filter with tshark then seperate them per call into different pcap files with pcapsipdump:
-EXAMPLE:  'sip.uri contains "soemname" or rtp or rtcp' -w -|pcapsipdump -
+Filter with `tshark` then seperate them per call into different pcap files with `pcapsipdump`:
 
+```bash
+'sip.uri contains "soemname" or rtp or rtcp' -w -|pcapsipdump -
+```
 
 Capture SIP, RTP, ICMP, DNS, RTCP, and T38 traffic in a ring buffer capturing 100 50MB files continuously:
-EXAMPLE: tshark -i eth0 -o "rtp.heuristic_rtp: TRUE" -w /tmp/capture.pcap -b filesize:51200 -b files:100 -R 'sip or rtp or icmp or dns or rtcp or t38'
 
+```bash
+tshark -i eth0 -o "rtp.heuristic_rtp: TRUE" -w /tmp/capture.pcap -b filesize:51200 -b files:100 -R 'sip or rtp or icmp or dns or rtcp or t38'
+```
 
 Filter on RTCP packets reporting any packet loss or jitter over 30ms
-EXAMPLE: tshark -i eth0 -o "rtp.heuristic_rtp: TRUE" -R 'rtcp.ssrc.fraction >= 1 or rtcp.ssrc.jitter >= 240' -V
 
+```bash
+tshark -i eth0 -o "rtp.heuristic_rtp: TRUE" -R 'rtcp.ssrc.fraction >= 1 or rtcp.ssrc.jitter >= 240' -V
+```
 
 Filter on SIP and all RTP packets
-EXAMPLE: tshark -S -w capture.pcap -f "(udp port sip) or (udp[1] & 1 != 1 && udp[3] & 1 != 1 && udp[8] & 0x80 == 0x80 && length < 250)"
 
+```bash
+tshark -S -w capture.pcap -f "(udp port sip) or (udp[1] & 1 != 1 && udp[3] & 1 != 1 && udp[8] & 0x80 == 0x80 && length < 250)"
+```
 
 Capture all SIP on specified port and switch files every hour
-tshark -nq -i eth0 -b duration:3600 -w /tmp/trace/sip.pcap port 5080
 
+```bash
+tshark -nq -i eth0 -b duration:3600 -w /tmp/trace/sip.pcap port 5080
 ```
 
 ## sngrep
 
-SRC: irontec on [github](https://github.com/irontec/sngrep)
+<https://github.com/irontec/sngrep>
 
-DESC: Linux/OSX console-based SIP traffic viewer with filtering capabilities
+Linux/OSX console-based SIP traffic viewer with filtering capabilities
 
-sngrep is a handy utility for quickly capturing and viewing SIP traffic. It can be run on existing pcap files or it can capture traffic live. It can filter based on many criteria, including source/destination as well as message type. This is particularly useful when you have a lot of SIP traffic on a system and you need to find a specific dialog or message. (Have you ever wanted to see only NOTIFY traffic without being bombarded with REGISTERs, OPTIONS, and INVITEs? Or just INVITEs without all the other SIP traffic? If so, sngrep is the tool for you.) Once you find a dialog you can explicitly export it to a pcap file. The irontec github page has several [screen shots](https://github.com/irontec/sngrep/wiki/Screenshots) that demonstrate its capabilities. Note that sngrep does not capture RTP, only SIP.
+`sngrep` is a handy utility for quickly capturing and viewing SIP traffic. It can be run on existing pcap files or it can capture traffic live. It can filter based on many criteria, including source/destination as well as message type. This is particularly useful when you have a lot of SIP traffic on a system and you need to find a specific dialog or message. (Have you ever wanted to see only `NOTIFY` traffic without being bombarded with `REGISTER`s, `OPTIONS`, and `INVITE`s? Or just `INVITE`s without all the other SIP traffic? If so, `sngrep` is the tool for you.) Once you find a dialog you can explicitly export it to a pcap file. The irontec github page has several [screen shots](https://github.com/irontec/sngrep/wiki/Screenshots) that demonstrate its capabilities. Note that `sngrep` does not capture RTP, only SIP.
 
-An especially useful feature of sngrep is its ability to create SIP "ladder graphs" showing the progression of the SIP dialog. The ladder graph appears on the left and the content of the highlighted SIP message appears on the right. Scroll up and down and you can quickly review the progression of a SIP dialog. Being able to see this right at the Linux/OSX command line can save you the effort of having to export a potentially large pcap file and open in Wireshark. Also, sngrep works well in conjunction with Wireshark. Use sngrep to locate quickly specific SIP traffic and then export a pcap to Wireshark for more detailed analysis.
+An especially useful feature of `sngrep` is its ability to create SIP "ladder graphs" showing the progression of the SIP dialog. The ladder graph appears on the left and the content of the highlighted SIP message appears on the right. Scroll up and down and you can quickly review the progression of a SIP dialog. Being able to see this right at the Linux/OSX command line can save you the effort of having to export a potentially large pcap file and open in Wireshark. Also, `sngrep` works well in conjunction with Wireshark. Use `sngrep` to locate quickly specific SIP traffic and then export a pcap to Wireshark for more detailed analysis.
 
-**sngrep help** Expand source 
+**sngrep help**
 
 ```text
 Usage: sngrep [-hVcivNqrD] [-IO pcap_dump] [-d dev] [-l limit] [<match expression>] [<bpf filter>]
@@ -393,82 +454,106 @@ Usage: sngrep [-hVcivNqrD] [-IO pcap_dump] [-d dev] [-l limit] [<match expressio
     -f --config          Read configuration from file
     -F --no-config       Do not read configuration from default config file
     -R --rotate          Rotate calls when capture limit have been reached
- 
-Examples:
-# look at live SIP traffic on default interface:
+```
+
+### Examples
+
+look at live SIP traffic on default interface:
+
+```bash
 sngrep
- 
-# look at live SIP traffic on specified interface:
+```
+
+look at live SIP traffic on specified interface:
+
+```bash
 sngrep -d eth0
- 
-# look at live SIP traffic, calls only (i.e. INVITEs):
+```
+
+look at live SIP traffic, calls only (i.e. `INVITE`s):
+
+```bash
 sngrep -c
- 
-# look at live SIP traffic for with SIP from or two containing a name or number:
+```
+
+look at live SIP traffic for with SIP from or two containing a name or number:
+
+```bash
 sngrep 1000
 sngrep someuser
+```
  
-# look at live SIP traffic, calls/INVITEs only, for with SIP from or two containing a name or number: 
+look at live SIP traffic, calls/`INVITE`s only, for with SIP from or two containing a name or number: 
+
+```bash
 sngrep -c 1000
 sngrep -c someuser
-
-# open an existing pcap file and review all SIP traffic:
-sngrep -I filename.pcap
- 
-# open an existing pcap file and review SIP calls only:
-sngrep -c -I filename.pcap
-
-
 ```
+
+open an existing pcap file and review all SIP traffic:
+```bash
+sngrep -I filename.pcap
+```
+
+open an existing pcap file and review SIP calls only:
+
+```bash
+sngrep -c -I filename.pcap
+```
+
 
 ### Tips for using sngrep interface
 
-Arrow up and down to move selector and press &lt;enter> to open a specific dialog. This brings up the ladder-graph and all messages within the dialog.
+Arrow up and down to move selector and press <kbd>enter</kbd> to open a specific dialog. This brings up the ladder-graph and all messages within the dialog.
 
-View multiple (perhaps related) dialogs in a single ladder-graph by selecting them with the space bar. Press &lt;enter> when all dialogs have been selected and a multi-endpoint ladder-graph will be displayed. 
+View multiple (perhaps related) dialogs in a single ladder-graph by selecting them with the space bar. Press <kbd>enter</kbd> when all dialogs have been selected and a multi-endpoint ladder-graph will be displayed. 
 
-Change display filter by pressing F7\. You can select To: and From:, source and destination, payload, and SIP message types.
+Change display filter by pressing <kbd>F7</kbd>. You can select To: and From:, source and destination, payload, and SIP message types.
 
-Export selected dialogs by pressing F2.
+Export selected dialogs by pressing <kbd>F2</kbd>.
 
-Search through dialogs by pressing F3.
+Search through dialogs by pressing <kbd>F3</kbd>.
 
 ## Truncate a pcap File
 
 ### With The Wireshark GUI  
 
-Open the pcap, then click "Save as". Look at the options - from frame $x to $y, the marked ones, from the first marked one to the last marked one, etc. To mark packets, you can right–click them in the viewer.
+Open the pcap, then click "Save as". Look at the options - from frame `$x` to `$y`, the marked ones, from the first marked one to the last marked one, etc. To mark packets, you can right–click them in the viewer.
 
 ### editcap
 
-If you have a large pcap from any of the above methods and want to share part of it, you can use the "editcap" command line program that comes with Wireshark. Read the [full manual](http://www.wireshark.org/docs/man-pages/editcap.html).
+If you have a large pcap from any of the above methods and want to share part of it, you can use the "editcap" command line program that comes with Wireshark. Read the [full manual](https://www.wireshark.org/docs/man-pages/editcap.html).
 
-In short, if you want just packets $x to $y, use:
+In short, if you want just packets `$x` to `$y`, use:
 
+```bash
 editcap -r $source_infile $outfile $x-$y
+```
 
-where -r means "only include x-y" otherwise without -r, this command would cut out x-y
+where `-r` means "only include x-y" otherwise without `-r`, this command would cut out x-y
 
-If you want to omit some packets, then skip the -r and list the ones to omit, e.g. to omit packets 1000 to 3000:
+If you want to omit some packets, then skip the `-r` and list the ones to omit, e.g. to omit packets 1000 to 3000:
 
+```bash
 editcap $source_infile $outfile 1000-3000
+```
 
 ## TLS with sharka  
 
 after some experimentation with various tools, I come out with a little shell tool that maybe can be useful to you too.  
 It can only work with non-forward secrecy ciphers, obviously, and only if is started before the client do the initial TLS handshake (eg, just restart the client). Forward secrecy cannot be decrypted after fact, so don't waste effort.
 
-An example of ciphers that can be decrypted are the "AES256-SHA" openssl cipher group. In FreeSWITCH, edit vars.xml and put
+An example of ciphers that can be decrypted are the "AES256-SHA" openssl cipher group. In FreeSWITCH, edit `vars.xml` and put
 
-`<X-PRE-PROCESS cmd="set" data="sip_tls_ciphers=AES256-SHA"/>`
+```xml
+<X-PRE-PROCESS cmd="set" data="sip_tls_ciphers=AES256-SHA"/>
+```
 
-You can use ssldump to check what cipher is used by serverhello.
+You can use `ssldump` to check what cipher is used by serverhello.
 
 Enjoy, make it better, and share it :)  
 
-**sharka shell script**
-
-```bash
+```bash title="sharka shell script"
 #!/bin/bash 
 # brought to you by Giovanni Maruzzelli
 # 
@@ -516,9 +601,7 @@ esac
 
 How to TRACE and visualize TLS and non-TLS SIP traffic in real time (thanks to Homer's Lorenzo Mangani for pointing me toward Frida)
 
-**RTP analysis example**
-
-```text
+```bash
 #fosdem #voip #tls #sngrep #hep #frida #ssl #sip #homer #sipcapture #freeswitch #asterisk #opensips #kamailio
 # gmaruzz at opentelecom.it
 
@@ -526,53 +609,51 @@ apt-get install python-pip
 pip install frida
 pip install hexdump
 wget https://raw.githubusercontent.com/google/ssl_logger/master/ssl_logger.py
-
-#first ssh terminal
-# create fifo pipe, then will send the content from fifo pipe to an sngrep without gui, which will be reading pcap from stdin, and sending eep packets to the other sngrep (third terminal)
-
-mkfifo /tmp/pipe
-cat /tmp/pipe | sngrep -N -q -H udp:127.0.0.1:5077 -I -
-
-#second ssh terminal
-# writes as pcap to fifo pipe what freeswitch writes and reads from ssl lib
-
-python ssl_logger_giova.py -pcap /tmp/pipe freeswitch
-
-#third ssh terminal
-# sngrep that receives packets from both the Ethernet device, and the eep packets sent by the other sngrep (eg, the tls packets ssl_logger grabs from freeswitch's ssl lib)
-
-sngrep -L udp:127.0.0.1:5077
-
-(you may want to edit ssl_logger.py and change 228 to be 101 - LINKTYPE_IPV4 to be LINKTYPE_RAW )
 ```
 
-##   
+*First SSH terminal* 
 
-##   
+Create fifo pipe, then will send the content from fifo pipe to an sngrep without gui, which will be reading pcap from stdin, and sending eep packets to the other sngrep (third terminal)
 
-##   
+```bash
+mkfifo /tmp/pipe
+cat /tmp/pipe | sngrep -N -q -H udp:127.0.0.1:5077 -I -
+```
+
+*Second SSH terminal*
+
+writes as pcap to fifo pipe what FreeSWITCHⓇ writes and reads from ssl lib
+
+```bash
+python ssl_logger_giova.py -pcap /tmp/pipe freeswitch
+```
+
+*Third SSH terminal*
+
+sngrep that receives packets from both the Ethernet device, and the eep packets sent by the other sngrep (eg, the tls packets ssl_logger grabs from FreeSWITCHⓇ's ssl lib)
+
+```bash
+sngrep -L udp:127.0.0.1:5077
+```
+(you may want to edit `ssl_logger.py` and change 228 to be 101 - `LINKTYPE_IPV4` to be `LINKTYPE_RAW`)
 
 ## Example Analyses  
 
-### SIP TLS with sharka  
+### SIP TLS with sharka
 
 Edit the script first few lines with your own values.
 
-Visualize the packets related to "1010@[pbx.example.com](http://pbx.example.com)"  
+Visualize the packets related to `1010@pbx.example.com`.
 
-**sharka example**
-
-```text
+```bash title="sharka example'
 sharka "1010@pbx.example.com"
 ```
 
 ### SIP TLS on port 5061
 
-Replace 4.2.2.2 with your own IP address.
+Replace `4.2.2.2` with your own IP address.
 
-**Wireshark example**
-
-```text
+```bash title="Wireshark example"
 wireshark -o "ssl.desegment_ssl_records: TRUE" \
   -o "ssl.desegment_ssl_application_data: TRUE" \
   -o "ssl.keys_list: 4.2.2.2,5061,sip,/usr/local/freeswitch/conf/ssl/agent.pem" \
@@ -581,9 +662,7 @@ wireshark -o "ssl.desegment_ssl_records: TRUE" \
   -f "tcp port 5061"
 ```
 
-**tshark example**
-
-```text
+```bash title="tshark example"
 tshark -o "ssl.desegment_ssl_records: TRUE" \
   -o "ssl.desegment_ssl_application_data: TRUE" \
   -o "ssl.keys_list: 4.2.2.2,5061,sip,/opt/freeswitch/conf/ssl/agent.pem" \
@@ -594,34 +673,42 @@ tshark -o "ssl.desegment_ssl_records: TRUE" \
 
 ### RTP events
 
-**RTP analysis example**
-
-```text
+```bash title="tshark example"
 tshark -o "rtp.heuristic_rtp: TRUE" -R rtpevent
-or with tethereal:
+```
+
+```bash title="tethereal example"
 tethereal -o "rtp.heuristic_rtp: TRUE" -R rtpevent
 ```
 
 ### Analyze RTP Quality
 
+```bash
 sudo tshark -q -f 'udp portrange 16384-32768' -o rtp.heuristic_rtp:TRUE -z rtp,streams
+```
 
 If you're doing long-term captures, you may want to get a bit more paranoid about security:
 
+```bash
 sudo setuid 4755 /usr/bin/dumpcap
 dumpcap -f 'udp portrange 16384-32768' -i eth0 -w /tmp/qos.pcap
 tshark -qr /tmp/qos.pcap -o rtp.heuristic_rtp:TRUE -z rtp,streams  
- 
+```
+
 ### Remote live capture with local wireshark
 
-you can also use tcpdump in conjunction with ssh to bring the packets back to your workstation so you can watch it live in Wireshark. Something to bare in mind with this approach is you must set the filter on the tcpdump or you are going to end up with either echoed data, or to much data.
+you can also use `tcpdump` in conjunction with `ssh` to bring the packets back to your workstation so you can watch it live in Wireshark. Something to bare in mind with this approach is you must set the filter on the tcpdump or you are going to end up with either echoed data, or to much data.
 
 #### Windows workstation to remote linux server
 
-with wireshark and putty installed locally and tcpdump installed on the remote server
+with wireshark and putty installed locally and `tcpdump` installed on the remote server
 
 ```powershell
 "C:\Program Files (x86)\PuTTY\plink.exe" -ssh root@{server} "tcpdump -ni {server_interface} -s 0 -w - port 5060 or portrange 16384-32768" | "c:\Program Files\Wireshark\Wireshark.exe" -k -i -
+```
+
+```powershell
+"C:\\Program Files (x86)\\PuTTY\\plink.exe" -ssh root@x56 "tcpdump -ni eth0.1020 -s 0 -w - not port 22 and not proto ospf and not arp and not portrange 16384-32768" | "c:\\Program Files\\Wireshark\\Wireshark.exe" -k -i -
 ```
 
 ## See Also
@@ -630,13 +717,19 @@ with wireshark and putty installed locally and tcpdump installed on the remote s
 * [Jitterbuffer](../../Codecs-and-Media/JitterBuffer_6587407.mdx#about)
 * [Tutorial on using Wireshark and tcpdump to analyze SIP and RTP streams](./Wireshark-How-To.mdx#about)
 
-"C:\\Program Files (x86)\\PuTTY\\plink.exe" -ssh root@x56 "tcpdump -ni eth0.1020 -s 0 -w - not port 22 and not proto ospf and not arp and not portrange 16384-32768" | "c:\\Program Files\\Wireshark\\Wireshark.exe" -k -i -
+<!--
 
 ### Comments:
 
 | The second presentation is here: <http://www.viddler.com/explore/cluecon/videos/33/>The first presentation got cut short, but it's still good: <http://www.viddler.com/explore/cluecon/videos/8/> The page you were looking for doesn't exist.You may have mistyped the address or the page may have moved. ![](/images/icons/contenttypes/comment_16.png) Posted by vlad1983 at Sep 09, 2014 00:46                                                                                   |
 | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | Even those links have died a miserable, horrible death.Thanks. ![](/images/icons/contenttypes/comment_16.png) Posted by boteman at Mar 17, 2015 15:15                                                                                                                                                                                                                                                                                                                                 |
-| &lt;param name="sip-capture" value="yes"/>&lt;param name="capture-server" value="udp:HOMER\_EXTERNAL:5061;hep=3;capture\_id=100"/> root@[ts180:/usr/share/freeswitch/scripts#](http://ts180/usr/share/freeswitch/scripts) tcpdump -nq -s 0 -A -vvv -i eth0 port 5061tcpdump: listening on eth0, link-type EN10MB (Ethernet), capture size 262144 bytes Not was be sent capture, not working. Thanks. ![](/images/icons/contenttypes/comment_16.png) Posted by aztrock at Feb 16, 2017 17:43 |
-
-
+| 
+```XML
+<param name="sip-capture" value="yes"/>
+<param name="capture-server" value="udp:HOMER\_EXTERNAL:5061;hep=3;capture\_id=100"/>
+```
+```bash
+root@ts180:/usr/share/freeswitch/scripts tcpdump -nq -s 0 -A -vvv -i eth0 port 5061
+tcpdump: listening on eth0, link-type EN10MB (Ethernet), capture size 262144 bytes Not was be sent capture, not working. Thanks. ![](/images/icons/contenttypes/comment_16.png) Posted by aztrock at Feb 16, 2017 17:43 |
+-->

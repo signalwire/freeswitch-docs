@@ -9,8 +9,6 @@ tags:
 
 # Wireshark How To 
 
- 
-
 ## About
 
 Some tips to use Wireshark to find problems in SIP signaling and RTP media streams. Beware that these techniques dealing with RTP streams do not apply if those streams are encrypted.
@@ -50,30 +48,34 @@ When capturing directly from the Asterisk server, we will have the full voice se
 
 tcpdump is a character-mode command, it doesn’t require any graphical interface to run and is very light, we could use it without putting too much stress on our voice gateway and altering the quality. As always with Unix, the command requires parameters and tcpdump proposes a lot of options. Here is a list of the useful ones in our case:
 
-* \-p : doesn’t start in promiscuous mode, only frames from or to the Asterisk node will be captured,
-* \-n : no name resolution, otherwise we will have a lot of DNS queries which is not useful at this stage, we could do name resolution afterwards if needed,
-* \-s 0 : we get the full frame, not only the first bytes. When working only at the protocol level it is enough to get only the start of each frames, in our case we are requiring the content of the SIP and RTP frames. 0 means getting the whole frame,
-* \-w output file : all the captured frames will be stored in the file. That way we will be able, afterwards, to analyze the frames from the file. If using ‘-’ as the name of the file, the output is sent to the standard output.
+* `-p` doesn’t start in promiscuous mode, only frames from or to the Asterisk node will be captured,
+* `-n` no name resolution, otherwise we will have a lot of DNS queries which is not useful at this stage, we could do name resolution afterwards if needed,
+* `-s 0` we get the full frame, not only the first bytes. When working only at the protocol level it is enough to get only the start of each frames, in our case we are requiring the content of the SIP and RTP frames. `0` means getting the whole frame,
+* `-w output-file` all the captured frames will be stored in the file. That way we will be able, afterwards, to analyze the frames from the file. If using `-` as the name of the file, the output is sent to the standard output.
 
 In addition, we could specify to tcpdump a filter which will lower the number of frames we get in the capture. We can for example get only UDP frames and filter IP addresses in order to focus only on a specific host.
 
 ### Local Capture
 
-In order to perform the capture directly on the Asterisk host we should be connected to it. This can be achieve either directly on the console or through a remote terminal. I prefer ssh like many admins since it is simple and secure.
+In order to perform the capture directly on the Asterisk host we should be connected to it. This can be achieve either directly on the console or through a remote terminal. I prefer SSH like many admins since it is simple and secure.
 
 With the following command:
 
-  tcpdump -w trace.cap -p -n -s 0 "udp"
+```bash
+tcpdump -w trace.cap -p -n -s 0 "udp"
+```
 
 ### Remote Capture
 
-Since you could manage many Asterisk servers, it could be easier to start a capture from your desktop by using the remote command facility provided by ssh. The ssh command on the desktop is required, already installed on macOS and on Linux, you can install the Cygwin version on Microsoft Windows, you will have exactly the same command.
+Since you could manage many Asterisk servers, it could be easier to start a capture from your desktop by using the remote command facility provided by SSH. The `ssh` command on the desktop is required, already installed on macOS and on Linux, you can install the Cygwin version on Microsoft Windows, you will have exactly the same command.
 
 The proposed command is:
 
-  ssh root@asterisk 'tcpdump -w - -p -n -s 0 udp' > capture-asterisk.cap
+```bash
+ssh root@asterisk 'tcpdump -w - -p -n -s 0 udp' > capture-asterisk.cap
+```
 
-The capture will occur on the server named asterisk using the tcpdump command, the frames will not be stored on the server itself but redirected to the desktop machine through the ssh tunnel2\. The file will be named capture-asterisk.cap and stored in the current directory of your local workstation. Using such a method, you can start a capture on multiple Asterisk servers without having to connect a console session to them and transfer the capture file afterwards; furthermore, there is no storage issue on the remote machines.
+The capture will occur on the server named asterisk using the tcpdump command, the frames will not be stored on the server itself but redirected to the desktop machine through the ssh tunnel. The file will be named `capture-asterisk.cap` and stored in the current directory of your local workstation. Using such a method, you can start a capture on multiple Asterisk servers without having to connect a console session to them and transfer the capture file afterwards; furthermore, there is no storage issue on the remote machines.
 
 ## Analyze
 
@@ -85,12 +87,11 @@ From the file explorer, we can open the file trace and analyze it. By default fr
 
 ### Filtering
 
-Depending on the filter used during capture, we can have noisy frames in it. The filtering feature of Wireshark allows to focus only on specific frames. It is activated through the ‘Filter’ dialog on the upper part of the window. The filter language is specific but easy to learn, for example if only SIP frames are needed you enter the ‘sip’ filter, if you are interested in IAX, the filter is ‘iax2’.
+Depending on the filter used during capture, we can have noisy frames in it. The filtering feature of Wireshark allows to focus only on specific frames. It is activated through the "Filter" dialog on the upper part of the window. The filter language is specific but easy to learn, for example if only SIP frames are needed you enter the "sip" filter, if you are interested in IAX, the filter is "iax2".
 
 When the filter field background is green the syntax is ok, when orange it is not correct.
-
   
-If you need more complex filtering rules, you can directly select the field from the decode window. Each protocol field can be selected and added to the current filter through a right click and the “Apply as filter" / … and "Selected" menu.
+If you need more complex filtering rules, you can directly select the field from the decode window. Each protocol field can be selected and added to the current filter through a right click and the "Apply as filter" / … and "Selected" menu.
 
 ### SIP analysis
 
@@ -104,9 +105,9 @@ The “Player" feature decodes the RTP frames associated with the selected conve
 
 ### RTP analysis
 
-The RTP4 protocol is not dedicated to voice over IP traffic. But this protocol is used aside H.323 and SIP signalling, Wireshark proposes a specific module to analyze the RTP flows. The feature is available through the “Statistics / RTP / Stream Analysis" menu.
+The RTP4 protocol is not dedicated to voice over IP traffic. But this protocol is used aside H.323 and SIP signalling, Wireshark proposes a specific module to analyze the RTP flows. The feature is available through the "Statistics / RTP / Stream Analysis" menu.
 
-The analysis window proposes information about the terminals engaged in the conversation, the codec used, and some statistics about the flow. You can focus for example on jitter and packet loss in order to understand why the voice quality wasn’t good enough. From this module, it is also possible to extract the content of the RTP frames and rebuild a voice sound file. This one will be saved in WAV format and you can listen to it with any sound player available.
+The analysis window proposes information about the terminals engaged in the conversation, the codec used, and some statistics about the flow. You can focus, for example, on jitter and packet loss in order to understand why the voice quality wasn’t good enough. From this module, it is also possible to extract the content of the RTP frames and rebuild a voice sound file. This one will be saved in WAV format and you can listen to it with any sound player available.
 
 ### Parsing tcpdump Fields
 
@@ -114,20 +115,16 @@ Courtesy of David Witham on the FreeSWITCH Slack channel:
 
 If you are wanting to print certain fields in the output of tcpdump or sngrep, awk is a useful tool. If I have the example output in a file like this:
 
-**Example output of tcpdump**
-
-```bash
+```bash title="Example output of tcpdump"
 $ cat tcpdump.txt
 10:39:30.860838 IP 172.27.228.145.5060 > 172.27.107.222.59716: SIP: SIP/2.0 200 OK
 10:39:32.530710 IP 172.27.228.145.5060 > 172.27.107.222.59716: SIP: SIP/2.0 200 OK
 10:40:08.825797 IP 172.27.228.145.5060 > 172.27.107.222.61681: SIP: SIP/2.0 200 OK
 ```
 
-Then use your grep filtering to select the desired lines and then pipe that through awk to print the fields you want. e.g the source IP and SIP message:
+Then use your grep filtering to select the desired lines and then pipe that through awk to print the fields you want *e.g.* the source IP and SIP message:
 
-**awk field selection**
-
-```bash
+```bash title="awk field selection"
 $ cat tcpdump.txt | egrep "200 OK|403" | awk '{print $3 " " $8}'
 172.27.228.145.5060 200
 172.27.228.145.5060 200
@@ -136,9 +133,7 @@ $ cat tcpdump.txt | egrep "200 OK|403" | awk '{print $3 " " $8}'
 
 If you want to remove the port number from the IP address, split the field into an array "a" using "." (period) as the delimiter, then print the first 4 elements separated by a literal "." (period)
 
-**awk array to remove port number**
-
-```bash
+```bash title="awk array to remove port number"
 $ cat tcpdump.txt | egrep "200 OK|403" | awk '{split($3,a,"."); print a[1]"."a[2]"."a[3]"."a[4] " " $8}'
 172.27.228.145 200
 172.27.228.145 200
@@ -150,6 +145,4 @@ Note: I've used single quotes for the awk script so that I can use double quotes
 ## Conclusion
 
 IP telephony, like any application heavily using the network, should be analyzed whenever a problem occurs. In order to be reactive, my advice is to train yourself when everything is working fine and you have spare time to train. This will allow you to know the tools but also when looking at nothing special it is very common to find issue on the network. Finally, don’t be afraid of the protocols, even if they are complex. Their proper understanding will be a great advantage when facing a real issue on your system.
-
-  
 
