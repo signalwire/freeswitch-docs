@@ -9,8 +9,8 @@ const config = {
   title: "FreeSWITCH Documentation",
   url: "https://developer.signalwire.com",
   baseUrl: "/freeswitch/",
-  onBrokenLinks: "warn",
-  onBrokenMarkdownLinks: "warn",
+  onBrokenLinks: "throw",
+  onBrokenMarkdownLinks: "throw",
   favicon: "img/favicon.webp",
 
   // Even if you don't use internalization, you can use this field to set useful
