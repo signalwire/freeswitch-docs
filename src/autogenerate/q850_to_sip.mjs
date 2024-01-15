@@ -468,8 +468,15 @@ function backtick(val) {
   return "";
 }
 
+function replaceNull(val) {
+  if (val !== null && val !== undefined) {
+    return val;
+  }
+  return "";
+}
+
 function row(q850, sip, enumeration, cause, description) {
-  return `| ${backtick(q850)} | ${backtick(sip)} | ${backtick(enumeration)}| ${cause} | ${description} |\n`;
+  return `| ${backtick(q850)} | ${backtick(sip)} | ${backtick(enumeration)}| ${replaceNull(cause)} | ${replaceNull(description)} |\n`;
 }
 
 function rows() {
