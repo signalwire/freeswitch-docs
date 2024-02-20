@@ -22,7 +22,7 @@ Click here to expand Table of Contents
       * [Channel Variable Scope w/ Example](#channel-variable-scope-w-example)  
       * [Accessing Channel Variables in Other Environments](#accessing-channel-variables-in-other-environments)  
    * [Info Application Variable Names (variable\_xxxx)](#info-application-variable-names-variable_xxxx)  
-   * [${variable} vs. $${variable}](#variable-vs-variable)  
+   * [`${variable}` vs. `$${variable}`](#variable-vs-variable)
    * [CDR related](#caller-id-related)  
       * [process\_cdr](#custom-channel-variables)  
          * [](#custom-channel-variables)  
@@ -301,11 +301,11 @@ Click here to expand Table of Contents
 
 ## Variable References
 
-You will see references to variables in the dialplan of the form ${variable} as well as $${variable}.
+You will see references to variables in the dialplan of the form `${variable}` as well as `$${variable}`.
 
-$${variable} is evaluated once and becomes a static reference to the variable and is therefore suitable for variables that do not change, such as the domain of the FreeSWITCH server. That is why you see $${domain} referenced so frequently in the Vanilla dialplan examples and as pre-processor variables which are evaluated once at startup.
+`$${variable}` is evaluated once and becomes a static reference to the variable and is therefore suitable for variables that do not change, such as the domain of the FreeSWITCH server. That is why you see `$${domain}` referenced so frequently in the Vanilla dialplan examples and as pre-processor variables which are evaluated once at startup.
 
-${variable} is evaluated during each pass through the dialplan, so it is used for variables that are expected to change, such as the ${destination\_number} or ${sip\_to\_user} fields.
+`${variable}` is evaluated during each pass through the dialplan, so it is used for variables that are expected to change, such as the `${destination\_number} or ${sip\_to\_user}` fields.
 
   
 #### Channel Variables in the XML Dialplan
@@ -316,8 +316,10 @@ Channel variables are set, appropriately enough, with the **set** application li
 
 Reading channel variables requires the `${}` syntax:
 
+```xml
 &lt;action application="log" data="INFO The value in the var_name chan var is ${var_name}"/>
 &lt;condition field="${var_name}" expression="some text">
+```
 
 ##### Scoped Variables
 
@@ -327,21 +329,25 @@ Reading channel variables requires the `${}` syntax:
   
 As of June 15 (git commit b2c3199f) you may now have scoped variables that will stay in effect only for the duration of a given dialplan application. Example:
 
+```xml
 &lt;action application="log" data="INFO myvar is '${myvar}'"/>
 &lt;action application="log" data="%[myvar=Hello]INFO myvar is '${myvar}'"/>
 &lt;action application="log" data="INFO myvar is '${myvar}'"/>
 &lt;action application="myapp" data="%[var1=val1,var2=val2]mydata"/>
+```
 
 #### Channel Variables in Dial strings
 
-The syntax of using { } versus &lt; > versus \[\] is explained below.
+The syntax of using `{ `} versus `&lt; >` versus \[\] is explained below.
 
+```text
 * {foo=bar} is **only** valid at the beginning of the dial string. It will set the same variables on **every** channel, but does not do so for enterprise bridging/originate.
 * &lt;foo=bar> is **only** valid at the beginning of the dial string. It will set the same variables on **every** channel, including all those in an enterprise bridging/originate.
 * \[foo=bar\] goes before each individual dial string and will set the variable values specified for only this channel.
 * The following example sets the foo variable for all channels implemented and chan=1 is specific to blah, while chan=2 is specific to blah2
+```
 
-{foo=bar}[chan=1]sofia/default/blah@baz.com,[chan=2]sofia/default/blah2@baz.com
+`{foo=bar}[chan=1]sofia/default/blah@baz.com,[chan=2]sofia/default/blah2@baz.com`
 
 * Setting multiple variables can be accomplished by comma delimiting:
 
@@ -349,7 +355,7 @@ The syntax of using { } versus &lt; > versus \[\] is explained below.
 
 * If you would like to have variables in \[\] override the same variables set in {}, you may set 'local\_var\_clobber=true' inside {}. For example:
 
-{local_var_clobber=true,rtp_secure_media=true}sofia/default/blah1@baz.com|sofia/default/johndoe@example.com|[rtp_secure_media=false]sofia/default/janedoe@acme.com
+`{local_var_clobber=true,rtp_secure_media=true}sofia/default/blah1@baz.com|sofia/default/johndoe@example.com|[rtp_secure_media=false]sofia/default/janedoe@acme.com`
 
 You must also set this _local\_var\_clobber_ variable to true when you want to override channel variables that have been exported to your b-legs in your dialplan.
 
@@ -365,21 +371,27 @@ The syntax is to put a prefix of ^^: at the start of the value and replace the _
 
 You can use (almost) any character you like though, it uses the one after the initial "^^"
 
-{absolute_codec_string=^^:PCMA@8000h@20i@64000b:PCMU@8000h@20i@64000b:G729@8000h@20i@8000b,leg_time_out=10,process_cdr=b_only}
+`{absolute_codec_string=^^:PCMA@8000h@20i@64000b:PCMU@8000h@20i@64000b:G729@8000h@20i@8000b,leg_time_out=10,process_cdr=b_only}`
 
 This approach however does not work when you are setting sip\_h\_, sip\_rh\_ and sip\_ph headers. If you want to pass a comma into the contents of a private header then you must escape the comma with a preceding backslash:
 
-{sip_h_X-My-Header=one\,two\,three,leg_time_out=10,process_cdr=b_only}
+`{sip_h_X-My-Header=one\,two\,three,leg_time_out=10,process_cdr=b_only}`
 
 #### Exporting Channel Variables in Bridge Operations
 
 You can export a variable from one call leg (A) to the other call leg (B) by using the 'export\_vars' variable which is a comma separated list of variables that you wish to propagate across calls. Usage:
 
+```xml
 &lt;action application="set" data="export_vars=myvar,myvar2,foo,bar"/>
+```
+
 
 You can also set a variable on the (A) leg and add it to the export list in one step with the export application:
 
+```xml
 &lt;action application="export" data="myvar=true"/>
+```
+
 
 #### Using Channel Variables in Dialplan Condition Statements
 
@@ -390,13 +402,18 @@ Channel variables can be used in conditions:
 
 #### Custom Channel Variables
 
-Additionally, you may set any number of unique channel variables for your own purposes and even elect to log them to the CDR. In order to set any channel variable, use the application "set" to effect the setting. You can also set channel variables on the command issued via XML-RPC or Event Socket by adding {myvar=myval,myvar1=myval1} e.g.
+Additionally, you may set any number of unique channel variables for your own purposes and even elect to log them to the CDR. In order to set any channel variable, use the application "set" to effect the setting. You can also set channel variables on the command issued via XML-RPC or Event Socket by adding `{myvar=myval,myvar1=myval1}` e.g.
 
+```xml
 originate {ignore_early_media=true}sofia/mydomain.com/18005551212@1.2.3.4 15555551212
+```
 
 If the value you are setting has a space in it then you will need to enclose the value in quotes. For example:
 
+```xml
 originate {fax_ident=1231231234,fax_header='Fax Test'}sofia/gateway/outbound.fax/1004 &txfax(/tmp/fax.tiff)
+```
+
 
 #### Channel Variable Manipulation
 
@@ -406,6 +423,7 @@ Channel variables can be manipulated for varied results. For example, you can tr
 
 Consider the following example that shows where each application sets it's variable :
 
+```xml
   &lt;extension name="test" continue="false">
      &lt;condition field="destination_number" expression="^test([0-9]+)$">
        &lt;action application="set" data="fruit=tomato" /> &lt;!-- Set variable in local channel -->
@@ -413,6 +431,7 @@ Consider the following example that shows where each application sets it's varia
        &lt;action application="bridge" data="{meat=tomato}sofia/gateway/testaccount/1234" />&lt;!-- bridge new channel and set variable only in new channel -->
      &lt;/condition>
    &lt;/extension>
+```
 
 Leg A ( the channel that called the dial plan ) will have the following variables set :
 
@@ -430,9 +449,11 @@ In addition to the dialplan, you can get at channel variables in other environme
 
 **In a FreeSWITCH module**, written in C, you would use:
 
+```c
   switch_channel_set_variable(channel,"name","value");  
   char* result = switch_channel_get_variable(channel,"name");    
   char* result = switch_channel_get_variable_partner(channel,"name");
+```
 
 **In the console** (or fs\_cli, implemented in mod\_commands), you can use:
 
@@ -442,28 +463,36 @@ In addition to the dialplan, you can get at channel variables in other environme
 
 Alternatively, you can call `uuid_dump` to get _all_ the variables, or you can use the `eval` command, adding the prefix `variable_` to your key:
 
+```xml
   uuid_dump &lt;uuid>  
   eval uuid:&lt;uuid> ${variable_&lt;name>}
+```
 
 **In an event socket**, just extend the above with the '`api`' prefix.
 
-  api uuid_getvar &lt;uuid> &lt;name> 
+```xml
+  api uuid_getvar &lt;uuid> &lt;name>
+```
 
 **In Lua**, there are several ways to interact with variables. In the `freeswitch.Session()` invocation that creates a new `Session` object, variables go in square brackets:
 
+```lua
   s = freeswitch.Session("[myname=myvars]sofia/localhost/1003");
+```
 
 Once you have a `Session` object you can call the
 
+```lua
   result = session:getVariable(“name");  
   session:setVariable(“name","value");
+```
 
 methods. The variables actually belong to the channel object that is bonded to the session, but since there is a one-to-one binding, Lua treats sessions and channels as a single object.
 
   
 ### Info Application Variable Names (variable_xxxx)
 
-Some variables, as shown from the [info app](../../Modules/mod-dptools/6587023.mdx#about), may have variable\_ in front of their names. For example, if you pass a header variable called 'type' from the proxy server, it will get displayed as 'variable\_sip\_h\_type' in FreeSWITCH. To access that variable, you should strip off the variable\_, and just do ${sip\_h\_type}. Other variables shown in the info app are prepended with channel, which should be stripped as well. The example below show a list of info app variables and the corresponding channel variable names:
+Some variables, as shown from the [info app](../../Modules/mod-dptools/6587023.mdx#about), may have variable\_ in front of their names. For example, if you pass a header variable called 'type' from the proxy server, it will get displayed as 'variable\_sip\_h\_type' in FreeSWITCH. To access that variable, you should strip off the variable\_, and just do `${sip\_h\_type}`. Other variables shown in the info app are prepended with channel, which should be stripped as well. The example below show a list of info app variables and the corresponding channel variable names:
 
 | **Info variable name**                    | **channel variable name**                                                                                                                                                                                                                                                                                                                                               | **Description**                                                                                                                                                                                                                         |
 | ----------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -482,7 +511,7 @@ Some variables, as shown from the [info app](../../Modules/mod-dptools/6587023.m
 | Caller-Caller-ID-Name                     | caller\_id\_name                                                                                                                                                                                                                                                                                                                                                        | .                                                                                                                                                                                                                                       |
 | Caller-Caller-ID-Number                   | caller\_id\_number                                                                                                                                                                                                                                                                                                                                                      | .                                                                                                                                                                                                                                       |
 | Caller-ANI                                | ani                                                                                                                                                                                                                                                                                                                                                                     | ANI of caller, frequently the same as caller ID number                                                                                                                                                                                  |
-| Caller-ANI-II                             | aniii                                                                                                                                                                                                                                                                                                                                                                   | ANI II Digits (OLI - Originating Line Information), if available. Refer to: <http://www.nanpa.com/number%5Fresource%5Finfo/ani%5Fii%5Fdigits.html>                                                                                      |
+| Caller-ANI-II                             | aniii                                                                                                                                                                                                                                                                                                                                                                   | ANI II Digits (OLI - Originating Line Information), if available. Refer [Here](http://www.nanpa.com/number%5Fresource%5Finfo/ani%5Fii%5Fdigits.html)                                                                                      |
 | Caller-Network-Addr                       | network\_addr                                                                                                                                                                                                                                                                                                                                                           | IP address of calling party                                                                                                                                                                                                             |
 | Caller-Destination-Number                 | destination\_number                                                                                                                                                                                                                                                                                                                                                     | Destination (dialed) number                                                                                                                                                                                                             |
 | Caller-Unique-ID                          | uuid                                                                                                                                                                                                                                                                                                                                                                    | This channel's uuid                                                                                                                                                                                                                     |
@@ -498,7 +527,7 @@ Some variables, as shown from the [info app](../../Modules/mod-dptools/6587023.m
 | Caller-Screen-Bit                         | screen\_bit                                                                                                                                                                                                                                                                                                                                                             | .                                                                                                                                                                                                                                       |
 | Caller-Privacy-Hide-Name                  | privacy\_hide\_name                                                                                                                                                                                                                                                                                                                                                     | .                                                                                                                                                                                                                                       |
 | Caller-Privacy-Hide-Number                | privacy\_hide\_number                                                                                                                                                                                                                                                                                                                                                   | This variable tells you if the inbound call is asking for CLIR\[Calling Line ID presentation Restriction\] (either with anonymous method or Privacy:id method)                                                                          |
-| | initial\_callee\_id\_name               | Sets the callee id name during the 183\. This allows the phone to see a name of who they are calling prior to the phone being answered. An example of setting this to the caller id name of the number being dialled:&lt;action application="set" data="initial\_callee\_id\_name='${user\_data(${dialed\_extension}@${domain\_name} var effective\_caller\_id\_name)}'"/> |                                                                                                                                                                                                                                         |
+| | initial\_callee\_id\_name               | Sets the callee id name during the 183\. This allows the phone to see a name of who they are calling prior to the phone being answered. An example of setting this to the caller id name of the number being dialled: `&lt;action application="set" data="initial\_callee\_id\_name='${user\_data(${dialed\_extension}@${domain\_name} var effective\_caller\_id\_name)}'"/>` |                                                                                                                                                                                                                                         |
 | variable\_sip\_received\_ip               | sip\_received\_ip                                                                                                                                                                                                                                                                                                                                                       | .                                                                                                                                                                                                                                       |
 | variable\_sip\_received\_port             | sip\_received\_port                                                                                                                                                                                                                                                                                                                                                     | .                                                                                                                                                                                                                                       |
 | variable\_sip\_authorized                 | sip\_authorized                                                                                                                                                                                                                                                                                                                                                         | .                                                                                                                                                                                                                                       |
@@ -695,13 +724,13 @@ Some variables, as shown from the [info app](../../Modules/mod-dptools/6587023.m
 | variable\_transfer\_source                | \-                                                                                                                                                                                                                                                                                                                                                                      | \-                                                                                                                                                                                                                                      |
 | variable\_uuid                            | \-                                                                                                                                                                                                                                                                                                                                                                      | \-                                                                                                                                                                                                                                      |
 
-### ${variable} vs. $${variable}
+### `${variable}` vs. `$${variable}`
 
-${variables} are channel variables that may be set in the dialplan, application or directory that affect call progress or settings.
+`${variables}` are channel variables that may be set in the dialplan, application or directory that affect call progress or settings.
 
-$${variables} are expanded when the master freeswitch.xml is compiled. This happens when you start FreeSWITCH, or when _reloadxml_ is called.
+`$${variables}` are expanded when the master freeswitch.xml is compiled. This happens when you start FreeSWITCH, or when _reloadxml_ is called.
 
-The key is that $${variables} are evaluated \*once\* by the pre-processor, and ${variables} are evaluated fresh each time they are executed (for example when a call connects).
+The key is that `$${variables}` are evaluated \*once\* by the pre-processor, and `${variables}` are evaluated fresh each time they are executed (for example when a call connects).
 
 ### CDR related
 
@@ -770,13 +799,14 @@ _Description needed_
 
 #### [bridge_hangup_cause](../../Introduction/Variables/index.mdx#0-about) 
 
-This is set to the hangup cause of the last bridged B leg of the call. If you have continue\_on\_fail=true and hangup\_after\_bridge=false you can do checks on this to see what "really" happened to the call. You can for instance do execute\_extension after bridge, do a condition check on ${bridge\_hangup\_cause} to see if it contains MEDIA\_TIMEOUT and then trigger a redial of the call or transfer to a cell phone. For a list of hangup causes, see [Hangup Causes](../../Troubleshooting-Debugging/Hangup-Cause-Code-Table_3964945.mdx#about) \[[old wiki](https://wiki.freeswitch.org/wiki/Hangup%5FCauses)\].
+This is set to the hangup cause of the last bridged B leg of the call. If you have continue\_on\_fail=true and hangup\_after\_bridge=false you can do checks on this to see what "really" happened to the call. You can for instance do execute\_extension after bridge, do a condition check on `${bridge\_hangup\_cause}` to see if it contains MEDIA\_TIMEOUT and then trigger a redial of the call or transfer to a cell phone. For a list of hangup causes, see [Hangup Causes](../../Troubleshooting-Debugging/Hangup-Cause-Code-Table_3964945.mdx#about) \[[old wiki](https://wiki.freeswitch.org/wiki/Hangup%5FCauses)\].
 
   
 **Usage:**
 
+```xml
 &lt;action application="log" data="1 B-leg hangup cause: ${bridge_hangup_cause}"/>
-
+```
   
 #### [disable_q850_reason](../../Introduction/Variables/index.mdx#0-about) 
 
@@ -785,8 +815,9 @@ When set to true, this disables sending of the Reason header, which includes the
   
 **Usage:**
 
+```xml
 &lt;action application="set" data="disable_q850_reason=true"/>
-
+```
   
 #### [hangup_cause](../../Introduction/Variables/index.mdx#2-show-variables) 
 
@@ -794,8 +825,9 @@ This is set to the hangup cause of the A leg of the call (note that as such it d
 
 **Usage:**
 
+```xml
 &lt;action application="log" data="1 A-leg hangup cause: ${hangup_cause}"/>
-
+```
   
 #### [hangup_cause_q850](../../Introduction/Variables/index.mdx#2-show-variables) 
 
@@ -803,17 +835,20 @@ This is set to the Q850 numeric code of the hangup cause of the A leg of the cal
 
 **Usage:**
 
+```xml
 &lt;action application="log" data="1 A-leg hangup Q850 cause: ${hangup_cause_q850}"/>
-
+```
   
 #### [sip_hangup_disposition](../../Introduction/Variables/index.mdx#0-about) 
 
 This variable contains the value of who sent the SIP BYE message. Some examples from XML CDRs:
 
+```xml
 &lt;sip_hangup_disposition>send_bye&lt;/sip_hangup_disposition>
 &lt;sip_hangup_disposition>recv_bye&lt;/sip_hangup_disposition>
 &lt;sip_hangup_disposition>send_refuse&lt;/sip_hangup_disposition>
 &lt;sip_hangup_disposition>send_cancel&lt;/sip_hangup_disposition>
+```
 
 Interpretation of these values differs on incoming and outgoing calls since FreeSWITCH is at different ends of the session.
 
@@ -877,8 +912,9 @@ This is set to the hangup cause of the last bridged B leg of the call. For a lis
   
 **Usage:**
 
+```xml
 &lt;action application="log" data="B-leg hangup cause: ${last_bridge_hangup_cause}"/>
-
+```
   
 #### [last_bridge_proto_specific_hangup_cause](../../Introduction/Variables/index.mdx#0-about) 
 
@@ -896,8 +932,9 @@ Note: this has no effect when bypass\_media or proxy\_media is set.
   
 **Usage:**
 
+```xml
 &lt;action application="set" data="pass_rfc2833=true"/>
-
+```
   
 #### [dtmf_type](./x__Variables_6587314.mdx#dtmf_type) 
 
@@ -906,16 +943,21 @@ For inband DTMF, [mod\_dptools: start\_dtmf](../../Modules/mod-dptools/6587132.m
   
 **Usage:**
 
+```xml
 &lt;action application="set" data="dtmf_type=info"/>
+```
 
 or,
 
+```xml
 &lt;action application="set" data="dtmf_type=rfc2833"/>
+```
 
 or,
 
+```xml
 &lt;action application="set" data="dtmf_type=none"/>
-
+```
   
 #### [drop_dtmf](./x__Variables_6587314.mdx#drop_dtmf) 
 
@@ -926,17 +968,23 @@ Only tested with RFC2833, may also work for INFO / inband. See Jira issue FS-476
   
 **Usage:**
 
+```xml
 &lt;action application="set" data="drop_dtmf=true"/>
 &lt;action application="answer"/>
+```
 
 or,
 
+```xml
 &lt;action application="export" data="nolocal:drop_dtmf=true"/>
 &lt;action application="bridge" data="sofia/internal/100@1.2.3.4"/>
+```
 
 or,
 
+```xml
 &lt;action application="bridge" data="{drop_dtmf=true}sofia/internal/100@1.2.3.4"/>
+```
 
 #### drop_dtmf_masking_digits
 
@@ -946,16 +994,19 @@ If drop\_dtmf is true play specified tone for every tone received.
 
 Each DTMF tone that is entered into the a-leg will be dropped and a "d" sent to the b-leg.
 
+```xml
 &lt;action application="set" data="drop_dtmf=true"/>
 
 &lt;action application="set" data="drop_dtmf_masking_digits=d"/>
+```
 
 to drop and replace dtmf on the b-leg use
 
+```xml
 &lt;action application="export" data="nolocal:drop_dtmf=true"/>
 
 &lt;action application="export" data="nolocal:drop_dtmf_masking_digits=/etc/freeswitch/Sounds/dtmf_masking_tone" />
-
+```
   
 #### drop_dtmf_masking_file
 
@@ -967,17 +1018,19 @@ Each DTMF tone that is entered into the a-leg will be dropped and a the file _dt
 
  sent to the b-leg.
 
+```xml
 &lt;action application="set" data="drop_dtmf=true"/>
 
 &lt;action application="set" data="drop_dtmf_masking_file=/etc/freeswitch/Sounds/dtmf_masking_tone" />
-
+```
   
 to drop and replace dtmf on the b-leg use
 
+```xml
 &lt;action application="export" data="nolocal:drop_dtmf=true"/>
 
 &lt;action application="export" data="nolocal:drop_dtmf_masking_file=/etc/freeswitch/Sounds/dtmf_masking_tone" />
-  
+```
   
 ### Media Handling
 
@@ -999,8 +1052,9 @@ NOTE: this variable only works when ignore\_early\_media is set to true.
   
 **Usage:**
 
+```xml
 &lt;action application="bridge" data="{ignore_early_media=true,monitor_early_media_fail=user_busy:2:480+620!destination_out_of_order:2:1776.7}sofia/dial/string"/>
-
+```
   
 #### [monitor_early_media_ring](./x__Variables_6587314.mdx#monitor_early_media_ring) 
 
@@ -1020,8 +1074,9 @@ NOTE: this variable only works when ignore\_early\_media is not present.
   
 **Usage:**
 
+```xml
 &lt;action application="bridge" data="{monitor_early_media_ring_total=3,monitor_early_media_ring=usring:1:440.0+480.0!ukring:2:400+450}sofia/gateway/yourgateway/1239@conference.freeswitch.org"/>
-
+```
   
 ### Timeout Related
 
@@ -1040,8 +1095,9 @@ Default Value: 60
   
 **Usage:**
 
+```xml
 &lt;action application="set" data="call_timeout=20"/>
-
+```
   
 #### [leg_timeout](./x__Variables_6587314.mdx#leg_timeout) 
 
@@ -1054,8 +1110,9 @@ If you are using group confirm then you can cancel the timeout by using the [gro
   
 **Usage:**
 
+```xml
 &lt;action application="bridge" data="[leg_timeout=15]user/hastoanswerquickly/some.domain.com,[leg_timeout=60]user/hasaminutetoanswer@some.domain.com"/>
-
+```
   
 #### [originate_continue_on_timeout](./x__Variables_6587314.mdx#originate_continue_on_timeout) 
 
@@ -1064,8 +1121,9 @@ Controls wether or not a bridge should continue after timing out. Default value 
   
 **Usage:**
 
+```xml
 &lt;action application="set" data="originate_continue_on_timeout=true"/>
-
+```
   
 #### [park_timeout](./x__Variables_6587314.mdx#park_timeout) 
 
@@ -1073,13 +1131,18 @@ When set, a parked call will disconnect after the timeout has occurred. Timeout 
 
 **Usage:**
 
+```xml
 &lt;action application="set" data="park_timeout=30"/>
 &lt;action application="park"/>
+```
 
 You can also specify which hangup\_cause you need when the channel is disconnected by park\_timeout.
 
-**Usage:** &lt;action application="set" data="park\_timeout=30:MEDIA\_TIMEOUT"/>
+**Usage:**
 
+```xml
+&lt;action application="set" data="park\_timeout=30:MEDIA\_TIMEOUT"/>
+```
   
 ### Music On Hold Related
 
@@ -1090,22 +1153,29 @@ Per-channel hold music. Supports all audio formats and audio streams. The hold\_
   
 **Usage:**
 
+```xml
 &lt;action application="set" data="hold_music=/sounds/holdmusic.wav" />
+```
 
 You can also set your hold\_music to the special value "indicate\_hold" instead of a music source and it will pass the hold req through but not the SDP.
 
 or,
 
+```xml
 &lt;action application="set" data="hold_music=silence" />
+```
 
 You can also use 'phrase:' to indicate to use a phrase instead of a specific file
 
+```xml
 &lt;action application="set" data="hold_music=phrase:my_hold_music" />
+```
 
 For multi-tenant environment, if you want to have a separate MOH for the phone with hold button (like Polycom) that utilizes RE-INVITE with no media ip addr (0.0.0.0) for hold, you can override the hold-music values in the sip profile parameter similar to the following example:
 
+```xml
 &lt;action application="bridge_export" data="hold_music=$${sounds_dir}/music/company-a.mp3"/>
-
+```
   
 #### [temp_hold_music](./x__Variables_6587314.mdx#temp_hold_music) 
 
@@ -1113,8 +1183,9 @@ This variable specifies a hold music value that gets played to a caller only unt
 
 **Usage:**
 
+```xml
 &lt;action application="set" data="temp_hold_music=local_stream://alternate_moh"/>
-
+```
   
 ### Locale Related
 
@@ -1125,8 +1196,9 @@ Controls the default language the Say Phrase engine will use when no language is
   
 **Usage:**
 
+```xml
 &lt;action application="set" data="default_language=fr"/>
-
+```
   
 #### [timezone](./x__Variables_6587314.mdx#timezone) 
 
@@ -1142,12 +1214,15 @@ Finally you can specify a time zone for a particular extension in /conf/director
 
 **Usage:**
 
+```xml
 &lt;action application="set" data="timezone=GMT0"/>
+```
 
 or,
 
+```xml
 &lt;action application="set" data="timezone=America/New_York"/>
-
+```
   
 #### [tod_tz_offset](./x__Variables_6587314.mdx#tod_tz_offset) 
 
@@ -1164,8 +1239,9 @@ Finally you can set the variable for a particular extension in /conf/directory/d
 
 **Usage:**
 
+```xml
 &lt;action application="set" data="tod_tz_offset=5"/>
-
+```
   
 ### Bridge Related
 
@@ -1187,7 +1263,9 @@ In the example below, there is no way to reach extension 333 without auto\_hunt.
 
 **Usage:** In vars.xml:
 
+```xml
 &lt;X-PRE-PROCESS cmd="set" data="auto_hunt=true"/>
+```
 
 **Example:**
 
@@ -1226,11 +1304,13 @@ You can set this variable in the dialplan before answering or inline as part of 
 
 Example dialplan usage:
 
+```xml
 &lt;action application="set" data="bridge_filter_dtmf=true" />
+```
 
 Example dialstring usage:
 
-{bridge_filter_dtmf=true}sofia/default/blah@baz.com
+`{bridge_filter_dtmf=true}sofia/default/blah@baz.com`
 
   
 #### [bridge_terminate_key](./x__Variables_6587314.mdx#bridge_terminate_key) 
@@ -1247,16 +1327,21 @@ Controls what happens when the called party can not be reached (busy/offline). I
   
 **Usage:**
 
+```xml
 &lt;action application="set" data="continue_on_fail=true"/>
+```
 
 or,
 
+```xml
 &lt;action application="set" data="continue_on_fail=NORMAL_TEMPORARY_FAILURE,USER_BUSY,NO_ANSWER,NO_ROUTE_DESTINATION"/>
+```
 
 or Q.850 cause codes,
 
+```xml
 &lt;action application="set" data="continue_on_fail=3,17,18,27"/>
-
+```
   
 #### [transfer_on_fail](./x__Variables_6587314.mdx#transfer_on_fail) 
 
@@ -1267,19 +1352,24 @@ Please note, you will need to set failure\_causes variable too.
   
 **Usage:**
 
+```xml
 &lt;action application="set" data="failure_causes=UNALLOCATED_NUMBER"/>  
 &lt;action application="set" data="transfer_on_fail=UNALLOCATED_NUMBER"/>
+```
 
 in this example, if you were to attempt a bridge that resulted in "UNALLOCATED\_NUMBER" , the call flow would be "transferred" to the "UNALLOCATED\_NUMBER" destination in your current dialplan ( probably default xml dialplan )
 
 or,
 
+```xml
 &lt;action application="set" data="transfer_on_fail=&lt;hangupcauses> &lt;destination> &lt;dialplan> &lt;context>"/>
+```
 
 or,
 
+```xml
 &lt;action application="set" data="transfer_on_fail=1"/>
-
+```
   
 #### [enable_file_write_buffering](./x__Variables_6587314.mdx#enable_file_write_buffering) 
 
@@ -1287,15 +1377,16 @@ Enable file buffering when recording a file, defaults to true if not set.
 
 Buffer size defaults to \`SWITCH\_DEFAULT\_FILE\_BUFFER\_LEN\` but can be overridden by putting bytes size instead of true (see below example).
 
-Related discussion; <http://lists.freeswitch.org/pipermail/freeswitch-users/2012-April/082835.html>
+Related discussion; [Link](http://lists.freeswitch.org/pipermail/freeswitch-users/2012-April/082835.html)
   
   
 **Usage:**
 
+```xml
 &lt;action application="set" data="enable_file_write_buffering=false"/> 
 &lt;action application="set" data="enable_file_write_buffering=true"/> 
 &lt;action application="set" data="enable_file_write_buffering=65535"/> 
-
+```
   
 #### [failure_causes](./x__Variables_6587314.mdx#failure_causes) 
 
@@ -1304,12 +1395,15 @@ Controls which failure causes will be considered as a failure to the bridge(s). 
   
 **Usage:**
 
+```xml
 &lt;action application="set" data="failure_causes=USER_BUSY,NO_ANSWER"/>
+```
 
 or Q.850 cause codes,
 
+```xml
 &lt;action application="set" data="failure_causes=487"/>
-
+```
   
 #### [force_transfer_context](./x__Variables_6587314.mdx#force_transfer_context) 
 
@@ -1317,8 +1411,9 @@ When handling transfer/REFER FreeSWITCH normally inherits the context from the o
 
 **Usage:**
 
+```xml
 &lt;action application="bridge" data="{force_transfer_context=some_context}sofia/gateway/gw_name/12345"/>
-
+```
   
 #### [force_transfer_dialplan](./x__Variables_6587314.mdx#force_transfer_dialplan) 
 
@@ -1336,8 +1431,9 @@ Controls what happens to a calling (A) party when in a bridge state and the call
   
 **Usage:**
 
+```xml
 &lt;action application="set" data="hangup_after_bridge=true"/>
-
+```
   
 #### [hold_hangup_xfer_exten](./x__Variables_6587314.mdx#hold_hangup_xfer_exten) 
 
@@ -1346,8 +1442,9 @@ Controls what happens to a calling (A) party when in a bridge state and the brid
   
 **Usage:**
 
+```xml
 &lt;action application="set" data="hold_hangup_xfer_exten=1000:XML:default"/>
-
+```
   
 #### [last_bridge_to](./x__Variables_6587314.mdx#signal_bridge_to) 
 
@@ -1360,10 +1457,13 @@ Set to true to have one-legged loopback channels "bow out" (remove the loopback 
   
 **Usage:**
 
+```xml
 &lt;action application="set" data="loopback_bowout_on_execute=true"/>
+```
 
 Remarks:
 
+```text
 loopback\_bowout\_on\_execute is only useful to single leg calls, you never have to set it. loopback\_bowout is true by default. It tries to remove loopback by doing uuid\_bridge.
 
 When setting "loopback\_bowout=false", a bridged loopback call results in 4 legs (a-leg, loopback-a, loopback-b, b-leg).
@@ -1371,6 +1471,7 @@ When setting "loopback\_bowout=false", a bridged loopback call results in 4 legs
 When setting "loopback\_bowout=true", a bridged loopback call results in 2 legs (a-leg, b-leg).
 
 During the call setup phase even with "loopback\_bowout=true" there will always be 4 legs, however. loopback-a and loopback-b will be destroyed when a-leg and b-leg are successfully bridged
+```
 
 #### [loopback_export](./x__Variables_6587314.mdx#loopback_export) 
 
@@ -1387,8 +1488,9 @@ When doing a simultaneous call to multiple endpoints, a 302 redirect can cause a
   
 **Usage:**
 
+```xml
 &lt;action application="bridge" data="{outbound_redirect_fatal=true}${group_call(sales@$${domain})}"/>
-  
+```
   
 #### [originate_timeout](./x__Variables_6587314.mdx#originate_timeout) 
 
@@ -1397,12 +1499,15 @@ Determines how long a bridge or originate action action will stay in the "origin
   
 **Usage:**
 
+```xml
 &lt;action application="bridge" data="{originate_timeout=10}[leg_timeout=5]sofia/default/foo1@bar1|[leg_timeout=5]sofia/default/foo2@bar2"/>
-
+```
   
 **Example**
 
+```xml
 &lt;action application="bridge" data="{originate_timeout=24}${group_call(sales@$${domain})}"/>
+```
 
 #### [park_after_bridge](./x__Variables_6587314.mdx#park_after_bridge) 
 
@@ -1412,9 +1517,10 @@ Default: false
 
 **Usage:**
 
+```xml
 &lt;action application="set" data="park_after_bridge=true"/>
 &lt;action application="bridge" data="sofia/gateway/myprovider/5551231234"/>
-
+```
   
 #### [signal_bond](./x__Variables_6587314.mdx#signal_bond) 
 
@@ -1433,7 +1539,7 @@ You set this variable to true on your outbound calls to have them not count in s
 
 **Usage:**
 
-{no_throttle_limits=true}
+`{no_throttle_limits=true}`
 
 **See also:**
   
@@ -1445,11 +1551,15 @@ Enables/disables the jitter buffer during bridge.
   
 **Usage:**
 
+```xml
 &lt;action application="set" data="rtp_jitter_buffer_during_bridge=true"/>
+```
 
 or,
 
+```xml
 &lt;action application="set" data="rtp_jitter_buffer_during_bridge=false"/>
+```
 
   
 #### [uuid_bridge_continue_on_cancel](./x__Variables_6587314.mdx#uuid_bridge_continue_on_cancel) 
@@ -1461,8 +1571,9 @@ You may find this variable useful when implementing [Dialplan\_FollowMe](https:/
   
 **Usage:**
 
+```xml
 &lt;action application="set" data="uuid_bridge_continue_on_cancel=true"/>
-
+```
   
 ### Conference Related
 
@@ -1473,8 +1584,9 @@ File name of audio message to play to conference member joining conference via t
   
 **Usage:**
 
+```xml
 &lt;action application="set" data="conference_auto_outcall_announce=sounds/soundfile.wav"/>
-
+```
   
 #### [conference_auto_outcall_caller_id_name](./x__Variables_6587314.mdx#conference_auto_outcall_caller_id_name) 
 
@@ -1482,7 +1594,9 @@ Caller ID name to use when dialing endpoints to join the conference via the [con
 
 **Usage:**
 
+```xml
 &lt;action application="set" data="conference_auto_outcall_caller_id_name=$${effective_caller_id_name}"/>
+```
 
   
 #### [conference_auto_outcall_caller_id_number](./x__Variables_6587314.mdx#conference_auto_outcall_caller_id_number) 
@@ -1491,8 +1605,9 @@ Caller ID number to use when dialing endpoints to join the conference via the [c
 
 **Usage:**
 
+```xml
 &lt;action application="set" data="conference_auto_outcall_caller_id_number=${effective_caller_id_number}"/>
-
+```
   
 #### [conference_auto_outcall_flags](./x__Variables_6587314.mdx#conference_auto_outcall_flags) 
 
@@ -1500,8 +1615,9 @@ Conference flags to set for members joining conference via the [conference\_set\
 
 **Usage:**
 
+```xml
 &lt;action application="set" data="conference_auto_outcall_flags=mute"/>
-
+```
   
 #### [conference_auto_outcall_prefix](./x__Variables_6587314.mdx#conference_auto_outcall_prefix)
 
@@ -1509,6 +1625,7 @@ The value of conference\_auto\_outcall\_prefix is prepended to each of [conferen
 
 **Usage:**
 
+```xml
   &lt;extension name="mad_boss_intercom">
     &lt;condition field="destination_number" expression="^0911$">
       &lt;action application="set" data="conference_auto_outcall_caller_id_name=Mad Boss1"/>
@@ -1521,7 +1638,7 @@ The value of conference\_auto\_outcall\_prefix is prepended to each of [conferen
       &lt;action application="conference" data="madboss_intercom1@default+flags{endconf|deaf}"/>
     &lt;/condition>
   &lt;/extension>
-
+```
   
 #### [conference_auto_outcall_timeout](./x__Variables_6587314.mdx#conference_auto_outcall_timeout) 
 
@@ -1529,8 +1646,9 @@ Originate timeout to use when joining a member to a conference via [conference\_
 
 **Usage:**
 
+```xml
 &lt;action application="set" data="conference_auto_outcall_timeout=60"/>
-
+```
   
 #### [conference_auto_outcall_maxwait](./x__Variables_6587314.mdx#conference_auto_outcall_maxwait) 
 
@@ -1538,8 +1656,9 @@ Maximum time in seconds that the channel that initiated the [conference\_set\_au
 
 **Usage:**
 
+```xml
 &lt;action application="set" data="conference_auto_outcall_maxwait=10"/>
-
+```
   
 #### [conference_controls](./x__Variables_6587314.mdx#conference_controls) 
 
@@ -1549,8 +1668,9 @@ NOTE: You must create the desired conference control set. Also, if this is not s
 
 **Usage:**
 
+```xml
 &lt;action application="set" data="conference_controls=moderator"/>
-
+```
   
 #### [conference_enter_sound](./x__Variables_6587314.mdx#conference_enter_sound) 
 
@@ -1558,8 +1678,9 @@ When set, this channel variable will override the enter-sound param on conferenc
 
 **Usage:**
 
+```xml
 &lt;action application="set" data="conference_enter_sound=silence_stream://10"/>
-
+```
   
 #### [conference_last_matching_digits](./x__Variables_6587314.mdx#conference_last_matching_digits) 
 
@@ -1567,8 +1688,9 @@ Contains the last matching digits that the user on this channel sent into the co
 
 **Usage:**
 
+```xml
 &lt;action application="log" data="INFO Last digits sent by this user: ${conference_last_matching_digits}"/>
-
+```
   
 #### [last_transferred_conference](./x__Variables_6587314.mdx#last_transferred_conference) 
 
@@ -1576,8 +1698,9 @@ Contains the name of the last conference that this channel was connected to.
 
 **Usage:**
 
+```xml
 &lt;action application="log" data="INFO Last conference this person visited was [${last_transferred_conference}]"/>
-
+```
   
 #### [conference_member_id](./x__Variables_6587314.mdx#conference_member_id) 
 
@@ -1596,8 +1719,9 @@ Controls what happens to a calling (A) party when in a conference and the confer
   
 **Usage:**
 
+```xml
 &lt;action application="set" data="hangup_after_conference=false"/>
-
+```
   
 ### Code Execution Related
 
@@ -1608,7 +1732,9 @@ Execute an API command on hangup.
   
 **Usage:**
 
+```xml
 &lt;action application="set" data="api_hangup_hook=jsrun cleanup.js ${uuid}"/> 
+```
 
 **See also:**
 
@@ -1651,9 +1777,10 @@ Note: this is executed AFTER the call is setup but BEFORE the media (audio) is b
   
 **Usage:**
 
+```xml
 &lt;action application="set" data="bridge_pre_execute_bleg_app=bind_meta_app"/>
 &lt;action application="set" data="bridge_pre_execute_bleg_data=1 a s att_xfer::sofia/profile/destination"/>
-
+```
   
 #### [bridge_pre_execute_bleg_data](./x__Variables_6587314.mdx#bridge_pre_execute_bleg_data) 
 
@@ -1662,9 +1789,10 @@ Arguments to be used with bridge\_pre\_execute\_bleg\_app
   
 **Usage:**
 
+```xml
 &lt;action application="set" data="bridge_pre_execute_bleg_app=bind_meta_app"/>
 &lt;action application="set" data="bridge_pre_execute_bleg_data=1 a s att_xfer::sofia/profile/destination"/>
-
+```
   
 #### [exec_after_bridge_app](./x__Variables_6587314.mdx#exec_after_bridge_app) 
 
@@ -1673,9 +1801,10 @@ Execute an application command after the bridge has been terminated. To be used 
   
 **Usage:**
 
+```xml
 &lt;action application="set" data="exec_after_bridge_app=transfer"/>
 &lt;action application="set" data="exec_after_bridge_arg=2102"/>
-
+```
   
 #### [exec_after_bridge_arg](./x__Variables_6587314.mdx#exec_after_bridge_arg) 
 
@@ -1684,9 +1813,10 @@ Argument passed to [exec\_after\_bridge\_app](https://wiki.freeswitch.org/wiki/V
   
 **Usage:**
 
+```xml
 &lt;action application="set" data="exec_after_bridge_app=transfer"/>
 &lt;action application="set" data="exec_after_bridge_arg=2102"/>
-
+```
   
 ####  origination_nested_vars 
 
@@ -1717,10 +1847,13 @@ In the second usage example below, we have originated an outbound call to a loca
   
 **Usage:**
 
+```xml
 &lt;action application="export" data="nolocal:execute_on_answer=lua incrInUse.lua ${uuid}"/>
+```
 
 or, to wait 30 seconds for an answer while 'manually' ignoring early media
 
+```xml
 originate {ignore_early_media=true}sofia/gateway/my_gateway/5551212 885551212
 
 &lt;extension name="exe_on_ans">
@@ -1732,7 +1865,7 @@ originate {ignore_early_media=true}sofia/gateway/my_gateway/5551212 885551212
     &lt;action application="transfer" data="UNANSWEREDCALL XML default"/>
   &lt;/condition>
 &lt;/extension>
-
+```
   
 ##### [execute_on_media](./x__Variables_6587314.mdx#execute_on_media) 
 
@@ -1745,10 +1878,13 @@ In the second usage example below, we have originated an outbound call to a loca
   
 **Usage:**
 
+```xml
 &lt;action application="export" data="nolocal:execute_on_media=lua incrInUse.lua ${uuid}"/>
+```
 
 or, to wait 30 seconds for an answer without ignoring early media
 
+```xml
 originate sofia/gateway/my_gateway/5551212 885551212
 
 &lt;extension name="exe_on_ans">
@@ -1760,7 +1896,7 @@ originate sofia/gateway/my_gateway/5551212 885551212
     &lt;action application="transfer" data="UNANSWEREDCALL XML default"/>
   &lt;/condition>
 &lt;/extension>
-
+```
   
 ##### [execute_on_media_timeout](./x__Variables_6587314.mdx#execute_on_media_timeout) 
 
@@ -1769,9 +1905,10 @@ Execute an application if the far end stops sending media and times out.
   
 **Usage:**
 
+```xml
 &lt;action application="export" data="nolocal:execute_on_media_timeout=lua oops_timeout.lua ${uuid}"/>
 &lt;action application="set" data="execute_on_media_timeout=transfer HANDLE_MEDIA_TIMEOUT XML default"/>
-
+```
   
 ##### [execute_on_pre_answer](./x__Variables_6587314.mdx#execute_on_pre_answer) 
 
@@ -1784,10 +1921,13 @@ In the second usage example below, we have originated an outbound call to a loca
   
 **Usage:**
 
+```xml
 &lt;action application="export" data="nolocal:execute_on_pre_answer=lua incrInUse.lua ${uuid}"/>
+```
 
 or, to wait 30 seconds for an answer without ignoring early media
 
+```xml
 originate sofia/gateway/my_gw/5551212 885551212
 
 &lt;extension name="exe_on_preans">
@@ -1799,6 +1939,7 @@ originate sofia/gateway/my_gw/5551212 885551212
     &lt;action application="transfer" data="UNANSWEREDCALL XML default"/>
   &lt;/condition>
 &lt;/extension>
+```
 
 [ execute\_on\_ring](./x__Variables_6587314.mdx#execute_on_ring)
 
@@ -1807,8 +1948,9 @@ Execute a command when the called party rings.
   
 **Usage:**
 
+```xml
 &lt;action application="set" data="nolocal:execute_on_ring=lua markring ${uuid}"/>
-
+```
   
 ##### [execute_on_sip_reinvite](./x__Variables_6587314.mdx#execute_on_sip_reinvite) 
 
@@ -1829,12 +1971,15 @@ Execute an api (not an application) when the called party answers. To set an app
   
 **Usage:**
 
+```xml
 &lt;action application="export" data="nolocal:api_on_answer=uuid_broadcast ${uuid} beep.wav both"/>
+```
 
 Or,
 
+```xml
  &lt;action application="bridge" data="{api_on_answer='uuid_broadcast ${uuid} beep.wav both'}sofia/gateway/provider/5551231234"/>
-
+```
   
 ##### [api_on_media](./x__Variables_6587314.mdx#api_on_media) 
 
@@ -1846,8 +1991,9 @@ In the second usage example below, we have originated an outbound call to a loca
 
 **Usage:**
 
+```xml
 &lt;action application="export" data="nolocal:execute_on_media=lua incrInUse.lua ${uuid}"/>
-
+```
   
 #####  api_on_originate
 
@@ -1872,13 +2018,14 @@ So say you try to call sofia/profile/a@xxxxxxx,sofia/profile/b@xxxxxxx
 
 And it fails completely, before you make the call you set failed\_xml\_cdr\_prefix to "bad\_call"
 
-Then you end up with ${bad\_call\_1} and ${bad\_call\_2} which are each a full XML report including all the vars etc.
+Then you end up with `${bad\_call\_1}` and `${bad\_call\_2}` which are each a full XML report including all the vars etc.
 
   
 **Usage:**
 
+```xml
 &lt;action application="set" data="failed_xml_cdr_prefix=failinggw" />	
-
+```
   
 #### [fail_on_single_reject](./x__Variables_6587314.mdx#fail_on_single_reject) 
 
@@ -1893,33 +2040,44 @@ It can also be set to a list of [failure causes](https://wiki.freeswitch.org/wik
   
 **Usage:**
 
+```xml
 &lt;action application="set" data="fail_on_single_reject=true"/>
 &lt;action application="bridge" data="sofia/$${profile}/$${kitchen}%$${domain},sofia/$${profile}/$${dining}%$${domain}"/>
 &lt;action application="javascript" data="answermachine.js"/>
+```
 
 or,
 
+```xml
 &lt;action application="set" data="fail_on_single_reject=USER_BUSY"/>
+```
 
 or,
 
+```xml
 &lt;action application="set" data="fail_on_single_reject=!NORMAL_CIRCUIT_CONGESTION"/>
+```
 
 or to use a list,
 
+```xml
 &lt;action application="set" data="fail_on_single_reject=^^:CALL_REJECTED:NORMAL_CLEARING:USER_BUSY"/>
+```
 
 or for negated list,
 
+```xml
 &lt;action application="set" data="fail_on_single_reject=!^^:ALLOTTED_TIMEOUT:NETWORK_OUT_OF_ORDER"/>
+```
 
 For use with the OR operator, consider the following example. Here the dialplan sends a call to multiple gateways simultaneously. In the case of GATEWAY\_DOWN or INVALID\_GATEWAY the bridge should not fail (i.e. negated fail\_on\_single\_reject) and the dialplan should continue (i.e. continue\_on\_fail):
 
+```xml
 &lt;action application="set" data="continue_on_fail=GATEWAY_DOWN,INVALID_GATEWAY"/>  
 &lt;action application="set" data="fail_on_single_reject=!^^:GATEWAY_DOWN:INVALID_GATEWAY"/>  
 &lt;action application="set" data="hangup_after_bridge=true"/>  
 &lt;action application="bridge" data="sofia/gateway/gw1/$1|sofia/gateway/gw2/$1|sofia/gateway/gw3/$1"/>
-  
+```
   
 #### [intercept_unbridged_only](./x__Variables_6587314.mdx#intercept_unbridged_only) 
 
@@ -1929,9 +2087,10 @@ Default: false
 
 **Usage:**
 
+```xml
 &lt;action application="set" data="intercept_unbridged_only=true"/>
 &lt;action application="intercept" data="myUUID"/>
-
+```
   
 #### [intercept_unanswered_only](./x__Variables_6587314.mdx#intercept_unanswered_only) 
 
@@ -1941,9 +2100,10 @@ Default: false
 
 **Usage:**
 
+```xml
 &lt;action application="set" data="intercept_unanswered_only=true"/>
 &lt;action application="intercept" data="myUUID"/>
-
+```
   
 #### [session_in_hangup_hook](./x__Variables_6587314.mdx#session_in_hangup_hook) 
 
@@ -1951,8 +2111,9 @@ Allows channel variables to be accessible in the api\_hangup\_hook that gets exe
 
 **Usage:**
 
+```xml
 &lt;action application="set" data="session_in_hangup_hook=true"/>
-
+```
   
 See [Lua#Special\_Case:\_env\_object](https://wiki.freeswitch.org/wiki/Lua#Special%5FCase:%5Fenv%5Fobject "Lua") for an example of how to use this.
 
@@ -1986,8 +2147,9 @@ If you want to display LEG A's name (if available) as soon as LEG B (here the lo
   
 **Usage:**
 
+```xml
 &lt;action application="set" data="effective_caller_id_name=Bob Smith"/>
-
+```
   
 #### [effective_caller_id_number](https://wiki.freeswitch.org/wiki/Variable%5Feffective%5Fcaller%5Fid%5Fnumber "Variable effective caller id number") 
 
@@ -1996,8 +2158,9 @@ Sets the effective callerid number. This is automatically exported to the B-leg;
   
 **Usage:**
 
+```xml
 &lt;action application="set" data="effective_caller_id_number=9185551212"/>
-
+```
   
 #### [sip_cid_type](https://wiki.freeswitch.org/wiki/Variable%5Fsip%5Fcid%5Ftype "Variable sip cid type") 
 
@@ -2007,29 +2170,29 @@ Sets the effective callerid number. This is automatically exported to the B-leg;
 
 Send no extra caller id info (Caller ID will be in the SIP From):
 
-{sip_cid_type=none}sofia/default/user@example.com
+`{sip_cid_type=none}sofia/default/user@example.com`
 
 _Note: for gateways (rather than sip calls on a profile), this will not work. You need [caller-id-in-from=true](https://wiki.freeswitch.org/wiki/Authentication "Authentication") in the gateway settings._
 
 Send Remote-Party-ID (default)
 
-{sip_cid_type=rpid}sofia/default/user@example.com
+`{sip_cid_type=rpid}sofia/default/user@example.com`
 
 Send P-Asserted-Identity
 
-{sip_cid_type=pid}sofia/default/user@example.com
+`{sip_cid_type=pid}sofia/default/user@example.com`
 
 _**Note**: you must set privacy flag, otherwise will be inserted P-Preferred-Identity instead of P-Asserted-Identity_
 
 Send RPID with chosen content and privacy flags (+ delimited, none to clear all flags)
 
-{sip_cid_type=rpid,origination_caller_id_name=test,origination_caller_id_number=1234,origination_privacy=screen+hide_name+hide_number}sofia/default/user@example.com
+`{sip_cid_type=rpid,origination_caller_id_name=test,origination_caller_id_number=1234,origination_privacy=screen+hide_name+hide_number}sofia/default/user@example.com`
 
 Also the privacy app on the inbound leg controls the remaining contents of the RPID and Privacy headers.
 
 Send Remote-Party-ID with chosen content
 
-{sip_cid_type=rpid,origination_caller_id_name=test,origination_caller_id_number=1234}sofia/default/user@example.com
+`{sip_cid_type=rpid,origination_caller_id_name=test,origination_caller_id_number=1234}sofia/default/user@example.com`
 
 #### [effective_sip_cid_in_1xx](https://wiki.freeswitch.org/wiki/Variable%5Fsip%5Fcid%5Fin%5F1xx "Variable sip cid in 1xx") 
 
@@ -2038,8 +2201,9 @@ Prevents FreeSWITCH when it receives 183 from leg-B to automatically insert RPID
   
 **Usage:**
 
+```xml
 &lt;action application="set" data="sip_cid_in_1xx=false"/>
-
+```
   
 ### Callee ID Related
 
@@ -2049,7 +2213,9 @@ Sets the callee id name during the 183\. This allows the phone to see the name o
 
 An example of setting this to the caller id name of the number being dialed:
 
+```xml
 &lt;action application="set" data="initial_callee_id_name='${user_data(${dialed_extension}@${domain_name} var effective_caller_id_name)}'"/>
+```
 
 #### origination_callee_id_name
 
@@ -2058,7 +2224,9 @@ Set on the inbound leg to control what caller ID name appears in the caller phon
   
 Usage:
 
+```xml
 &lt;action application="bridge" data="{origination_callee_id_name=Reginald}sofia/gateway/provider/&lt;Reginald's cellphone number>" />
+```
 
 If you find using set doesn't work, try using export instead.
 
@@ -2069,7 +2237,9 @@ Set on the inbound leg to control what caller ID number appears in the caller ph
   
 Usage:
 
+```xml
 &lt;action application="bridge" data="{origination_callee_id_name=Reginald,origination_callee_id_number=2332}sofia/gateway/provider/&lt;Reginald's cellphone number>" />
+```
 
 ### Call Recording Related
 
@@ -2097,8 +2267,9 @@ Description need please.
 
 **Usage:**
 
+```xml
 &lt;action application="set" data="record_fill_cng=1200"/>
-
+```
   
 #### [RECORD_HANGUP_ON_ERROR](https://wiki.freeswitch.org/wiki/Variable%5FRECORD%5FHANGUP%5FON%5FERROR "Variable RECORD HANGUP ON ERROR") 
 
@@ -2106,8 +2277,9 @@ When set to _true_ this channel variable will cause the call to hangup if there 
 
 **Usage:**
 
+```xml
 &lt;action application="set" data="RECORD_HANGUP_ON_ERROR=true"/>
-
+```
   
 #### [RECORD_DISCARDED](https://wiki.freeswitch.org/wiki/Variable%5FRECORD%5FDISCARDED "Variable RECORD DISCARDED") 
 
@@ -2126,11 +2298,15 @@ and
 
 These two variables allow the postprocessing of recorded audio. The reason this is required is if the A leg hangs up first in a call, the dialplan stops being processed, and then you aren't able to take action on the file that was recorded. These variables take the form of:
 
+```xml
 &lt;action application="set" data="record_post_process_exec_api=some_api_app:api_app args" />
+```
 
 Example usage:
 
+```xml
 &lt;action application="set" data="record_post_process_exec_api=api_here:api_arg1 api_arg2 api_arg3" />
+```
 
 #### [record_restart_limit_on_dtmf](https://wiki.freeswitch.org/wiki/Variable%5Frecord%5Frestart%5Flimit%5Fon%5Fdtmf "Variable record restart limit on dtmf") 
 
@@ -2142,8 +2318,9 @@ Specify the sampling rate of the recorded file.
 
 **Usage:**
 
+```xml
 &lt;action application="set" data="record_sample_rate=8000"/>
-
+```
   
 #### [record_waste_resources](https://wiki.freeswitch.org/wiki/Variable%5Frecord%5Fwaste%5Fresources "Variable record waste resources") 
 
@@ -2152,8 +2329,9 @@ By default record doesn't send RTP packets. This is generally acceptable, but fo
   
 **Usage:**
 
+```xml
 &lt;action application="set" data="record_waste_resources=true"/>
-
+```
   
 ####  recording_follow_transfer 
 
@@ -2161,7 +2339,9 @@ Set to true if you want recording to continue after a transfer.
 
 #### Example
 
+```xml
 &lt;action application="set" data="recording_follow_transfer=true"/>
+```
 
 ### Codec Related
 
@@ -2172,9 +2352,10 @@ Sets the absolute codec string to use (nothing will be appended).
   
 **Usage:**
 
+```xml
 &lt;action application="set" data="absolute_codec_string=PCMU,GSM"/>
 &lt;action application="bridge" data="sofia/gateway/myprovider/5551231234"/>
-
+```
   
 #### [codec_string](./x__Variables_6587314.mdx#absolute_codec_string) 
 
@@ -2183,8 +2364,9 @@ Sets the base codec string to use.
   
 **Usage:**
 
+```xml
 &lt;action application="set" data="codec_string=PCMU,GSM"/>
-
+```
   
 #### [inherit_codec](./x__Variables_6587314.mdx#inherit_codec) 
 
@@ -2193,13 +2375,17 @@ If late negotiation is on, and you set inherit\_codec=true on the A leg, the neg
   
 **Usage:**
 
+```xml
 &lt;action application="set" data="inherit_codec=true"/>
+```
 
 #### [media_mix_inbound_outbound_codecs](https://freeswitch.org/jira/browse/FS-8321)
 
 Set which list of codecs is offered to the B-leg.
 
+```xml
 &lt;action application="set" data="media_mix_inbound_outbound_codecs=true"/>
+```
 
 FreeSWITCH used to take the codecs from the inbound A-leg and offer them out to the B-leg mixed with the configured list of outbound codecs. With large lists of codecs this can exceed the MTU of the UDP message and cause call setup failures.
 
@@ -2226,7 +2412,9 @@ With this parameter, mod\_com\_g729 will re-packetize without decoding/encoding,
 
 This has to be set in {} before bridging. That will probably not work if set using export before bridging.
 
+```xml
 &lt;action application="bridge" data="{passthru_ptime_mismatch=true}sofia/gateway/trunk/$1"/>
+```
 
 Note: It may also be set globally in vars.xml.
 
@@ -2238,7 +2426,9 @@ Allow SDP codec change with re-INVITE
   
 **Usage:**
 
+```xml
 &lt;action application="bridge" data="{sip_renegotiate_codec_on_reinvite=true}sofia/gateway/trunk/$1"/>
+```
 
 Note: It may also be set globally in vars.xml or set it in sip profiles (&lt;param name="renegotiate-codec-on-reinvite" value="true"/>)
 
@@ -2252,12 +2442,14 @@ Allows the conference security to be overridden. This applies in two different s
 
 Inbound
 
+```xml
 &lt;action application="set" data="conference_enforce_security=false"/>
 &lt;action application="conference" data="3000"/>
+```
 
 Outbound
 
-originate {conference_enforce_security=true}sofia/internal/1001 &conference(3000)
+`originate {conference_enforce_security=true}sofia/internal/1001 &conference(3000)`
 
   
 #### [suppress_cng](./x__Variables_6587314.mdx#suppress_cng) 
@@ -2266,8 +2458,9 @@ Sets a=silenceSupp: off in the sdp to disable silence suppression while making a
 
 Usage:
 
+```xml
 &lt;action application="set" data="suppress_cng=true"/>
-
+```
   
 ### IVR related
 
@@ -2278,8 +2471,9 @@ You can set to none or the dtmf chars you want to terminate input.
   
 **Usage:**
 
+```xml
 &lt;action application="set" data="ivr_menu_terminator=#"/>
-
+```
   
 #### [detect_speech_result](./x__Variables_6587314.mdx#detect_speech_result) 
 
@@ -2299,8 +2493,9 @@ When set to true the user may not put the call on hold.
   
 **Usage:**
 
+```xml
 &lt;action application="set" data="rtp_disable_hold=true"/>
-
+```
   
 #### [sip_acl_authed_by](./x__Variables_6587314.mdx#sip_acl_authed_by) 
 
@@ -2331,13 +2526,13 @@ FreeSWITCH supports only INVITEs with multipart bodies. FreeSWITCH does not supp
 
 To have FreeSWITCH keep the multiple MIME parts intact when using bridge (default):
 
-&lt;action application="set" data="sip_copy_multipart=true"/>
+`&lt;action application="set" data="sip_copy_multipart=true"/>`
 
 NOTE: FreeSWITCH will "do the right thing" and attach an application/sdp type generated by FreeSWITCH (per your settings) for the B leg as it normally would. The other non-SDP MIME parts just pass through.
 
 To have FreeSWITCH strip the multiple MIME parts when using bridge:
 
-&lt;action application="set" data="sip_copy_multipart=false"/>
+`&lt;action application="set" data="sip_copy_multipart=false"/>`
 
   
 ####  sip_invite_params 
@@ -2356,8 +2551,9 @@ Set the from domain in leg (B).
   
 **Usage:**
 
+```xml
 &lt;action application="bridge" data="{sip_invite_domain=${sip_from_host}}sofia/gateway/gw1/$1@domain.org"/>
-
+```
   
 #### sip_from_display
 
@@ -2365,7 +2561,9 @@ The 'User' element of the SIP From: line
 
 **Usage:**
 
+```xml
 &lt;action application="bridge" data="{sip_from_display=_undef_}user/1001"/>
+```
 
 This will clear the user part of the SIP message sent to the Leg B call.
 
@@ -2382,11 +2580,11 @@ Sets the from parameters on the B-leg of the call. The from parameters come afte
 
 **Usage:**
 
-{sip_invite_from_params=otg=mytrunk}sofia/gateway/sonus/$1
+`{sip_invite_from_params=otg=mytrunk}sofia/gateway/sonus/$1`
 
 Result:
 
-From: &lt;sip:5552345678@sonus:5060;otg=mytrunk>;tag=blah
+From: `&lt;sip:5552345678@sonus:5060;otg=mytrunk>;tag=blah`
 
   
 #### [sip_invite_to_params](./x__Variables_6587314.mdx#sip_invite_to_params) 
@@ -2413,11 +2611,13 @@ Tel URI parameters (npdi, rn) appearing in SIP URI on outbound calls.
 
 **Usage:**
 
+```xml
 &lt;action application="bridge" data="{sip_invite_tel_params=npdi=yes;rn=555000001,sip_invite_params=user=phone}sofia/gateway/test_gw/555000002"/>
+```
 
 Result:
 
-INVITE sip:555000002;npdi=yes;rn=5555550001@1.2.3.4;user=phone SIP/2.0
+`INVITE sip:555000002;npdi=yes;rn=5555550001@1.2.3.4;user=phone SIP/2.0`
 
   
 #### [sip_network_destination](./x__Variables_6587314.mdx#sip_network_destination) 
@@ -2427,8 +2627,9 @@ It is intended for use with devices registering behind a NAT where the Request-U
   
 **Usage:**
 
+```xml
 &lt;action application="bridge" data="{sip_network_destination=sip:5551234567@66.243.109.243:10005}sofia/external/5551234567@172.16.110.45:5060"/>
-
+```
   
 #### [sip_auth_username](./x__Variables_6587314.mdx#sip_auth_username) 
 
@@ -2436,8 +2637,9 @@ For mod\_sofia answer auth challenges without defining a full gateway. Used in t
 
 **Usage:**
 
+```xml
 originate {sip_auth_username=&lt;your_user_name>,sip_auth_password=&lt;your_password>}sofia/external/1xxxxxxx@12.34.56.78 &echo
-
+```
   
 #### [sip_auth_password](./x__Variables_6587314.mdx#sip_auth_password) 
 
@@ -2445,8 +2647,9 @@ For mod\_sofia use with sip\_auth\_username to answer auth challenges without de
 
 **Usage:**
 
+```xml
 originate {sip_auth_username=&lt;your_user_name>,sip_auth_password=&lt;your_password>}sofia/external/1xxxxxxx@12.34.56.78 &echo
-
+```
   
 #### [sip_auto_answer](./x__Variables_6587314.mdx#sip_auto_answer)
 
@@ -2454,7 +2657,9 @@ Tells the SIP phone to auto-answer the call, if supported. Can be used for inter
 
 **Usage:**
 
+```xml
 &lt;action application="export" data="sip_auto_answer=true"/>
+```
 
 #### sip_auto_answer_detected
 
@@ -2491,7 +2696,7 @@ Example needed! Please contribute one.
 
 **See Also:**
 
-**<https://freeswitch.org/confluence/display/FREESWITCH/mod%5Fsofia+variables#mod%5Fsofiavariables-auto%5Fanswer%5Fdestination>** 
+[Link](https://freeswitch.org/confluence/display/FREESWITCH/mod%5Fsofia+variables#mod%5Fsofiavariables-auto%5Fanswer%5Fdestination)
 
   
 #### [sip_auto_simplify](./x__Variables_6587314.mdx#sip_auto_simplify) 
@@ -2500,8 +2705,9 @@ When set, this directs FreeSWITCH to remove itself from the SIP signaling path i
 
 **Usage:**
 
+```xml
 &lt;action application="set" data="sip_auto_simplify=true"/>
-
+```
   
 #### sip_call_id
 
@@ -2523,9 +2729,11 @@ Set on the inbound leg to control what caller ID number appears in the caller ph
   
 **Usage:**
 
+```xml
 &lt;action application="set" data="sip_callee_id_name=Reginald" />
 &lt;action application="set" data="sip_callee_id_number=2332" />
 &lt;action application="bridge" data="sofia/gateway/provider/&lt;Reginald's cellphone number>" />
+```
 
 If you find using _[set](https://wiki.freeswitch.org/wiki/Misc.%5FDialplan%5FTools%5Fset "Misc. Dialplan Tools set")_  doesn't work, try using _[export](https://wiki.freeswitch.org/wiki/Misc.%5FDialplan%5FTools%5Fexport "Misc. Dialplan Tools export")_  instead.
 
@@ -2547,14 +2755,17 @@ NOTE: [RFC 3261](https://tools.ietf.org/html/rfc3261) specifies that compliant e
 
 **Usage:**
 
+```xml
 &lt;action application="bridge" data="{sip_invite_req_uri=sip:11112222@test1.com}sofia/external/33334444%192.168.4.6"/>
+```
 
 Result:
 
+```text
  INVITE sip:11112222@test1.com SIP/2.0
  From: "" &lt;sip:0000000000@192.168.2.7>;tag=N6K579y4g6j0D
  To: &lt;sip:33334444@192.168.4.6>
-
+```
   
 ####  sip_invite_record_route
 
@@ -2564,14 +2775,17 @@ Sets the uri in the header Route when calling bridge or originate.
 
 **Usage:**
 
+```xml
  originate {sip_invite_route_uri=&lt;sip:+48399999999@10.0.0.51:5080;lr;orig>,origination_caller_id_number=399999000}sofia/internal/+48399999999@domain.com &echo
+```
 
 Result:
 
+```text
  INVITE sip:+48399999999@domain.com SIP/2.0
  Via: SIP/2.0/UDP 10.0.0.51;rport;branch=z9hG4bKpmFv4aXv4tKcK
  Route: &lt;sip:+48399999999@10.0.0.51:5080;lr;orig>
-
+```
   
 ####  sip_invite_full_from
 
@@ -2597,24 +2811,31 @@ Sets the uri in the header To when calling bridge or originate.
 
 **Usage:**
 
+```xml
  originate {sip_invite_to_uri=&lt;sip:11112222@test1.com>}sofia/internal/33334444@192.168.4.6 &park
+```
 
 Result:
 
+```text
  INVITE sip:33334444@192.168.4.6 SIP/2.0
  From: "" &lt;sip:0000000000@192.168.2.7>;tag=N6K579y4g6j0D
  To: &lt;sip:11112222@test1.com>
+```
 
 Alternatively, if you need to set just the username in the header To, you can pass it at the end of the dial string:
 
- originate sofia/internal/33334444@192.168.4.6^11112222 &park
+```xml
+originate sofia/internal/33334444@192.168.4.6^11112222 &park
+```
 
 Result:
 
+```text
  INVITE sip:33334444@192.168.4.6 SIP/2.0
  From: "" &lt;sip:0000000000@192.168.2.7>;tag=Qr6pB00BBrZ5m
  To: &lt;sip:11112222@@192.168.4.6>
-
+```
   
 #### [sip_ignore_reinvites](./x__Variables_6587314.mdx#sip_ignore_reinvites) 
 
@@ -2624,8 +2845,9 @@ Tells FreeSWITCH to accept/ignore re-INVITEs from remote end.
 
 Don't allow any re-INVITEs once bridged.
 
+```xml
 &lt;action application="set" data="sip_ignore_reinvites=true"/>
-
+```
   
 ####  sip_has_crypto
 
@@ -2639,9 +2861,11 @@ Don't allow any re-INVITEs once bridged.
 
 Usage:  
 
+```text
 rtp_secure_media=&lt;permission>[:&lt;list of encryption suites>]  
 rtp_secure_media_inbound=&lt;permission>[:&lt;list of encryption suites>]  
 rtp_secure_media_outbound=&lt;permission>[:&lt;list of encryption suites>]
+```
 
 > NOTICE: sip_secure_media is no longer implemented
 
@@ -2701,8 +2925,9 @@ When you set the variable sip\_wait\_for\_aleg\_ack on the b leg in the {} for t
 
 **Usage:**
 
+```xml
 &lt;action application="bridge" data="{sip_wait_for_aleg_ack=true}sofia/internal/foo@bar.com"/>
-
+```
   
 #### [timer_name](./x__Variables_6587314.mdx#timer_name) 
 
@@ -2710,7 +2935,9 @@ If set will make playback and speak use a timer to clock the audio instead of th
 
 **Usage:**
 
+```xml
 &lt;action application="set" data="timer_name=soft"/>
+```
 
   
 #### [ignore_display_updates](./x__Variables_6587314.mdx#ignore_display_updates) 
@@ -2724,15 +2951,15 @@ Tells freeswitch not to send display UPDATEs to the leg of the call. (update\_di
   
 To set on A-Leg
 
-  
+```xml
 &lt;action application="set"  data="ignore_display_updates=true"/>
-
+```
   
 To set on B-Leg
 
-  
+```xml
 &lt;action application="bridge" data="{ignore_display_updates=true}sofia/gateway/provider/18005551212"/>
-
+```
   
 **deny\_refer\_requests**
 
@@ -2750,7 +2977,9 @@ It should/must be set before bridging.
 
 Usage:
 
+```xml
 &lt;action application="export" data="rtp\_append\_audio\_sdp=a=fmtp:18 annexb=no"/>
+```
 
 #### [sdp_m\_per_ptime](./x__Variables_6587314.mdx#sdp_m_per_ptime) 
 
@@ -2765,8 +2994,9 @@ Is now implied to be true, if you don't like this set it to false but its going 
 
 **Usage:**
 
+```xml
 &lt;action application="set" data="sdp_m_per_ptime=true"/>
-
+```
   
 #### [switch_r\_sdp](./x__Variables_6587314.mdx#switch_r_sdp) 
 
@@ -2777,9 +3007,11 @@ Read only. This variable holds the remote SDP for the current leg/channel.
 
 Rewriting SDP:
 
+```xml
 &lt;action application="set">&lt;![CDATA[switch_r_sdp=(sdp here)
 ]]>
 &lt;/action>
+```
 
 **note**: Don't add a carriage return after "set"> or you'll end up writing a variable with a different name, leaving switch\_r\_sdp with the same value.
 
@@ -2806,7 +3038,9 @@ Ignoring 183 w/o SDP. This option is not for normal basic call flow.
 
 Usage:
 
+```xml
 &lt;action application="set" data="sip_ignore_183nosdp=true"/>
+```
 
 #### [verbose_sdp](./x__Variables_6587314.mdx#verbose_sdp) 
 
@@ -2855,9 +3089,10 @@ For per call basis which can be set to false to disable SIP SOA from sofia and m
   
 **Usage:**
 
+```xml
 &lt;action application="set" data="bypass_media=true"/>
 &lt;action application="export" data="sip_enable_soa=false"/>
-
+```
   
 #### [sdp_secure_savp_only](./x__Variables_6587314.mdx#sdp_secure_savp_only) 
 
@@ -2865,8 +3100,9 @@ When rtp\_secure\_media=true FreeSWITCH will offer both AVP and SAVP in the SDP.
 
 **Usage:**
 
+```xml
 &lt;action application="export" data="sdp_secure_savp_only=true"/>
-
+```
   
 ### FIFO related variables
 
@@ -2887,8 +3123,9 @@ Import list of variables from the caller to the consumer.
   
 **Usage:**
 
+```xml
 &lt;action application="set" data="fifo_caller_consumer_import=var1,var2"/>
-
+```
   
 #### [fifo_consumer_caller_import](./x__Variables_6587314.mdx#fifo_consumer_caller_import) 
 
@@ -2896,8 +3133,9 @@ Import list of variables from the consumer to the caller
 
 **Usage:**
 
+```xml
 &lt;action application="set" data="fifo_consumer_caller_import=var1,var2"/>
-
+```
   
 #### [fifo_manual_bridged](./x__Variables_6587314.mdx#fifo_manual_bridged) 
 
@@ -2937,11 +3175,15 @@ Note: Variable gets cleaned after bridge is destroyed and leg is transferred to 
 
 **Usage:**
 
+```xml
 &lt;action application="set" data="transfer_after_bridge=1000"/>
+```
 
 or,
 
+```xml
 &lt;action application="set" data="transfer_after_bridge=1000:XML:default"/>
+```
 
 (Note the : separator)
 
@@ -3002,7 +3244,7 @@ How long to pause after a file is played. Default is 250 milliseconds.
 
 To play a list of short files one right after the other, with no pause in between:
 
- &lt;action application="set" data="playback_sleep_val=0"/>
+ `&lt;action application="set" data="playback_sleep_val=0"/>`
 
 #### playback_delimiter
 
@@ -3010,17 +3252,17 @@ When set allows playback of multiple files in sequence, by separating them with 
 
 For example, setting playback\_delimiter to the following:
 
- &lt;action application="set" data="playback_delimiter=&"/>
+ `&lt;action application="set" data="playback_delimiter=&"/>`
 
 Permits the streaming of files foo.wav and bar.wav one right after the other:
 
- &lt;action application="playback" data="foo.wav&bar.wav"/>
+ `&lt;action application="playback" data="foo.wav&bar.wav"/>`
 
 #### sleep_eat_digits
 
 When set to true, the sleep application will consume DTMFs which will, for example, prevent a caller from exiting out of an IVR. The default behavior is not to eat DTMF digits. NOTE: this is a change in default behavior as the [sleep](https://wiki.freeswitch.org/wiki/Misc.%5FDialplan%5FTools%5Fsleep "Misc. Dialplan Tools sleep") application previously ate DTMFs without exception. Be sure to set **sleep\_eat\_digits** to _true_ in order to preserve the previous behavior.
 
- &lt;action application="set" data="sleep_eat_digits=true"/>
+ `&lt;action application="set" data="sleep_eat_digits=true"/>`
 
 This variable was added in SVN rev 14102.
 
@@ -3028,29 +3270,30 @@ This variable was added in SVN rev 14102.
 
 Set timeout for playback. This is very useful if you want to play short excerpts of a file that could be very long.
 
- &lt;action application="set" data="playback_timeout_sec=10"/>
+ `&lt;action application="set" data="playback_timeout_sec=10"/>`
 
 ### Originate related variables
 
 #### [execute_on_originate](./x__Variables_6587314.mdx#execute_on_originate) 
 
-Executes code on successful origination. Use the '&lt;app> &lt;arg>' format to execute in the origination thread or use '&lt;app>::&lt;arg>' to execute asynchronously.
+Executes code on successful origination. Use the `'&lt;app> &lt;arg>'` format to execute in the origination thread or use `'&lt;app>::&lt;arg>'` to execute asynchronously.
 
 Successful origination means the remote server responds, NOT when the call is actually answered.
 
 **Usage:**
 
+```xml
 originate {ignore_early_media=true,execute_on_originate='cng_plc'}sofia/gateway/foo/123456789 9664
 
 originate {ignore_early_media=true,execute_on_originate='my_app::my_arg'}sofia/gateway/foo/123456789 9664
-
+```
   
 #### leg_delay_start
 
 Specifies a wait time in seconds before each leg is called in a forked dial scenario. Can be used in per-leg \[\], but not in global {} for the dialstring.  
 Usage:
 
-&lt;action application="bridge" data="sofia/profile/dest1,[leg_delay_start=10]sofia/profile/dest2,[leg_delay_start=15]sofia/profile/dest3"/>
+`&lt;action application="bridge" data="sofia/profile/dest1,[leg_delay_start=10]sofia/profile/dest2,[leg_delay_start=15]sofia/profile/dest3"/>`
 
 #### originate_disposition
 
@@ -3066,7 +3309,7 @@ Number of retries before giving up on originating a call (default is 0).
 
 This will set how long FreeSWITCH is going to wait between sending invite messages to the receiving gateway.
 
-&lt;action application="set" data="originate_retry_sleep_ms=500"/>
+`&lt;action application="set" data="originate_retry_sleep_ms=500"/>`
 
 Using the value of 500 FreeSWITCH will wait 500ms between sending invite messages to the called gateway.
 
@@ -3074,11 +3317,11 @@ Using the value of 500 FreeSWITCH will wait 500ms between sending invite message
 
 Determines how long FreeSWITCH is going to wait for a response from the invite message sent to the gateway.
 
-&lt;action application="set" data="originate_timeout=2"/>
+`&lt;action application="set" data="originate_timeout=2"/>`
 
 This is very useful if you are using multiple gateways within your dial plan.. so if your dial string is:
 
-&lt;action application="bridge" data="sofia/default/$1@192.168.1.4|sofia/default/$1@192.168.1.5"/>
+`&lt;action application="bridge" data="sofia/default/$1@192.168.1.4|sofia/default/$1@192.168.1.5"/>`
 
 In this example FreeSWITCH will wait 2 seconds for the 192.168.1.4 to respond to the invite message before trying the next gateway.
 
@@ -3090,14 +3333,18 @@ Shows the uuid of the originating leg on an outbound channel
 
 In A-leg CDR:
 
+```xml
 &lt;uuid>cb5f5b90-75a0-11e0-873b-d1cba9e0f1b8&lt;/uuid>
 &lt;call_uuid>cb5f5b90-75a0-11e0-873b-d1cba9e0f1b8&lt;/call_uuid>
+```
 
 In B-leg CDR:
 
+```xml
 &lt;uuid>cb8633aa-75a0-11e0-873d-d1cba9e0f1b8&lt;/uuid>
 &lt;call_uuid>cb5f5b90-75a0-11e0-873b-d1cba9e0f1b8&lt;/call_uuid>
 &lt;originating_leg_uuid>cb5f5b90-75a0-11e0-873b-d1cba9e0f1b8&lt;/originating_leg_uuid>
+```
 
 Note that the leg uuid's are different. The call\_uuid matches the two legs together, but the originating\_leg\_uuid can do so as well.
 
@@ -3108,8 +3355,9 @@ Set this in the {} when doing an originate to create a custom channel name
 
 **Usage:**
 
+```xml
 originate {origination_channel_name='this_is_my_channel_name'}loopback/9664 9195
-
+```
   
 #### origination_caller_id_name
 
@@ -3119,7 +3367,9 @@ If you want to set the Caller ID on an origination call you should add this insi
 
 Usage:
 
+```xml
 &lt;action application="set" data="origination_caller_id_name=Uncle Sam"/>
+```
 
 #### origination_caller_id_number
 
@@ -3129,7 +3379,9 @@ If you want to set the Caller ID on an origination call you should add this insi
 
 Usage:
 
+```xml
 &lt;action application="set" data="origination_caller_id_number=9185551212"/>
+```
 
 But, if you want to relay the Caller ID Number of an incoming PSTN call via FXO gateway, comment out this variable.
 
@@ -3141,7 +3393,9 @@ It'll also cancel a bridge that hasn't been bridged as yet (and thus can't be te
 
 Usage:
 
+```xml
 &lt;action application="set" data="origination_cancel_key=#"/>
+```
 
 #### origination_privacy
 
@@ -3149,13 +3403,15 @@ Sets privacy profile for caller. Options are "screen", "hide\_name", "hide\_numb
 
 Usage:
 
+```xml
 &lt;action application="set" data="origination_privacy=hide_name"/>
+```
 
 #### origination_uuid
 
 You can specify the uuid of an originated call using origination\_uuid. This way you can hang up the call before it is answered, since you know the uuid. Just remember you need to use the create\_uuid command to generate the uuid as 2 calls with the same uuid == bad!
 
-originate [origination_uuid=....]sofia/&lt;profile>/&lt;extension>
+`originate [origination_uuid=....]sofia/&lt;profile>/&lt;extension>`
 
 Bridge also uses the origination syntax so you can also pre-allocate the UUID for the new channel resulting from a bridge by using the {}/\[\] syntax and specifying origination\_uuid there, too.
 
@@ -3169,7 +3425,7 @@ Sets the codec for calls originated from LEG A (setting the codec for LEG B)
 
 Usage:
 
-&lt;action application="set" data="originator_codec=PCMU"/>
+`&lt;action application="set" data="originator_codec=PCMU"/>`
 
 ### RTP/media related variables
 
@@ -3177,7 +3433,9 @@ Usage:
 
 When set, the media (RTP) from the originating endpoint is sent directly to the destination endpoint and vice versa. The signaling (SIP) for both endpoints still goes through FreeSWITCH, but the media is point-to-point.
 
+```xml
 &lt;action application="set" data="bypass_media=true"/>
+```
 
 See also: [Bypass Media Overview](../../Codecs-and-Media/Bypass-Media-Overview/index.mdx#faq)
 
@@ -3193,9 +3451,9 @@ By doing export bypass\_keep\_codec=true to force re-invite with the same codec 
 
 Proxy Media mode puts Freeswitch in a "transparent proxy mode" for the RTP streams. The RTP streams still pass through freeswitch (unlike bypass media mode), however it is lighter on the CPU because freeswitch never even parses the packets or processes them in any way, it simply forwards them onwards.
 
-Note: [Late negotiation](../../Codecs-and-Media/Codec-Negotiation_2883752.mdx#about) (&lt;param name="inbound-late-negotiation" value="true"/> ) must be enabled in sip profile for this to work in the dialplan
+Note: [Late negotiation](../../Codecs-and-Media/Codec-Negotiation_2883752.mdx#about) (`&lt;param name="inbound-late-negotiation" value="true"/>` ) must be enabled in sip profile for this to work in the dialplan
 
- &lt;action application="set" data="proxy_media=true"/>
+`&lt;action application="set" data="proxy_media=true"/>`
 
 See also: [Proxy Media](https://wiki.freeswitch.org/wiki/Proxy%5FMedia "Proxy Media")
 
@@ -3219,7 +3477,7 @@ When RTP Auto-Adjust is ON FreeSWITCH will change the destination RTP address to
 
 Usage:
 
-Add {disable_rtp_auto_adjust=true} in your dial string.
+Add `{disable_rtp_auto_adjust=true}` in your dial string.
 
 #### progress_timeout
 
@@ -3237,7 +3495,9 @@ Two scenarios:
   
 Usage
 
- &lt;action application="set" data="progress_timeout=20"/>
+```xml
+&lt;action application="set" data="progress_timeout=20"/>
+```
 
 See also [Early Media](https://wiki.freeswitch.org/wiki/Early%5FMedia "Early Media")
 
@@ -3249,7 +3509,9 @@ Timeout in seconds how long to tolerate a bridge that is in early media without 
 
 Usage
 
- &lt;action application="set" data="bridge_answer_timeout=20"
+```xml
+&lt;action application="set" data="bridge_answer_timeout=20"
+```
 
 See also [Early Media](https://wiki.freeswitch.org/wiki/Early%5FMedia "Early Media")
 
@@ -3259,15 +3521,21 @@ Controls if the call returns on early media or not. Default is false.
 
 Usage:
 
+```xml
 &lt;action application="set" data="ignore_early_media=true"/>
+```
 
-You may also specify a value for ignore\_early\_media in the argument to the bridge application, using the { } syntax. (ignore\_early\_media may not be specified on a per-leg basis, using the \[ \] syntax, as it specifically is a global variable to the originate session.)
+You may also specify a value for ignore\_early\_media in the argument to the bridge application, using the `{ }` syntax. (ignore\_early\_media may not be specified on a per-leg basis, using the \[ \] syntax, as it specifically is a global variable to the originate session.)
 
+```xml
 &lt;action application="bridge" data="{ignore_early_media=true}sofia/test-int/1001@somebox,sofia/test-int/1000@somehost"/>
+```
 
 Setting the value to "ring\_ready" will work the same as ignore\_early\_media=true but also send a SIP 180 to the inbound leg when the first SIP 183 is caught.
 
- &lt;action application="set" data="ignore_early_media=ring_ready"/>
+```xml
+&lt;action application="set" data="ignore_early_media=ring_ready"/>
+```
 
 See also [Early Media](https://wiki.freeswitch.org/wiki/Early%5FMedia "Early Media")
 
@@ -3360,7 +3628,9 @@ This is the channel variable for disable-hold.
 
 Usage:
 
+```xml
 &lt;action application="set" data="rtp_disable_hold=true"/>
+```
 
 #### rtp_negotiate_near_match
 
@@ -3368,7 +3638,9 @@ Setting this to true will cause FreeSWITCH to consider codec PTIME on inbound co
 
 Usage:
 
+```xml
 &lt;action application="set" data="rtp_negotiate_near_match=true"/>
+```
 
 ### RTCP Related
 
@@ -3416,9 +3688,10 @@ Default: false
   
 **Usage:**
 
+```xml
 &lt;action application="set" data="campon=true"/>
 &lt;action application="bridge" data="sofia/gateway/myprovider/5551231234"/>
-
+```
   
 #### [campon_retries](./x__Variables_6587314.mdx#campon_retries) 
 
@@ -3429,10 +3702,11 @@ Default: 100
   
 **Usage:**
 
+```xml
 &lt;action application="set" data="campon=true"/>
 &lt;action application="set" data="campon_retries=13"/>
 &lt;action application="bridge" data="sofia/gateway/myprovider/5551231234"/>
-
+```
   
 #### [campon_timeout](./x__Variables_6587314.mdx#campon_timeout) 
 
@@ -3443,10 +3717,11 @@ Default: 10
   
 **Usage:**
 
+```xml
 &lt;action application="set" data="campon=true"/>
 &lt;action application="set" data="campon_timeout=20"/>
 &lt;action application="bridge" data="sofia/gateway/myprovider/5551231234"/>
-
+```
   
 #### [campon_sleep](./x__Variables_6587314.mdx#campon_sleep) 
 
@@ -3457,10 +3732,11 @@ Default: 10
   
 **Usage:**
 
+```xml
 &lt;action application="set" data="campon=true"/>
 &lt;action application="set" data="campon_sleep=30"/>
 &lt;action application="bridge" data="sofia/gateway/myprovider/5551231234"/>
-
+```
   
 #### [campon_fallback_exten](./x__Variables_6587314.mdx#campon_fallback_exten) 
 
@@ -3469,9 +3745,10 @@ Controls camping during bridge app (testing needed)
   
 **Usage:**
 
+```xml
 &lt;action application="set" data="campon"/>
 &lt;action application="bridge" data="sofia/gateway/myprovider/5551231234"/>
-
+```
   
 #### [campon_fallback_dialplan](./x__Variables_6587314.mdx#campon_fallback_dialplan) 
 
@@ -3480,9 +3757,10 @@ Controls camping during bridge app (testing needed)
   
 **Usage:**
 
+```xml
 &lt;action application="set" data="campon"/>
 &lt;action application="bridge" data="sofia/gateway/myprovider/5551231234"/>
-
+```
   
 #### [campon_fallback_context](./x__Variables_6587314.mdx#campon_fallback_context) 
 
@@ -3491,9 +3769,10 @@ Controls camping during bridge app (testing needed)
   
 **Usage:**
 
+```xml
 &lt;action application="set" data="campon"/>
 &lt;action application="bridge" data="sofia/gateway/myprovider/5551231234"/>
-
+```
   
 #### [campon_hold_music](./x__Variables_6587314.mdx#campon_hold_music) 
 
@@ -3502,10 +3781,11 @@ If you don't set the [hold\_music](https://wiki.freeswitch.org/wiki/Variable%5Fh
   
 **Usage:**
 
+```xml
 &lt;action application="set" data="campon=true"/>
 &lt;action application="set" data="campon_hold_music=/data/campmusic/RelaxingCampSounds.wav"/>
 &lt;action application="bridge" data="sofia/gateway/myprovider/5551231234"/>
-
+```
   
 #### [campon_stop_key](./x__Variables_6587314.mdx#campon_stop_key) 
 
@@ -3516,12 +3796,13 @@ Default: none
   
 **Usage:**
 
+```xml
 &lt;action application="set" data="campon=true"/>
 &lt;action application="set" data="campon_stop_key=1"/>
 &lt;action application="set" data="campon_announce_sound=press_one_to_stop.wav"/>
 &lt;action application="set" data="campon_fallback_exten=1000"/>
 &lt;action application="bridge" data="sofia/gateway/myprovider/5551231234"/>
-
+```
   
 #### [campon_announce_sound](./x__Variables_6587314.mdx#campon_announce_sound) 
 
@@ -3532,11 +3813,12 @@ Default: none
   
 **Usage:**
 
+```xml
 &lt;action application="set" data="campon=true"/>
 &lt;action application="set" data="campon_stop_key=1"/>
 &lt;action application="set" data="campon_announce_sound=press_one_to_stop.wav"/>
 &lt;action application="bridge" data="sofia/gateway/myprovider/5551231234"/>
-
+```
   
 ### Answer confirmation variables
 
@@ -3544,8 +3826,10 @@ Default: none
 
 This variable is used together with group\_confirm\_key. In group\_confirm\_file, you specify the wav file you want to play when the called party picks up the call. In the group\_confirm\_key variable, you define the DTMF that the called party should send to FS to bridge the call. If a wrong DTMF or no DTMF is sent, the called won't be bridged and the wav file will be repeated.
 
+```xml
 &lt;action application="set" data="group_confirm_file=/usr/local/freeswitch/sounds/take_call_question.wav" />
 &lt;action application="set" data="group_confirm_key=1" />
+```
 
 Through this is the standard usage of these variables (group\_confirm\_key and group\_confirm\_file), they can be used in a more flexible manner. Please see [Freeswitch\_IVR\_Originate#Answer\_confirmation](https://wiki.freeswitch.org/wiki/Freeswitch%5FIVR%5FOriginate#Answer%5Fconfirmation "Freeswitch IVR Originate").
 
@@ -3569,7 +3853,7 @@ Normally, a timeout on the leg will apply to phases 1 and 2.
 
 However, if you do
 
- &lt;action application="set" data="group_confirm_cancel_timeout=1"/>
+`&lt;action application="set" data="group_confirm_cancel_timeout=1"/>`
 
 then the timeout will only apply to phase 1\. So, once the phase 1 is crossed, leg\_timeout counter stops.
 
@@ -3608,7 +3892,9 @@ This variable is used to leverage the installation directory in order to avoid h
 
 **Usage:**
 
+```xml
 &lt;action application="system" data="$${base_dir}/scripts/my_script.sh"/>
+```
 
   
 ### [OpenZap](https://wiki.freeswitch.org/wiki/OpenZap "OpenZap") Related Variables
@@ -3631,7 +3917,7 @@ openzap channel number
 | same for sip\_force\_audio\_fmtp . It should be rtp\_force\_audio\_fmtp ![](/images/icons/contenttypes/comment_16.png) Posted by dragos\_oancea at Sep 23, 2016 14:01                                                                                                                                                                                                                                                                                                                       |
 | Please add channel variable **sip\_reason** ![](/images/icons/contenttypes/comment_16.png) Posted by livem at Nov 08, 2016 06:25                                                                                                                                                                                                                                                                                                                                                            |
 | I have added you to the Confluence-editors group so you can add that variable, but what is the explanation of sip\_reason?Thank you. ![](/images/icons/contenttypes/comment_16.png) Posted by boteman at Nov 14, 2016 14:15                                                                                                                                                                                                                                                                 |
-| Thank you very much. ^\_^The sip header **Reason**The Reason Header Field for SIP Initially, the Reason header field defined here appears to be most useful for BYE and CANCEL requests, but it can appear in any request within a dialog, in any CANCEL request and in any response whose status code explicitly allows the presence of this header field.from: <https://tools.ietf.org/html/rfc3326> ![](/images/icons/contenttypes/comment_16.png) Posted by livem at Nov 18, 2016 05:41 |
+| Thank you very much. ^\_^The sip header **Reason**The Reason Header Field for SIP Initially, the Reason header field defined here appears to be most useful for BYE and CANCEL requests, but it can appear in any request within a dialog, in any CANCEL request and in any response whose status code explicitly allows the presence of this header field.from [Here](https://tools.ietf.org/html/rfc3326) ![](/images/icons/contenttypes/comment_16.png) Posted by livem at Nov 18, 2016 05:41 |
 | also at wiki we have about playback\_terminators ----  keyword 'any' will terminate playback when any key (1234567890\*#) is pressed. ![](/images/icons/contenttypes/comment_16.png) Posted by Pechen at Jan 09, 2017 06:26                                                                                                                                                                                                                                                                 |
 | Not all execute\_o\_xxx described. There are execute\_on\_originate very useful variable situated ![](/images/icons/contenttypes/comment_16.png) Posted by bordmi at Feb 10, 2017 07:32                                                                                                                                                                                                                                                                                                     |
 
