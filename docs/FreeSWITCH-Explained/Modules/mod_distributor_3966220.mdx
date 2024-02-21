@@ -29,19 +29,19 @@ make mod_distributor
 
 make mod_distributor-install
 
-Tell FreeSWITCH to load the module at run time by adding the line below to $${conf\_dir}`/autoload_configs/modules.conf.xml`
+Tell FreeSWITCH to load the module at run time by adding the line below to $$\{conf\_dir}`/autoload_configs/modules.conf.xml`
 
-&lt;load module="mod_distributor"/>
+\<load module="mod_distributor"/>
 
 ## Usage
 
 There are several ways to use the distributor, however it frequently will be used with the bridge app. For example, if you have two gateways defined you can have the distributor fill in the dialstring like this:
 
-&lt;action application="bridge" data="sofia/gateway/${distributor(distributor_list)}/${destination_number}"/>
+\<action application="bridge" data="sofia/gateway/$\{distributor(distributor_list)}/$\{destination_number}"/>
 
 \-- or--
 
-&lt;action application="bridge" data="sofia/external/${destination_number}@${distributor(distributor_list)}"/>
+\<action application="bridge" data="sofia/external/$\{destination_number}@$\{distributor(distributor_list)}"/>
 
 To reload distributor.conf.xml at the CLI:
 
@@ -52,43 +52,43 @@ distributor_ctl reload
 
 mod\_distributor works by returning node values from the configuration file. Here's a sample:
 
-&lt;configuration name="distributor.conf" description="Distributor Configuration">
-  &lt;lists>
-    &lt;!-- every 10 calls to test you will get foo1 once and foo2 9 times...yes NINE TIMES! -->
-    &lt;!-- this is not the same as 100 with 10 and 90 that would do foo1 10 times in a row then foo2 90 times in a row -->
-    &lt;list name="test" total-weight="10">
-      &lt;node name="foo1" weight="1"/>
-      &lt;node name="foo2" weight="9"/>
-    &lt;/list>
-  &lt;/lists>
-&lt;/configuration>
+\<configuration name="distributor.conf" description="Distributor Configuration">
+  \<lists>
+    \<!-- every 10 calls to test you will get foo1 once and foo2 9 times...yes NINE TIMES! -->
+    \<!-- this is not the same as 100 with 10 and 90 that would do foo1 10 times in a row then foo2 90 times in a row -->
+    \<list name="test" total-weight="10">
+      \<node name="foo1" weight="1"/>
+      \<node name="foo2" weight="9"/>
+    \</list>
+  \</lists>
+\</configuration>
 
 In the list named "test" the total weight is 10, and the individual nodes each have their weights add up to 10\. When the distributor is called for **test**, it will return **foo1** the first time, then it will return **foo2** the next nine times. The next call will return **foo1** again, and then the next nine will be **foo2**, and so on.
 
 To do an alternating list use something like this:
 
-  &lt;list name="alternating" total-weight="2">
-    &lt;node name="alt_one" weight="1"/>
-    &lt;node name="alt_two" weight="1"/>
-  &lt;/list>
+  \<list name="alternating" total-weight="2">
+    \<node name="alt_one" weight="1"/>
+    \<node name="alt_two" weight="1"/>
+  \</list>
 
 In the above example, each call to **distributor(alternating)** will alternate between returning **alt\_one** and **alt\_two.**
 
 You can use this to send calls out multiple gateways for simple load sharing. Let's say you have three different gateways defined as gateway1, gateway2, and gateway3\. To send every third call out each gateway you would need to put this in your distributor.conf.xml file:
 
-  &lt;list name="3gw" total-weight="3">
-    &lt;node name="gateway1" weight="1"/>
-    &lt;node name="gateway2" weight="1"/>
-    &lt;node name="gateway3" weight="1"/>
-  &lt;/list>
+  \<list name="3gw" total-weight="3">
+    \<node name="gateway1" weight="1"/>
+    \<node name="gateway2" weight="1"/>
+    \<node name="gateway3" weight="1"/>
+  \</list>
 
 Then define a dialplan extension similar to this:
 
-  &lt;extension name="3-way gateway distro">
-    &lt;condition field="destination_number" expression="^(.*)$">
-      &lt;action application="bridge" data="sofia/gateway/${distributor(3gw)}/$1"/>
-    &lt;/condition>
-  &lt;/extension>
+  \<extension name="3-way gateway distro">
+    \<condition field="destination_number" expression="^(.*)$">
+      \<action application="bridge" data="sofia/gateway/$\{distributor(3gw)}/$1"/>
+    \</condition>
+  \</extension>
 
 The distributor will supply the name of the gateway to use. Each call that comes through diaplan will trigger the distributor which will in turn supply the appropriate response.
 
@@ -96,34 +96,34 @@ The distributor will supply the name of the gateway to use. Each call that comes
 
 When you want the dialplan to continue and get executed if the previous bridge failed, you can do the following:
 
-  &lt;extension name="3-way gateway distributor">
-    &lt;condition field="destination_number" expression="^(.*)$">
-      &lt;action application="set" data="continue_on_fail=true"/>
-      &lt;action application="set" data="hangup_after_bridge=true"/>
-      &lt;action application="bridge" data="sofia/gateway/${distributor(3gw)}/$1" loop="3"/>
-    &lt;/condition>
-  &lt;/extension>
+  \<extension name="3-way gateway distributor">
+    \<condition field="destination_number" expression="^(.*)$">
+      \<action application="set" data="continue_on_fail=true"/>
+      \<action application="set" data="hangup_after_bridge=true"/>
+      \<action application="bridge" data="sofia/gateway/$\{distributor(3gw)}/$1" loop="3"/>
+    \</condition>
+  \</extension>
 
 ### Dead Gateways
 
 To exclude dead gateways in your dialplan:
 
-&lt;action application="bridge" data="sofia/gateway/${distributor(&lt;listname> ${sofia(profile &lt;profilename> gwlist down)})}/$1"/>
+\<action application="bridge" data="sofia/gateway/$\{distributor(\<listname> $\{sofia(profile \<profilename> gwlist down)})}/$1"/>
 
 \--or--   
-Note: parentheses are optional on functions as vars: ${foo(bar)} is the same as ${foo bar}
+Note: parentheses are optional on functions as vars: $\{foo(bar)} is the same as $\{foo bar}
 
-&lt;action application="bridge" data="sofia/gateway/${distributor &lt;listname> ${sofia profile &lt;profilename> gwlist down}}/$1"/>
+\<action application="bridge" data="sofia/gateway/$\{distributor \<listname> $\{sofia profile \<profilename> gwlist down}}/$1"/>
 
 \--or--
 
-&lt;action application="bridge" data="sofia/gateway/${expand(distributor &lt;listname> \${sofia(profile &lt;profilename> gwlist down)})}/$1"/>
+\<action application="bridge" data="sofia/gateway/$\{expand(distributor \<listname> \$\{sofia(profile \<profilename> gwlist down)})}/$1"/>
 
 ### API Command
 
 To run it from API command:
 
-expand distributor &lt;listname> ${sofia profile &lt;profilename> gwlist down}
+expand distributor \<listname> $\{sofia profile \<profilename> gwlist down}
 
 ## See Also
 
