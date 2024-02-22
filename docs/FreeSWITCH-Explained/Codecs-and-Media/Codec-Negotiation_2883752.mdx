@@ -95,7 +95,9 @@ Remark: Because of this algorithm, the codecs order in the inbound SDP has prior
 
 So for instance:
 
+```
 A -------- GSM/PCMA/G729 --------> FS (allowing G729/PCMA/PCMU) -------- PCMA/G729/PCMU --------> B
+```
 
 What is happening:
 
@@ -111,8 +113,10 @@ This is a parameter you may set in the outbound SIP profile.
 This will force the codec proposed to leg B (outbound leg) to be the same as the codec negotiated on leg A (inbound leg).  
 To set this, add the following line to the required SIP profile:  
 
+```xml
     <param name="disable-transcoding" value="true"/>
- 
+```
+
 > _Note_: it is commonly misunderstood that this parameter disables the transcoding capability in FS. That is wrong.
 
 This parameter just changes the outbound codec to match the one negotiated on the inbound leg so that no transcoding will be required.
@@ -127,13 +131,17 @@ This is a channel variable you may set in the dialplan, typically just before br
 This will force the codecs list proposed to leg B, without taking into account anything else.  
 Here is an example:
 
+```xml
     <action application="export" data="nolocal:absolute_codec_string=PCMA,PCMU"/>  
     <action application="bridge" data="sofia/gateway/mygateway/mynumber"/>
-    
+```
+
 or
-  
+
+```xml
     <action application="bridge" data="{absolute_codec_string='PCMA,PCMU'}sofia/gateway/mygateway/mynumber"/>
- 
+```
+
 Make sure you have single quotes ( 'PCMA,PCMU' ) around comma ( ',' ) separated list of codecs to protect it from parsing list of variables inside of {var1=val1,var2=val2,absolute\_codec\_string='GSM,PCMU'}
  
 > _Note_: This parameter prevails on disable-transcoding. So if you disable transcoding in the outbound SIP profile and you use absolute\_codec\_string in the dialplan to set the outbound codec to be different from the inbound codec, transcoding will occur anyway.
@@ -143,13 +151,17 @@ Make sure you have single quotes ( 'PCMA,PCMU' ) around comma ( ',' ) separated 
  This is a channel variable you may set in the dialplan, typically just before bridging.  
  The defined codec list will override the one set in the outbound-codec-prefs parameter of the outbound profile.  
  Here is an example:
- 
+
+```xml
     <action application="export" data="nolocal:codec_string=PCMA,PCMU"/>  
     <action application="bridge" data="sofia/gateway/mygateway/mynumber"/>
-    
+```
+
  or
-    
+
+```xml
     <action application="bridge" data="{codec_string='PCMA,PCMU'}sofia/gateway/mygateway/mynumber"/>
+```
 
 Early Negotiation + Disable Transcoding:
 
@@ -163,7 +175,9 @@ The variable "absolute\_codec\_string" is similar except it implies the implicit
 
 ### Late Negotiation (requires param)
 
+```xml
     <param name="inbound-late-negotiation" value="true"/>
+```
 
 * The call will hit the dialplan without looking at the codecs at all.
 * The negotiation will take place when leg A is answered.
@@ -178,8 +192,10 @@ The variable "absolute\_codec\_string" is similar except it implies the implicit
 ##### [ep_codec_string](https://wiki.freeswitch.org/wiki/Variable%5Fep%5Fcodec%5Fstring "Variable ep codec string")
 
 This variable is only available if late negotiation is enabled on the profile. It's a readable string containing all the codecs proposed by the calling endpoint. This can be easily parsed in the dialplan.
- 
+
+```xml
     <action application="export" data="codec_string='${ep_codec_string}'"/>
+```
 
 ### Proxy Media
 
@@ -203,7 +219,9 @@ Finally you should make sure you have variables like _disable-transcoding,inheri
 
 If your sdp contains codecs with different ptime preferences and ptime is specified in sdp, sofia will not send a ptime attr.
 
+```
  2010-10-18 11:47:52.234322 [WARNING] sofia_glue.c:213 Codec G723 payload 4 added to sdp wanting ptime 30 but it's already 20 (G729:18:20), disabling ptime.
+```
 
 ## Examples
 
@@ -211,6 +229,7 @@ If your sdp contains codecs with different ptime preferences and ptime is specif
 
 Here is a dialplan example that will allow you to change the codec preference order and still enjoy the low cpu usage of proxy\_media mode. It is similar to subst() in openser/opensips/kamailio textops module.
 
+```xml
     <context>  
       <extension name="sdp_mangler">  
         <!-- Set some defaults for this call -->  
@@ -235,41 +254,50 @@ Here is a dialplan example that will allow you to change the codec preference or
         </condition>
       </extension>
     </context>
+```
 
 ### Rewriting SDP
 
 switch\_r\_sdp:
 
+```xml
     <action application="set">
       <![CDATA[switch_r_sdp=(sdp here)]]>
     </action>
+```
 
 ### Disable G.729b on outbound
 
+```xml
     <extension name="disable-annexB" continue="true">
       <condition field="${switch_r_sdp}" expression="/(.*)(m=audio \d+ RTP\/AVP)(.*)( 18 )(.*)/s">
         <action application="export" data="rtp_append_audio_sdp=a=fmtp:18 annexb=no"/>
       </condition>
     </extension>
+```
 
 ### Codec Negotiation when proxy media enabled
 
 #### Correct
 
+```xml
     <extension name="test_proxy_media">
       <condition field="source" expression="mod_sofia">
         <action application="answer"/>
         <action application="playback" data="ivr/ivr-welcome_to_freeswitch.wav"/>
       </condition>
     </extension>
+```
 
 #### Not correct
 
+```xml
     <extension name="test_proxy_media">
       <condition field="source" expression="mod_sofia">
         <action application="playback" data="ivr/ivr-welcome_to_freeswitch.wav"/>
       </condition>
     </extension>
+```
 
 ## See Also
 
