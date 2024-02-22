@@ -1,13 +1,13 @@
-FROM node:16 AS builder
+FROM node:18 AS builder
 WORKDIR /app
 
 # Install dependencies
-COPY package.json package-lock.json /app
+COPY package.json package-lock.json /app/
 RUN npm ci --ignore-scripts
 
 # Build site
 COPY . /app
-ENV NODE_OPTIONS=--max_old_space_size=3072
+ENV NODE_OPTIONS --max_old_space_size=3072
 RUN npm run build
 
 # ==== Final image ====
