@@ -1,47 +1,84 @@
 ---
 
 tags:
+ - troubleshooting 
  - sip
  - debugging
-
+ 
 ---
 
-import RepoLink from '@site/src/components/RepoLink';
-
-# Troubleshooting Debugging 
+# Troubleshooting Freeswitch 
 
 ## About
 
-( This should become a list of generalized troubleshooting procedures and methodologies. Move specifics to the pages to which they apply.)
+You need not recompile with debug symbols or use a debugger to take these steps (for that, see [Debugging Freeswitch](Debugging-Freeswitch.mdx#about))
 
-You need not recompile with debug symbols or use a debugger to take these steps (for that, see [Debugging Freeswitch](Debugging.mdx#about))
+### Debug for the Impatient
 
-[New outline for Reporting Bugs](https://docs.google.com/document/d/1KSlqOEozNhQdylBv3iAy4kEOVMpmFbaIJMoDngaAiQY/edit?pli=1)
+From a bash/shell:
 
-DO NOT POST LOGS
-
-If you ask for help on the freeswitch-users mailing list **DO NOT POST LOG OUTPUT**. Use pastebin to hold the logs as outlined below, then post a link to the pastebin in your question on the users list,   
-You must **ATTACH** logs to the JIRA, **DO NOT PUT PASTEBIN** URLs in JIRA tickets as they expire, so the logs will be lost.
-
-So:  
-mailing list and IRC => Use pastebin  
-JIRA tickets => ATTACH logs as separate files with meaningful file names
-
-  
-## Common Problems
-
-If you have trouble with applications that communicate with 'localhost' edit your /etc/hosts file to eliminate the reference between localhost and unused protocols. For example, if you use only ipv4 while the hosts file still contains a line pointing localhost to an ipv6 address, then fs\_cli and Event Socket communications might fail.  
-
-## Enabling SIP Tracing
-
-At `fs_cli` type:
-
-```text
-sofia loglevel all 9  
-sofia global siptrace on 
+```bash
+export TPORT_LOG=1
 ```
 
-## Log Level
+Start FreeSWITCHⓇ (*e.g.* `/usr/local/freeswitch/bin/freeswitch`)
+
+Press <kbd>F8</kbd>.
+
+This will produce quite of logs ready to be pasted into freeswitch pastebin <http://pastebin.freeswitch.org/> 
+
+To turn this logging off, exit freeswitch and:
+
+```bash
+unset TPORT_LOG
+```
+
+### Enabling SIP/Sofia Tracing
+
+Stop FreeSWITCHⓇ. At the bash shell prompt enter any subset of the following:
+
+```bash
+export SOFIA_DEBUG=9
+export NUA_DEBUG=9
+export NTA_DEBUG=9
+export TPORT_DEBUG=9
+export TPORT_LOG=1
+```
+
+:::note
+
+If you only want to see the SIP messages then use the `TPORT_LOG` export only.
+
+:::
+
+For the full set of environment variables, see <http://sofia-sip.sourceforge.net/refdocs/debug%5Flogs.html>
+
+You don't have to rebuild sofia for these to work.
+
+Restart FreeSWITCHⓇ
+
+### Enabling SIP/Sofia Tracing on Windows
+
+* From mailing list post by UV.
+
+In Windows, you need to set those environment variables using `set` instead of `export`. Like this:
+
+```bash
+set SOFIA_DEBUG=9
+set NUA_DEBUG=9
+set SOA_DEBUG=9
+set NEA_DEBUG=9
+set IPTSEC_DEBUG=9
+set NTA_DEBUG=9
+set TPORT_DEBUG=9
+set TPORT_LOG=1
+set TPORT_DUMP=tport_sip.log
+set SU_DEBUG=9
+```
+
+Then run `freeswitch.exe` in the same process.
+
+### Increase Debug Output
 
 Edit <RepoLink path="conf/vanilla/autoload_configs/console.conf.xml">`console.conf.xml`</RepoLink>:
 
@@ -119,3 +156,5 @@ Enable libedit via `--enable-core-libedit-support` argument to the `./configure`
 11. Call the endpoint (if it is [PSTN](https://freeswitch.org/confluence/pages/viewpage.action?pageId=1048834)) with a POTS or mobile phone, to see whether it is VoIP related or endpoint related.
 
 You should know where the issue lies after these steps!
+  
+
