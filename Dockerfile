@@ -1,8 +1,8 @@
-FROM node:16 AS builder
+FROM node:18 AS builder
 WORKDIR /app
 
 # Install dependencies
-COPY package.json package-lock.json /app
+COPY package.json package-lock.json /app/
 RUN npm ci --ignore-scripts
 
 # Build site

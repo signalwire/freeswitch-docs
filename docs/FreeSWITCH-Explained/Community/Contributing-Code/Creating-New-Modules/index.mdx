@@ -206,9 +206,9 @@ switch_status_t switch_xml_locate_user (const char *key, const char *user_name, 
 
 Your module configuration file should resemble the following:
 
- &lt;configuration name="mymodule.conf" description="MyModule configuration">
+ \<configuration name="mymodule.conf" description="MyModule configuration">
  ...
- &lt;/configuration>
+ \</configuration>
 
 You can then use freeswitch's XML functions to access your configuration data. **Note:** Don't forget to call switch\_xml\_free(&node) after you are done!
 
@@ -220,15 +220,18 @@ The switch\_xml\_child(switch\_xml\_t xml, const char \*name) function will retu
 
 For example, to parse the following structure
 
- &lt;configuration name="mymodule.conf" description="MyModule configuration">
-   &lt;settings>
-    &lt;param name="key" value="value"/>
+```xml
+ <configuration name="mymodule.conf" description="MyModule configuration">
+   <settings>
+    <param name="key" value="value"/>
     ...
-   &lt;/settings>
- &lt;/configuration>
+   </settings>
+ </configuration>
+```
 
 You could do the following:
 
+```c
  switch_xml_t xml = NULL, x_lists = NULL, x_list = NULL, cfg = NULL;
  if ((xml = switch_xml_open_cfg("mymodule.conf", &cfg, NULL))) {
    if ((x_lists = switch_xml_child(cfg, "settings"))) {
@@ -250,13 +253,14 @@ You could do the following:
        } else if (!strcmp(name, "myotherattribute")) {
          // ...
        } else {
-         switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "Unknown attribute %s\n", name);
+         switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "Unknown attribute %s\n", name);
        }
      }
    }
  } else {
    switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "Failed to load MyModule's config!\n");
  }
+```
 
 ### Reacting
 
@@ -275,9 +279,11 @@ user\_data is a pointer which is going to be passed back to you whenever the cal
 
 If you want to receive all events, you can use the SWITCH\_EVENT\_ALL event type and the SWITCH\_EVENT\_SUBCLASS\_ANY subclass.
 
- if (switch_event_bind("mod_mymodule", SWITCH_EVENT_ALL, SWITCH_EVENT_SUBCLASS_ANY, mymodule_event_handler, NULL) != SWITCH_STATUS_SUCCESS) {
+```c
+ if (switch_event_bind("mod_mymodule", SWITCH_EVENT_ALL, SWITCH_EVENT_SUBCLASS_ANY, mymodule_event_handler, NULL) != SWITCH_STATUS_SUCCESS) {
    switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "Cannot bind to event handler!\n");
  }
+```
 
 #### Handling events
 
@@ -288,6 +294,8 @@ Now that you registered a callback, here's how it works. Your callback procedure
 Let's take a look at switch\_event\_t
 
  /*! \brief Representation of an event */
+
+```c
  struct switch_event {
  	/*! the event id (descriptor) */
  	switch_event_types_t event_id;
@@ -311,17 +319,19 @@ Let's take a look at switch\_event\_t
  	unsigned long key;
  	struct switch_event *next;
  }; 
+```
 
 Now most of you will need to filter on the event type, and do something with the headers the event contains. Here is an example
 
- void mymodule_event_handler(switch_event_t *event) 
+```c
+ void mymodule_event_handler(switch_event_t *event)
  {
  	switch_assert(event); // Just a sanity check
- 	
+
  	switch(event->event_id) {
  		case SWITCH_EVENT_CHANNEL_CREATE:
- 			switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "A new channel is born, its called \"%s\"\n", 
- 				switch_event_get_header_nil(event, "channel-name")); // This function isnt case-sensitive 
+ 			switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "A new channel is born, its called \"%s\"\n",
+ 				switch_event_get_header_nil(event, "channel-name")); // This function isnt case-sensitive
  			break;
  		case SWITCH_EVENT_CHANNEL_DESTROY:
  			switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "A channel named \"%s\" has been destroyed\n"
@@ -329,6 +339,8 @@ Now most of you will need to filter on the event type, and do something with the
  			break;
  	}
  }
+```
+
 
 ### Setting hooks
 
@@ -344,22 +356,25 @@ You have the option of getting a callback whenever your channel changes state. Y
 
 The way you expose state handlers is by passing a switch\_state\_handler\_table\_t structure containing functions pointers to your handlers. Here is the structure:
 
-   struct switch_state_handler_table {
-       switch_state_handler_t on_init;
-       switch_state_handler_t on_routing;
-       switch_state_handler_t on_execute;
-       switch_state_handler_t on_hangup;
-       switch_state_handler_t on_exchange_media;
-       switch_state_handler_t on_soft_execute;
-       switch_state_handler_t on_consume_media;
-       switch_state_handler_t on_hibernate;
-       switch_state_handler_t on_reset;
-       switch_state_handler_t on_park;
-       switch_state_handler_t on_reporting;
-       switch_state_handler_t on_destroy;
-       int flags;
-       void *padding[10];
-   };
+
+```c
+struct switch_state_handler_table {
+   switch_state_handler_t on_init;
+   switch_state_handler_t on_routing;
+   switch_state_handler_t on_execute;
+   switch_state_handler_t on_hangup;
+   switch_state_handler_t on_exchange_media;
+   switch_state_handler_t on_soft_execute;
+   switch_state_handler_t on_consume_media;
+   switch_state_handler_t on_hibernate;
+   switch_state_handler_t on_reset;
+   switch_state_handler_t on_park;
+   switch_state_handler_t on_reporting;
+   switch_state_handler_t on_destroy;
+   int flags;
+   void *padding[10];
+};
+```
 
 The ones you do not want can be safely set to NULL, all others are going to be called when the state changes.
 
@@ -367,13 +382,17 @@ There is a few way to register state handlers, all using this structure.
 
 Globally
 
+```c
    int switch_core_add_state_handler(const switch_state_handler_table_t *state_handler)
    void switch_core_remove_state_handler(const switch_state_handler_table_t *state_handler)
+```
 
 On a specific channel
 
+```c
    int switch_channel_add_state_handler(switch_channel_t *channel, const switch_state_handler_table_t *state_handler)
    void switch_channel_clear_state_handler(switch_channel_t *channel, const switch_state_handler_table_t *state_handler)
+```
 
 You can also set them when calling switch\_ivr\_originate() (more later)
 
@@ -410,11 +429,13 @@ When _originate your\_module/dest vmain_ is called from the console:
 
 You can get the session object of a session if you know the uuid. Consider:
 
+```c
   switch_core_session_t *session;
   if ((session = switch_core_session_locate(uuid_here))) {
           /* do stuff with session */
           switch_core_session_rwunlock(session);
   }
+```
 
 **NOTE:** _switch\_core\_session\_locate()_ will automatically lock the session. When you are done with the session object it is MANDATORY to call _switch\_core\_session\_rwunlock()_ or bad things will happen.
 
@@ -438,25 +459,25 @@ This macro lets you define a dynamic global string (which is actually static to 
 
 Macro to attempt a regular malloc(), which will abort() the process (eg. exit with SIGABRT), printing an error message to stderr containing the filename and line number where the error occurred.
 
- #define switch_malloc(ptr, len) (void)( (!!(ptr = malloc(len))) || (fprintf(stderr,"ABORT! Malloc failure at: %s:%s", __FILE__, __LINE__),abort(), 0), ptr )
+ #define switch_malloc(ptr, len) (void)( (!!(ptr = malloc(len))) || (fprintf(stderr,"ABORT! Malloc failure at: %s:%s", __FILE__, __LINE__),abort(), 0), ptr )
 
 #### switch_zmalloc
 
 As per [#switch\_malloc](https://wiki.freeswitch.org/wiki/Authoring%5FFreeswitch%5FModules#switch%5Fmalloc), but uses calloc() so that the contents of the buffer are filled with byte value zero before use.
 
- #define switch_zmalloc(ptr, len) (void)( (!!(ptr = calloc(1, (len)))) || (fprintf(stderr,"ABORT! Malloc failure at: %s:%s", __FILE__, __LINE__),abort(), 0), ptr)
+ #define switch_zmalloc(ptr, len) (void)( (!!(ptr = calloc(1, (len)))) || (fprintf(stderr,"ABORT! Malloc failure at: %s:%s", __FILE__, __LINE__),abort(), 0), ptr)
 
 #### switch_strdup
 
 Similarly to [#switch\_malloc](https://wiki.freeswitch.org/wiki/Authoring%5FFreeswitch%5FModules#switch%5Fmalloc), the macro will abort() if strdup() returns a null pointer (since strdup() is internally little more than a malloc() and a strcpy()).
 
- #define switch_strdup(ptr, s) (void)( (!!(ptr = strdup(s))) || (fprintf(stderr,"ABORT! Malloc failure at: %s:%s", __FILE__, __LINE__),abort(), 0), ptr)
+ #define switch_strdup(ptr, s) (void)( (!!(ptr = strdup(s))) || (fprintf(stderr,"ABORT! Malloc failure at: %s:%s", __FILE__, __LINE__),abort(), 0), ptr)
 
 #### switch_safe_free
 
 Macro to avoid freeing a null pointer. Pointer is set to null after free()'ing to avoid pointing to a stale buffer.
 
- #define switch_safe_free(it) if (it) {free(it);it=NULL;}
+ # define switch_safe_free(it) if (it) \{free(it);it=NULL;}
 
 ## New Module Checklist
 

@@ -5,16 +5,6 @@
 
 ---
 
-Table of Contents (click to expand)
-
-* [0\. About](#0-about)  
-   * [0.1 Abort sched\_cancel workaround](#01-abort-sched_cancel-workaround)
-* [2\. Examples](#2-examples)  
-   * [2.1 Dialplan example 1 - 60 seconds for the entire call](#21-dialplan-example-1---60-seconds-for-the-entire-call)  
-   * [2.2 Dialplan example 2 - Ensure 60 seconds of "talk" time](#22-dialplan-example-2---ensure-60-seconds-of-talk-time)  
-   * [2.3 Using the FreeSWITCH API outside the dialplan](#-freeswitch--mod_dptools-sched-hangup-)
-* [3\. See also](#3-see-also)
-
 ---
 
 ## 0\. About
@@ -29,9 +19,9 @@ TODO How to cancel?
 
 Couldn't find a solution, but this workaround effectively solved the problem:
 
-> Set up [sched\_transfer](../mod_dptools_1970333.mdx#-c) to a non-existent extension, which will result in a hangup with `No route, Aborting`, unless aborted with [sched\_cancel](../mod_dptools_1970333.mdx#-c).
+> Set up [sched\_transfer](../mod_dptools_1970333.mdx#c) to a non-existent extension, which will result in a hangup with `No route, Aborting`, unless aborted with [sched\_cancel](../mod_dptools_1970333.mdx#c).
 
-Below is a Lua example, but this strategy would work in the dialplan just the same because the `sched_*` commands are all dialplan applications (i.e., part of [mod\_dptools](../mod_dptools_1970333.mdx#-c)).
+Below is a Lua example, but this strategy would work in the dialplan just the same because the `sched_*` commands are all dialplan applications (i.e., part of [mod\_dptools](../mod_dptools_1970333.mdx#c)).
 
 ```xml
 session:execute("sched_transfer", "+600 9999 XML default")
@@ -45,20 +35,20 @@ session:execute("sched_cancel", tostring(lsi))
 **In the dialplan**
 
 ```xml
-<action application="sched_hangup" data="[+]<time>[ <hangup_cause>]"/> 
+<action application="sched_hangup" data="[+]<time>[ <hangup_cause>]"/> 
 ```
 
 **As an API call**
 
 ```xml
- sched_hangup [+]<time> <uuid>[ <hangup_cause>]"
+ sched_hangup [+]<time> <uuid>[ <hangup_cause>]"
 ```
 
 | Parameter   | Description                                                                                                                                                                                                           | Examples                                                                 |
 | ----------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
-| \[+\]&lt;time> | Time in seconds.If used **with +** then the call will be hung up after that number of seconds.If used **without +** then the given value is considered the number of seconds since the epoch, 1970-01-01 00:00:00 UTC | +60 (hang up after 1 minute)2003336820 (hang up at Jun 25 2033 11:27 AM) |
-| &lt;cause>     | The [hangup cause](../../Troubleshooting-Debugging/Hangup-Cause-Code-Table_3964945.mdx#about) with which the call should be terminated.                                                                                                                  | ALLOTTED\_TIMEOUT (the default)                                          |
-| &lt;uuid>      | The unique identifier (UUID) of the call leg. See [Channel Variables](../../Dialplan/Channel-Variables_16352493.mdx#about).                                                                                                             | f2120667-3cd6-42bc-8be6-8cf4207cf6bc                                     |
+| \[+\]\<time> | Time in seconds.If used **with +** then the call will be hung up after that number of seconds.If used **without +** then the given value is considered the number of seconds since the epoch, 1970-01-01 00:00:00 UTC | +60 (hang up after 1 minute)2003336820 (hang up at Jun 25 2033 11:27 AM) |
+| \<cause>     | The [hangup cause](../../Troubleshooting-Debugging/Hangup-Cause-Code-Table_3964945.mdx#about) with which the call should be terminated.                                                                                                                  | ALLOTTED\_TIMEOUT (the default)                                          |
+| \<uuid>      | The unique identifier (UUID) of the call leg. See [Channel Variables](../../Dialplan/Channel-Variables_16352493.mdx#about).                                                                                                             | f2120667-3cd6-42bc-8be6-8cf4207cf6bc                                     |
 
 To get the absolute time in seconds since the Epoch, see this [Stackoverflow thread](https://stackoverflow.com/questions/1092631/get-current-time-in-seconds-since-the-epoch-on-linux-bash).
 
@@ -80,28 +70,28 @@ This setup will hang up the call exactly 60 seconds after calling `sched_hangup`
 
 ### 2.2 Dialplan example 2 - Ensure 60 seconds of "talk" time
 
-If you want to ensure 60 seconds of "talk" time, start sched\_hangup at the moment of answering using the [execute\_on\_answer](../../../Channel-Variables-Catalog/execute_on_answer_16352786.mdx#execute_on_answer) [channel variable](../../Dialplan/Channel-Variables_16352493.mdx#about):
+If you want to ensure 60 seconds of "talk" time, start sched\_hangup at the moment of answering using the [execute\_on\_answer](../../../Channel-Variables-Catalog/execute_on_answer_16352786.mdx) [channel variable](../../Dialplan/Channel-Variables_16352493.mdx#about):
 
 ```xml
 <action application="set" data="execute_on_answer=sched_hangup +60 alloted_timeout" />
-<action application="bridge" data="sofia/external/1234567@10.10.10.10" /> 
+<action application="bridge" data="sofia/external/1234567@10.10.10.10" /> 
 ```
 
-If your A-leg call has already been answered (e.g., with an IVR), and you want to limit on the B-leg, then use [api\_on\_answer](../../../Channel-Variables-Catalog/api_on_answer_16352805.mdx#api_on_answer) channel variable:
+If your A-leg call has already been answered (e.g., with an IVR), and you want to limit on the B-leg, then use [api\_on\_answer](../../../Channel-Variables-Catalog/api_on_answer_16352805.mdx) channel variable:
 
 ```xml
 <action application="export" data="nolocal:api_on_answer=sched_hangup +60 ${uuid} alloted_timeout" />
-<action application="bridge" data="sofia/external/1234567@10.10.10.10" /> 
+<action application="bridge" data="sofia/external/1234567@10.10.10.10" /> 
 ```
 
-### 2.3 Using the [FreeSWITCH API](../../Introduction/FreeSWITCH-API.mdx#-freeswitch--freeswitch-api-) outside the dialplan
+### 2.3 Using the [FreeSWITCH API](../../Introduction/FreeSWITCH-API.mdx) outside the dialplan
 
-Once a call is already up you can do it from the sched\_hangup API command from [XML-RPC](../../Configuration/FreeSWITCH-XML-RPC_13173038.mdx#--) or the [CLI](../../Client-and-Developer-Interfaces/1048948.mdx#or).
+Once a call is already up you can do it from the sched\_hangup API command from [XML-RPC](../../Configuration/FreeSWITCH-XML-RPC_13173038.mdx) or the [CLI](../../Client-and-Developer-Interfaces/1048948.mdx).
 
 Do a show channels to get the uuid of the call then enter.
 
 ```xml
-sched_hangup +60 <uuid> alotted_timeout 
+sched_hangup +60 <uuid> alotted_timeout 
 ```
 
 All the params besides uuid have the same meaning as the dialplan app.
@@ -109,7 +99,7 @@ All the params besides uuid have the same meaning as the dialplan app.
 ## 3\. See also
 
 * [FreeSwitch Scheduler API](../../Configuration/FreeSWITCH-Scheduler-API_13173035.mdx#about)
-* [Variable execute\_on\_answer](../../../Channel-Variables-Catalog/execute_on_answer_16352786.mdx#execute_on_answer)
+* [Variable execute\_on\_answer](../../../Channel-Variables-Catalog/execute_on_answer_16352786.mdx)
 * [Hangup Cause Code Table](../../Troubleshooting-Debugging/Hangup-Cause-Code-Table_3964945.mdx#about)
   
   

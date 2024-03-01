@@ -3,39 +3,6 @@
 
  
 
-Click here to expand Table of Contents
-
-* 1 [SIP Encryption Primer](#sip-encryption-primer)  
-      * 1.1.1 [Anatomy of a SIP Connection](#anatomy-of-a-sip-connection)  
-      * 1.1.2 [Anatomy of a SIPS Connection](#anatomy-of-a-sips-connection)  
-      * 1.1.3 [Anatomy of a SIPS and SRTP Connection](#anatomy-of-a-sips-and-srtp-connection)  
-      * 1.1.4 [FreeSWITCH Encryption Capabilities](#freeswitch-encryption-capabilities)  
-      * 1.1.5 [Hybrid Encryption](#hybrid-encryption)  
-      * 1.1.6 [Choosing Between Encryption Options](#-choosing-between-encryption-options-)  
-      * 1.1.7 [About IP Phones and Encryption](#-about-ip-phones-and-encryption-)  
-      * 1.1.8 [Limitations of the Freeswitch TLS/SSLv23 Implementation (FS-3877)](#-limitations-of-the-freeswitch-tlssslv23-implementation-fs-3877-)  
-   * 1.2 [Configuration](#configuration)  
-      * 1.2.1 [Step 1 - Generate the CA (Root) Certificate](#step-1---generate-the-ca-root-certificate)  
-         * 1.2.2 [Step 2 - Generate the Server Certificate](#step-2---generate-the-server-certificate)  
-         * 1.2.3 [Step 3 - Sofia Profile Configuration](#step-3---sofia-profile-configuration)  
-         * 1.2.4 [Step 4 Client Configuration](#-step-4-client-configuration-)  
-         * 1.2.5 [Commercial Certificates](#-commercial-certificates-)  
-         * 1.2.6 [Multiple Profile TLS](#-multiple-profile-tls-)  
-         * 1.2.7 [Troubleshooting](#troubleshooting)  
-         * 1.2.8 [Using Freeswitch as a SSL/TLS Client](#-using-freeswitch-as-a-ssltls-client-)  
-         * 1.2.9 [Advanced TLS Options](#-advanced-tls-options-)  
-         * 1.2.10 [Quick Setup of SSLv23 with SRTP](#-quick-setup-of-sslv23-with-srtp-)  
-         * 1.2.11 [Step 5 - Securing the RTP Channels (optional)](#step-5---securing-the-rtp-channels-optional)  
-         * 1.2.12 [Step 6 - DNS NAPTR & SRV Records (optional)](#step-6---dns-naptr--srv-records-optional)  
-   * 1.3 [SIP TLS Device Interoperability](#sip-tls-device-interoperability)  
-      * 1.3.1 [Aastra TLS Setup](#aastra-tls-setup)  
-         * 1.3.2 [Polycom TLS Setup](#polycom-tls-setup)  
-         * 1.3.3 [Linksys TLS Setup](#linksys-tls-setup)  
-         * 1.3.4 [Snom TLS Setup](#snom-tls-setup)  
-         * 1.3.5 [EyeBeam/Bria Setup](#eyebeambria-setup)  
-         * 1.3.6 [Nokia / Symbian S60 Setup](#nokia--symbian-s60-setup)
-
-  
 ## SIP Encryption Primer
 
 FreeSWITCH supports both encrypted signaling known as SIPS which can be SSL or TLS with signed certificates, as well as encrypted audio/media known as SRTP. Typical convention is to have the unencrypted SIP control channel on UDP port 5060 (although the standards also allow for using TCP port 5060 as well), and an SSL encrypted or TLS encrypted SIP control channel known as SIPS on TCP port 5061\. The illustrations below depict SIP as being on port 5060, and SIPS as being on port 5061 and port (X). FreeSWITCH allows you to configure this port within the SIP profile.
@@ -141,7 +108,7 @@ For Debian do aptitude install libssl-dev (on Lenny install libcurl4-openssl-dev
 
 #### Step 1 - Generate the CA (Root) Certificate
 
-To use TLS/SSL you need at least two certificates: the root (CA) certificate and a certificate for every server. There is a script at _/{prefix}/freeswitch/bin/gentls\_cert_ or within the source tarball _{tarball}/scripts/gentls\_cert_ that helps generate these files. Assuming that the DNS name of your FreeSWITCH PBX is [pbx.freeswitch.org](http://pbx.freeswitch.org), With
+To use TLS/SSL you need at least two certificates: the root (CA) certificate and a certificate for every server. There is a script at _/\{prefix}/freeswitch/bin/gentls\_cert_ or within the source tarball _\{tarball}/scripts/gentls\_cert_ that helps generate these files. Assuming that the DNS name of your FreeSWITCH PBX is [pbx.freeswitch.org](http://pbx.freeswitch.org), With
 
    ./gentls_cert setup -cn pbx.freeswitch.org -alt DNS:pbx.freeswitch.org -org freeswitch.org
 
@@ -155,7 +122,7 @@ The command:
 
    ./gentls_cert create_server -cn pbx.freeswitch.org -alt DNS:pbx.freeswitch.org -org freeswitch.org
 
-creates the server certificate at _/{prefix}/freeswitch/conf/ssl/agent.pem_. This file contains the certificate and the private key. It should contain the domain name in the common and alternate name. If you need to generate certificates for other servers use the -out flag for gentls\_cert to specify the output certificate/key file name and copy this to the remote server.
+creates the server certificate at _/\{prefix}/freeswitch/conf/ssl/agent.pem_. This file contains the certificate and the private key. It should contain the domain name in the common and alternate name. If you need to generate certificates for other servers use the -out flag for gentls\_cert to specify the output certificate/key file name and copy this to the remote server.
 
 To set up new CA and create new certificate under Windows go here.
 
@@ -175,24 +142,24 @@ Freeswitch requires only one file for acting as a TLS server and thats the agent
 
 ATTENTION: TLS is disabled by default; set internal\_ssl\_enable and/or external\_ssl\_enable to "true" to enable.
 
-  &lt;!--
+  \<!--
       SIP and TLS settings.
   -->
-  &lt;X-PRE-PROCESS cmd="set" data="sip_tls_version=sslv23"/>
+  \<X-PRE-PROCESS cmd="set" data="sip_tls_version=sslv23"/>
 
-  &lt;!-- Internal SIP Profile -->
-  &lt;X-PRE-PROCESS cmd="set" data="internal_auth_calls=true"/>
-  &lt;X-PRE-PROCESS cmd="set" data="internal_sip_port=5060"/>
-  &lt;X-PRE-PROCESS cmd="set" data="internal_tls_port=5061"/>
-  &lt;X-PRE-PROCESS cmd="set" data="internal_ssl_enable=false"/>
-  &lt;X-PRE-PROCESS cmd="set" data="internal_ssl_dir=$${base_dir}/conf/ssl"/>
+  \<!-- Internal SIP Profile -->
+  \<X-PRE-PROCESS cmd="set" data="internal_auth_calls=true"/>
+  \<X-PRE-PROCESS cmd="set" data="internal_sip_port=5060"/>
+  \<X-PRE-PROCESS cmd="set" data="internal_tls_port=5061"/>
+  \<X-PRE-PROCESS cmd="set" data="internal_ssl_enable=false"/>
+  \<X-PRE-PROCESS cmd="set" data="internal_ssl_dir=$$\{base_dir}/conf/ssl"/>
 
-  &lt;!-- External SIP Profile -->
-  &lt;X-PRE-PROCESS cmd="set" data="external_auth_calls=false"/>
-  &lt;X-PRE-PROCESS cmd="set" data="external_sip_port=5080"/>
-  &lt;X-PRE-PROCESS cmd="set" data="external_tls_port=5081"/>
-  &lt;X-PRE-PROCESS cmd="set" data="external_ssl_enable=false"/>
-  &lt;X-PRE-PROCESS cmd="set" data="external_ssl_dir=$${base_dir}/conf/ssl"/>
+  \<!-- External SIP Profile -->
+  \<X-PRE-PROCESS cmd="set" data="external_auth_calls=false"/>
+  \<X-PRE-PROCESS cmd="set" data="external_sip_port=5080"/>
+  \<X-PRE-PROCESS cmd="set" data="external_tls_port=5081"/>
+  \<X-PRE-PROCESS cmd="set" data="external_ssl_enable=false"/>
+  \<X-PRE-PROCESS cmd="set" data="external_ssl_dir=$$\{base_dir}/conf/ssl"/>
 
 ####  Step 4 Client Configuration 
 
@@ -208,7 +175,7 @@ Most commercial Web server certificates should work for FreeSWITCH. For example,
 
 ####  Multiple Profile TLS 
 
-If you have multiple Sofia SIP profiles, you may find yourself wanting to enable TLS support for each of the profiles. However, each may be represented to third parties using a different DNS record. In this case, simply create a new directory under /{prefix}/freeswitch/conf/ssl/ for each DNS record . Then place an agent.pem and cafile.pem into each of the directories. Point each profile to the individual directory which contains its specific agent.pem file.
+If you have multiple Sofia SIP profiles, you may find yourself wanting to enable TLS support for each of the profiles. However, each may be represented to third parties using a different DNS record. In this case, simply create a new directory under /\{prefix}/freeswitch/conf/ssl/ for each DNS record . Then place an agent.pem and cafile.pem into each of the directories. Point each profile to the individual directory which contains its specific agent.pem file.
 
 #### Troubleshooting
 
@@ -216,7 +183,7 @@ If you have multiple Sofia SIP profiles, you may find yourself wanting to enable
 
 **If you've opted for this configuration in your sip\_profile:**
 
-&lt;param name="tls-version" value="tlsv1"/>
+\<param name="tls-version" value="tlsv1"/>
 
 There are a number of gotchas and snafus possible with TLS. TLS runs on TCP, rather than UDP, so make sure any firewalls are configured to work with TCP. Generate the proper certificate, and make sure it's loaded into the phone or ATA. Also, ensure that the time is configured properly on your endpoint as you will get cryptic "bad certificate" error messages if the time is too far off, and it will fail to handshake properly. (For example, certificates have "not valid before" and "not valid after" attributes.) If your phone won't register, or fails to work properly, you might consider checking the Interoperability list, and/or your phones documentation and firmware revision. If it still fails to work properly, you might consider sslv23 as a fallback.
 
@@ -224,7 +191,7 @@ There are a number of gotchas and snafus possible with TLS. TLS runs on TCP, rat
 
 **If you've opted for this configuration option in your sip\_profile:**
 
-&lt;param name="tls-version" value="sslv23"/>
+\<param name="tls-version" value="sslv23"/>
 
 This will give you the ability to encrypt the data. Security is similar to that of with web servers, certificate trusted roots can be checked, client certificate authentication is supported, subjects and cert dates can be validated (some of these do depend on client support for the feature). This may in fact be what you want, and considering that several phones do not support TLS, but do support SSL, you may want to configure accordingly.
 
@@ -244,7 +211,7 @@ If you receive a 'no matching cipher' error message, first check to ensure you h
 
 If you are still having issues getting TLS running the following are suggested:
 
-* ) set sofia loglevel to 9 (&lt;param name="log-level" value="9"/>) in autoload\_configs/sofia.conf.xml
+* ) set sofia loglevel to 9 (\<param name="log-level" value="9"/>) in autoload\_configs/sofia.conf.xml
 * ) Set freeswitch console loglevel to debug (F8)
 * ) Reload mod\_sofia and review the the logs
 * ) If everything looks fine on the server side, try using freeswitch or a freeswitch based [Softphones](https://wiki.freeswitch.org/wiki/Softphones "Softphones") like FSClient or FSComm. These will allow you to do the same on the client side (including attach fs\_cli to them to get log data) to try and see any errors the client may be having
@@ -256,7 +223,7 @@ Freeswitch can communicate with another server and act as a sip client (AKA use 
 
 ####  Advanced TLS Options 
 
-Freeswitch supports some advanced TLS parameters in the profile settings see [Sofia Configuration Files](../Configuration/Sofia-SIP-Stack/Sofia-Configuration-Files_7144453.mdx#--) for details.
+Freeswitch supports some advanced TLS parameters in the profile settings see [Sofia Configuration Files](../Configuration/Sofia-SIP-Stack/Sofia-Configuration-Files_7144453.mdx)) for details.
 
 ####  Quick Setup of SSLv23 with SRTP 
 
@@ -271,8 +238,8 @@ If your clients support/validate the server certificate copy the ca certificate 
   
 and in vars.xml
 
-&lt;X-PRE-PROCESS cmd="set" data="sip_tls_version=sslv23"/>
-&lt;X-PRE-PROCESS cmd="set" data="internal_ssl_enable=true"/>
+\<X-PRE-PROCESS cmd="set" data="sip_tls_version=sslv23"/>
+\<X-PRE-PROCESS cmd="set" data="internal_ssl_enable=true"/>
 
   
 Have your clients connect to freeswitch on port 5061 instead of 5060 and enable TLS (and if possible SRTP) on the client. If your client is freeswitch setting transport=tls under tls-bind-params in addition to the enable options above from the server. Finally on your freeswitch server for calls bound for the client you will want to enable them to go over SRTP by setting rtp\_secure\_media=true for the call (See Step 5 below for more details on how to do this more programatically for clients that only support this).
@@ -288,8 +255,8 @@ For calls that originate from (or are routed through) FreeSWITCH and are termina
 
 Edit conf/directory/default.xml and change the **dial-string** param to:
 
- &lt;param name="dial-string" value="{rtp_secure_media=${regex(${sofia_contact(${dialed_user}@${dialed_domain})}|transport=tls)},
-  presence_id=${dialed_user}@${dialed_domain}}${sofia_contact(${dialed_user}@${dialed_domain})}" />
+ \<param name="dial-string" value="\{rtp_secure_media=$\{regex($\{sofia_contact($\{dialed_user}@$\{dialed_domain})}|transport=tls)},
+  presence_id=$\{dialed_user}@$\{dialed_domain}}$\{sofia_contact($\{dialed_user}@$\{dialed_domain})}" />
 
   
 ##### Why it's a good idea
@@ -298,7 +265,7 @@ In the SIP Encryption Primer above we discussed why encrypting the RTP data may 
 
 SRTP by itself without TLS is not secure since the keys are exchanged between the two endpoints in the clear over SIP, which is insecure without TLS or SSL.
 
-See [Secure RTP](../../Channel-Variables-Catalog/rtp_secure_media_16353121.mdx#rtp_secure_media) page for how to deploy SRTP.
+See [Secure RTP](../../Channel-Variables-Catalog/rtp_secure_media_16353121.mdx) page for how to deploy SRTP.
 
 Note that the `sip_secure_media` parameter is no longer implemented and you should be setting `rtp_secure_media`
 

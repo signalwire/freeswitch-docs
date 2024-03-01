@@ -1,16 +1,19 @@
 // @ts-check
 // Note: type annotations allow type checking and IDEs autocompletion
 
-const lightCodeTheme = require("prism-react-renderer/themes/github");
-const darkCodeTheme = require("prism-react-renderer/themes/dracula");
+
+const Themes = require("prism-react-renderer").themes;
+const lightCodeTheme = Themes.github;
+const darkCodeTheme = Themes.dracula;
 
 /** @type {import('@docusaurus/types').Config} */
 const config = {
   title: "FreeSWITCH Documentation",
   url: "https://developer.signalwire.com",
   baseUrl: "/freeswitch/",
-  onBrokenLinks: "warn",
-  onBrokenMarkdownLinks: "warn",
+  onBrokenLinks: "throw",
+  onBrokenMarkdownLinks: "throw",
+  onBrokenAnchors: "throw",
   favicon: "img/favicon.webp",
 
   // Even if you don't use internalization, you can use this field to set useful
@@ -122,6 +125,7 @@ const config = {
       prism: {
         theme: lightCodeTheme,
         darkTheme: darkCodeTheme,
+        additionalLanguages: ["lua", "php", "csharp", "ruby", "java", "ini", "bash", "json", "perl", "c"],
       },
       algolia: {
         appId: "2NBPM6ETKJ",
