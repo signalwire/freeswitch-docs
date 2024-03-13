@@ -1,7 +1,6 @@
 // @ts-check
 // Note: type annotations allow type checking and IDEs autocompletion
 
-
 const Themes = require("prism-react-renderer").themes;
 const lightCodeTheme = Themes.github;
 const darkCodeTheme = Themes.dracula;
@@ -125,7 +124,18 @@ const config = {
       prism: {
         theme: lightCodeTheme,
         darkTheme: darkCodeTheme,
-        additionalLanguages: ["lua", "php", "csharp", "ruby", "java", "ini", "bash", "json", "perl", "c"],
+        additionalLanguages: [
+          "lua",
+          "php",
+          "csharp",
+          "ruby",
+          "java",
+          "ini",
+          "bash",
+          "json",
+          "perl",
+          "c",
+        ],
       },
       algolia: {
         appId: "2NBPM6ETKJ",
@@ -151,6 +161,8 @@ const config = {
     }),
 
   plugins: ["docusaurus-plugin-sass"],
+  stylesheets: ["/freeswitch/bannerica/bannerica.css"],
+  scripts: ["/freeswitch/bannerica/bannerica.js"],
 };
 
 module.exports = config;
