@@ -180,12 +180,8 @@ const config = {
       },
     },
   ],
-  scripts: [
-      "/scripts/bannerica.js",
-      ],
-  stylesheets: [
-      "/styles/bannerica.css"
-  ]
+  scripts: ["/freeswitch/scripts/bannerica.js"],
+  stylesheets: ["/freeswitch/styles/bannerica.css"]
 };
 
 module.exports = config;
