@@ -180,7 +180,8 @@ const config = {
       },
     },
   ],
-  scripts: ["/freeswitch/scripts/bannerica.js"],
+  scripts: [// "/freeswitch/scripts/bannerica.js"
+  ],
   stylesheets: ["/freeswitch/styles/bannerica.css"]
 };
 
