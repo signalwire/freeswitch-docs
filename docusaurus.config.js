@@ -155,7 +155,7 @@ const config = {
     {
       tagName: "script",
       innerHTML: `
-   window['_fs_host'] = 'fullstory.com';
+  window['_fs_host'] = 'fullstory.com';
   window['_fs_script'] = 'edge.fullstory.com/s/fs.js';
   window['_fs_org'] = 'o-1QJ4QX-na1';
   window['_fs_namespace'] = 'FS';
@@ -179,6 +179,18 @@ const config = {
         type: "text/javascript",
       },
     },
+    {
+      tagName: "script",
+      innerHTML: `
+          function initApollo(){var n=Math.random().toString(36).substring(7),o=document.createElement("script");
+          o.src="https://assets.apollo.io/micro/website-tracker/tracker.iife.js?nocache="+n,o.async=!0,o.defer=!0,
+          o.onload=function(){window.trackingFunctions.onLoad({appId:"66314dd45dbb1701c7850f76"})},
+          document.head.appendChild(o)}initApollo();
+        `,
+      attributes: {
+        type: "text/javascript",
+      },
+    }
   ],
   scripts: [// "/freeswitch/scripts/bannerica.js"
   ],
