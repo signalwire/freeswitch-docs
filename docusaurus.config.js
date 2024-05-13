@@ -155,7 +155,7 @@ const config = {
     {
       tagName: "script",
       innerHTML: `
-   window['_fs_host'] = 'fullstory.com';
+  window['_fs_host'] = 'fullstory.com';
   window['_fs_script'] = 'edge.fullstory.com/s/fs.js';
   window['_fs_org'] = 'o-1QJ4QX-na1';
   window['_fs_namespace'] = 'FS';
@@ -181,6 +181,10 @@ const config = {
     },
   ],
   scripts: [// "/freeswitch/scripts/bannerica.js"
+    {
+      src: "/freeswitch/scripts/apollo.js",
+      async: true,
+    }
   ],
   stylesheets: ["/freeswitch/styles/bannerica.css"]
 };
