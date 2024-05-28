@@ -74,6 +74,12 @@ const config = {
             target: "_self",
           },
           {
+            type: "doc",
+            docId: "SignalWire-Examples/index",
+            position: "left",
+            label: "Examples",
+          },
+          {
             href: "https://github.com/signalwire/freeswitch",
             label: "GitHub",
             position: "right",
