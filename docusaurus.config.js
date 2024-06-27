@@ -172,6 +172,10 @@ const config = {
       src: "/freeswitch/scripts/munchkin.js",
       async: true,
     },
+    {
+      src: "/freeswitch/scripts/zendesk.js",
+      async: true
+    }
   ],
   stylesheets: ["/freeswitch/styles/bannerica.css?v=0.1.3"]
 };
