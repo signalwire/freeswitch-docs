@@ -154,9 +154,6 @@ const config = {
   headTags: [],
   scripts: [
     {
-      src: "/freeswitch/scripts/bannerica.js"
-    },
-    {
       src: "/freeswitch/scripts/apollo.js",
       async: true,
     },
@@ -175,9 +172,17 @@ const config = {
     {
       src: "/freeswitch/scripts/zendesk.js",
       async: true
-    }
+    },
+      /*
+    {
+      src: "/freeswitch/scripts/bannerica.js"
+    },
+
+       */
   ],
-  stylesheets: ["/freeswitch/styles/bannerica.css?v=0.1.3"]
+  stylesheets: [
+      //"/freeswitch/styles/bannerica.css?v=0.1.3"
+  ]
 };
 
 module.exports = config;
