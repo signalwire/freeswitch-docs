@@ -1,24 +1,35 @@
-name: DocSearch Scraper
+name: TypeSense DocSearch Scraper
 
-# This workflow periodically updates the search index on Algolia
+# This workflow updates the search index on TypeSense every time the main branch changes
 
 on:
   workflow_dispatch:
 
   schedule:
     # * is a special character in YAML so we have to quote this string
-    - cron:  '41 7 * * *'
+    - cron: "21 7 * * *"
+
+  workflow_run:
+    workflows: ["SignalWire Docs"]
+    types:
+      - completed
 
 jobs:
   scraper:
     runs-on: ubuntu-latest
-    container:
-      image: algolia/docsearch-scraper:latest
-      env:
-        APPLICATION_ID: ${{ secrets.ALGOLIA_APPLICATION_ID }}
-        API_KEY: ${{ secrets.ALGOLIA_API_KEY }}
+    name: Run docs site scraper
+
     steps:
       - name: Check out the repo
-        uses: actions/checkout@v2
+        uses: actions/checkout@v4
+
       - name: Run scraper
-        run: export CONFIG="$(cat algolia.json)"; (cd /root && pipenv install && pipenv run python -m src.index)
+        shell: bash
+        run: |
+          docker run --rm --name ts-scraper -v "${{ github.workspace }}:/tmp/search" \
+            -e "TYPESENSE_API_KEY=${{ secrets.TYPESENSE_API_KEY }}" \
+            -e "TYPESENSE_HOST=typesense.signalwire.cloud" \
+            -e "TYPESENSE_PORT=443" \
+            -e "TYPESENSE_PROTOCOL=https" \
+            -e "CONFIG=/tmp/search/typesense.json" \
+            typesense/docsearch-scraper:0.9.1

@@ -8,6 +8,10 @@ const darkCodeTheme = Themes.dracula;
 
 /** @type {import('@docusaurus/types').Config} */
 const config = {
+
+  themes: [
+    "docusaurus-theme-search-typesense",
+  ],
   title: "FreeSWITCH Documentation",
   url: "https://developer.signalwire.com",
   baseUrl: "/freeswitch/",
@@ -48,6 +52,7 @@ const config = {
   themeConfig:
     /** @type {import('@docusaurus/preset-classic').ThemeConfig} */
     ({
+      typesense: require("./config/typesense"),
       navbar: {
         //title: "FreeSWITCH Documentation",
         logo: {
@@ -126,28 +131,7 @@ const config = {
         theme: lightCodeTheme,
         darkTheme: darkCodeTheme,
         additionalLanguages: ["lua", "php", "csharp", "ruby", "java", "ini", "bash", "json", "perl", "c"],
-      },
-      algolia: {
-        appId: "2NBPM6ETKJ",
-        apiKey: "4489aa468117b5bfbcb83f7b0addddc9",
-        indexName: "freeswitch-docs",
-        externalUrlRegex: `.*`,
-        /**
-         * We need to set this to false, otherwise the query is done with
-         * default filters such as "docusaurus_tag:docs-default-current", which
-         * exclude all the content from README.
-         *
-         * Look for default facetFilters.
-         */
-        contextualSearch: false,
-        /**
-         * We need to disable the searchPage because the results there are not
-         * accurate (they don't respect the contextualSearch setting value).
-         *
-         * Reference: https://github.com/facebook/docusaurus/issues/3805
-         */
-        searchPagePath: false,
-      },
+      }
     }),
 
   plugins: ["docusaurus-plugin-sass"],
