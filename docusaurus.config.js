@@ -10,7 +10,7 @@ const darkCodeTheme = Themes.dracula;
 const config = {
 
   themes: [
-    //"docusaurus-theme-search-typesense",
+    "docusaurus-theme-search-typesense",
   ],
   title: "FreeSWITCH Documentation",
   url: "https://developer.signalwire.com",
@@ -52,7 +52,7 @@ const config = {
   themeConfig:
     /** @type {import('@docusaurus/preset-classic').ThemeConfig} */
     ({
-      //typesense: require("./config/typesense"),
+      typesense: require("./config/typesense"),
       navbar: {
         //title: "FreeSWITCH Documentation",
         logo: {
