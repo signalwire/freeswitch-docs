@@ -11,7 +11,7 @@ module.exports = {
                 exports: 443,
             },
         ],
-        apiKey: "3BGfXh8sbHygzha5XXFhFYAbW8Qw5vpT",
+        apiKey: "HX0xo8DICPwi0uQTawpaB8XG8I6RzxdP",
     },
 
     // Optional: Typesense search parameters: https://typesense.org/docs/0.24.0/api/search.html#search-parameters
