@@ -1,197 +1,265 @@
+---
+# Display h2 to h5 headings
+toc_min_heading_level: 2
+toc_max_heading_level: 5
+---
 
-# Modules 
+# Modules
 
+## 0. About
 
-## About
+The functionality of FreeSWITCH can be expanded through the addition of modules that perform a particular task, whether that task is simple or complex. The modules are grouped into broad categories depending on
 
-The functionality of FreeSWITCH can be expanded through the addition of modules that perform a particular task, whether that task is simple or complex. The modules can be grouped into broad categories as tagged with labels on their individual module pages.
++ their **purpose** (e.g., application, codec, event handler)
 
-## Configuration
++ whether they reside withing the FreeSWITCH source code (*"**in-source**" modules*) or not (*"**out-of-source**" modules*).
 
-### Setting a module to 'critical'
+### 0.1 "in-source" vs. "out-of-source" modules
 
-If, for some reason, you need to prevent FreeSWITCH from starting at all on the failure of a specific module to load at startup then use the 'critical' attribute:
+The *"**in-source**" modules* are the ones that reside within the [FreeSWITCH source code](https://github.com/signalwire/freeswitch) in the [<span class="fs-path">src/mod</span>][srcmod] directory.
+
+The *"**out-of-source**" modules*' source code is located outside the FreeSWITCH source code and may be maintained by other than the FreeSWITCH developers.
+
+## 1. Installing modules
+
+:::warning
+
+These general steps should work for most FreeSWITCH modules out of the box, but make sure to check the module's page that you would like to install for any extra steps or requirements.
+
+:::
+
+### 1.1 FreeSWITCH installed from source
+
+1. Add / uncomment module's name in <span class="fs-path">modules.conf</span> in the FreeSWITCH source directory
+2. Run `make`
+3. Run `make install`
+4. Add / uncomment module in <span class="fs-path">\<conf>/autoload_configs/[modules.conf.xml](#modules.conf.xml)</span> (see [Module configuration](#modules.conf.xml) below)
+5. Load module in [<span class="fs-terminal-commands">fs_cli</span>][fs_cli] using `load <module_name>`
+6. (optional) Check module's status in [<span class="fs-terminal-commands">fs_cli</span>][fs_cli] with `module_exists <module_name>`
+
+#### 1.1.1 `modules.conf` and syntax
+
+:::note[doc to-do]
+
+Explain how `module.conf` works and why it is needed to add modules in there. I (toraritte) only have a rudimentary knowledge of Automake, Autoconf, and Autotools.
+
+:::
+
+[<span class="fs-path">modules.conf.in</span>](https://github.com/signalwire/freeswitch/blob/master/build/modules.conf.in) (which will become `modules.conf` when compiled from source) will always contain the most up-to-date list of FreeSWITCH modules maintained by FreeSWITCH developers.
+
+Lines starting with `#` are ignored.
+
++ *"**In-source**" modules* are declared using their relative path within [<span class="fs-path">src/mod</span>][srcmod] in the FreeSWITCH source.
+
+  Examples:
+  + <span class="fs-path">applications/mod_commands</span>
+  + <span class="fs-path">event_handlers/mod_event_socket</span>
+  + <span class="fs-path">formats/mod_sndfile</span>
+
++ *"**Out-of-source**" modules* use the `<module_name>|<github_repo_url> -b <branch>` syntax.
+
+  Examples:
+  + `mod_freetdm|https://github.com/freeswitch/freetdm.git -b master`
+  + `mod_kazoo|https://github.com/freeswitch/mod_kazoo.git -b master`
+
+### 1.2 FreeSWITCH installed using package manager
+
+:::note[doc to-do]
+
+(toraritte) As far as I know, when there is a FreeSWITCH package available for a package manager, then packages of individual FreeSWITCH modules are also available. I presume one install the desired packages and applies [steps 4. through 6.](#11-freeswitch-installed-from-source) for each.
+
+:::
+
+## 2. Important modules
+
+:::info
+
+FreeSWITCH can be compiled without modules, hence the use of "_important_" and not "_essential_". The only required dependencies are the C libraries provided by
+
++ [`spandsp`](https://github.com/freeswitch/spandsp),
++ [`sofia-sip`](https://github.com/freeswitch/sofia-sip), and
++ [`curl`](https://github.com/curl/curl).
+
+Nevertheless, it is just easier to include the module wrapping them and adding extra functionality, without which it would probably be difficult (impossible?) to properly manage a FreeSWITCH instance.
+
+:::
+
+The list of "quality of admin-life" modules:
+
++ The aforementioned "wrapper" modules:
+  + [<span class="fs-mod-names">mod_spandsp</span>](./mod_spandsp_6587021.mdx)
+  + [<span class="fs-mod-names">mod_sofia</span>](./mod_sofia_1048707.mdx)
+  + [<span class="fs-mod-names">mod_curl</span>](./mod_curl_3965033.mdx)
+
++ [<span class="fs-mod-names">mod_event_socket</span>](./mod_event_socket_1048924.mdx)
+
+  [<span class="fs-terminal-commands">fs_cli</span>][fs_cli] needs this to connect to the running FreeSWITCH instance.
+
++ [<span class="fs-mod-names">mod_commands</span>](./mod_commands_1966741.mdx)
+
+  Without this, there are only some very basic commands available on the [<span class="fs-terminal-commands">freeswitch</span>][freeswitch] console.
+
+  :::note[doc to-do]
+
+  Would such an instance even be able to do anything functional? Maybe as a "headless" installation?
+
+  :::
+
++ [<span class="fs-mod-names">mod_console</span>](./mod_console_1048950.mdx)
+
+  Makes [<span class="fs-terminal-commands">freeswitch</span>][freeswitch] console (and [<span class="fs-terminal-commands">fs_cli</span>][fs_cli]) friendlier. (Also controls the log levels.)
+
++ [<span class="fs-mod-names">mod_sndfile</span>](./mod_sndfile_32178375.mdx)
+
+  From https://lists.freeswitch.org/pipermail/freeswitch-users/2010-November/064708.html
+  > It provides support for reading most of the sound file formats that FS
+  > supports. Almost anything that involves a sound file (e.g. voicemail,
+  > playback, IVR, record etc) requires it. It isn't necessary if you're
+  > just routing calls between endpoints, but anything more complex
+  > probably requires it.
+  >
+  > -Steve \[Ayre]
+
+## 3. Module configuration (<span class="fs-path">modules.conf.xml</span>) {#modules.conf.xml}
+
+<span class="fs-path">modules.conf.xml</span> is a configuration entity that exists in the `configuration` section of [<span class="fs-path">freeswitch.xml</span>](../Introduction/Understanding-the-Configuration-Files.mdx). It denotes which modules to load, and in what order.
+
+In order for a module to be loaded, it needs to have been compiled and installed to the proper location on the system. If you do not know how to compile/install a specific module, please read the [1. Installing modules](#1-installing-modules) section above.
+
+:::warning
+Modules are only loaded if the above conditions are met. Simply including a module's configuration in <span class="fs-path">freeswitch.xml</span> will not cause a module to load.
+:::
+
+[See the default <span class="fs-path">modules.conf.xml</span>](https://github.com/xrmx/freeswitch/blob/master/conf/autoload_configs/modules.conf.xml) that is used during most installations.
+
+### 3.1 Setting a module to 'critical'
+
+To prevent FreeSWITCH from starting at all if a specific module fails to load at startup, then use the `critical` attribute:
 
 ```xml
 <load module="mod_really_important" critical="true"/>
 ```
 
-If module _mod\_really\_important_ fails to load then FreeSWITCH will abort.
+If module `mod_really_important` fails to load, then FreeSWITCH will abort.
 
-### Locating the module file in a different path
+:::info
+This is why the default [<span class="fs-path">modules.conf.xml</span>](https://github.com/xrmx/freeswitch/blob/master/conf/autoload_configs/modules.conf.xml) will always work: none of the enabled modules are marked as `critical`, so their failure to load (should it happen) will be ignored.
+:::
 
-If you use commercial module mod\_com\_g729, you should move it into a separate folder like mod\_com and set the following for your entry. This will serve to still delete the folder lib bin mod and do make install from the freeswitch folder and not lose your mod\_com\_g729:
+### 3.2 Installing modules to a custom filesystem location
+
+If the module <span class="fs-mod-names">mod_mymodule</span> is installed into <span class="fs-path">/opt/fs/mod_mymodule</span>, then it can be configured like so:
 
 ```xml
-<load module="mod_com_g729" path="/opt/fs/mod_com"/>
+<load module="mod_mymodule" path="/opt/fs/mod_mymodule"/>
 ```
 
-## Module List
+## 4. Available modules
 
-**Applications**
+:::note[doc to-do]
 
-* Page:  
-[mod\_signalwire](./mod_signalwire_19595544.mdx) (FreeSWITCH)
+Incomplete and categories also do not correspond to how modules are listed in the FreeSWITCH source. A table with tags would be better. Or, given that Docusaurus is a React app, probably a quicksearch list for name and/or tag would be even better.
 
-**Script Languages**
+:::
 
-* Page:  
-[mod\_java](./mod_java_3966491.mdx)
-* Page:  
-[mod\_lua](./mod_lua_1048944.mdx)
-* Page:  
-[mod\_perl](./mod_perl_1048930.mdx)
-* Page:  
-[mod\_python](./mod_python_1048940.mdx)
-* Page:  
-[mod\_ruby](./mod_ruby_5046429.mdx)
-* Page:  
-[mod\_v8](./mod_v8_1048935.mdx)
+### 4.1 Applications
 
-**Codecs**
+* [`mod_signalwire`](./mod_signalwire_19595544.mdx) (FreeSWITCH)
+
+### 4.2 Script Languages
+
+* [`mod_java`](./mod_java_3966491.mdx)
+* [`mod_lua`](./mod_lua_1048944.mdx)
+* [`mod_perl`](./mod_perl_1048930.mdx)
+* [`mod_python`](./mod_python_1048940.mdx)
+* [`mod_ruby`](./mod_ruby_5046429.mdx)
+* [`mod_v8`](./mod_v8_1048935.mdx)
+
+### 4.3 Codecs
 
 Codecs [Overview](../Codecs-and-Media/index.mdx)
 
-* Page:  
-[mod\_amr](./mod_amr_3964984.mdx)
-* Page:  
-[mod\_amr\_wb](./mod_amr_wb_3964987.mdx)
-* Page:  
-[mod\_av](./mod_av_27591638.mdx)
-* Page:  
-[mod\_celt](./mod_celt_3964992.mdx)
-* Page:  
-[mod\_codec2](./mod_codec2_6587354.mdx)
-* Page:  
-[mod\_com\_g729](./mod_com_g729_1049284.mdx)
-* Page:  
-[mod\_g711](./mod_g711_3375592.mdx)
-* Page:  
-[mod\_g723\_1](./mod_g723_1_3375594.mdx)
-* Page:  
-[mod\_g729](./mod_g729_3375549.mdx)
-* Page:  
-[mod\_iLBC](./mod_iLBC_3375542.mdx)
+* [`mod_amr`](./mod_amr_3964984.mdx)
+* [`mod_amr_wb`](./mod_amr_wb_3964987.mdx)
+* [`mod_av`](./mod_av_27591638.mdx)
+* [`mod_celt`](./mod_celt_3964992.mdx)
+* [`mod_codec2`](./mod_codec2_6587354.mdx)
+* [`mod_com_g729`](./mod_com_g729_1049284.mdx)
+* [`mod_g711`](./mod_g711_3375592.mdx)
+* [`mod_g723_1`](./mod_g723_1_3375594.mdx)
+* [`mod_g729`](./mod_g729_3375549.mdx)
+* [`mod_iLBC`](./mod_iLBC_3375542.mdx)
 
-**Databases**
+### 4.4 Databases
 
 Databases [Overview](../Databases/index.mdx)
 
-* Page:  
-[mod\_cdr\_mongodb](./mod_cdr_mongodb_3965094.mdx)
-* Page:  
-[mod\_cidlookup](./mod_cidlookup_1966667.mdx)
-* Page:  
-[mod\_curl](./mod_curl_3965033.mdx)
+* [`mod_cdr_mongodb`](./mod_cdr_mongodb_3965094.mdx)
+* [`mod_cidlookup`](./mod_cidlookup_1966667.mdx)
+* [`mod_curl`](./mod_curl_3965033.mdx)
 
-* Page:  
-[mod\_db](./mod_db_6586567.mdx)
-* Page:  
-[mod\_memcache](./mod_memcache_6587131.mdx)
-* Page:  
-[mod\_mongo](./mod_mongo_6587158.mdx)
-* Page:  
-[mod\_odbc\_query](./mod_odbc_query_6587371.mdx)
-* Page:  
-[mod\_xml\_curl](./mod_xml_curl_1049001.mdx)
+* [`mod_db`](./mod_db_6586567.mdx)
+* [`mod_memcache`](./mod_memcache_6587131.mdx)
+* [`mod_mongo`](./mod_mongo_6587158.mdx)
+* [`mod_odbc_query`](./mod_odbc_query_6587371.mdx)
+* [`mod_xml_curl`](./mod_xml_curl_1049001.mdx)
 
+### 4.5 High Volume Systems
 
-**High Volume Systems**
+* [Call Center](../Configuration/Call-Center_7143525.mdx)
+* [`mod_avmd`](./mod_avmd_1049372.mdx)
+* [`mod_callcenter`](./mod_callcenter_1049389.mdx)
+* [`mod_com_amd`](./mod_com_amd_4653131.mdx)
+* [`mod_distributor`](./mod_distributor_3966220.mdx)
+* [`mod_easyroute`](./mod_easyroute_3966222.mdx)
+* [`mod_fifo`](./mod_fifo_3966031.mdx)
+* [`mod_memcache`](./mod_memcache_6587131.mdx)
+* [`mod_redis`](./mod_redis_3964957.mdx)
 
-* Page:  
-[Call Center](../Configuration/Call-Center_7143525.mdx)
-* Page:  
-[mod\_avmd](./mod_avmd_1049372.mdx)
-* Page:  
-[mod\_callcenter](./mod_callcenter_1049389.mdx)
-* Page:  
-[mod\_com\_amd](./mod_com_amd_4653131.mdx)
-* Page:  
-[mod\_distributor](./mod_distributor_3966220.mdx)
-* Page:  
-[mod\_easyroute](./mod_easyroute_3966222.mdx)
-* Page:  
-[mod\_fifo](./mod_fifo_3966031.mdx)
-* Page:  
-[mod\_memcache](./mod_memcache_6587131.mdx)
-* Page:  
-[mod\_redis](./mod_redis_3964957.mdx)
+### 4.6 Event Socket Layer
 
-**Event Socket Layer**
+* [`mod_erlang_event`](./mod_erlang_event_1048926.mdx)
+* [`mod_event_socket`](./mod_event_socket_1048924.mdx)
+* [`mod_event_zmq`](./mod_event_zmq_3966418.mdx)
+* [`mod_kazoo`](./mod_kazoo_10683641.mdx)
 
-* Page:  
-[mod\_erlang\_event](./mod_erlang_event_1048926.mdx)
-* Page:  
-[mod\_event\_socket](./mod_event_socket_1048924.mdx)
-* Page:  
-[mod\_event\_zmq](./mod_event_zmq_3966418.mdx)
-* Page:  
-[mod\_kazoo](./mod_kazoo_10683641.mdx)
+### 4.7 Logging
 
-**Logging**
+* [`mod_cdr_mongodb`](./mod_cdr_mongodb_3965094.mdx)
+* [`mod_json_cdr`](./mod_json_cdr_4653124.mdx)
+* [`mod_logfile`](./mod_logfile_1048990.mdx)
+* [`mod_odbc_cdr`](./mod_odbc_cdr_7143449.mdx)
+* [`mod_osp`](./mod_osp_6587434.mdx)
 
-* Page:  
-[mod\_cdr\_mongodb](./mod_cdr_mongodb_3965094.mdx)
-* Page:  
-[mod\_json\_cdr](./mod_json_cdr_4653124.mdx)
-* Page:  
-[mod\_logfile](./mod_logfile_1048990.mdx)
-* Page:  
-[mod\_odbc\_cdr](./mod_odbc_cdr_7143449.mdx)
-* Page:  
-[mod\_osp](./mod_osp_6587434.mdx)
+### 4.8 Endpoints
 
-**Endpoints**
+* [Creating a New Endpoint: Lifecycle of a Session](../Community/Contributing-Code/Creating-New-Modules/9634354.mdx)
+* [Endpoints](../Introduction/Endpoints.mdx)
+* [`mod_gsmopen`](./mod_gsmopen_7143567.mdx)
+* [`mod_opal`](./mod_opal_6587390.mdx)
+* [`mod_rtmp`](./mod_rtmp_5046427.mdx)
+* [`mod_skypopen`](./mod_skypopen_3966336.mdx)
+* [`mod_sofia`](./mod_sofia_1048707.mdx)
+* [`mod_verto`](./mod_verto_3964934.mdx)
 
-* Page:  
-[Creating a New Endpoint: Lifecycle of a Session](../Community/Contributing-Code/Creating-New-Modules/9634354.mdx)
-* Page:  
-[Endpoints](../Introduction/Endpoints.mdx)
-* Page:  
-[mod\_gsmopen](./mod_gsmopen_7143567.mdx)
-* Page:  
-[mod\_opal](./mod_opal_6587390.mdx)
-* Page:  
-[mod\_rtmp](./mod_rtmp_5046427.mdx)
-* Page:  
-[mod\_skypopen](./mod_skypopen_3966336.mdx)
-* Page:  
-[mod\_sofia](./mod_sofia_1048707.mdx)
-* Page:  
-[mod\_verto](./mod_verto_3964934.mdx)
-
-**Dialplans**
+### 4.9 Dialplans
 
 Dialplans [Overview](../Dialplan/index.mdx)
 
-* Page:  
-[mod\_dialplan\_asterisk](./mod_dialplan_asterisk_3966416.mdx)
-* Page:  
-[mod\_dptools](./mod_dptools_1970333.mdx)
-* Page:  
-[mod\_dptools: cng\_plc](./mod-dptools/6586541)
-* Page:  
-[mod\_dptools: log](./mod-dptools/6586596.mdx)
-* Page:  
-[mod\_dptools: media\_reset](./mod-dptools/6586619.mdx)
-* Page:  
-[mod\_dptools: mkdir](./mod-dptools/6586626.mdx)
-* Page:  
-[mod\_dptools: multiset](./mod-dptools/6586655.mdx)
-* Page:  
-[mod\_dptools: mutex](./mod-dptools/6586674.mdx)
-  
-  
-**Clients**
+* [`mod_dialplan_asterisk`](./mod_dialplan_asterisk_3966416.mdx)
+* [`mod_dptools`](./mod_dptools_1970333.mdx)
+* [`mod_dptools: cng_plc`](./mod-dptools/6586541)
+* [`mod_dptools: log`](./mod-dptools/6586596.mdx)
+* [`mod_dptools: media_reset`](./mod-dptools/6586619.mdx)
+* [`mod_dptools: mkdir`](./mod-dptools/6586626.mdx)
+* [`mod_dptools: multiset`](./mod-dptools/6586655.mdx)
+* [`mod_dptools: mutex`](./mod-dptools/6586674.mdx)
 
-* Page:  
-[mod\_console](./mod_console_1048950.mdx)
+### 4.10 Clients
 
-**Language-related**
+* [`mod_console`](./mod_console_1048950.mdx)
 
-**Content by label** 
 
-There is no content with the specified labels
-  
-  
-
+[srcmod]: https://github.com/signalwire/freeswitch/tree/master/src/mod
+[fs_cli]: ../Client-and-Developer-Interfaces/1048948.mdx
+[freeswitch]: ../Configuration/Command-Line-Switches_6587362.mdx
