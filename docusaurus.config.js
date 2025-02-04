@@ -86,6 +86,10 @@ const config = {
         ],
       },
       colorMode: { disableSwitch: true, defaultMode: "light" },
+      announcementBar: {
+        //id: `announcementBar-v${announcedVersion}`,
+        content: `Join <a target="_blank" href="https://info.signalwire.com/FreeSWITCH-Office-Hours.html">FreeSWITCH office hours</a> on the first and third Tuesday of every month.`,
+      },
       footer: {
         style: "dark",
         links: [
