@@ -87,8 +87,9 @@ const config = {
       },
       colorMode: { disableSwitch: true, defaultMode: "light" },
       announcementBar: {
-        //id: `announcementBar-v${announcedVersion}`,
-        content: `Join <a target="_blank" href="https://info.signalwire.com/FreeSWITCH-Office-Hours.html">FreeSWITCH office hours</a> on the first and third Tuesday of every month.`,
+        id: `fs-office-hours`,
+        content: `<a target="_blank" class="banner-link" href="https://info.signalwire.com/FreeSWITCH-Office-Hours.html">FreeSWITCH Office Hours</a> 💡 Talk to the experts on the first and third Tuesday of every month. <a class="button button--primary button--sm" href="https://info.signalwire.com/FreeSWITCH-Office-Hours.html">Sign up</a>`,
+        // textColor,
       },
       footer: {
         style: "dark",
