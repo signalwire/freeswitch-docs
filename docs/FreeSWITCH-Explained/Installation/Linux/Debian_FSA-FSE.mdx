@@ -1,0 +1,196 @@
+
+# Debian 11 Bullyeye & 12 Bookworm for FreeSWITCH Advantage/Enterprise 
+
+ 
+
+## About
+
+FreeSWITCH Enterprise project has been moved to GitHub: [https://github.com/signalwire/stack](https://github.com/signalwire/stack)  
+
+Dependencies are available from FreeSWITCH repository via the "apt-get build-dep freeswitch" command.
+
+## Commit Log
+
+See all FreeSWITCH commits here: [https://github.com/signalwire/stack/commits/master](https://github.com/signalwire/stack/commits/master)
+
+**Easy Way**
+
+## Installing From Debian Packages
+
+### Latest Release Branch:
+
+**Release package**
+
+```bash
+apt-get update && apt-get install -y gnupg2 wget lsb-release software-properties-common apt-transport-https 
+USERNAME=FSAUSER
+PASSWORD=FSAPASS
+wget --http-user=$USERNAME --http-password=$PASSWORD -O - https://fsa.freeswitch.com/repo/deb/fsa/pubkey.gpg | apt-key add -
+echo "machine fsa.freeswitch.com login $USERNAME password $PASSWORD" > /etc/apt/auth.conf
+echo "deb https://fsa.freeswitch.com/repo/deb/fsa/ `lsb_release -sc` 1.8" > /etc/apt/sources.list.d/freeswitch.list
+echo "deb-src https://fsa.freeswitch.com/repo/deb/fsa/ `lsb_release -sc` 1.8" >> /etc/apt/sources.list.d/freeswitch.list
+
+# you may want to populate /etc/freeswitch at this point.
+# if /etc/freeswitch does not exist, the standard vanilla configuration is deployed
+apt-get update && apt-get install -y freeswitch-meta-all
+```
+
+FreeSWITCH™ is now installed and can be accessed with
+
+**FreeSwitch CLI**
+
+```bash
+fs_cli -rRS
+```
+
+Dev Branch ("git"):
+
+WARNING not suitable for production
+
+**Master Test Package**
+
+```bash
+apt-get update && apt-get install -y gnupg2 wget lsb-release software-properties-common apt-transport-https 
+USERNAME=FSAUSER
+PASSWORD=FSAPASS
+wget --http-user=$USERNAME --http-password=$PASSWORD -O - https://fsa.freeswitch.com/repo/deb/fsa/pubkey.gpg | apt-key add -
+echo "machine fsa.freeswitch.com login $USERNAME password $PASSWORD" > /etc/apt/auth.conf
+echo "deb https://fsa.freeswitch.com/repo/deb/fsa/ `lsb_release -sc` unstable" > /etc/apt/sources.list.d/freeswitch.list
+echo "deb-src https://fsa.freeswitch.com/repo/deb/fsa/ `lsb_release -sc` unstable" >> /etc/apt/sources.list.d/freeswitch.list
+
+# you may want to populate /etc/freeswitch at this point.
+# if /etc/freeswitch does not exist, the standard vanilla configuration is deployed
+apt-get update && apt-get install -y freeswitch-meta-all
+```
+
+### Building Debian Packages From Dev Branch
+
+WARNING not suitable for production
+
+The master branch depends on different libraries which are not available as packages in Debian distribution, but are available from FreeSWITCH repository. Thus, you will need internet access to the FreeSWITCH DEB repository.
+
+**Build your own .deb Master package**
+
+```bash
+apt-get update && apt-get install -y gnupg2 wget lsb-release software-properties-common apt-transport-https 
+USERNAME=FSAUSER
+PASSWORD=FSAPASS
+wget --http-user=$USERNAME --http-password=$PASSWORD -O - https://fsa.freeswitch.com/repo/deb/fsa/pubkey.gpg | apt-key add -
+echo "machine fsa.freeswitch.com login $USERNAME password $PASSWORD" > /etc/apt/auth.conf
+echo "deb https://fsa.freeswitch.com/repo/deb/fsa/ `lsb_release -sc` unstable" > /etc/apt/sources.list.d/freeswitch.list
+echo "deb-src https://fsa.freeswitch.com/repo/deb/fsa/ `lsb_release -sc` unstable" >> /etc/apt/sources.list.d/freeswitch.list
+apt-get update && apt-get install -y xz-utils devscripts cowbuilder git screen
+
+# get the latest master. Use the -b flag to get a specific branch
+mkdir /usr/src/freeswitch-debs
+git clone https://github.com/signalwire/stack.git /usr/src/freeswitch-debs/freeswitch
+
+cd /usr/src/freeswitch-debs
+# here it's good to run screen with logging, so that you can detach from the shell prompt
+screen -L
+cd freeswitch
+./debian/util.sh build-all -aamd64 -c`lsb_release -sc`
+
+# here you can detach by Ctrl-a Ctrl-d and see the log files in /usr/src/freeswitch-debs/log/ folder.
+# The build may last about an hour, depending on your CPU speed.
+# If the build is successful, you will have a bunch of .deb files in /usr/src/freeswitch-debs
+
+
+```
+
+**Compiling from source code**
+
+## Building From Source
+
+### Compiling Release Branch (production)
+
+**Release source build**
+
+```bash
+apt-get update && apt-get install -y gnupg2 wget lsb-release software-properties-common apt-transport-https 
+USERNAME=FSAUSER
+PASSWORD=FSAPASS
+wget --http-user=$USERNAME --http-password=$PASSWORD -O - https://fsa.freeswitch.com/repo/deb/fsa/pubkey.gpg | apt-key add -
+echo "machine fsa.freeswitch.com login $USERNAME password $PASSWORD" > /etc/apt/auth.conf
+echo "deb https://fsa.freeswitch.com/repo/deb/fsa/ `lsb_release -sc` 1.8" > /etc/apt/sources.list.d/freeswitch.list
+echo "deb-src https://fsa.freeswitch.com/repo/deb/fsa/ `lsb_release -sc` 1.8" >> /etc/apt/sources.list.d/freeswitch.list
+
+apt-get update
+ 
+# Install dependencies required for the build
+apt-get build-dep freeswitch
+ 
+# then let's get the source. Use the -b flag to get a specific branch
+cd /usr/src/
+git clone -b release https://github.com/signalwire/stack.git freeswitch
+cd freeswitch
+ 
+# Because we're in a branch that will go through many rebases, it's
+# better to set this one, or you'll get CONFLICTS when pulling (update).
+git config pull.rebase true
+ 
+# ... and do the build
+./bootstrap.sh -j
+./configure
+make
+make install
+```
+
+### Compiling Latest Dev (for testing)
+
+WARNING not suitable for production
+
+**Master source build**
+
+```bash
+apt-get update && apt-get install -y gnupg2 wget lsb-release software-properties-common apt-transport-https 
+USERNAME=FSAUSER
+PASSWORD=FSAPASS
+wget --http-user=$USERNAME --http-password=$PASSWORD -O - https://fsa.freeswitch.com/repo/deb/fsa/pubkey.gpg | apt-key add -
+echo "machine fsa.freeswitch.com login $USERNAME password $PASSWORD" > /etc/apt/auth.conf
+echo "deb https://fsa.freeswitch.com/repo/deb/fsa/ `lsb_release -sc` unstable" > /etc/apt/sources.list.d/freeswitch.list
+echo "deb-src https://fsa.freeswitch.com/repo/deb/fsa/ `lsb_release -sc` unstable" >> /etc/apt/sources.list.d/freeswitch.list
+
+apt-get update
+
+# Install dependencies required for the build
+apt-get build-dep freeswitch
+
+# Then let's get the source. Use the -b flag to get a specific branch
+cd /usr/src/
+git clone https://github.com/signalwire/stack.git freeswitch
+cd freeswitch
+
+# Because we're in a branch that will go through many rebases, it's
+# better to set this one, or you'll get CONFLICTS when pulling (update).
+git config pull.rebase true
+
+# ... and do the build
+
+# The -j argument spawns multiple threads to speed the build process, but causes trouble on some systems
+./bootstrap.sh -j
+
+# if you want to add or remove modules from the build, edit modules.conf
+vi modules.conf
+
+# add a module by removing '#' comment character at the beginning of the line
+# remove a module by adding the '#' comment character at the beginning of the line 
+# containing the name of the module to be skipped in the build process
+
+./configure
+make
+make install
+
+# Install audio files:
+make cd-sounds-install cd-moh-install
+
+# To update an installed build:
+cd /usr/src/freeswitch
+make current
+```
+
+### Before Starting FreeSWITCH
+
+If you built FreeSWITCH™ from source code you should set file permissions and ownership before starting FreeSWITCH. Follow the [post-installation instructions](./Debian-Post-Install-Tasks_13172868.mdx#about).
+
+
