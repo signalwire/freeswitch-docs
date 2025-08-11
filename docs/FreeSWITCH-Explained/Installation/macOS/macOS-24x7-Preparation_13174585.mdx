@@ -1,10 +1,8 @@
-
 # macOS 24x7 Preparation 
-
 
 ## About
 
-This section describes how to prepare macOS for running FreeSWITCH™ 24x7\. It is part of the FreeSWITCH™ [macOS](./index.mdx#about) documentation.
+This section describes how to prepare macOS for running [FreeSWITCH](https://en.wikipedia.org/wiki/FreeSWITCH)™ 24x7\. It is part of the FreeSWITCH™ [macOS](./index.mdx#about) documentation.
 
 * 1 [Why 24x7 Operation?](#why-24x7-operation)
 * 2 [Create Dummy Command File](#create-dummy-command-file)
@@ -45,11 +43,13 @@ You can perform all editing using Textedit, however, you should become familiar 
   
 Some steps in this section require a command script file. This is a file that you can double click to run in the Terminal application. More importantly, these files are also used for automatic startup functions.
 
-Command files are text files containing Terminal commands with the file's permission changed to become executable. Rather than repeat this process for each file, create a dummy command file that will serve as a skeleton and retain its permissions when copied. The files are saved in /usr/local/freeswitch-scripts but you can place them anywhere. Once a command text file is created it can be opened and saved in Textedit or Xcode, whatever is your preference, without any extra steps.
+Command files are text files containing Terminal commands with the file's permission changed to become executable. Rather than repeat this process for each file, create a dummy command file that will serve as a skeleton and retain its permissions when copied. The files are saved in /opt or /usr/local/ but you can place them anywhere. Once a command text file is created it can be opened and saved in Textedit or Xcode, whatever is your preference, without any extra steps.
 
-* Create the /usr/local/freeswitch-scripts directory:  
+* Create the freeswitch-scripts directory:  
 ```xml  
-   mkdir /usr/local/freeswitch-scripts  
+   mkdir /opt/freeswitch-scripts            # On Apple Silicon
+     or  
+   mkdir /usr/local/freeswitch-scripts      # On x86  
 ```
 1. Start Textedit
 2. Paste the two lines below into the empty document:  
@@ -62,20 +62,22 @@ Make sure they are saved as text:
 
 1. Pull down the Format menu
 2. Select Make Plain Text, if the default for saving text is already Plain Text, this step is not needed.
-3. Save the file in /usr/local/freeswitch-scripts as dummy.command. While the file window is open press command+shift+.(period) to view hidden files.
+3. Save the file in /opt/freeswitch-scripts or /usr/local/freeswitch-scripts as dummy.command. While the file window is open press command+shift+.(period) to view hidden files.
 4. You may see examples with #!/bin/sh as the first line, either will work in any of these scripts.
 
   
 Start the Terminal application, switch to the new directory and enter the chmod command to make the file executable:
 
 ```xml
-  cd /usr/local/freeswitch-scripts
+  cd /opt/freeswitch-scripts             # On Apple Silicon
+    or
+  cd /usr/local/freeswitch-scripts       # On x86
   chmod +x dummy.command
 ```
 
 ## Create the FreeSWITCH™ Command Script
 
-The command to start FreeSWITCH™ is /usr/local/freeswitch/bin/freeswitch -parm1 -parm2…. You can start the freeswitch program using this command. However, it's much better to use a [bash](http://en.wikipedia.org/wiki/Bash%5F%28Unix%5Fshell%29) [script](http://en.wikipedia.org/wiki/Script%5F%28computing%29) which starts FreeSWITCH™.
+The command to start FreeSWITCH™ is /opt/freeswitch/bin/freeswitch or /usr/local/freeswitch/bin/freeswitch -parm1 -parm2…. You can start the freeswitch program using this command. However, it's much better to use a [bash](http://en.wikipedia.org/wiki/Bash%5F%28Unix%5Fshell%29) [script](http://en.wikipedia.org/wiki/Script%5F%28computing%29) which starts FreeSWITCH™.
 
 Consider these requirements for a 24x7 phone system:
 
@@ -175,6 +177,8 @@ if [[ $\{OS_Version} == 10.7 ]] | [[ $\{OS_Version} == 10.8 ]] | [[ $\{OS_Versio
 fi
 # Start freeswitch - do NOT use nohup and & since FS starts a new pid and the wrong one would be returned in check_fs
 writelog "freeswitch-startup - FreeSwitch is being started, script will wait until FreeSwitch is stopped"
+/opt/freeswitch/bin/freeswitch  -nc -nonat
+-----OR-----OR-----OR----->
 /usr/local/freeswitch/bin/freeswitch  -nc -nonat
 # Now wait for freeswitch to end, otherwise Launchd will restart this script when it ends
 check_fs
@@ -241,6 +245,8 @@ First, we create a "property list" file, also known as a ["plist"](http://en.wik
            <string>org.freeswitch.freeswitch</string>
       <key>ProgramArguments</key>
       <array>
+           <string>/opt/freeswitch-scripts/fs-startup.command</string>
+           -----OR-----OR-----OR----->
            <string>/usr/local/freeswitch-scripts/fs-startup.command</string>
       </array>
  </dict>
@@ -263,7 +269,7 @@ Now check if FreeSWITCH™ is running by either:
 
 1. Test your phones
 2. Launch Activity Monitor
-3. In Terminal, run /usr/local/freeswitch/bin/freeswitch-cli
+3. In Terminal, run /opt/freeswitch/bin/freeswitch-cli or /usr/local/freeswitch/bin/freeswitch-cli
 
 If FreeSWITCH™ is running, you can shut it down by issuing:
 
@@ -295,6 +301,8 @@ Start Terminal and enter this command to create the freeswitch-shutdown.command 
 Open the file in the editor and add the following line as the second line of the file (between the existing two lines):
 
 ```xml
+/opt/freeswitch/bin/freeswitch-cli -x "shutdown"
+  or
 /usr/local/freeswitch/bin/freeswitch-cli -x "shutdown"
 ```
 
@@ -328,6 +336,8 @@ Next, create the plist file for Launchd:
              <string>org.freeswitch.shutdown</string>
         <key>ProgramArguments</key>
         <array>
+             <string>/opt/freeswitch-scripts/freeswitch-shutdown.command</string>
+             -----OR-----OR-----OR----->
              <string>/usr/local/freeswitch-scripts/freeswitch-shutdown.command</string>
         </array>
         <key>RunAtLoad</key>
@@ -371,6 +381,8 @@ Create the freeswitch-cli.command file in directory freeswitch-scripts:
 Next, add a line containing the command needed to start freeswitch-cli. Edit the new file and add the following line as the second line of the file (between the existing two lines):
 
 ```xml
+/opt/freeswitch/bin/freeswitch-cli
+  or
 /usr/local/freeswitch/bin/freeswitch-cli
 ```
 
@@ -401,12 +413,14 @@ Start Terminal and enter this command to create the freeswitch-logseg.command fi
 Open the file in the editor and add the following line as the second line of the file (between the existing two lines).
 
 ```xml
+kill -HUP `cat /opt/freeswitch/run/freeswitch.pid`
+  or
 kill -HUP `cat /usr/local/freeswitch/run/freeswitch.pid`
 ```
 
 Save the file, remember it's already executable.
 
-Make sure FreeSWITCH™ is up and double click the file to test it. View the /usr/local/freeswitch/log directory, if the log was segmented proceed with the next steps.
+Make sure FreeSWITCH™ is up and double click the file to test it. View the /opt/freeswitch/log or /usr/local/freeswitch/log directory, if the log was segmented proceed with the next steps.
 
 Set Security and Test
 
@@ -434,7 +448,9 @@ Next, the plist file Launchd requires is created:
               <string>org.freeswitch.logseg</string>
         <key>ProgramArguments</key>
         <array>
-             <string>/usr/local/freeswitch-scripts/freeswitch-logseg.command</string>
+              <string>/opt/freeswitch-scripts/freeswitch-logseg.command</string>
+              -----OR-----OR-----OR----->
+              <string>/usr/local/freeswitch-scripts/freeswitch-logseg.command</string>
         </array>
         <key>RunAtLoad</key>
              <false/>
@@ -473,6 +489,8 @@ Start Terminal and enter this command to create the freeswitch-logclr.command fi
 Open the file in the editor and add the following line as the second line of the file (between the existing two lines). Notice that mtime is set so files older than 14 days are deleted. You can change this to any valid mtime value.
 
 ```xml
+/usr/bin/find /opt/freeswitch/log -name "freeswitch.log.*" -mtime +14 -delete
+  or
 /usr/bin/find /usr/local/freeswitch/log -name "freeswitch.log.*" -mtime +14 -delete
 ```
 
@@ -506,7 +524,9 @@ Next, the plist file Launchd requires is created:
               <string>org.freeswitch.logclr</string>
         <key>ProgramArguments</key>
         <array>
-             <string>/usr/local/freeswitch-scripts/freeswitch-logclr.command</string>
+              <string>/opt/freeswitch-scripts/freeswitch-logclr.command</string>
+              -----OR-----OR-----OR----->
+              <string>/usr/local/freeswitch-scripts/freeswitch-logclr.command</string>
         </array>
         <key>RunAtLoad</key>
              <false/>
@@ -549,6 +569,8 @@ Open the file in an editor and replace the text with the following lines that wi
 
 ```xml
   #!/bin/sh
+  logfile="/opt/freeswitch/log/freeswitch.log"
+  or
   logfile="/usr/local/freeswitch/log/freeswitch.log"
   mdate=$(GetFileInfo -m $logfile)
   newname=$logfile"-"${mdate:6:4}"-"${mdate:0:2}"-"${mdate:3:2}"-"${mdate:11:2}"-"${mdate:14:2}"-last"
