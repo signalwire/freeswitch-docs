@@ -1,0 +1,160 @@
+
+# Debian for FreeSWITCH Enterprise 
+
+## About
+
+FreeSWITCH Enterprise project on GitHub: [https://github.com/signalwire/stack](https://github.com/signalwire/stack)  
+Commit Log: see all FreeSWITCH Enterprise commits here: [https://github.com/signalwire/stack/commits/master](https://github.com/signalwire/stack/commits/master)  
+If you have an issue: open ticket via support portal or email support@signalwire.com
+
+## Authentication required
+
+FreeSWITCH Advantage API Key Access Tokens (API_TOKEN)s are required to access FreeSWITCH Enterprise install packages.  
+[How To Create a FreeSWITCH Advantage API Key Access Token](../how-to-create-a-FSA-API-Key-access-token/index.mdx)  
+Use an API token to install FreeSWITCH Enterprise (do not use SignalWire Personal Access Tokens as they are for FreeSWITCH Community).
+
+## Note for different architectures
+
+This instruction is for all supported architectures.  
+[FSGET](https://github.com/signalwire/freeswitch/tree/master/scripts/packaging) script detects your system's architecture automatically when preparing it for installing or building FreeSWITCH.  
+We do not provide packages for 32 bit x86 systems.
+
+## Installing FreeSWITCH - Package or Source
+### Installing From Debian Packages
+
+#### Latest Release packages:
+
+```bash
+TOKEN=YOUR_API_TOKEN
+
+apt update && apt install -y curl
+curl -sSL https://freeswitch.org/fsget | bash -s $TOKEN release install
+```
+
+FreeSWITCH™ is now installed and can be accessed with
+
+##### FreeSWITCH CLI
+
+```bash
+fs_cli -rRS
+```
+
+Dev Branch ("git"):
+
+WARNING not suitable for production
+
+#### Master Test Packages:
+
+```bash
+TOKEN=YOUR_API_TOKEN
+
+apt update && apt install -y curl
+curl -sSL https://freeswitch.org/fsget | bash -s $TOKEN prerelease install
+```
+
+### Building Debian Packages From Dev Branch
+
+WARNING not suitable for production
+
+The master branch depends on different libraries which are not available as packages in Debian distribution, but are available from FreeSWITCH repository. Thus, you will need:  
+- internet access to the FreeSWITCH DEB repository using [FSGET](https://github.com/signalwire/freeswitch/tree/master/scripts/packaging) script or  
+- follow the ["How to build FreeSWITCH Dependencies"](https://github.com/signalwire/freeswitch/tree/master/scripts/packaging/build/dependencies) instruction.
+
+Building packages is automated using [FSDEB](https://github.com/signalwire/freeswitch/tree/master/scripts/packaging/build) script.
+
+#### Build your own .deb Master packages
+
+```bash
+TOKEN=YOUR_API_TOKEN
+
+apt update && apt install -y git curl
+curl -sSL https://freeswitch.org/fsget | bash -s $TOKEN
+
+cd /usr/src
+git clone https://github.com/signalwire/stack -b master
+
+curl -sSL https://freeswitch.org/fsdeb | bash -s -- -b 999 -o /usr/src/fsdebs/ -w /usr/src/stack
+# If the build is successful, you will have a bunch of .deb files in /usr/src/fsdebs
+```
+
+### Building From Source
+
+#### Compiling Release Branch (production):
+
+```bash
+TOKEN=YOUR_API_TOKEN
+
+apt update && apt install -y curl
+curl -sSL https://freeswitch.org/fsget | bash -s $TOKEN
+ 
+# Install dependencies required for the build
+apt-get build-dep freeswitch
+ 
+# then let's get the source. Use the -b flag to get a specific branch
+cd /usr/src/
+git clone -b release https://github.com/signalwire/stack.git
+cd stack
+ 
+# Because we're in a branch that will go through many rebases, it's
+# better to set this one, or you'll get CONFLICTS when pulling (update).
+git config pull.rebase true
+ 
+# ... and do the build
+./bootstrap.sh -j
+./configure
+make
+make install
+```
+
+#### Compiling Latest Dev (for testing):
+
+WARNING not suitable for production
+
+```bash
+TOKEN=YOUR_API_TOKEN
+
+apt update && apt install -y curl
+curl -sSL https://freeswitch.org/fsget | bash -s $TOKEN
+ 
+# Install dependencies required for the build
+apt-get build-dep freeswitch
+
+# Then let's get the source. Use the -b flag to get a specific branch
+cd /usr/src/
+git clone https://github.com/signalwire/stack.git
+cd stack
+
+# Because we're in a branch that will go through many rebases, it's
+# better to set this one, or you'll get CONFLICTS when pulling (update).
+git config pull.rebase true
+
+# ... and do the build
+
+# The -j argument spawns multiple threads to speed the build process, but causes trouble on some systems
+./bootstrap.sh -j
+
+# if you want to add or remove modules from the build, edit modules.conf
+vi modules.conf
+
+# add a module by removing '#' comment character at the beginning of the line
+# remove a module by adding the '#' comment character at the beginning of the line 
+# containing the name of the module to be skipped in the build process
+
+./configure
+make
+make install
+
+# Install audio files:
+make cd-sounds-install cd-moh-install
+
+# To update an installed build:
+cd /usr/src/stack
+make current
+```
+
+### Before Starting FreeSWITCH
+
+If you built FreeSWITCH™ from source code you should set file permissions and ownership before starting FreeSWITCH. 
+Follow the [post-installation instructions](./Deprecated-Installation-Instructions/Debian-Post-Install-Tasks_13172868.mdx#about).
+
+
