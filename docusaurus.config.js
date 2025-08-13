@@ -73,6 +73,12 @@ const config = {
             label: "Variables",
           },
           {
+            type: "doc",
+            docId: "FreeSWITCH-Explained/Modules/index",
+            position: "left",
+            label: "Modules",
+          },
+          {
             href: "pathname:///../guides",
             label: "SignalWire",
             position: "left",
