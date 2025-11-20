@@ -158,15 +158,12 @@ const config = {
   headTags: [],
   scripts: [
     {
-      src: "/freeswitch/scripts/apollo.js",
+      src: "/freeswitch/scripts/zoomInfo.js",
       async: true,
+      nonce: "SIGNALWIRE_DOCS_CSP_NONCE",
     },
     {
       src: "/freeswitch/scripts/fullstory.js",
-      async: true,
-    },
-    {
-      src: "/freeswitch/scripts/koala.js",
       async: true,
     },
     {
