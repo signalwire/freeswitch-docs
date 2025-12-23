@@ -9,6 +9,11 @@ const darkCodeTheme = Themes.dracula;
 /** @type {import('@docusaurus/types').Config} */
 const config = {
 
+  future: {
+    v4: true,
+    experimental_faster: true
+  },
+
   themes: [
     "docusaurus-theme-search-typesense",
   ],
@@ -16,9 +21,13 @@ const config = {
   url: "https://developer.signalwire.com",
   baseUrl: "/freeswitch/",
   onBrokenLinks: "throw",
-  onBrokenMarkdownLinks: "throw",
   onBrokenAnchors: "throw",
   favicon: "img/favicon.webp",
+  markdown: {
+    hooks: {
+      onBrokenMarkdownLinks: "throw"
+    }
+  },
 
   // Even if you don't use internalization, you can use this field to set useful
   // metadata like html lang. For example, if your site is Chinese, you may want
@@ -71,6 +80,12 @@ const config = {
             docId: "Channel-Variables-Catalog/index",
             position: "left",
             label: "Variables",
+          },
+          {
+            type: "doc",
+            docId: "FreeSWITCH-Explained/Modules/index",
+            position: "left",
+            label: "Modules",
           },
           {
             href: "pathname:///../guides",
@@ -143,15 +158,12 @@ const config = {
   headTags: [],
   scripts: [
     {
-      src: "/freeswitch/scripts/apollo.js",
+      src: "/freeswitch/scripts/zoomInfo.js",
       async: true,
+      nonce: "SIGNALWIRE_DOCS_CSP_NONCE",
     },
     {
       src: "/freeswitch/scripts/fullstory.js",
-      async: true,
-    },
-    {
-      src: "/freeswitch/scripts/koala.js",
       async: true,
     },
     {
