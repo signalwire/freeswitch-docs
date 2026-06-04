@@ -1,0 +1,277 @@
+---
+id: access-control-lists
+slug: /integration/acls
+title: "Chapter 29: Access Control Lists"
+sidebar_label: "29. Access Control Lists"
+---
+
+# Chapter 29: Access Control Lists
+
+An Access Control List (ACL) in FreeSWITCH is a named network list that evaluates an IP address against an ordered set of allow/deny rules, each matched by CIDR prefix, by host/mask pair, or by directory domain membership, and returns a pass or fail decision used by SIP profiles, the Event Socket, and other subsystems to accept or reject inbound connections.
+
+## Table of Contents
+
+- [29.1 Configuration File](#291-configuration-file)
+- [29.2 List Structure](#292-list-structure)
+- [29.3 Node Attributes](#293-node-attributes)
+- [29.4 Evaluation Order and Default Behavior](#294-evaluation-order-and-default-behavior)
+- [29.5 Automatic Built-in Lists](#295-automatic-built-in-lists)
+- [29.6 The domains List](#296-the-domains-list)
+- [29.7 Applying ACLs in a Sofia SIP Profile](#297-applying-acls-in-a-sofia-sip-profile)
+- [29.8 Applying ACLs in the Event Socket](#298-applying-acls-in-the-event-socket)
+- [29.9 Reloading ACLs](#299-reloading-acls)
+
+---
+
+## 29.1 Configuration File
+
+ACLs are defined in `conf/autoload_configs/acl.conf.xml`. The file is read by the FreeSWITCH core on startup and on an explicit reload. Its root element is `<configuration name="acl.conf">`, which contains a single `<network-lists>` parent holding one or more `<list>` elements.
+
+```xml
+<configuration name="acl.conf" description="Network Lists">
+  <network-lists>
+
+    <list name="trusted-carriers" default="deny">
+      <node type="allow" cidr="203.0.113.0/24"/>
+      <node type="allow" cidr="198.51.100.5/32"/>
+    </list>
+
+    <list name="internal-phones" default="deny">
+      <node type="allow" cidr="10.10.0.0/16"/>
+    </list>
+
+  </network-lists>
+</configuration>
+```
+
+---
+
+## 29.2 List Structure
+
+Each `<list>` element defines one named ACL. The attributes are:
+
+| Attribute | Purpose | Values | Default |
+|-----------|---------|--------|---------|
+| `name` | Unique identifier for the list; referenced by name wherever an ACL is applied. | Any string | Required; no default |
+| `default` | Decision returned when no node matches the candidate IP. | `allow`, `deny` | `allow` |
+
+A list may contain zero or more `<node>` child elements. When a list contains no nodes, every IP address resolves to the `default` decision.
+
+---
+
+## 29.3 Node Attributes
+
+Each `<node>` element specifies one rule. The `type` attribute controls the decision the node produces when it matches. The match criterion is provided by `cidr`, by `host` and `mask` together, or by `domain`. Exactly one of these forms must be used per node.
+
+Port-based filtering attributes (`port`, `ports`, `port-min`, `port-max`) are optional and may be combined with any match criterion.
+
+### Match attributes
+
+| Attribute | Purpose | Values | Notes |
+|-----------|---------|--------|-------|
+| `type` | Decision when this node matches. | `allow`, `deny` | Defaults to the list `default` when omitted. |
+| `cidr` | IPv4 or IPv6 prefix in CIDR notation. Matches any address within the prefix. | e.g. `192.168.0.0/16`, `2001:db8::/32` | Mutually exclusive with `host`/`mask` and `domain`. |
+| `host` | Host IP address used with `mask` for non-CIDR subnet matching. | IPv4 address string | Must be paired with `mask`. |
+| `mask` | Subnet mask paired with `host`. | IPv4 netmask string, e.g. `255.255.255.0` | Must be paired with `host`. |
+| `domain` | Directory domain name. Expands at load time to individual CIDR entries derived from the `cidr` attribute on each user in that domain. See Section 29.6. | Domain string, e.g. `$${domain}` | Mutually exclusive with `cidr` and `host`/`mask`. |
+
+### Port filter attributes
+
+| Attribute | Purpose | Values |
+|-----------|---------|--------|
+| `port` | Match only when the source port equals this value. | Integer port number |
+| `ports` | Match only when the source port is one of the comma-separated values. | e.g. `5060,5061` |
+| `port-min` | Low bound of a port range (inclusive). | Integer port number |
+| `port-max` | High bound of a port range (inclusive). | Integer port number |
+
+Port filtering applies only when the calling subsystem passes a non-zero port to the ACL check. Sofia SIP profiles enable port-based ACL evaluation with `use-port-for-acl-check`.
+
+**CIDR node example:**
+
+```xml
+<node type="allow" cidr="10.0.0.0/8"/>
+<node type="deny"  cidr="10.99.0.0/24"/>
+```
+
+**Host/mask node example:**
+
+```xml
+<node type="allow" host="192.168.1.0" mask="255.255.255.0"/>
+```
+
+**Domain node example:**
+
+```xml
+<node type="allow" domain="$${domain}"/>
+```
+
+---
+
+## 29.4 Evaluation Order and Default Behavior
+
+FreeSWITCH evaluates nodes in document order (top to bottom). When a node matches the candidate IP, that node's `type` is returned immediately and no further nodes are checked. If no node matches, the list's `default` attribute determines the outcome.
+
+The practical consequence: place more-specific rules before less-specific ones. A `/32` deny placed before a `/16` allow will prevent that single host from matching the broader allow.
+
+**Example: allow a subnet but exclude one address**
+
+```xml
+<list name="lan" default="allow">
+  <node type="deny"  cidr="192.168.42.0/24"/>
+  <node type="allow" cidr="192.168.42.42/32"/>
+</list>
+```
+
+In this example, `192.168.42.42` matches the first `deny` node and is rejected. The second node is never reached. To allow that address selectively, place the `allow` node first:
+
+```xml
+<list name="lan" default="allow">
+  <node type="allow" cidr="192.168.42.42/32"/>
+  <node type="deny"  cidr="192.168.42.0/24"/>
+</list>
+```
+
+Now `192.168.42.42` matches the first node and is allowed; all other addresses in `192.168.42.0/24` match the second node and are denied; addresses outside that range fall through to the `default` of `allow`.
+
+---
+
+## 29.5 Automatic Built-in Lists
+
+FreeSWITCH creates the following lists automatically at startup, before `acl.conf.xml` is processed. They are available for use in any configuration that accepts an ACL name. Defining a `<list>` in `acl.conf.xml` with one of these names replaces the auto-built list.
+
+### Auto-list reference
+
+| List name | Default | Denied prefixes (explicit deny nodes) | Allowed prefixes (explicit allow nodes) |
+|-----------|---------|--------------------------------------|----------------------------------------|
+| `loopback.auto` | `deny` | none | `127.0.0.0/8`, `::1/128` |
+| `rfc1918.auto` | `deny` | none | `10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`, `fe80::/10` |
+| `rfc6598.auto` | `deny` | none | `100.64.0.0/10` |
+| `localnet.auto` | `deny` | none | Host's detected local subnet (IPv4 address and mask at startup) |
+| `nat.auto` | `deny` | Host's detected local subnet (deny) | `10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`, `100.64.0.0/10` |
+| `wan.auto` | `allow` | `0.0.0.0/8`, `10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`, `169.254.0.0/16`, `100.64.0.0/10`, `fe80::/10` | none |
+| `wan_v4.auto` | `allow` | `0.0.0.0/8`, `10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`, `169.254.0.0/16`, `100.64.0.0/10`, `::/0` | none |
+| `wan_v6.auto` | `allow` | `0.0.0.0/0`, `fe80::/10` | none |
+| `any_v4.auto` | `allow` | `::/0` | none |
+| `any_v6.auto` | `allow` | `0.0.0.0/0` | none |
+
+### Notes on specific lists
+
+**`nat.auto`** is intended for NAT detection, not access control. It first adds a deny entry for the host's locally detected IP and subnet, then adds allow entries for the RFC 1918 private ranges and RFC 6598 shared address space (`100.64.0.0/10`). Because deny takes priority over the wider allow entries for the local subnet, addresses that are both local and RFC 1918 (the common case) are denied. Sofia SIP profiles use this list with `apply-nat-acl` to determine whether a peer is behind NAT.
+
+**`localnet.auto`** is populated with a single allow entry derived by detecting the host's primary IPv4 address and its subnet mask at startup (or reload). It is not useful on multi-homed hosts where `localnet.auto` represents only one interface.
+
+**`wan_v4.auto`** is `wan.auto` with the addition of `::/0` denied, making it reject all IPv6 addresses.
+
+**`wan_v6.auto`** denies `0.0.0.0/0` (all IPv4) and `fe80::/10` (link-local IPv6). It is intended for contexts that should accept only global IPv6 addresses.
+
+**`any_v4.auto`** accepts all IPv4 by denying only `::/0`.
+
+**`any_v6.auto`** accepts all IPv6 by denying only `0.0.0.0/0`.
+
+---
+
+## 29.6 The domains List
+
+The `domains` list included in the vanilla `acl.conf.xml` is a convention, not a built-in. It uses the `domain` node form to build its membership dynamically from the FreeSWITCH directory at load time.
+
+```xml
+<list name="domains" default="deny">
+  <!-- domain= scans the directory to build the ACL -->
+  <node type="allow" domain="$${domain}"/>
+  <!-- use cidr= to allow additional IP ranges -->
+  <!-- <node type="allow" cidr="192.168.0.0/24"/> -->
+</list>
+```
+
+When FreeSWITCH loads this list, it opens the directory for the specified domain and iterates every user. For each user that has a `cidr` attribute on its `<user>` element, FreeSWITCH inserts an allow entry into the list, storing the CIDR and a token of the form `user@domain`. Users without a `cidr` attribute are not added. Users in groups are processed identically.
+
+When a SIP profile applies the `domains` list with `apply-inbound-acl`, and an inbound request's source IP matches a user's CIDR entry, FreeSWITCH associates the request with that user's identity token and applies the user's variables and parameters as if digest authentication had succeeded.
+
+The list is populated at ACL load time (startup or `reloadacl`). Changes to user `cidr` attributes in the directory take effect only after a reload.
+
+---
+
+## 29.7 Applying ACLs in a Sofia SIP Profile
+
+Sofia SIP profiles accept multiple ACL parameters inside the `<settings>` block. Multiple entries of the same parameter name accumulate up to a limit of 100 entries. Setting a parameter's value to `none` clears all previously accumulated entries for that parameter.
+
+### Sofia ACL parameter reference
+
+| Parameter | When evaluated | Effect of failure |
+|-----------|---------------|-------------------|
+| `apply-inbound-acl` | On every inbound SIP request | Request rejected with 403, or routed to `fail-context` if specified |
+| `apply-register-acl` | On `REGISTER` requests only | Registration rejected |
+| `apply-proxy-acl` | Identifies trusted proxy IPs; checked when `apply-inbound-acl` fails | Enables proxy-forwarded IP trust; see below |
+| `apply-nat-acl` | Checked against the source IP to detect NAT | Influences NAT traversal behavior, not access control |
+| `apply-candidate-acl` | Checked against ICE candidates | Candidate rejected |
+
+### Extended context syntax for `apply-inbound-acl`
+
+`apply-inbound-acl` accepts an extended syntax for dialplan context routing on ACL pass or fail:
+
+```
+<param name="apply-inbound-acl" value="list-name:pass-context:fail-context"/>
+```
+
+When the source IP passes the named list, the call is routed to `pass-context`. When it fails, the call is routed to `fail-context` rather than receiving an immediate 403. Either context name may be omitted to leave routing unchanged for that outcome. An empty `fail-context` with `apply-inbound-acl` causes the profile to fall back to digest authentication on ACL failure (when `auth-calls` is enabled).
+
+### Proxy trust: `apply-proxy-acl`
+
+When `apply-inbound-acl` evaluation fails for a source IP, Sofia checks whether that IP passes any `apply-proxy-acl` list. If it does, FreeSWITCH inspects the `X-AUTH-IP` header for the real client IP and re-evaluates `apply-inbound-acl` against that header value. Port checking uses the `X-AUTH-PORT` header when `use-port-for-acl-check` is enabled.
+
+### Additional profile parameters related to ACL
+
+| Parameter | Purpose | Values | Default |
+|-----------|---------|--------|---------|
+| `apply-inbound-acl-x-token` | SIP header name to read an ACL token from when the inbound ACL matches but no token is present in the list. | Header name string | None |
+| `apply-proxy-acl-x-token` | SIP header name to read an ACL token from when the source IP passes the proxy ACL. The token is accepted and the call is authorized without further IP checking. | Header name string | None |
+| `auth-calls-acl-only` | When `true`, rejects any call that fails ACL checks even when `auth-calls` is enabled, bypassing fallback to digest authentication. | `true`, `false` | `false` |
+| `use-port-for-acl-check` | When `true`, the source port is included in ACL evaluation, enabling port-qualified ACL rules. | `true`, `false` | `false` |
+
+### Configuration example
+
+```xml
+<profile name="internal">
+  <settings>
+    <param name="apply-inbound-acl" value="trusted-carriers"/>
+    <param name="apply-inbound-acl" value="internal-phones"/>
+    <param name="apply-register-acl" value="internal-phones"/>
+    <param name="apply-nat-acl"      value="nat.auto"/>
+  </settings>
+</profile>
+```
+
+For full Sofia profile configuration, see the Sofia SIP Profile chapter.
+
+---
+
+## 29.8 Applying ACLs in the Event Socket
+
+The Event Socket module (`mod_event_socket`) reads its configuration from `conf/autoload_configs/event_socket.conf.xml`. The `apply-inbound-acl` parameter restricts which IP addresses may connect to the socket.
+
+```xml
+<configuration name="event_socket.conf" description="Socket Client">
+  <settings>
+    <param name="listen-ip"          value="::"/>
+    <param name="listen-port"        value="8021"/>
+    <param name="password"           value="ClueCon"/>
+    <param name="apply-inbound-acl"  value="loopback.auto"/>
+  </settings>
+</configuration>
+```
+
+When one or more `apply-inbound-acl` entries are present, each connecting IP is checked against every named list in order. If the IP fails any list, the connection is rejected immediately with a `text/rude-rejection` response and closed; remaining lists are not checked.
+
+When no `apply-inbound-acl` parameter is configured, the module defaults to `loopback.auto`, restricting connections to the loopback interface. Multiple `apply-inbound-acl` parameters accumulate. For full Event Socket configuration, see the Event Socket chapter.
+
+---
+
+## 29.9 Reloading ACLs
+
+ACLs can be reloaded without restarting FreeSWITCH by issuing the following API command from `fs_cli` or the Event Socket:
+
+```
+reloadacl
+```
+
+The command first reloads the XML configuration (`reloadxml`) and then rebuilds all network lists. User-defined lists from `acl.conf.xml` are reconstructed, including re-scanning directory domains for user `cidr` attributes. The built-in automatic lists (`rfc1918.auto`, `loopback.auto`, etc.) are also recreated from the current network state.

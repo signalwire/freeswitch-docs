@@ -1,0 +1,339 @@
+---
+id: webrtc-verto
+slug: /endpoints/verto
+title: "Chapter 9: WebRTC with Verto"
+sidebar_label: "9. WebRTC with Verto"
+---
+
+# Chapter 9: WebRTC with Verto
+
+Verto (VERto Telephone Overlay) is a JSON-RPC signaling protocol transported over WebSocket that lets browser and other WebRTC endpoints register to FreeSWITCH, place and receive calls, and exchange media entirely within a standard HTTPS/WSS stack without requiring a SIP stack on the client side.
+
+## Table of Contents
+
+- [1. Overview](#1-overview)
+- [2. Module Loading](#2-module-loading)
+- [3. Profile Structure](#3-profile-structure)
+- [4. Global Settings](#4-global-settings)
+- [5. Profile Parameter Reference](#5-profile-parameter-reference)
+- [6. Secure WebSocket (WSS)](#6-secure-websocket-wss)
+- [7. User Directory Integration](#7-user-directory-integration)
+- [8. The Role of mod_rtc](#8-the-role-of-mod_rtc)
+- [9. Codec Selection for Browser Media](#9-codec-selection-for-browser-media)
+- [10. IPv4 and IPv6 Profiles](#10-ipv4-and-ipv6-profiles)
+- [11. Browser Media: SRTP, DTLS, and ICE](#11-browser-media-srtp-dtls-and-ice)
+
+---
+
+## 1. Overview
+
+`mod_verto` implements the server side of the Verto protocol. A browser client connects over a WebSocket (plain WS or encrypted WSS), authenticates using credentials stored in the FreeSWITCH user directory, and then exchanges JSON-RPC messages to initiate or receive calls. The actual media (audio, video) flows over SRTP using ICE candidate negotiation, coordinated by `mod_rtc`.
+
+Key characteristics:
+
+- Each Verto profile binds to one or more `ip:port` pairs; each binding can independently be plain or secure.
+- Profiles map to a FreeSWITCH `context` and `dialplan`, so Verto calls enter the same dialplan routing as SIP calls.
+- Authentication reuses the existing `directory` XML user database.
+
+---
+
+## 2. Module Loading
+
+Add both `mod_verto` and `mod_rtc` to `autoload_configs/modules.conf.xml`:
+
+```xml
+<load module="mod_rtc"/>
+<load module="mod_verto"/>
+```
+
+`mod_rtc` must load before `mod_verto`; list it first.
+
+---
+
+## 3. Profile Structure
+
+`verto.conf.xml` contains a top-level `<settings>` block for module-wide parameters and a `<profiles>` block holding one or more named `<profile>` elements.
+
+```xml
+<configuration name="verto.conf" description="HTML5 Verto Endpoint">
+
+  <settings>
+    <param name="debug" value="0"/>
+    <param name="detach-timeout-sec" value="120"/>
+    <param name="enable-presence" value="true"/>
+    <param name="enable-fs-events" value="false"/>
+  </settings>
+
+  <profiles>
+    <profile name="default-v4">
+      <param name="bind-local" value="$${local_ip_v4}:8081"/>
+      <param name="bind-local" value="$${local_ip_v4}:8082" secure="true"/>
+      <param name="force-register-domain" value="$${domain}"/>
+      <param name="secure-combined" value="$${certs_dir}/wss.pem"/>
+      <param name="secure-chain"    value="$${certs_dir}/wss.pem"/>
+      <param name="userauth" value="true"/>
+      <param name="blind-reg" value="false"/>
+      <param name="mcast-ip"   value="224.1.1.1"/>
+      <param name="mcast-port" value="1337"/>
+      <param name="rtp-ip"     value="$${local_ip_v4}"/>
+      <param name="ext-rtp-ip" value="$${external_rtp_ip}"/>
+      <param name="local-network" value="localnet.auto"/>
+      <param name="outbound-codec-string" value="opus,h264,vp8"/>
+      <param name="inbound-codec-string"  value="opus,h264,vp8"/>
+      <param name="apply-candidate-acl" value="localnet.auto"/>
+      <param name="apply-candidate-acl" value="wan_v4.auto"/>
+      <param name="apply-candidate-acl" value="rfc1918.auto"/>
+      <param name="apply-candidate-acl" value="any_v4.auto"/>
+      <param name="timer-name" value="soft"/>
+    </profile>
+  </profiles>
+
+</configuration>
+```
+
+A `bind-local` entry without `secure="true"` binds a plain WebSocket listener. The same entry with `secure="true"` binds a TLS-wrapped (WSS) listener. Both can appear within the same profile; the TLS binding requires `secure-combined` (or `secure-cert` plus `secure-key`) to be set.
+
+---
+
+## 4. Global Settings
+
+These parameters appear inside `<settings>` and apply to the entire module, not to individual profiles.
+
+| Parameter | Purpose | Values | Default |
+|-----------|---------|--------|---------|
+| `debug` | Module-wide debug verbosity. Applied to all profiles unless overridden at the profile level. | Integer `0`-`10` | `0` |
+| `detach-timeout-sec` | Seconds to hold a channel after a client disconnects before hanging it up. Must be a positive integer; non-positive values are ignored. | Positive integer | `120` |
+| `enable-presence` | Broadcast FreeSWITCH presence events to connected Verto clients. | `true` / `false` | `true` |
+| `enable-fs-events` | Broadcast all FreeSWITCH events to connected Verto clients. | `true` / `false` | `false` |
+| `send-auth-password` | Send the authenticating user's password back to the client on successful login. Applies module-wide; can be overridden per profile. | `true` / `false` | `false` |
+| `kslog` | Enable internal KS (libks) debug logging. | `true` / `false` | `false` |
+
+---
+
+## 5. Profile Parameter Reference
+
+All parameters below appear inside a `<profile>` element.
+
+### Binding
+
+| Parameter | Purpose | Values | Default |
+|-----------|---------|--------|---------|
+| `bind-local` | IP address and port to listen on. Repeatable; maximum 25 entries per profile. Add the attribute `secure="true"` to make that binding a WSS listener. IPv6 addresses must be enclosed in brackets, e.g., `[$${local_ip_v6}]:8082`. At least one `bind-local` entry is required; the profile is discarded at startup if none is valid. | `ip:port` string | None (required) |
+
+### TLS / WSS
+
+| Parameter | Purpose | Values | Default |
+|-----------|---------|--------|---------|
+| `secure-combined` | Path to a PEM file containing both the certificate and the private key concatenated. Sets both cert and key from a single file. | File path | None |
+| `secure-cert` | Path to the TLS certificate PEM file. Used when cert and key are in separate files. | File path | None |
+| `secure-key` | Path to the TLS private key PEM file. Used when cert and key are in separate files. | File path | None |
+| `secure-chain` | Path to the certificate chain (CA bundle) PEM file. | File path | None |
+
+### Authentication
+
+| Parameter | Purpose | Values | Default |
+|-----------|---------|--------|---------|
+| `userauth` | Require clients to authenticate against the FreeSWITCH user directory. Set to `true` to enable authentication; the login username is split on `@` to derive the user ID and domain (subject to `chop-domain`). Set to `@domain` (e.g., `@example.com`) to force the lookup domain to that value and treat the entire login string as the user ID. Authentication is bypassed when this parameter is absent or empty, unless `root-password` is configured. | `true` / `@domain` string | None (auth disabled if absent) |
+| `blind-reg` | Allow any client to register even without a matching directory entry. Enable only in controlled environments. | `true` / `false` | `false` |
+| `root-password` | A special administrative password. A client authenticating as `root` with this password bypasses the directory lookup. | String | None |
+| `send-auth-password` | Send the user's password back to the client on successful authentication. | `true` / `false` | `false` |
+| `chop-domain` | Strip the domain portion from the username before performing the directory lookup. | `true` / `false` | `true` |
+
+### Domain and Dialplan
+
+| Parameter | Purpose | Values | Default |
+|-----------|---------|--------|---------|
+| `force-register-domain` | Domain to use for all registrations regardless of the domain the client presents. | Domain string | None |
+| `context` | FreeSWITCH dialplan context that inbound Verto calls enter. | Context name string | `default` |
+| `dialplan` | Dialplan module to use for routing inbound calls. | `XML` or other dialplan module name | `XML` |
+
+### Media and ICE
+
+| Parameter | Purpose | Values | Default |
+|-----------|---------|--------|---------|
+| `rtp-ip` | Local IP address used for RTP media. Repeatable; up to 25 IPv4 addresses and 25 IPv6 addresses may be listed. Values containing `:` are treated as IPv6 addresses and stored in a separate pool. | IP address string | None |
+| `ext-rtp-ip` | External (NAT) IP address advertised in SDP for RTP. Accepts a literal IP, a FreeSWITCH variable such as `$${external_rtp_ip}`, or a STUN URI (e.g., `stun:stun.example.com`). The value is resolved at load time via `switch_stun_ip_lookup`. | IP address or `stun:host` | None |
+| `local-network` | ACL name identifying addresses considered local. Used to determine whether `ext-rtp-ip` should be advertised instead of `rtp-ip`. | ACL name string | `localnet.auto` |
+| `apply-candidate-acl` | ACL name used to filter ICE candidates offered by the remote client. Repeatable; candidates matching any listed ACL are accepted. Maximum entries bounded by `SWITCH_MAX_CAND_ACL`. | ACL name string | None |
+| `apply-connection-acl` | ACL name used to filter WebSocket connection sources by remote IP. Repeatable. Maximum entries bounded by `SWITCH_MAX_CAND_ACL`. | ACL name string | None |
+| `mcast-ip` | Multicast IP address for distributing Verto events across a cluster of FreeSWITCH nodes. | Multicast IP address string | None |
+| `mcast-port` | UDP port for the multicast event stream. | Port integer | None |
+
+### Codecs and Jitter Buffer
+
+| Parameter | Purpose | Values | Default |
+|-----------|---------|--------|---------|
+| `outbound-codec-string` | Comma-separated list of codecs offered to the remote (browser) side for outbound calls. | Codec name list | `opus,vp8` |
+| `inbound-codec-string` | Comma-separated list of codecs accepted from the remote side for inbound calls. Defaults to the `outbound-codec-string` value if not set. | Codec name list | Same as `outbound-codec-string` |
+| `auto-jitterbuffer-msec` | Jitter buffer configuration string passed to `mod_rtc` for media sessions on this profile. The format is `min:max` where values may be expressed in milliseconds (e.g., `60`) or as packet counts with a `p` suffix (e.g., `1p:20p`). | String, e.g., `60` or `1p:20p` | `1p:20p` |
+
+### Timer and Miscellaneous
+
+| Parameter | Purpose | Values | Default |
+|-----------|---------|--------|---------|
+| `timer-name` | FreeSWITCH timer used for media pacing on this profile. | `soft` or other registered timer name | `soft` |
+| `debug` | Per-profile debug verbosity. Checked alongside the global `debug` value; the effective debug level is whichever is non-zero. | Integer `0`-`10` | `0` |
+| `enable-text` | Enable text channel support for this profile. The parser enables the text channel whenever this parameter is present, regardless of its value; the conventional value is `true`. | Any value (presence enables) | Disabled if absent |
+
+---
+
+## 6. Secure WebSocket (WSS)
+
+Browsers require WSS for WebRTC; plain WebSocket connections from an HTTPS page are blocked by browser security policy. A Verto profile serves WSS when at least one `bind-local` entry carries `secure="true"` and the TLS material is configured.
+
+**Single combined PEM file (recommended)**
+
+Concatenate the server certificate, any intermediate certificates, and the private key into one file:
+
+```xml
+<param name="secure-combined" value="$${certs_dir}/wss.pem"/>
+<param name="secure-chain"    value="$${certs_dir}/wss.pem"/>
+```
+
+**Separate cert and key files**
+
+```xml
+<param name="secure-cert"  value="/etc/ssl/certs/server.crt"/>
+<param name="secure-key"   value="/etc/ssl/private/server.key"/>
+<param name="secure-chain" value="/etc/ssl/certs/ca-bundle.crt"/>
+```
+
+The variable `$${certs_dir}` expands to the FreeSWITCH certificates directory, typically `/etc/freeswitch/tls`. A self-signed certificate is acceptable for testing but will cause browser security warnings unless the certificate is added to the system trust store or the browser is configured to accept it.
+
+Port convention: port `8081` for plain WS, port `8082` for WSS. These are defaults used in the vanilla configuration; they are not required by the protocol.
+
+---
+
+## 7. User Directory Integration
+
+When `userauth` is set to `true` (or to `@domain`), `mod_verto` authenticates connecting clients against the standard FreeSWITCH user directory (the same `directory` XML tree used by `mod_sofia`). No separate Verto-specific user database is needed.
+
+The client sends a JSON-RPC `login` request. FreeSWITCH resolves the user ID and domain from the login string (see `userauth` and `chop-domain` parameter descriptions), looks up the user in the directory, and compares the supplied password against the `password` parameter in the `<user>` record.
+
+**Forcing the domain**
+
+Use `force-register-domain` to override whatever domain the client presents. This is useful when clients may not know the correct domain or when all users belong to one domain:
+
+```xml
+<param name="force-register-domain" value="$${domain}"/>
+```
+
+**Per-user dialplan overrides**
+
+Two user-level directory parameters influence call routing for Verto clients:
+
+- `verto-context`: overrides the profile-level `context` for that user.
+- `verto-dialplan`: overrides the profile-level `dialplan` for that user.
+
+These are set as `<param>` entries inside the user's `<params>` block in the directory:
+
+```xml
+<user id="1000">
+  <params>
+    <param name="password" value="yourpassword"/>
+    <param name="verto-context" value="public"/>
+    <param name="verto-dialplan" value="XML"/>
+  </params>
+</user>
+```
+
+**Root password**
+
+The `root-password` parameter defines a superuser credential. A client authenticating as username `root` with this password bypasses the directory lookup entirely. Use this only for administrative tooling and protect the password accordingly.
+
+---
+
+## 8. The Role of mod_rtc
+
+`mod_rtc` is the WebRTC media engine that `mod_verto` relies on for ICE negotiation, DTLS-SRTP key exchange, and RTP/RTCP handling. It does not expose its own configuration file; all media-related behavior is driven by the parameters set on the Verto profile (`rtp-ip`, `ext-rtp-ip`, `apply-candidate-acl`, codec strings, etc.).
+
+Loading `mod_rtc` before `mod_verto` is required. If `mod_rtc` is absent, `mod_verto` will fail to process media for WebRTC calls.
+
+---
+
+## 9. Codec Selection for Browser Media
+
+Browser WebRTC implementations mandate support for specific codecs. The `outbound-codec-string` and `inbound-codec-string` profile parameters control which codecs FreeSWITCH offers and accepts in SDP negotiation with Verto clients.
+
+**Audio**
+
+- `opus` is the mandatory audio codec in WebRTC (RFC 7874). All major browsers support it. Place `opus` first in the codec string to ensure it is preferred.
+
+**Video**
+
+- `vp8` is required by the WebRTC specification (RFC 7742) for compliant implementations.
+- `vp9` provides better compression than VP8 and is widely supported but not universally mandatory.
+- `h264` (H.264 Constrained Baseline Profile) is broadly supported across browsers, including Safari, and is required by some environments. Availability may depend on whether a hardware codec or a licensed software codec is present on the server.
+
+Recommended codec string for broad browser compatibility:
+
+```xml
+<param name="outbound-codec-string" value="opus,h264,vp8"/>
+<param name="inbound-codec-string"  value="opus,h264,vp8"/>
+```
+
+The codec list is evaluated in order; the first codec that both sides support is selected. Codecs that FreeSWITCH does not have loaded as modules are silently skipped during negotiation. Ensure `mod_opus`, `mod_h264`, and `mod_vpx` (for VP8/VP9) are loaded in `modules.conf.xml`.
+
+---
+
+## 10. IPv4 and IPv6 Profiles
+
+The vanilla configuration ships with two profiles: `default-v4` (IPv4) and `default-v6` (IPv6). They are structurally identical except for the IP address variables and the ICE candidate ACLs.
+
+For IPv6 bindings, wrap the address in brackets:
+
+```xml
+<param name="bind-local" value="[$${local_ip_v6}]:8081"/>
+<param name="bind-local" value="[$${local_ip_v6}]:8082" secure="true"/>
+```
+
+The vanilla IPv6 profile does not define `ext-rtp-ip` because external IPv6 addresses are typically globally routable and do not require a NAT translation. Add this parameter if the server is behind an IPv6 NAT or a firewall that translates addresses.
+
+Both profiles can be active simultaneously. A client that connects to the IPv6 listener uses the IPv6 profile's settings; a client connecting to the IPv4 listener uses the IPv4 profile's settings.
+
+---
+
+## 11. Browser Media: SRTP, DTLS, and ICE
+
+`mod_verto` uses the same core media engine (`mod_rtc` plus `switch_core_media`) as SIP-over-WSS. The browser media path is identical: DTLS-SRTP for encryption, ICE for NAT traversal. The profile parameters that control this path are `rtp-ip`, `ext-rtp-ip`, `local-network`, and `apply-candidate-acl`.
+
+### DTLS-SRTP
+
+FreeSWITCH activates DTLS-SRTP automatically when a Verto client's SDP offer contains `a=fingerprint`. No Verto profile parameter enables or disables DTLS-SRTP. FreeSWITCH reads the remote fingerprint, generates a local fingerprint from `$${certs_dir}/dtls-srtp.pem` (creating a self-signed certificate if that file does not exist), and includes `a=fingerprint` and `a=setup` in its SDP answer.
+
+The DTLS certificate used for Verto media (`dtls-srtp.pem`) is the same file used for SIP-over-WSS media. It is distinct from the WSS signaling certificate (`wss.pem`). See section 5.1 of the WebRTC over SIP (WSS) chapter for the full description of `a=setup` role negotiation and fingerprint hash behavior.
+
+### ICE: Candidates and Filtering
+
+FreeSWITCH generates ICE credentials and candidates per session. The candidate addresses are derived from the profile's `rtp-ip` (host candidate) and `ext-rtp-ip` (srflx candidate, when set and differing from `rtp-ip`). The `local-network` ACL governs whether the external address is used in place of the local address when composing SDP for a connecting client.
+
+```xml
+<param name="rtp-ip"     value="$${local_ip_v4}"/>
+<param name="ext-rtp-ip" value="$${external_rtp_ip}"/>
+<param name="local-network" value="localnet.auto"/>
+```
+
+Candidates in the browser's SDP offer are filtered by `apply-candidate-acl`. An incoming candidate is accepted only if its IP matches at least one listed ACL. The parameter is repeatable; maximum 25 entries (`SWITCH_MAX_CAND_ACL`). When all non-relay candidates are discarded, FreeSWITCH falls back to evaluating relay candidates.
+
+```xml
+<param name="apply-candidate-acl" value="localnet.auto"/>
+<param name="apply-candidate-acl" value="wan_v4.auto"/>
+<param name="apply-candidate-acl" value="rfc1918.auto"/>
+<param name="apply-candidate-acl" value="any_v4.auto"/>
+```
+
+Only UDP candidates are processed. TCP candidates from the browser are ignored.
+
+### STUN and TURN
+
+The `stun:` prefix on `ext-rtp-ip` causes FreeSWITCH to query a STUN server at profile load time to resolve its public address. This is the only STUN interaction FreeSWITCH performs:
+
+```xml
+<param name="ext-rtp-ip" value="stun:stun.example.com"/>
+```
+
+`mod_verto` resolves `ext-rtp-ip` via `switch_stun_ip_lookup` at load time. After the address is resolved, it is stored on the profile and used for the lifetime of the profile without further STUN queries.
+
+FreeSWITCH does not use TURN relays. TURN server credentials are configured on the browser client. When the browser advertises a relay candidate in its SDP, FreeSWITCH treats it as any other remote candidate address, subject to `apply-candidate-acl`. The relay is transparent to FreeSWITCH.
+
+For the full treatment of server-side NAT traversal parameters (`ext-rtp-ip`, `ext-sip-ip`, `auto-nat`), refer to the Media Handling chapter's NAT Traversal section.

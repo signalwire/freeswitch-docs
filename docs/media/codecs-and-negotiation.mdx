@@ -1,0 +1,389 @@
+---
+id: codecs-and-negotiation
+slug: /media/codecs
+title: "Chapter 16: Codecs and Negotiation"
+sidebar_label: "16. Codecs and Negotiation"
+---
+
+# Chapter 16: Codecs and Negotiation
+
+FreeSWITCH selects codecs through a standard SDP offer/answer exchange and applies an ordered preference list at each stage of call setup. This chapter documents how that preference list is constructed, where it is configured, how inbound negotiation policy is set, how SRTP crypto suites are ordered, and which codec modules ship with the vanilla build.
+
+## Table of Contents
+
+- [16.1 How Codec Negotiation Works](#161-how-codec-negotiation-works)
+- [16.2 Codec Preference Strings](#162-codec-preference-strings)
+  - [16.2.1 Global Variables](#1621-global-variables)
+  - [16.2.2 SIP Profile Parameters](#1622-sip-profile-parameters)
+  - [16.2.3 Channel Variables](#1623-channel-variables)
+- [16.3 Inbound Codec Negotiation Policy](#163-inbound-codec-negotiation-policy)
+- [16.4 Ptime and the Codec String Format](#164-ptime-and-the-codec-string-format)
+- [16.5 Transcoding](#165-transcoding)
+- [16.6 SRTP Crypto Suites](#166-srtp-crypto-suites)
+- [16.7 Bundled Codec Reference](#167-bundled-codec-reference)
+- [16.8 Opus Configuration](#168-opus-configuration)
+- [16.9 AMR Configuration](#169-amr-configuration)
+- [16.10 AMR-WB Configuration](#1610-amr-wb-configuration)
+
+---
+
+## 16.1 How Codec Negotiation Works
+
+FreeSWITCH follows RFC 3264 offer/answer semantics. When an inbound INVITE arrives, `mod_sofia` compares the codec list in the remote SDP offer against the locally configured preference list. The intersection, ordered by the local preference list (or the remote list, depending on the negotiation policy described in section 16.3), becomes the negotiated codec set for the session.
+
+For outbound calls, FreeSWITCH generates an SDP offer from the outbound codec preference list and accepts the first mutually supported codec in the answer.
+
+When a call is bridged between two legs that share a common codec and transcoding is not required, FreeSWITCH can pass RTP directly between legs without decoding or re-encoding the audio. When the two legs do not share a codec, or when features that require media access (such as recording or conferencing) are in use, FreeSWITCH decodes and re-encodes the audio, performing transcoding between the two legs.
+
+---
+
+## 16.2 Codec Preference Strings
+
+A codec preference string is a comma-separated list of codec tokens. Each token identifies a codec and, optionally, a sample rate and packetization time. The resolution order from highest to lowest precedence is:
+
+1. The `absolute_codec_string` channel variable (if set, used verbatim with no merging)
+2. The `codec_string` channel variable
+3. The SIP profile `inbound-codec-prefs` or `outbound-codec-prefs` parameter
+4. The `global_codec_prefs` or `outbound_codec_prefs` global variable
+
+### 16.2.1 Global Variables
+
+Defined in `conf/vanilla/vars.xml`:
+
+```xml
+<X-PRE-PROCESS cmd="set" data="global_codec_prefs=OPUS,G722,PCMU,PCMA,H264,VP8"/>
+<X-PRE-PROCESS cmd="set" data="outbound_codec_prefs=OPUS,G722,PCMU,PCMA,H264,VP8"/>
+```
+
+`global_codec_prefs` is the default inbound codec preference list. `outbound_codec_prefs` is the default outbound codec preference list. Both are preprocessor variables, meaning they are expanded at configuration load time and are available to other config files as `$${global_codec_prefs}` and `$${outbound_codec_prefs}`.
+
+### 16.2.2 SIP Profile Parameters
+
+Within a SIP profile (`conf/vanilla/sip_profiles/*.xml`), two parameters control per-profile codec preferences:
+
+| Parameter | Purpose |
+|---|---|
+| `inbound-codec-prefs` | Codec preference list applied to incoming calls on this profile |
+| `outbound-codec-prefs` | Codec preference list applied to outgoing calls on this profile |
+
+The vanilla internal profile sets both to `$${global_codec_prefs}`:
+
+```xml
+<param name="inbound-codec-prefs" value="$${global_codec_prefs}"/>
+<param name="outbound-codec-prefs" value="$${global_codec_prefs}"/>
+```
+
+A profile-level codec preference overrides the global variable for calls handled by that profile.
+
+### 16.2.3 Channel Variables
+
+Two channel variables allow per-call codec control from the dialplan or an ESL application:
+
+| Variable | Behavior |
+|---|---|
+| `codec_string` | Preferred codec list for this channel. Merged with the other-leg codec list when bridging (unless `disable-transcoding` is active). |
+| `absolute_codec_string` | Codec list used verbatim. The merge step is skipped entirely; FreeSWITCH offers exactly this list and accepts no others. |
+
+Set these in the dialplan before a bridge or originate action:
+
+```xml
+<action application="set" data="absolute_codec_string=PCMU,PCMA"/>
+```
+
+Using `absolute_codec_string` prevents FreeSWITCH from adapting to what the other leg negotiated. Use it only when you need strict codec enforcement, for example when connecting to a device that cannot transcode and must receive a specific codec.
+
+---
+
+## 16.3 Inbound Codec Negotiation Policy
+
+The `inbound-codec-negotiation` SIP profile parameter controls which side's preference order wins during inbound codec selection.
+
+```xml
+<param name="inbound-codec-negotiation" value="generous"/>
+```
+
+| Value | Behavior |
+|---|---|
+| `generous` | FreeSWITCH accepts the first codec in the remote offer that appears in the local preference list. The remote party's ordering is honored. This is the default when the parameter is absent. |
+| `greedy` | FreeSWITCH reorders the intersection by its own local preference list, selecting the codec that ranks highest locally regardless of the remote offer order. |
+| `scrooge` | Like `greedy`, but additionally sets the GREEDY flag as well. The local preference order wins and only codecs present in the local preference list are considered. |
+
+The default for profiles that do not set this parameter explicitly is `generous` behavior (no greedy flags are set).
+
+---
+
+## 16.4 Ptime and the Codec String Format
+
+The general format for a codec token in a preference string is:
+
+```
+codecname[@<samplerate>h[@<ptime>i]]
+```
+
+- `codecname` is the IANA codec name as used by FreeSWITCH (case-insensitive in configuration, but the canonical forms are shown in the table in section 16.7).
+- `@<samplerate>h` specifies the sample rate in Hz. Required for codecs that operate at multiple rates (for example, `speex@8000h` vs `speex@16000h`). Omit for codecs with a single defined rate.
+- `@<ptime>i` specifies the packetization time in milliseconds. The value must be a multiple of the codec's frame size. Omit to use the codec's default ptime.
+
+Examples from `conf/vanilla/vars.xml`:
+
+```
+iLBC@30i         -- iLBC using mode=30 (30 ms ptime)
+PCMU             -- G.711 ulaw at 8 kHz, 20 ms ptime (default)
+G722             -- G.722 at 16 kHz, 20 ms ptime (default)
+speex@8000h@20i  -- Speex narrowband, 20 ms ptime
+speex@16000h@20i -- Speex wideband, 20 ms ptime
+speex@32000h@20i -- Speex ultra-wideband, 20 ms ptime
+GSM@40i          -- GSM at 8 kHz, 40 ms ptime
+G7221@16000h     -- G.722.1 at 16 kHz (Siren 7)
+G7221@32000h     -- G.722.1C at 32 kHz (Siren 14)
+DVI4@8000h@20i   -- IMA ADPCM 8 kHz, 20 ms ptime
+DVI4@16000h@40i  -- IMA ADPCM 16 kHz, 40 ms ptime
+G726-32          -- G.726 32 kbit/s, 20 ms ptime (default)
+```
+
+FreeSWITCH supports ptimes from 10 ms to 120 ms on many codecs, subject to the codec's frame size constraint and the RTP MTU limit. Exceeding the MTU is not supported.
+
+---
+
+## 16.5 Transcoding
+
+FreeSWITCH transcodes automatically when the two legs of a bridged call do not share a codec. No explicit configuration is required to enable transcoding; it occurs whenever the negotiated codecs on the A-leg and B-leg differ and the relevant codec modules are loaded.
+
+Transcoding is suppressed in two cases:
+
+1. **`disable-transcoding` profile parameter.** When set to `true` on a SIP profile, FreeSWITCH will only offer the codec(s) that were negotiated on the inbound leg to the outbound leg. This forces both legs to use the same codec, avoiding any transcoding cost at the price of potentially failing calls when the outbound endpoint does not support the inbound codec.
+
+   ```xml
+   <param name="disable-transcoding" value="true"/>
+   ```
+
+2. **`absolute_codec_string` channel variable.** When this variable is set, FreeSWITCH skips the merge of inbound and outbound codec sets and presents only the specified list to the outbound leg. If the outbound endpoint cannot match any of those codecs, the call fails.
+
+For features that require FreeSWITCH to access the media stream (conference, recording, playback, speech detection), transcoding always occurs regardless of these settings, because the media must be decoded to PCM for processing.
+
+---
+
+## 16.6 SRTP Crypto Suites
+
+When SRTP is enabled via the `rtp_secure_media` variable, FreeSWITCH offers crypto suites in the order defined by `rtp_sdes_suites`. The default suite list from `conf/vanilla/vars.xml` is:
+
+```xml
+<X-PRE-PROCESS cmd="set" data="rtp_sdes_suites=AEAD_AES_256_GCM_8|AEAD_AES_128_GCM_8|AES_CM_256_HMAC_SHA1_80|AES_CM_192_HMAC_SHA1_80|AES_CM_128_HMAC_SHA1_80|AES_CM_256_HMAC_SHA1_32|AES_CM_192_HMAC_SHA1_32|AES_CM_128_HMAC_SHA1_32|AES_CM_128_NULL_AUTH"/>
+```
+
+Suites are separated by `|` and offered in left-to-right order (strongest first). The negotiated suite is the first entry in this list that the remote endpoint also supports.
+
+| Suite | Key length | Auth tag | Notes |
+|---|---|---|---|
+| `AEAD_AES_256_GCM_8` | 256-bit | 64-bit | GCM authenticated encryption; 8-octet tag (RFC 7714) |
+| `AEAD_AES_128_GCM_8` | 128-bit | 64-bit | GCM authenticated encryption; 8-octet tag (RFC 7714) |
+| `AES_CM_256_HMAC_SHA1_80` | 256-bit | 80-bit | AES counter mode, HMAC-SHA1 |
+| `AES_CM_192_HMAC_SHA1_80` | 192-bit | 80-bit | AES counter mode, HMAC-SHA1 |
+| `AES_CM_128_HMAC_SHA1_80` | 128-bit | 80-bit | SRTP default cipher (RFC 3711) |
+| `AES_CM_256_HMAC_SHA1_32` | 256-bit | 32-bit | Short tag; 30-octet key+salt required |
+| `AES_CM_192_HMAC_SHA1_32` | 192-bit | 32-bit | Short tag |
+| `AES_CM_128_HMAC_SHA1_32` | 128-bit | 32-bit | Short tag |
+| `AES_CM_128_NULL_AUTH` | 128-bit | None | No authentication; not recommended (RFC 3711 section 7.5) |
+
+The `rtp_secure_media` variable controls SRTP negotiation mode. Its accepted values are:
+
+| Value | Behavior |
+|---|---|
+| `mandatory` or `true` | Accept and offer SAVP only. Calls that do not negotiate SRTP are rejected. |
+| `optional` | Offer and accept both SAVP and AVP; prefer SAVP. |
+| `forbidden` or `false` | Deny SAVP negotiation on inbound; do not offer SAVP on outbound. |
+
+Direction-specific overrides are available as `rtp_secure_media_inbound` and `rtp_secure_media_outbound`, using the same value set.
+
+To restrict which suites are offered without embedding them in `rtp_secure_media`, set `rtp_sdes_suites` to the desired pipe-delimited list, then set `rtp_secure_media` independently:
+
+```xml
+<X-PRE-PROCESS cmd="set" data="rtp_sdes_suites=AEAD_AES_256_GCM_8|AES_CM_128_HMAC_SHA1_80"/>
+```
+
+You can also specify suites inline with `rtp_secure_media` using a colon-separated suffix:
+
+```xml
+<action application="set" data="rtp_secure_media=mandatory:AES_CM_256_HMAC_SHA1_80:AES_CM_128_HMAC_SHA1_80"/>
+```
+
+Note from `vars.xml`: when using SRTP, variable-bitrate codecs should not be offered or accepted, as VBR payloads can leak information through packet size variation and compromise the SRTP stream.
+
+---
+
+## 16.7 Bundled Codec Reference
+
+The following codec modules are present in `src/mod/codecs/` (audio) or provided by `mod_av` / the built-in VPX implementation (video). All modules listed below ship with the FreeSWITCH source tree; some require external libraries and must be explicitly compiled and loaded.
+
+Audio codecs whose module column shows "Built-in" are registered by the FreeSWITCH core at startup without loading a separate `.so` file. `mod_spandsp` provides G.722, G.726, DVI4, GSM, and LPC. `mod_speex` (the internal Speex wrapper, `CORE_SPEEX_MODULE`) provides Speex.
+
+| Codec | Module | Sample rates | Notes / config file |
+|---|---|---|---|
+| `OPUS` | `mod_opus` | 8000, 12000, 16000, 24000, 48000 Hz (always negotiated at 48000 Hz on the wire) | Full encoder/decoder. Requires libopus. See `opus.conf.xml` (section 16.8). |
+| `PCMU` | Built-in (`switch_pcm.c`) | 8000 Hz | G.711 mu-law. No external library required. |
+| `PCMA` | Built-in (`switch_pcm.c`) | 8000 Hz | G.711 A-law. No external library required. |
+| `L16` | Built-in (`switch_pcm.c`) | 8000-48000 Hz | Linear 16-bit PCM. Can exceed the RTP MTU at higher rates; use with caution. |
+| `G722` | `mod_spandsp` | 16000 Hz | G.722 wideband. Requires libspandsp. |
+| `G726-16` | `mod_spandsp` | 8000 Hz | G.726 ADPCM 16 kbit/s. |
+| `G726-24` | `mod_spandsp` | 8000 Hz | G.726 ADPCM 24 kbit/s. |
+| `G726-32` | `mod_spandsp` | 8000 Hz | G.726 ADPCM 32 kbit/s. |
+| `G726-40` | `mod_spandsp` | 8000 Hz | G.726 ADPCM 40 kbit/s. |
+| `AAL2-G726-16` | `mod_spandsp` | 8000 Hz | G.726 16 kbit/s with AAL2 packing. |
+| `AAL2-G726-24` | `mod_spandsp` | 8000 Hz | G.726 24 kbit/s with AAL2 packing. |
+| `AAL2-G726-32` | `mod_spandsp` | 8000 Hz | G.726 32 kbit/s with AAL2 packing. |
+| `AAL2-G726-40` | `mod_spandsp` | 8000 Hz | G.726 40 kbit/s with AAL2 packing. |
+| `DVI4` | `mod_spandsp` | 8000, 16000 Hz | IMA ADPCM. Multiples of 10 ms. |
+| `GSM` | `mod_spandsp` | 8000 Hz | GSM 06.10. Default 20 ms; multiples of 20 ms only. |
+| `LPC` | `mod_spandsp` | 8000 Hz | LPC-10. Only 90 ms ptime supported. |
+| `speex` | Built-in (`switch_speex.c`) | 8000, 16000, 32000 Hz | Speex narrowband, wideband, and ultra-wideband. |
+| `G729` | `mod_g729` | 8000 Hz | Pass-through only (no transcoding without a licensed DSP library). |
+| `G723` | `mod_g723_1` | 8000 Hz | G.723.1 pass-through only. |
+| `AMR` | `mod_amr` | 8000 Hz | AMR narrowband. Octet-aligned and bandwidth-efficient modes. Requires opencore-amrnb for full encode/decode; pass-through otherwise. See `amr.conf.xml` (section 16.9). |
+| `AMR-WB` | `mod_amrwb` | 16000 Hz | AMR wideband. Octet-aligned and bandwidth-efficient modes. Requires opencore-amrwb/vo-amrwbenc for full encode/decode; pass-through otherwise. See `amrwb.conf.xml` (section 16.10). |
+| `iLBC` | `mod_ilbc` | 8000 Hz | Supports 20 ms (mode 20) and 30 ms (mode 30) frame sizes. Use `iLBC@30i` to force mode 30. |
+| `SILK` | `mod_silk` | 8000, 12000, 16000, 24000 Hz | Skype narrowband/wideband codec. Requires libSKP_SILK_SDK. |
+| `G7221` | `mod_siren` | 16000, 32000 Hz | G.722.1 (Siren 7 at 16 kHz) and G.722.1C (Siren 14 at 32 kHz). |
+| `BV16` | `mod_bv` | 8000 Hz | BroadVoice 16 narrowband (16 kbit/s). |
+| `BV32` | `mod_bv` | 16000 Hz | BroadVoice 32 wideband (32 kbit/s). |
+| `CODEC2` | `mod_codec2` | 8000 Hz | Low-bitrate open codec (3200/2400/1400/1200 bps). Requires libcodec2. |
+| `b64` | `mod_b64` | 8000, 16000, 32000 Hz | Base64-encoded audio; primarily for testing. |
+| `H264` | `mod_av` | Video | H.264 via libavcodec. See `av.conf.xml`. Also available via `mod_openh264` (Cisco OpenH264). |
+| `H263` | `mod_av` | Video | H.263 via libavcodec. |
+| `H263-1998` | `mod_av` | Video | H.263+ (RFC 2429) via libavcodec. |
+| `VP8` | Built-in (`switch_vpx.c`) | Video | VP8 via libvpx. See `vpx.conf.xml`. |
+| `VP9` | Built-in (`switch_vpx.c`) | Video | VP9 via libvpx. See `vpx.conf.xml`. |
+
+Note: `mod_com_g729` (in `src/mod/codecs/mod_com_g729/`) is a separate commercial G.729 module with full encode/decode support, distinct from the pass-through `mod_g729`.
+
+---
+
+## 16.8 Opus Configuration
+
+`mod_opus` is configured in `conf/vanilla/autoload_configs/opus.conf.xml`. All parameters apply globally to the Opus encoder and decoder for every call using the Opus codec.
+
+The module hard-codes the following defaults before reading the config file: `use_vbr=0`, `use_dtx=0`, `plpct=20`, `keep_fec=1`, `use_jb_lookahead=1`, `fec_decode=1`. The shipped `opus.conf.xml` then overrides `use-vbr` to `1`, `keep-fec-enabled` to `1`, `maxaveragebitrate` to `0`, `maxplaybackrate` to `0`, and `mono` to `0`.
+
+```xml
+<configuration name="opus.conf">
+  <settings>
+    <param name="use-vbr" value="1"/>
+    <!--<param name="use-dtx" value="1"/>-->
+    <param name="complexity" value="10"/>
+    <!--<param name="packet-loss-percent" value="10"/>-->
+    <!--<param name="asymmetric-sample-rates" value="1"/>-->
+    <!--<param name="bitrate-negotiation" value="1"/>-->
+    <param name="keep-fec-enabled" value="1"/>
+    <!--<param name="use-jb-lookahead" value="true"/>-->
+    <!--<param name="advertise-useinbandfec" value="1"/>-->
+    <!--<param name="adjust-bitrate" value="1"/>-->
+    <param name="maxaveragebitrate" value="0"/>
+    <param name="maxplaybackrate" value="0"/>
+    <!--<param name="sprop-maxcapturerate" value="0"/>-->
+    <param name="mono" value="0"/>
+  </settings>
+</configuration>
+```
+
+| Parameter | Purpose | Accepted values | Default (code) | Default (vanilla conf) |
+|---|---|---|---|---|
+| `use-vbr` | Enable variable bitrate encoding | `0` (CBR) or `1` (VBR) | `0` | `1` |
+| `use-dtx` | Enable discontinuous transmission (suppress packets during silence) | `0` or `1` | `0` | commented out |
+| `complexity` | Encoder computational complexity | `0` (lowest) to `10` (highest) | `0` | `10` |
+| `packet-loss-percent` | Initial expected packet loss percentage; tunes encoder redundancy | `0` to `100` | `20` | commented out |
+| `asymmetric-sample-rates` | Allow encoder and decoder to operate at different sample rates | `0` or `1` | `0` | commented out |
+| `bitrate-negotiation` | Use the lower of local and remote `maxaveragebitrate` during SDP negotiation | `0` or `1` | `0` | commented out |
+| `keep-fec-enabled` | Keep forward error correction active even when the encoder reduces bitrate | `0` or `1` | `1` | `1` |
+| `use-jb-lookahead` | Use jitter buffer lookahead to improve FEC recovery | `true` or `false` | `true` | commented out |
+| `advertise-useinbandfec` | Include `useinbandfec=1` in the outbound SDP fmtp, signaling that the decoder can use in-band FEC | `0` or `1` | `1` | commented out |
+| `adjust-bitrate` | Enable automatic bitrate variation during the call based on RTCP feedback | `0` or `1` | `0` | commented out |
+| `maxaveragebitrate` | Maximum average codec bitrate advertised in SDP fmtp and applied to the encoder. Values outside `6000`-`510000` are silently ignored (treated as unconstrained). | `6000` to `510000` (bps); `0` = not constrained | `0` | `0` |
+| `maxplaybackrate` | Maximum codec internal sampling frequency advertised in SDP fmtp. Constrains the local decoder and instructs the remote encoder. | `8000`, `12000`, `16000`, `24000`, or `48000` (Hz); `0` = not constrained | `0` | `0` |
+| `sprop-maxcapturerate` | Maximum capture (input) sample rate advertised in fmtp; constrains the remote decoder's playback rate expectation | `8000`, `12000`, `16000`, `24000`, or `48000` (Hz) | `0` | commented out |
+| `mono` | Force mono encoding even if the remote party requests stereo. Requires `max-audio-channels` set to `1` in `switch.conf.xml`. | `0` (allow stereo) or `1` (force mono) | `0` | `0` |
+
+When both endpoints advertise `maxaveragebitrate` or `maxplaybackrate` in their fmtp, FreeSWITCH applies the lower of the two values to the encoder and reflects that value back in the SDP answer.
+
+The `use-vbr` parameter controls the SDP `cbr` fmtp attribute: when `use-vbr=0`, FreeSWITCH advertises `cbr=1` in the offer/answer. There is no separate `cbr` config parameter; `cbr` is derived from `use-vbr`.
+
+---
+
+## 16.9 AMR Configuration
+
+`mod_amr` is configured in `conf/vanilla/autoload_configs/amr.conf.xml`. When compiled without `opencore-amrnb`, the module operates in pass-through mode only and the encoder/decoder parameters below have no effect.
+
+AMR narrowband supports 8 modes (bitrates). The default frame size is 20 ms (fixed by the AMR standard). The payload format defaults to bandwidth-efficient (BE) unless `octet-align=1` is signaled in the remote SDP or `force-oa` is set.
+
+```xml
+<configuration name="amr.conf">
+  <settings>
+    <param name="default-bitrate" value="7"/>
+    <param name="volte" value="0"/>
+    <param name="adjust-bitrate" value="0"/>
+    <param name="force-oa" value="0"/>
+  </settings>
+</configuration>
+```
+
+| Parameter | Purpose | Accepted values | Default |
+|---|---|---|---|
+| `default-bitrate` | Initial encoder mode (bitrate index) used when no `mode-set` is present in the remote fmtp | `0` (4.75 kbit/s) to `7` (12.2 kbit/s) | `7` |
+| `volte` | Emit VoLTE-compliant fmtp: appends `max-red=0;mode-change-capability=2` to the SDP answer | `0` or `1` | `0` |
+| `adjust-bitrate` | Enable automatic bitrate variation during the call based on RTCP feedback | `0` or `1` | `0` |
+| `force-oa` | Force octet-aligned payload format on outbound offers regardless of remote signaling | `0` or `1` | `0` |
+
+AMR mode index to bitrate mapping:
+
+| Mode index | Bitrate |
+|---|---|
+| `0` | 4.75 kbit/s |
+| `1` | 5.15 kbit/s |
+| `2` | 5.9 kbit/s |
+| `3` | 6.7 kbit/s |
+| `4` | 7.4 kbit/s |
+| `5` | 7.95 kbit/s |
+| `6` | 10.2 kbit/s |
+| `7` | 12.2 kbit/s |
+
+The `mode-set`, `octet-align`, `mode-change-period`, `mode-change-neighbor`, `crc`, `robust-sorting`, `interleaving`, `ptime`, `maxptime`, and `max-red` parameters are fmtp attributes negotiated in SDP (RFC 4867), not config-file parameters. FreeSWITCH parses them from the incoming SDP and reflects the negotiated values in its answer.
+
+---
+
+## 16.10 AMR-WB Configuration
+
+`mod_amrwb` is configured in `conf/vanilla/autoload_configs/amrwb.conf.xml`. When compiled without `opencore-amrwb`/`vo-amrwbenc`, the module operates in pass-through mode only.
+
+AMR-WB supports 9 modes (bitrates). The default frame size is 20 ms (fixed by the AMR-WB standard). The vanilla default enables VoLTE-specific fmtp (`volte=1`).
+
+```xml
+<configuration name="amrwb.conf">
+  <settings>
+    <param name="default-bitrate" value="8"/>
+    <param name="volte" value="1"/>
+    <param name="adjust-bitrate" value="0"/>
+    <param name="force-oa" value="0"/>
+    <param name="mode-set-overwrite" value="0"/>
+  </settings>
+</configuration>
+```
+
+| Parameter | Purpose | Accepted values | Default |
+|---|---|---|---|
+| `default-bitrate` | Initial encoder mode (bitrate index) used when no `mode-set` is present in the remote fmtp | `0` (6.60 kbit/s) to `8` (23.85 kbit/s) | `8` |
+| `volte` | Emit VoLTE-compliant fmtp | `0` or `1` | `1` |
+| `adjust-bitrate` | Enable automatic bitrate variation during the call based on RTCP feedback | `0` or `1` | `0` |
+| `force-oa` | Force octet-aligned payload format on outbound offers | `0` or `1` | `0` |
+| `mode-set-overwrite` | When `1`, ignore the remote `mode-set` and use `default-bitrate` instead of mirroring the remote mode-set in the SDP answer | `0` or `1` | `0` |
+
+AMR-WB mode index to bitrate mapping:
+
+| Mode index | Bitrate |
+|---|---|
+| `0` | 6.60 kbit/s |
+| `1` | 8.85 kbit/s |
+| `2` | 12.65 kbit/s |
+| `3` | 14.25 kbit/s |
+| `4` | 15.85 kbit/s |
+| `5` | 18.25 kbit/s |
+| `6` | 19.85 kbit/s |
+| `7` | 23.05 kbit/s |
+| `8` | 23.85 kbit/s |

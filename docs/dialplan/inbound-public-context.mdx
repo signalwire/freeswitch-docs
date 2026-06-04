@@ -1,0 +1,218 @@
+---
+id: inbound-public-context
+slug: /dialplan/public-context
+title: "Chapter 13: Inbound Calls and the Public Context"
+sidebar_label: "13. Inbound Calls and the Public Context"
+---
+
+# Chapter 13: Inbound Calls and the Public Context
+
+Unauthenticated inbound calls from the public telephone network arrive at FreeSWITCH through the `external` SIP profile and are processed by a dedicated dialplan context named `public`. This separation between untrusted inbound traffic and authenticated internal traffic is the primary security boundary in a vanilla FreeSWITCH installation.
+
+## Table of Contents
+
+- [Why Inbound Calls Land in the Public Context](#why-inbound-calls-land-in-the-public-context)
+- [The Security Boundary: Public vs Default](#the-security-boundary-public-vs-default)
+- [Built-in Extensions in the Public Context](#built-in-extensions-in-the-public-context)
+- [Transferring a DID into the Default Context](#transferring-a-did-into-the-default-context)
+- [Routing a DID to an Extension](#routing-a-did-to-an-extension)
+- [Caller ID on Inbound Calls](#caller-id-on-inbound-calls)
+- [Adding Per-DID Routing Files](#adding-per-did-routing-files)
+
+---
+
+## Why Inbound Calls Land in the Public Context
+
+The `external` SIP profile (`conf/sip_profiles/external.xml`) listens on port `5080` and sets its dialplan context to `public`:
+
+```xml
+<param name="dialplan" value="XML"/>
+<param name="context" value="public"/>
+```
+
+Every SIP INVITE arriving on this profile is handed to the `public` context for routing, regardless of whether the remote party has authenticated. The profile also sets `auth-calls` to `false`, meaning SIP challenges are not issued to inbound callers. The combination of a dedicated port, a dedicated context, and no authentication requirement is what makes the external profile suitable for receiving calls from SIP trunks and carriers.
+
+The internal profile (port `5060`) authenticates callers before routing them, placing authenticated sessions in the `default` context by default. These two profiles and their respective contexts must remain separate. Allowing unauthenticated traffic to reach the `default` context would permit arbitrary call routing through your upstream providers, resulting in toll fraud.
+
+---
+
+## The Security Boundary: Public vs Default
+
+The `public` context is intentionally minimal. It contains only extensions that are safe to execute for any caller arriving from the internet. It does not expose voicemail, conferencing, outbound dialing, or any other service that would be available to registered internal users.
+
+The `default` context contains full routing logic for authenticated users: extension dialing, PSTN origination, IVRs, voicemail, and conference rooms. A call must be explicitly transferred into `default` by an extension in `public`, and only after it has been matched against a known DID or passed an optional SIP digest challenge.
+
+This model is stated directly in the `public.xml` comment:
+
+> "You don't want outside un-authenticated callers hitting your default context which allows dialing calls thru your providers and results in Toll Fraud."
+
+---
+
+## Built-in Extensions in the Public Context
+
+The vanilla `public` context (`conf/dialplan/public.xml`) contains four extensions that execute on every inbound call in order.
+
+### `unloop`
+
+Detects SIP call loops and deflects them back to the originating address.
+
+```xml
+<extension name="unloop">
+  <condition field="${unroll_loops}" expression="^true$"/>
+  <condition field="${sip_looped_call}" expression="^true$">
+    <action application="deflect" data="${destination_number}"/>
+  </condition>
+</extension>
+```
+
+This extension fires only when both `${unroll_loops}` equals `true` and the channel variable `${sip_looped_call}` equals `true`. Under normal conditions it is a no-op.
+
+### `outside_call`
+
+Tags every call passing through `public` as an external call and records an RFC 2822 timestamp. Because `continue="true"` is set, matching this extension does not stop dialplan processing.
+
+```xml
+<extension name="outside_call" continue="true">
+  <condition>
+    <action application="set" data="outside_call=true"/>
+    <action application="export" data="RFC2822_DATE=${strftime(%a, %d %b %Y %T %z)}"/>
+  </condition>
+</extension>
+```
+
+The variable `outside_call` can be tested in the `default` context after a transfer to prevent routing loops or apply policies to calls of external origin.
+
+### `call_debug`
+
+When the channel variable `${call_debug}` equals `true`, the `info` application logs all channel variables to the FreeSWITCH console. This extension also uses `continue="true"` and `break="never"` so it never interrupts routing.
+
+### `public_extensions` and `public_conference_extensions`
+
+These two extensions transfer calls destined for extension numbers in the range `1000`-`1019` and conference room numbers in the range `3500`-`3819` directly into the `default` context.
+
+```xml
+<extension name="public_extensions">
+  <condition field="destination_number" expression="^(10[01][0-9])$">
+    <action application="transfer" data="$1 XML default"/>
+  </condition>
+</extension>
+
+<extension name="public_conference_extensions">
+  <condition field="destination_number" expression="^(3[5-8][01][0-9])$">
+    <action application="transfer" data="$1 XML default"/>
+  </condition>
+</extension>
+```
+
+These extensions exist for testing convenience in a vanilla installation. In production deployments they are typically removed or replaced with DID-specific routing defined in the `public/` include directory.
+
+---
+
+## Transferring a DID into the Default Context
+
+The `transfer` application is the mechanism by which an extension in `public` hands a call to `default`. Its syntax is:
+
+```
+transfer <destination> <dialplan_type> <context>
+```
+
+For XML dialplan routing into `default`:
+
+```xml
+<action application="transfer" data="1000 XML default"/>
+```
+
+After `transfer` executes, the current extension stops and FreeSWITCH re-enters the dialplan at the beginning of the `default` context, searching for an extension that matches `1000`. The call is then treated as if it originated within `default`, giving it access to all internal routing logic.
+
+---
+
+## Routing a DID to an Extension
+
+DID routing is the primary function of the `public` context. The vanilla installation provides `conf/dialplan/public/00_inbound_did.xml` as a template. This file is included into the `public` context via the `X-PRE-PROCESS` directive at the bottom of `public.xml`:
+
+```xml
+<X-PRE-PROCESS cmd="include" data="public/*.xml"/>
+```
+
+The template maps a single DID (`5551212`) to extension `1000` in the `default` context:
+
+```xml
+<include>
+  <extension name="public_did">
+    <condition field="destination_number" expression="^(5551212)$">
+      <action application="set" data="domain_name=$${domain}"/>
+      <action application="transfer" data="1000 XML default"/>
+    </condition>
+  </extension>
+</include>
+```
+
+To route your own DID, replace the regex `^(5551212)$` with the E.164 number or pattern your carrier delivers in the `To:` header, and set the transfer target to the destination extension in `default`.
+
+The `set` action assigns `domain_name` to `$${domain}` before the transfer. This ensures FreeSWITCH resolves the called extension against the correct domain when the system hosts multiple domains. `$${domain}` is a global variable expanded at configuration load time from `vars.xml`. For multi-tenant deployments, replace `$${domain}` with the specific domain the DID belongs to.
+
+---
+
+## Caller ID on Inbound Calls
+
+FreeSWITCH populates caller ID channel variables from the SIP headers in the incoming INVITE. The standard variables available after an inbound call arrives in `public` are:
+
+| Variable | Source SIP Header | Contains |
+|---|---|---|
+| `${caller_id_name}` | `From` display name | Caller's name as presented by carrier |
+| `${caller_id_number}` | `From` user part | Caller's number as presented by carrier |
+| `${sip_from_user}` | `From` URI user | SIP username from the `From` header |
+| `${sip_to_user}` | `To` URI user | Dialed number (your DID) |
+| `${destination_number}` | `Request-URI` user | Number FreeSWITCH routes on |
+
+Carrier behavior for caller ID presentation is not standardized. Some carriers deliver the calling number in the `From` header; others use `P-Asserted-Identity` or `Remote-Party-ID`. FreeSWITCH exposes these as `${sip_p_asserted_identity}` and `${sip_remote_party_id}` respectively. If your carrier delivers the verified calling number in `P-Asserted-Identity`, set `caller_id_number` from that variable before the transfer:
+
+```xml
+<action application="set" data="caller_id_number=${sip_p_asserted_identity}"/>
+```
+
+The `outside_call` extension in `public` sets `RFC2822_DATE` via `export`, which propagates the variable across the `transfer` into `default`. Other variables set with `set` before the transfer are also available in `default` after the transfer completes.
+
+---
+
+## Adding Per-DID Routing Files
+
+The `X-PRE-PROCESS` include directive at the bottom of `public.xml` loads every XML file in `conf/dialplan/public/`:
+
+```xml
+<X-PRE-PROCESS cmd="include" data="public/*.xml"/>
+```
+
+Files are included in filesystem sort order. The convention is to prefix filenames with a two-digit number to control load order, matching the pattern of `00_inbound_did.xml`.
+
+Each file must wrap its extensions in an `<include>` element (not a `<context>` element). The `<context name="public">` is already established by `public.xml`; the included files contribute extensions to it.
+
+A file routing two DIDs to separate extensions:
+
+```xml
+<include>
+  <extension name="did_sales">
+    <condition field="destination_number" expression="^(12125550100)$">
+      <action application="set" data="domain_name=$${domain}"/>
+      <action application="transfer" data="1001 XML default"/>
+    </condition>
+  </extension>
+
+  <extension name="did_support">
+    <condition field="destination_number" expression="^(12125550199)$">
+      <action application="set" data="domain_name=$${domain}"/>
+      <action application="transfer" data="1002 XML default"/>
+    </condition>
+  </extension>
+</include>
+```
+
+After adding or modifying a file in `conf/dialplan/public/`, reload the XML configuration from the FreeSWITCH console or ESL before changes take effect:
+
+```
+reloadxml
+```
+
+Extensions in included files are evaluated in the order they appear in the fully assembled context. Because the include directive appears after the built-in extensions (`outside_call`, `call_debug`, `public_extensions`, `public_conference_extensions`), those built-in extensions always run first for calls that reach them.
+
+Calls that do not match any extension in `public` are rejected. There is no catch-all transfer to `default` in the vanilla configuration. An optional commented-out block in `public.xml` shows a `check_auth` pattern that would challenge the caller with a SIP `407` digest and, if the caller authenticates, transfer the call to `default`. This block is disabled by default and carries the same toll fraud risk as using the `default` context directly for unauthenticated traffic.

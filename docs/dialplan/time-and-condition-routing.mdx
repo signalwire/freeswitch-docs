@@ -1,0 +1,297 @@
+---
+id: time-and-condition-routing
+slug: /dialplan/time-routing
+title: "Chapter 15: Time and Condition Routing"
+sidebar_label: "15. Time and Condition Routing"
+---
+
+# Chapter 15: Time and Condition Routing
+
+The FreeSWITCH XML dialplan evaluates `<condition>` elements against the current date and time in addition to channel fields. By placing time attributes directly on a `<condition>` tag, you can restrict which actions fire to specific hours, days, weeks, months, or absolute date ranges, enabling business-hours routing, holiday schedules, and any other calendar-driven call flow.
+
+## Table of Contents
+
+- [15.1 How Time Conditions Work](#151-how-time-conditions-work)
+- [15.2 Time Attribute Reference](#152-time-attribute-reference)
+- [15.3 Ranges and Lists in Time Attributes](#153-ranges-and-lists-in-time-attributes)
+- [15.4 Timezone Selection](#154-timezone-selection)
+- [15.5 Business-Hours Example (tod_example)](#155-business-hours-example-tod_example)
+- [15.6 Holiday Schedule Example](#156-holiday-schedule-example)
+- [15.7 Nested Conditions](#157-nested-conditions)
+- [15.8 Combining Time Conditions with Field Conditions](#158-combining-time-conditions-with-field-conditions)
+- [15.9 Restricting Calls with toll_allow](#159-restricting-calls-with-toll_allow)
+
+---
+
+## 15.1 How Time Conditions Work
+
+A `<condition>` element becomes a time condition when it carries one or more time attributes (`year`, `mon`, `mday`, `wday`, etc.). The dialplan evaluator checks these attributes against the server clock at the moment the call enters the extension. All time attributes on a single `<condition>` must match simultaneously; the relationship between attributes is logical AND.
+
+When the time condition matches, the `<action>` children execute. When it does not match, the `<anti-action>` children execute (if present). The `break` attribute on the condition governs whether dialplan processing continues to the next condition after a match or non-match; see the XML Dialplan chapter for full `break` semantics.
+
+A `<condition>` that has no time attributes and no `field` attribute is an absolute condition that always matches.
+
+---
+
+## 15.2 Time Attribute Reference
+
+All attributes listed below are parsed by `switch_xml_std_datetime_check` in `src/switch_xml.c`. Any subset may appear on a single `<condition>`; unused attributes are not evaluated.
+
+| Attribute | Meaning | Valid range |
+|---|---|---|
+| `year` | 4-digit calendar year | `2024`, `2024-2026` |
+| `yday` | Day of the year (1 = January 1) | `1-365`; `1-366` in leap years |
+| `mon` | Month of the year | `1-12` (January = 1) |
+| `mday` | Day of the month | `1-31` |
+| `week` | Week of the year, calculated as `(yday / 7) + 1` | `1-53` |
+| `mweek` | Week of the month | `1-6` |
+| `wday` | Day of the week | `1-7` (Sunday = 1, Saturday = 7); also accepts 3-letter names: `sun`, `mon`, `tue`, `wed`, `thu`, `fri`, `sat` |
+| `hour` | Hour of the day (24-hour clock) | `0-23` |
+| `minute` | Minute of the hour | `0-59` |
+| `minute-of-day` | Minute-position within the day, calculated as `(hour * 60) + (minute + 1)` | `1-1440` |
+| `time-of-day` | Clock time range in `HH:MM-HH:MM` or `HH:MM:SS-HH:MM:SS` format | `09:00-17:00` |
+| `date-time` | Absolute date-time range using tilde as separator | `2024-07-04 00:00:00~2024-07-05 00:00:00` |
+| `tz-offset` | Requires the effective UTC offset (in whole hours) to equal the specified integer for the condition to match | `-5`, `0`, `5` |
+| `dst` | Requires daylight saving time to be active on the server (`true`); `dst="false"` is not effective due to source logic | `true` |
+
+**`minute-of-day`** uses the formula `(hour * 60) + (minute + 1)`. Value 1 corresponds to 00:00, value 541 corresponds to 09:00, value 1080 corresponds to 17:59, and value 1440 corresponds to 23:59.
+
+**`week`** is derived as `(tm_yday / 7) + 1` using integer division. Because `tm_yday` is zero-based (0 = January 1), December 31 of a non-leap year yields week 53. The effective range is `1-53`.
+
+**`time-of-day`** expresses the range as `HH:MM-HH:MM` or `HH:MM:SS-HH:MM:SS`. Seconds are optional and default to `00`. The range boundary is inclusive on both ends. Midnight-spanning ranges are supported: `time-of-day="22:00-06:00"` matches 10 PM through 6 AM.
+
+**`date-time`** uses a tilde (`~`) as the range separator between start and end timestamps formatted as `YYYY-MM-DD HH:MM:SS`. The range matches when `start <= current_time < end` (end is exclusive). Multiple ranges are comma-separated.
+
+---
+
+## 15.3 Ranges and Lists in Time Attributes
+
+Most numeric time attributes (`year`, `yday`, `mon`, `mday`, `week`, `mweek`, `hour`, `minute`, `minute-of-day`) accept values parsed by `switch_number_cmp`. Note that `switch_number_cmp` operates strictly on integers; decimal values are not supported.
+
+- **Single value:** `mon="3"` matches March only.
+- **Range:** `mon="3-5"` matches March through May inclusive.
+- **Reversed range:** `hour="22-6"` matches 10 PM through 6 AM (wraps midnight).
+- **Comma-separated list:** `mon="1,7,12"` matches January, July, and December.
+- **Mixed:** `mday="1-5,15,20-25"` matches days 1 through 5, day 15, and days 20 through 25.
+
+The `wday` attribute is parsed by `switch_dow_cmp`, which accepts:
+
+- Numeric values 1 through 7, where 1 is Sunday and 7 is Saturday.
+- 3-letter day names (`sun`, `mon`, `tue`, `wed`, `thu`, `fri`, `sat`), case-insensitive.
+- Ranges using a hyphen: `wday="mon-fri"` or `wday="2-6"`.
+- Comma-separated lists: `wday="mon,wed,fri"`.
+
+The `time-of-day` attribute is parsed by `switch_tod_cmp` and accepts comma-separated `HH:MM-HH:MM` ranges: `time-of-day="09:00-12:00,13:00-17:00"`.
+
+The `date-time` attribute is parsed by `switch_fulldate_cmp` and accepts comma-separated `start~end` pairs.
+
+---
+
+## 15.4 Timezone Selection
+
+By default the server's local timezone governs time condition evaluation. Two channel variables override this on a per-call basis:
+
+| Variable | Effect |
+|---|---|
+| `timezone` | Named timezone string (e.g., `America/New_York`). Evaluated via `switch_time_exp_tz_name`. |
+| `tod_tz_offset` | Integer UTC hour offset (e.g., `-5`). Takes precedence over `timezone` when set to a valid integer. |
+
+Set either variable on the channel before the time condition extension is reached. The dialplan evaluator reads both variables at the start of each `<condition>` evaluation.
+
+```xml
+<action application="set" data="timezone=America/Chicago"/>
+```
+
+The `tz-offset` attribute on a `<condition>` element is separate: it requires the server's effective UTC offset to equal the specified value for the condition to match, and is not a timezone assignment.
+
+---
+
+## 15.5 Business-Hours Example (tod_example)
+
+The vanilla configuration ships an extension named `tod_example` that demonstrates the most common time condition pattern: set a channel variable to signal whether the office is open, then read that variable in downstream extensions.
+
+```xml
+<extension name="tod_example" continue="true">
+  <condition wday="2-6" hour="9-18">
+    <action application="set" data="open=true"/>
+  </condition>
+</extension>
+```
+
+- `wday="2-6"` matches Monday through Friday (1=Sunday, 2=Monday, 6=Friday, 7=Saturday).
+- `hour="9-18"` matches hours 9 through 18 (9 AM up to and including 6 PM in 24-hour terms; note that `hour` is the current hour integer, so `18` matches any time during the 6 PM hour).
+- `continue="true"` on the extension causes the dialplan to keep processing subsequent extensions after this one matches, allowing the `open` variable to be available to the rest of the dialplan.
+- No `<anti-action>` is present, so `open` remains unset outside business hours. A downstream extension can test `${open}` with a regex condition.
+
+Using `minute-of-day` is an alternative that eliminates ambiguity about which minutes within an hour are included:
+
+```xml
+<extension name="tod_example" continue="true">
+  <!-- minute-of-day 541 = 09:00, minute-of-day 1081 = 18:00 -->
+  <condition wday="2-6" minute-of-day="541-1081">
+    <action application="set" data="open=true"/>
+  </condition>
+</extension>
+```
+
+---
+
+## 15.6 Holiday Schedule Example
+
+The vanilla configuration ships a `holiday_example` extension that covers US federal holidays. Each holiday is a separate `<condition>` within the same extension. Because the extension carries `continue="true"`, every condition is evaluated, and the last one to match wins.
+
+```xml
+<extension name="holiday_example" continue="true">
+  <condition mday="1" mon="1">
+    <!-- New Year's Day -->
+    <action application="set" data="open=false"/>
+  </condition>
+  <condition wday="2" mweek="3" mon="1">
+    <!-- Martin Luther King Day: 3rd Monday in January -->
+    <action application="set" data="open=false"/>
+  </condition>
+  <condition wday="2" mweek="3" mon="2">
+    <!-- Presidents Day: 3rd Monday in February -->
+    <action application="set" data="open=false"/>
+  </condition>
+  <condition wday="2" mon="5" mday="25-31">
+    <!-- Memorial Day: last Monday in May -->
+    <action application="set" data="open=false"/>
+  </condition>
+  <condition mday="4" mon="7">
+    <!-- Independence Day -->
+    <action application="set" data="open=false"/>
+  </condition>
+  <condition wday="2" mday="1-7" mon="9">
+    <!-- Labor Day: 1st Monday in September -->
+    <action application="set" data="open=false"/>
+  </condition>
+  <condition wday="2" mweek="2" mon="10">
+    <!-- Columbus Day: 2nd Monday in October -->
+    <action application="set" data="open=false"/>
+  </condition>
+  <condition mday="11" mon="11">
+    <!-- Veterans Day -->
+    <action application="set" data="open=false"/>
+  </condition>
+  <condition wday="5-6" mweek="4" mon="11">
+    <!-- Thanksgiving: 4th Thursday, plus Black Friday -->
+    <action application="set" data="open=false"/>
+  </condition>
+  <condition mday="25" mon="12">
+    <!-- Christmas -->
+    <action application="set" data="open=false"/>
+  </condition>
+</extension>
+```
+
+The pattern for "Nth weekday of a month" uses `mweek` and `wday` together. Memorial Day (last Monday in May) uses `mday="25-31"` instead of `mweek` because the last Monday is always in the window of the 25th through the 31st.
+
+Place the `holiday_example` extension before `tod_example` in the dialplan so holidays take precedence: when a holiday condition sets `open=false`, the business-hours extension may subsequently set `open=true` if the current time falls within business hours. Reorder extensions or use a single extension that checks holidays first, depending on which result should take final precedence.
+
+---
+
+## 15.7 Nested Conditions
+
+A `<condition>` element may contain child `<condition>` elements. The dialplan evaluator processes nested conditions only when the parent condition matches. This allows a multi-level gate: the outer condition qualifies the call broadly, and inner conditions apply finer routing decisions without repeating the outer attributes.
+
+```xml
+<extension name="weekend_routing">
+  <condition wday="1,7">
+    <!-- Outer: matches Saturday and Sunday only -->
+    <condition hour="8-20">
+      <!-- Inner: matches 8 AM to 8 PM on weekends -->
+      <action application="transfer" data="weekend_queue XML default"/>
+      <anti-action application="transfer" data="after_hours_ivr XML default"/>
+    </condition>
+  </condition>
+</extension>
+```
+
+When the outer condition does not match (the call is on a weekday), the inner conditions are never evaluated. This is handled by `parse_exten` in `mod_dialplan_xml.c`, which recursively calls itself when it detects child `<condition>` elements after a successful parent match.
+
+The `require-nested` attribute on an extension controls whether a failed nested condition causes the entire extension evaluation to fail or allows it to proceed. The default is `true` (a failed nested condition fails the extension).
+
+---
+
+## 15.8 Combining Time Conditions with Field Conditions
+
+A `<condition>` element that carries both time attributes and a `field` attribute evaluates both. The time check runs first; if the time does not match, the field regex is not evaluated and the condition is treated as failed regardless of the field value.
+
+To apply separate logic for time and field, use sequential conditions within the same extension. The first condition sets a variable; the second tests that variable.
+
+```xml
+<extension name="vip_business_hours" continue="true">
+  <!-- Step 1: mark business hours -->
+  <condition wday="2-6" hour="8-17" break="never">
+    <action application="set" data="business_hours=true"/>
+    <anti-action application="set" data="business_hours=false"/>
+  </condition>
+
+  <!-- Step 2: route VIP callers differently during business hours -->
+  <condition field="${business_hours}" expression="^true$">
+    <condition field="${caller_id_number}" expression="^18005551234$">
+      <action application="transfer" data="vip_queue XML default"/>
+      <anti-action application="transfer" data="main_queue XML default"/>
+    </condition>
+    <anti-action application="transfer" data="after_hours_ivr XML default"/>
+  </condition>
+</extension>
+```
+
+The `break="never"` on the first condition prevents dialplan processing from stopping on either a match or non-match, ensuring the second condition always runs.
+
+---
+
+## 15.9 Restricting Calls with toll_allow
+
+The `toll_allow` user directory variable controls which classes of outbound dialing an authenticated user may place. It is not a time attribute, but it is commonly combined with time conditions and `<condition field>` checks to enforce per-user calling restrictions.
+
+**Setting toll_allow in the user directory**
+
+```xml
+<user id="1001">
+  <variables>
+    <variable name="toll_allow" value="local,domestic"/>
+  </variables>
+</user>
+```
+
+Common values are operator-defined strings. Typical conventions include `local`, `domestic`, `international`, and `premium`. Multiple classes are comma-separated.
+
+**Checking toll_allow in the dialplan**
+
+The `${toll_allow}` channel variable is populated from the directory when the user authenticates. A `<condition>` with `field="${toll_allow}"` tests it against a regex before allowing the call to proceed.
+
+```xml
+<extension name="international_dialing">
+  <condition field="${toll_allow}" expression="international">
+    <action application="bridge" data="sofia/gateway/my_carrier/${destination_number}"/>
+    <anti-action application="playback" data="ivr/ivr-not_allowed.wav"/>
+    <anti-action application="hangup"/>
+  </condition>
+</extension>
+```
+
+The `expression="international"` regex matches any `toll_allow` value that contains the substring `international`. To require an exact single value, anchor the expression: `expression="^international$"`. To permit multiple classes, use alternation: `expression="domestic|international"`.
+
+**Combining toll_allow with a time condition**
+
+The following extension denies international calls outside business hours regardless of the user's `toll_allow` setting, by evaluating time first and gating the `toll_allow` check inside a nested condition.
+
+```xml
+<extension name="intl_business_hours_only">
+  <condition wday="2-6" hour="8-17">
+    <!-- During business hours, check toll_allow -->
+    <condition field="${toll_allow}" expression="international">
+      <action application="bridge" data="sofia/gateway/my_carrier/${destination_number}"/>
+      <anti-action application="playback" data="ivr/ivr-not_allowed.wav"/>
+      <anti-action application="hangup"/>
+    </condition>
+    <anti-action application="playback" data="ivr/ivr-not_allowed.wav"/>
+    <anti-action application="hangup"/>
+  </condition>
+</extension>
+```
+
+In this configuration, a call reaching `intl_business_hours_only` outside Monday through Friday, 8 AM to 5 PM triggers the outer `<anti-action>` immediately, bypassing the `toll_allow` check entirely.

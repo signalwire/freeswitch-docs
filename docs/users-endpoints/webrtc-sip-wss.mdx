@@ -1,0 +1,304 @@
+---
+id: webrtc-sip-wss
+slug: /endpoints/webrtc-sip
+title: "Chapter 10: WebRTC over SIP (WSS)"
+sidebar_label: "10. WebRTC over SIP (WSS)"
+---
+
+# Chapter 10: WebRTC over SIP (WSS)
+
+A Sofia profile can accept SIP signaling carried over WebSocket (WS) and Secure WebSocket (WSS), enabling browser-based endpoints to register and place calls using standard SIP without a proprietary signaling protocol. This chapter covers the binding parameters, TLS certificate material, and the media configuration that browsers require for interoperability.
+
+## Table of Contents
+
+- [1. SIP over WebSocket vs. Verto](#1-sip-over-websocket-vs-verto)
+- [2. Enabling ws-binding and wss-binding](#2-enabling-ws-binding-and-wss-binding)
+- [3. TLS Certificate Material](#3-tls-certificate-material)
+- [4. TLS Parameters](#4-tls-parameters)
+- [5. Media: SRTP, DTLS, and ICE](#5-media-srtp-dtls-and-ice)
+  - [5.1 DTLS-SRTP](#51-dtls-srtp)
+  - [5.2 ICE](#52-ice)
+  - [5.3 STUN and TURN](#53-stun-and-turn)
+  - [5.4 NAT Traversal: Server-Side Parameters](#54-nat-traversal-server-side-parameters)
+- [6. Browser Transport Requirement](#6-browser-transport-requirement)
+- [7. Parameter Reference](#7-parameter-reference)
+
+---
+
+## 1. SIP over WebSocket vs. Verto
+
+FreeSWITCH supports two distinct mechanisms for browser-based real-time communication: SIP transported over WebSocket (RFC 7118) via `mod_sofia`, and the proprietary Verto protocol via `mod_verto`. Both approaches serve browser clients; the difference lies in signaling.
+
+SIP over WSS uses standard SIP messaging encapsulated inside a WebSocket connection. Any SIP client library that supports the WebSocket transport (such as JsSIP or SIP.js) can register and call against a Sofia profile without any FreeSWITCH-specific client code. The trade-off is that SIP-over-WebSocket carries the full complexity of SIP negotiation into the browser.
+
+Verto (documented in the Verto chapter) is a JSON-RPC protocol designed and implemented by the FreeSWITCH project. It is simpler for client developers but requires the `mod_verto` FreeSWITCH module and a Verto-aware JavaScript client.
+
+If your browser client uses a standard SIP library, configure `ws-binding` or `wss-binding` on a Sofia profile as described in this chapter. If your browser client uses `verto.js`, refer to the Verto chapter instead.
+
+---
+
+## 2. Enabling ws-binding and wss-binding
+
+The `ws-binding` and `wss-binding` parameters are set inside the `<settings>` block of a Sofia profile. Each parameter accepts a value in the form `[ip]:port`. When the IP portion is omitted (e.g., `:5066`), the profile binds on all interfaces using the IP already configured for the profile.
+
+The vanilla `internal` profile ships with both parameters present:
+
+```xml
+<!-- for sip over websocket support -->
+<param name="ws-binding"  value=":5066"/>
+
+<!-- for sip over secure websocket support -->
+<!-- You need wss.pem in $${certs_dir} for wss or one will be created for you -->
+<param name="wss-binding" value=":7443"/>
+```
+
+Setting `ws-binding` adds an unencrypted WebSocket listener. Setting `wss-binding` adds a TLS-encrypted WebSocket listener. Both can be active simultaneously on the same profile. The profile continues to listen on its standard SIP UDP/TCP port; the WebSocket listeners are additive.
+
+To bind to a specific interface rather than all interfaces:
+
+```xml
+<param name="ws-binding"  value="192.0.2.10:5066"/>
+<param name="wss-binding" value="192.0.2.10:7443"/>
+```
+
+---
+
+## 3. TLS Certificate Material
+
+`wss-binding` requires a TLS certificate. FreeSWITCH looks for certificate files in the directory specified by `tls-cert-dir` (defaults to the global `certs_dir`, typically `/etc/freeswitch/tls`).
+
+### Certificate file lookup order for WSS
+
+FreeSWITCH first looks for the separate key and certificate files:
+
+1. `wss.key` (private key)
+2. `wss.crt` (certificate)
+
+If either file is absent, FreeSWITCH falls back to a single combined PEM file:
+
+3. `wss.pem` (key + certificate + optional chain, concatenated)
+
+If `wss.pem` is also absent, FreeSWITCH generates a self-signed certificate and writes it to `wss.pem`. Self-signed certificates will cause browser security warnings; browsers will refuse to connect to a WSS endpoint secured by an untrusted certificate unless the user manually trusts it. For production use, supply a certificate signed by a trusted CA.
+
+### Recommended file layout
+
+```
+/etc/freeswitch/tls/
+    wss.pem          # combined key + cert (or use wss.key + wss.crt)
+```
+
+Or, using separate files:
+
+```
+/etc/freeswitch/tls/
+    wss.key          # RSA or ECDSA private key, PEM format
+    wss.crt          # signed certificate (and optional chain), PEM format
+```
+
+### Relationship to SIP TLS certificate files
+
+The SIP TLS transport (`tls` parameter) uses `agent.pem` (key + cert) and `cafile.pem` (CA bundle). These are distinct from the WSS certificate files (`wss.pem` or `wss.key`/`wss.crt`). A profile can operate SIP TLS and WSS with independent certificates.
+
+---
+
+## 4. TLS Parameters
+
+The following parameters govern TLS behavior. They apply to the SIP TLS transport and, for `tls-cert-dir`, also determine where WSS certificate files are loaded from.
+
+```xml
+<!-- TLS for SIP (not required for WSS alone, but tls-cert-dir affects both) -->
+<param name="tls"                  value="false"/>
+<param name="tls-only"             value="false"/>
+<param name="tls-bind-params"      value="transport=tls"/>
+<param name="tls-sip-port"         value="5061"/>
+<param name="tls-cert-dir"         value="/etc/freeswitch/tls"/>
+<param name="tls-passphrase"       value=""/>
+<param name="tls-version"          value="tlsv1,tlsv1.1,tlsv1.2,tlsv1.3"/>
+<param name="tls-ciphers"          value="ALL:!ADH:!LOW:!EXP:!MD5:@STRENGTH"/>
+<param name="tls-verify-date"      value="true"/>
+<param name="tls-verify-policy"    value="none"/>
+<param name="tls-verify-depth"     value="2"/>
+<param name="tls-verify-in-subjects" value=""/>
+<param name="tls-timeout"          value="300"/>
+```
+
+The `tls-cert-dir` value in the example above shows the conventional path; the compiled-in default is the global `certs_dir` determined at build time. The `tls-timeout` value of `300` seconds is the compiled-in default for outgoing TLS connection attempts; set to `0` to disable the timeout. The `tls-version` default includes all four TLS versions (`tlsv1` through `tlsv1.3`); restrict this list to `tlsv1.2,tlsv1.3` to drop support for deprecated protocol versions.
+
+---
+
+## 5. Media: SRTP, DTLS, and ICE
+
+Browser SIP clients require encrypted media and ICE-based NAT traversal. This section covers how DTLS-SRTP key exchange works, how FreeSWITCH participates as an ICE peer, and how to configure the server-side candidate addresses. SRTP via SDES (inline SDP key exchange) is also supported but is not used by WebRTC browsers; browsers always use DTLS-SRTP.
+
+---
+
+### 5.1 DTLS-SRTP
+
+WebRTC mandates DTLS-SRTP for media encryption. No profile parameter enables or disables it; FreeSWITCH activates DTLS-SRTP automatically when a browser offer contains an `a=fingerprint` attribute in the SDP.
+
+**How fingerprint exchange works**
+
+When FreeSWITCH receives an SDP offer containing `a=fingerprint`, the core media layer:
+
+1. Records the remote fingerprint (hash algorithm and hex digest) from the offer.
+2. Generates a local fingerprint from its own DTLS certificate (`dtls-srtp.pem` in `$${certs_dir}`). If that file does not exist, FreeSWITCH generates a self-signed certificate and saves it there.
+3. Includes `a=fingerprint` and `a=setup` in its SDP answer.
+
+FreeSWITCH uses SHA-256 as the default fingerprint hash algorithm. If the remote side advertises a different hash type in its `a=fingerprint` attribute, FreeSWITCH mirrors that type for its local fingerprint.
+
+**The `a=setup` role negotiation**
+
+The `a=setup` attribute determines which side acts as DTLS client (initiates the handshake) and which acts as DTLS server (waits for it).
+
+- When FreeSWITCH sends the SDP offer, it uses `a=setup:actpass`, leaving the choice to the browser.
+- When FreeSWITCH sends the SDP answer and the browser offered `passive` or `actpass`, FreeSWITCH takes the DTLS client role (`a=setup:active`). If the browser offered `active`, FreeSWITCH becomes the DTLS server (`a=setup:passive`).
+
+This behavior is automatic. No profile parameter controls the DTLS role.
+
+**DTLS certificate file**
+
+FreeSWITCH looks for its DTLS certificate in `$${certs_dir}/dtls-srtp.pem`. If that combined PEM file is absent, it falls back to `dtls-srtp.key` (private key) and `dtls-srtp.crt` (certificate) in the same directory. If none of these files exist, FreeSWITCH generates a self-signed certificate and writes it to `dtls-srtp.pem` at startup.
+
+```
+/etc/freeswitch/tls/
+    dtls-srtp.pem     # combined key + cert (auto-generated if absent)
+```
+
+The DTLS certificate is independent of the WSS TLS certificate (`wss.pem`). Each serves a different layer: `wss.pem` secures the WebSocket signaling channel; `dtls-srtp.pem` secures the SRTP media channel.
+
+**The `rtp_secure_media` channel variable**
+
+For SDES-SRTP (non-DTLS key exchange), the `rtp_secure_media` channel variable controls FreeSWITCH behavior. Set it in the dialplan or user directory:
+
+```xml
+<action application="set" data="rtp_secure_media=mandatory"/>
+```
+
+| Value | Behavior |
+|-------|----------|
+| `true` or `mandatory` | Require SRTP; reject calls that do not offer crypto |
+| `optional` | Offer SRTP but accept calls that do not |
+| `false` or `forbidden` | Disable SRTP entirely |
+
+The variable also accepts a colon-suffix to restrict which SRTP cipher suites are offered, for example `mandatory:AES_CM_128_HMAC_SHA1_80`. The suite list is colon-delimited. The `rtp_secure_media_inbound` and `rtp_secure_media_outbound` variants apply the setting directionally; the bare `rtp_secure_media` variable applies to both directions when the directional variables are absent.
+
+For WebRTC browser calls using DTLS-SRTP, `rtp_secure_media` does not need to be set. FreeSWITCH enables DTLS-SRTP automatically based on the presence of `a=fingerprint` in the browser's SDP.
+
+---
+
+### 5.2 ICE
+
+FreeSWITCH participates in ICE (Interactive Connectivity Establishment) as a full ICE agent by default. It generates ICE credentials (`a=ice-ufrag` and `a=ice-pwd`) using random strings at session setup time and includes them in SDP. The ufrag is 16 characters; the password is 24 characters.
+
+**Candidate types FreeSWITCH advertises**
+
+FreeSWITCH advertises up to two candidate types per media component in its SDP:
+
+1. A `host` candidate using the address bound to `rtp-ip`.
+2. A `srflx` (server-reflexive) candidate using `ext-rtp-ip` as the address, with `rtp-ip` as the `raddr` (reflexive base address), when `ext-rtp-ip` is set and differs from `rtp-ip`.
+
+FreeSWITCH does not generate `relay` candidates in its SDP. It does, however, accept `relay` candidates from the browser's SDP during candidate selection.
+
+**ICE candidate filtering with `apply-candidate-acl`**
+
+When processing a browser's SDP offer, FreeSWITCH evaluates each `a=candidate` line against the ACLs configured in `apply-candidate-acl`. A candidate is accepted if its IP address matches any listed ACL. If no `apply-candidate-acl` is configured, FreeSWITCH defaults to `wan.auto` and logs a warning.
+
+```xml
+<param name="apply-candidate-acl" value="localnet.auto"/>
+<param name="apply-candidate-acl" value="wan_v4.auto"/>
+<param name="apply-candidate-acl" value="rfc1918.auto"/>
+<param name="apply-candidate-acl" value="any_v4.auto"/>
+```
+
+The parameter is repeatable. Candidates that do not match any ACL are silently discarded. When all non-relay candidates are discarded, FreeSWITCH falls back to evaluating relay candidates from the browser's SDP.
+
+FreeSWITCH only processes UDP ICE candidates. TCP candidates in the browser's SDP are ignored.
+
+**The `rtp-ip` and `ext-rtp-ip` parameters**
+
+| Parameter | Role in ICE |
+|-----------|-------------|
+| `rtp-ip` | Local address FreeSWITCH binds its RTP sockets to. Becomes the `host` candidate address and the `raddr` of any `srflx` candidate. |
+| `ext-rtp-ip` | Public address FreeSWITCH advertises. When set and different from `rtp-ip`, an additional `srflx` candidate is emitted with this as the candidate address. Also used as the `c=` connection address in SDP sent to browsers. |
+
+```xml
+<param name="rtp-ip"     value="$${local_ip_v4}"/>
+<param name="ext-rtp-ip" value="$${external_rtp_ip}"/>
+```
+
+The `rtp-ip` parameter is repeatable. Values containing `:` are treated as IPv6 addresses and stored in a separate address pool from IPv4 values.
+
+**ICE mode: full agent vs. ICE-lite**
+
+By default FreeSWITCH operates as a full ICE agent. Setting the channel variable `ice_lite` to `true` switches it to ICE-lite mode, which causes it to take the controlled role and skip connectivity checks. ICE-lite is not the default; most browser interoperability is achieved in full ICE mode.
+
+---
+
+### 5.3 STUN and TURN
+
+**FreeSWITCH and STUN**
+
+FreeSWITCH uses STUN only for one purpose: resolving its own public IP address at profile load time when `ext-rtp-ip` is set to a `stun:` URI.
+
+```xml
+<param name="ext-rtp-ip" value="stun:stun.example.com"/>
+```
+
+When a `stun:` value is configured, FreeSWITCH performs a STUN binding request to the named server at startup (with up to 5 retries) and stores the returned public IP as `ext-rtp-ip`. After that, FreeSWITCH does not communicate with the STUN server again during calls. The resolved address is used to populate the `srflx` candidate and the SDP connection address.
+
+A custom port may be included in the URI: `stun:stun.example.com:3478`.
+
+Accepted `ext-rtp-ip` value forms:
+
+| Form | Behavior |
+|------|----------|
+| Literal IP, e.g., `203.0.113.10` | Used directly, no lookup |
+| `stun:host` or `stun:host:port` | STUN binding request at profile load time |
+| `host:hostname` | DNS A record lookup at profile load time |
+| `auto` | FreeSWITCH guesses from the system routing table |
+| `auto-nat` | Resolved from NAT-PMP or UPnP at profile load time |
+
+**TURN relays**
+
+FreeSWITCH does not use TURN relays itself. FreeSWITCH has no TURN client configuration and does not request or generate relay candidates.
+
+TURN relays are configured on the browser client, not on FreeSWITCH. The browser discovers a relay address via a TURN server and advertises it as a `relay` candidate in its SDP. FreeSWITCH receives that candidate, validates it against `apply-candidate-acl`, and uses it as the remote media destination if it is the best available candidate. From FreeSWITCH's perspective it is simply sending RTP to an IP and port; the relay is transparent.
+
+---
+
+### 5.4 NAT Traversal: Server-Side Parameters
+
+The consolidated server-side NAT setup, including `ext-sip-ip`, `ext-rtp-ip`, and `auto-nat`, is documented in detail in the Media Handling chapter's NAT Traversal section. The configuration in this chapter refers to the same `ext-rtp-ip` parameter. For a full treatment of how these parameters interact with NAT-PMP, UPnP, and the Sofia profile's SIP signaling address, refer to that section rather than duplicating it here.
+
+---
+
+## 6. Browser Transport Requirement
+
+Browsers served over HTTPS refuse to open unencrypted WebSocket connections (`ws://`) due to mixed-content policy. In practice this means:
+
+- A browser page loaded over HTTPS must use `wss-binding` (WSS, port 7443 by default).
+- A browser page loaded over plain HTTP may use `ws-binding` (WS, port 5066 by default), but HTTP is not used in production.
+
+Always configure `wss-binding` and provide a CA-trusted certificate when deploying for browser clients. The plain `ws-binding` is useful only for local development or testing.
+
+---
+
+## 7. Parameter Reference
+
+| Parameter | Purpose | Accepted Values | Default |
+|-----------|---------|----------------|---------|
+| `ws-binding` | IP and port for the plain WebSocket (WS) SIP listener | `[ip]:port` string, e.g., `:5066` | None (disabled) |
+| `wss-binding` | IP and port for the secure WebSocket (WSS) SIP listener | `[ip]:port` string, e.g., `:7443` | None (disabled) |
+| `tls` | Enable SIP over TLS transport | `true`, `false` | `false` |
+| `tls-only` | Bind only on the TLS port; suppress the plain SIP UDP/TCP port | `true`, `false` | `false` |
+| `tls-bind-params` | Additional transport parameters appended to the TLS bind URL | String; must include `transport=tls` (auto-appended if absent) | `transport=tls` |
+| `tls-sip-port` | Port for the SIP TLS listener | Port number or `auto` | `5061` |
+| `tls-cert-dir` | Directory containing TLS and WSS certificate files | Absolute filesystem path | Global `certs_dir` |
+| `tls-passphrase` | Passphrase for OpenSSL to decrypt an encrypted private key | String | Empty (no passphrase) |
+| `tls-version` | Comma-separated list of TLS/SSL protocol versions to enable | `tlsv1`, `tlsv1.1`, `tlsv1.2`, `tlsv1.3`, `sslv2`, `sslv3`, `sslv23` | `tlsv1,tlsv1.1,tlsv1.2,tlsv1.3` |
+| `tls-ciphers` | OpenSSL cipher string for TLS connections | OpenSSL cipher list string | `ALL:!ADH:!LOW:!EXP:!MD5:@STRENGTH` |
+| `tls-verify-date` | Reject certificates whose validity period has expired | `true`, `false` | `true` |
+| `tls-verify-policy` | Certificate verification policy for TLS peers | `none`, `in`, `out`, `all`, `subjects_in`, `subjects_out`, `subjects_all`; pipe-delimited combinations allowed, e.g., `subjects_in\|subjects_out` | `none` |
+| `tls-verify-depth` | Maximum certificate chain depth when verifying peer certificates | Integer | `2` |
+| `tls-verify-in-subjects` | Allowed certificate subjects for inbound TLS connections (requires `tls-verify-policy` to include a `subjects_in` or `subjects_all` value) | Pipe-delimited subject strings, e.g., `example.com\|*.example.com` | Empty |
+| `tls-timeout` | Timeout in seconds for outgoing TLS connection attempts; 0 disables | Integer | `300` |

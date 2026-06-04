@@ -1,0 +1,701 @@
+---
+id: sip-profiles-sofia
+slug: /endpoints/sip-profiles
+title: "Chapter 7: SIP Profiles with Sofia"
+sidebar_label: "7. SIP Profiles with Sofia"
+---
+
+# Chapter 7: SIP Profiles with Sofia
+
+`mod_sofia` is the SIP endpoint module in FreeSWITCH, built on the Sofia-SIP stack. A SIP profile defines one independent SIP user agent bound to a specific IP address and port; every SIP user agent in FreeSWITCH is a distinct profile with its own transport, codec preferences, authentication policy, and dialplan routing target.
+
+## Table of Contents
+
+- [1. The Sofia Profile Model](#1-the-sofia-profile-model)
+- [2. Global Sofia Settings](#2-global-sofia-settings)
+- [3. Profile File Structure](#3-profile-file-structure)
+  - [3.1 The `gateways` Block](#31-the-gateways-block)
+  - [3.2 The `aliases` Block](#32-the-aliases-block)
+  - [3.3 The `domains` Block](#33-the-domains-block)
+  - [3.4 The `settings` Block](#34-the-settings-block)
+- [4. Bundled Profiles](#4-bundled-profiles)
+  - [4.1 The `internal` Profile](#41-the-internal-profile)
+  - [4.2 The `external` Profile](#42-the-external-profile)
+- [5. Settings Parameter Reference](#5-settings-parameter-reference)
+  - [5.1 Identity and Binding](#51-identity-and-binding)
+  - [5.2 Authentication and Registration](#52-authentication-and-registration)
+  - [5.3 Presence and Registration Domain](#53-presence-and-registration-domain)
+  - [5.4 Media](#54-media)
+  - [5.5 DTMF](#55-dtmf)
+  - [5.6 Call Control and Timers](#56-call-control-and-timers)
+  - [5.7 NAT Traversal](#57-nat-traversal)
+  - [5.8 TLS](#58-tls)
+  - [5.9 WebSocket Bindings](#59-websocket-bindings)
+  - [5.10 Advanced Settings](#510-advanced-settings)
+- [6. Getting Started: Minimal Working Profile](#6-getting-started-minimal-working-profile)
+- [7. Presence, BLF, and MWI](#7-presence-blf-and-mwi)
+  - [7.1 Enabling Presence](#71-enabling-presence)
+  - [7.2 BLF (Busy Lamp Field)](#72-blf-busy-lamp-field)
+  - [7.3 MWI (Message Waiting Indication)](#73-mwi-message-waiting-indication)
+  - [7.4 presence\_map.conf.xml](#74-presence_mapconfxml)
+  - [7.5 Presence Parameter Reference](#75-presence-parameter-reference)
+
+---
+
+## 1. The Sofia Profile Model
+
+Each Sofia SIP profile services exactly one IP address and port combination. Running multiple profiles is how FreeSWITCH presents separate SIP user agents on the same host, for example, one for internal registered phones and another for outbound carrier trunks. Profiles are independent: each has its own transport socket, ACL rules, codec preferences, authentication requirements, and dialplan context.
+
+All profile XML files live under `conf/sip_profiles/`. The module-level configuration file `conf/autoload_configs/sofia.conf.xml` uses an `X-PRE-PROCESS` include directive to load every `*.xml` file from that directory:
+
+```xml
+<profiles>
+  <X-PRE-PROCESS cmd="include" data="../sip_profiles/*.xml"/>
+</profiles>
+```
+
+To add a profile, place a new XML file in `conf/sip_profiles/` and execute `sofia profile <name> start` from the FreeSWITCH console, or restart the module.
+
+---
+
+## 2. Global Sofia Settings
+
+`sofia.conf.xml` also contains a `global_settings` block that applies across all profiles.
+
+```xml
+<global_settings>
+  <param name="log-level" value="0"/>
+  <param name="debug-presence" value="0"/>
+  <!-- <param name="auto-restart" value="false"/> -->
+  <!-- <param name="abort-on-empty-external-ip" value="true"/> -->
+  <!-- <param name="capture-server" value="udp:homer.domain.com:5060"/> -->
+</global_settings>
+```
+
+| Parameter | Purpose | Values | Default |
+|---|---|---|---|
+| `log-level` | Sofia-SIP stack verbosity | `0`-`9` | `0` |
+| `debug-presence` | Presence subsystem debug verbosity | `0`-`9` | `0` |
+| `auto-restart` | Reload profiles automatically after config change | `true`, `false` | `true` |
+| `abort-on-empty-external-ip` | Abort profile load when `ext-rtp-ip` or `ext-sip-ip` resolve to empty | `true`, `false` | `false` |
+| `capture-server` | HEP capture server for SIP mirroring | `udp:host:port` or `udp:host:port;hep=3;capture_id=N` | (none) |
+
+---
+
+## 3. Profile File Structure
+
+A profile XML file follows this skeleton:
+
+```xml
+<profile name="internal">
+  <aliases>
+    <!-- <alias name="default"/> -->
+  </aliases>
+
+  <gateways>
+    <!-- outbound provider registrations -->
+  </gateways>
+
+  <domains>
+    <domain name="all" alias="true" parse="false"/>
+  </domains>
+
+  <settings>
+    <param name="sip-port" value="5060"/>
+    <!-- ... additional parameters ... -->
+  </settings>
+</profile>
+```
+
+### 3.1 The `gateways` Block
+
+Outbound SIP registrations to upstream carriers or SIP trunks are defined inside `<gateways>`. The external profile uses an include to load individual gateway files:
+
+```xml
+<gateways>
+  <X-PRE-PROCESS cmd="include" data="external/*.xml"/>
+</gateways>
+```
+
+Each gateway XML file defines one outbound registration. Gateways are covered in Chapter 8: Gateways.
+
+### 3.2 The `aliases` Block
+
+An alias is an alternative name by which a profile can be referenced in dialplan strings and API calls. Multiple aliases are permitted per profile.
+
+```xml
+<aliases>
+  <alias name="default"/>
+  <alias name="outbound"/>
+</aliases>
+```
+
+Aliases allow dialplan bridge strings such as `sofia/default/1000@domain.com` to resolve to the `internal` profile even when the profile is named `internal`.
+
+### 3.3 The `domains` Block
+
+The `domains` block controls two independent behaviors: whether the profile parses the directory for domain-level gateway definitions, and whether each listed domain is aliased to this profile for routing purposes.
+
+```xml
+<domains>
+  <domain name="all" alias="true" parse="false"/>
+</domains>
+```
+
+| Attribute | Purpose | Values |
+|---|---|---|
+| `name` | The domain to act on, or the special value `all` to match every configured domain | FQDN or `all` |
+| `alias` | Alias this domain name to the profile so SIP URIs addressed to the domain resolve here | `true`, `false` |
+| `parse` | Parse the FreeSWITCH directory for this domain and load any gateways defined there | `true`, `false` |
+
+Setting `alias="true"` and `name="all"` causes every domain in the directory to be aliased to this profile. This is the default in the `internal` profile and enables multi-domain routing for registered endpoints.
+
+Setting `parse="true"` instructs the profile to read the XML directory for the named domain and load any `<gateway>` stanzas found there. The `external` profile uses `parse="true"` and `alias="false"` by default, loading directory-defined gateways without routing all domain traffic through it.
+
+### 3.4 The `settings` Block
+
+All per-profile operational parameters are declared as `<param name="..." value="..."/>` elements inside `<settings>`. The complete reference is in Section 5.
+
+---
+
+## 4. Bundled Profiles
+
+The vanilla configuration ships two profiles: `internal` and `external`. They cover the two dominant use cases and serve as templates for custom profiles.
+
+### 4.1 The `internal` Profile
+
+**File:** `conf/sip_profiles/internal.xml`
+
+The `internal` profile is designed for registered SIP endpoints such as desk phones, softphones, and WebRTC clients. It binds on port `5060` (variable `$${internal_sip_port}`) and enforces digest authentication by default (`auth-calls` resolves to `true` via `$${internal_auth_calls}`).
+
+Key characteristics of the vanilla `internal` profile:
+
+- Binds `sip-ip` and `rtp-ip` to `$${local_ip_v4}` (the system's detected local IPv4 address).
+- Routes inbound calls to the `public` context.
+- Applies the `domains` ACL for inbound call authorization (`apply-inbound-acl` = `domains`).
+- Enables presence (`manage-presence` = `true`).
+- Enables WebSocket (`ws-binding` = `:5066`) and secure WebSocket (`wss-binding` = `:7443`) for WebRTC clients.
+- Forces all registrations into a single domain defined by `$${domain}` via `force-register-domain`.
+- Sets `challenge-realm` to `auto_from`, meaning the SIP realm in digest challenges is derived from the `From` header.
+- Enables `inbound-late-negotiation` to allow codec selection in the dialplan.
+
+```xml
+<profile name="internal">
+  <aliases></aliases>
+  <gateways></gateways>
+  <domains>
+    <domain name="all" alias="true" parse="false"/>
+  </domains>
+  <settings>
+    <param name="context" value="public"/>
+    <param name="sip-port" value="$${internal_sip_port}"/>
+    <param name="sip-ip" value="$${local_ip_v4}"/>
+    <param name="rtp-ip" value="$${local_ip_v4}"/>
+    <param name="ext-rtp-ip" value="$${external_rtp_ip}"/>
+    <param name="ext-sip-ip" value="$${external_sip_ip}"/>
+    <param name="dialplan" value="XML"/>
+    <param name="auth-calls" value="$${internal_auth_calls}"/>
+    <param name="inbound-codec-prefs" value="$${global_codec_prefs}"/>
+    <param name="outbound-codec-prefs" value="$${global_codec_prefs}"/>
+    <param name="inbound-codec-negotiation" value="generous"/>
+    <param name="inbound-late-negotiation" value="true"/>
+    <param name="manage-presence" value="true"/>
+    <param name="presence-hosts" value="$${domain},$${local_ip_v4}"/>
+    <param name="apply-inbound-acl" value="domains"/>
+    <param name="apply-nat-acl" value="nat.auto"/>
+    <param name="nonce-ttl" value="60"/>
+    <param name="auth-calls" value="$${internal_auth_calls}"/>
+    <param name="auth-all-packets" value="false"/>
+    <param name="auth-subscriptions" value="true"/>
+    <param name="inbound-reg-force-matching-username" value="true"/>
+    <param name="challenge-realm" value="auto_from"/>
+    <param name="rtp-timeout-sec" value="300"/>
+    <param name="rtp-hold-timeout-sec" value="1800"/>
+    <param name="hold-music" value="$${hold_music}"/>
+    <param name="record-path" value="$${recordings_dir}"/>
+    <param name="record-template" value="${caller_id_number}.${target_domain}.${strftime(%Y-%m-%d-%H-%M-%S)}.wav"/>
+    <param name="tls" value="$${internal_ssl_enable}"/>
+    <param name="tls-bind-params" value="transport=tls"/>
+    <param name="tls-sip-port" value="$${internal_tls_port}"/>
+    <param name="tls-version" value="$${sip_tls_version}"/>
+    <param name="ws-binding"  value=":5066"/>
+    <param name="wss-binding" value=":7443"/>
+    <param name="force-register-domain" value="$${domain}"/>
+    <param name="force-subscription-domain" value="$${domain}"/>
+    <param name="force-register-db-domain" value="$${domain}"/>
+  </settings>
+</profile>
+```
+
+### 4.2 The `external` Profile
+
+**File:** `conf/sip_profiles/external.xml`
+
+The `external` profile is designed for outbound registrations to SIP carriers and upstream trunks. It binds on port `5080` (variable `$${external_sip_port}`) and disables inbound call authentication (`auth-calls` = `false`) because carriers do not register as users and instead authenticate at the network or IP level.
+
+Key characteristics of the vanilla `external` profile:
+
+- Binds on port `5080`.
+- Sets `auth-calls` = `false`; carrier traffic is typically trusted by IP.
+- Sets `manage-presence` = `false`; presence is not needed for trunk traffic.
+- Loads gateway definitions from `conf/sip_profiles/external/*.xml` via the `gateways` include.
+- Uses `parse="true"` in the `domains` block to load directory-defined gateways; `alias="false"` so domain SIP URIs are not automatically routed here.
+
+```xml
+<profile name="external">
+  <gateways>
+    <X-PRE-PROCESS cmd="include" data="external/*.xml"/>
+  </gateways>
+  <aliases></aliases>
+  <domains>
+    <domain name="all" alias="false" parse="true"/>
+  </domains>
+  <settings>
+    <param name="context" value="public"/>
+    <param name="sip-port" value="$${external_sip_port}"/>
+    <param name="sip-ip" value="$${local_ip_v4}"/>
+    <param name="rtp-ip" value="$${local_ip_v4}"/>
+    <param name="ext-rtp-ip" value="$${external_rtp_ip}"/>
+    <param name="ext-sip-ip" value="$${external_sip_ip}"/>
+    <param name="dialplan" value="XML"/>
+    <param name="auth-calls" value="false"/>
+    <param name="inbound-codec-prefs" value="$${global_codec_prefs}"/>
+    <param name="outbound-codec-prefs" value="$${outbound_codec_prefs}"/>
+    <param name="inbound-codec-negotiation" value="generous"/>
+    <param name="inbound-late-negotiation" value="true"/>
+    <param name="manage-presence" value="false"/>
+    <param name="nonce-ttl" value="60"/>
+    <param name="rtp-timeout-sec" value="300"/>
+    <param name="rtp-hold-timeout-sec" value="1800"/>
+    <param name="hold-music" value="$${hold_music}"/>
+    <param name="tls" value="$${external_ssl_enable}"/>
+    <param name="tls-bind-params" value="transport=tls"/>
+    <param name="tls-sip-port" value="$${external_tls_port}"/>
+    <param name="tls-version" value="$${sip_tls_version}"/>
+  </settings>
+</profile>
+```
+
+---
+
+## 5. Settings Parameter Reference
+
+### 5.1 Identity and Binding
+
+These parameters define what address and port the profile binds to, and how inbound calls are dispatched.
+
+| Parameter | Purpose | Values | Default |
+|---|---|---|---|
+| `sip-ip` | Local IP address for the SIP transport socket. Use only IP addresses, not hostnames. Accepts `auto` (use the system-guessed IP), `interface:NAME` (resolve from a named network interface), or an explicit dotted-decimal address. | IP address, `auto`, `interface:[auto\|ipv4\|ipv6]/IFNAME` | System-guessed local IPv4 |
+| `sip-port` | UDP/TCP port the SIP transport listens on. Accepts `auto` to let the OS assign a port. | Port number or `auto` | `5060` |
+| `rtp-ip` | Local IP address used as the RTP source/destination in SDP. Accepts the same forms as `sip-ip`. Multiple `rtp-ip` entries are supported and the profile will select an appropriate address per call. | IP address, `auto`, `interface:[auto\|ipv4\|ipv6]/IFNAME` | System-guessed local IPv4 |
+| `context` | The dialplan context inbound calls are delivered to. Can be overridden per-call by the `user_context` channel variable or ACL pass/fail contexts. | Any defined dialplan context name | `default` |
+| `dialplan` | The dialplan module used to process inbound calls. | `XML`, `inline`, or any loaded dialplan module name | `XML` |
+| `bind-params` | Extra transport parameters appended to the SIP bind URI, for example to restrict transport protocol. | Transport param string, e.g. `transport=udp` | (none) |
+| `user-agent-string` | Override the `User-Agent` SIP header sent by this profile. Set to `_undef_` to omit the header entirely. | Any string or `_undef_` | `FreeSWITCH-mod_sofia/<version>` |
+| `contact-user` | The user portion placed in the SIP Contact URI built for this profile. | String | `mod_sofia` |
+| `sip-domain` | Override the SIP domain reported by this profile. When not set, defaults to the `sip-ip` value. | FQDN or IP address | Value of `sip-ip` |
+| `outbound-proxy` | Force all outbound SIP requests through this proxy URI. `sip:` scheme is prepended if absent. | SIP URI, e.g. `sip:proxy.example.com` | (none) |
+| `max-calls` | Maximum simultaneous calls allowed on this profile. `0` means unlimited. | Integer | `0` |
+
+### 5.2 Authentication and Registration
+
+| Parameter | Purpose | Values | Default |
+|---|---|---|---|
+| `auth-calls` | Require digest authentication on inbound INVITE requests. | `true`, `false` | `false` |
+| `auth-all-packets` | When authentication is enabled, challenge every SIP request method, not only INVITE. | `true`, `false` | `false` |
+| `auth-messages` | Require digest authentication for inbound MESSAGE requests. | `true`, `false` | `true` |
+| `auth-subscriptions` | Require digest authentication for SUBSCRIBE requests. | `true`, `false` | `true` |
+| `accept-blind-reg` | Accept any REGISTER request without verifying credentials against the directory. Intended only for testing environments. | `true`, `false` | `false` |
+| `accept-blind-auth` | Accept any digest authentication response without verifying the password. Intended only for testing environments. | `true`, `false` | `false` |
+| `apply-inbound-acl` | ACL name applied to inbound call source IPs. Calls passing the ACL may be delivered to an optional context specified with `acl-name:pass-context:fail-context` syntax. Multiple instances of this parameter are supported. Use `none` to clear. | ACL name, `none`, or `acl:pass-ctx:fail-ctx` | (none) |
+| `apply-register-acl` | ACL name applied to REGISTER source IPs. Registrations from IPs not on the ACL are rejected. Multiple instances supported. Use `none` to clear. | ACL name or `none` | (none) |
+| `apply-proxy-acl` | ACL name applied to requests that arrive via a proxy (based on `Via` header). Multiple instances supported. Use `none` to clear. | ACL name or `none` | (none) |
+| `nonce-ttl` | Lifetime in seconds of digest authentication nonces. Values below `60` are coerced to `60` at startup. | Integer seconds | `60` |
+| `max-auth-validity` | Maximum number of times a nonce may be reused before requiring a fresh challenge. `0` means unlimited reuse within `nonce-ttl`. | Integer | `0` |
+| `challenge-realm` | Value placed in the `realm` field of digest authentication challenges. `auto_from` derives the realm from the SIP `From` header host; `auto_to` derives it from the `To` header host; any other string is used literally. Using a fixed string disables multi-domain authentication. | `auto_from`, `auto_to`, or any literal string | `auto_to` |
+| `inbound-reg-force-matching-username` | Reject registrations where the `username` field of the `Authorization` header does not match the user portion of the `From` URI. | `true`, `false` | `false` |
+| `multiple-registrations` | Allow a single user to register from multiple devices simultaneously. `call-id` tracks registrations by Call-ID; `contact` tracks by Contact URI. `true` is treated as `contact`. | `false`, `call-id`, `contact`, `true` | `false` |
+
+### 5.3 Presence and Registration Domain
+
+| Parameter | Purpose | Values | Default |
+|---|---|---|---|
+| `manage-presence` | Enable the presence engine on this profile. `true` enables full presence. `passive` enables presence in read-only/relay mode (used to share presence from the `internal` profile). `pnp` enables Plug and Play provisioning presence. `false` disables presence. | `true`, `false`, `passive`, `pnp` | `false` |
+| `presence-hosts` | Comma-separated list of hostnames or IPs that this profile serves for presence. Used to match presence subscriptions to the correct profile. | Comma-separated host list | (none) |
+| `force-register-domain` | Override the domain under which all inbound registrations are stored in the user directory. Use when operating a single-domain server to prevent registrations from scattering across different domain values in requests. | Domain name | (none; uses domain from request) |
+| `force-register-db-domain` | Override the domain used as the database key when storing registrations. Usually set to the same value as `force-register-domain`. | Domain name | (none; uses domain from request) |
+| `force-subscription-domain` | Override the domain used when routing SUBSCRIBE requests. | Domain name | (none; uses domain from request) |
+| `record-path` | Default directory where call recordings initiated from this profile are stored. | Absolute path | Value of `$${recordings_dir}` |
+| `record-template` | Filename template for auto-recordings. Supports FreeSWITCH channel variable expansion and `${strftime(...)}`. | String with variable references | (none) |
+
+### 5.4 Media
+
+| Parameter | Purpose | Values | Default |
+|---|---|---|---|
+| `inbound-codec-prefs` | Ordered list of codecs offered to inbound callers in the SDP answer. | Comma-separated codec names, e.g. `OPUS,G722,PCMU,PCMA` | (none; uses global codec list) |
+| `outbound-codec-prefs` | Ordered list of codecs offered in SDP offers for outbound calls. | Comma-separated codec names | (none; uses global codec list) |
+| `codec-prefs` | Sets both `inbound-codec-prefs` and `outbound-codec-prefs` to the same value in one parameter. | Comma-separated codec names | (none) |
+| `inbound-codec-negotiation` | Controls how the profile reconciles its codec list against the remote party's SDP offer. `generous` accepts the first codec in the remote offer that the profile also supports. `greedy` reorders the remote offer to prefer the profile's own priority list. `scrooge` behaves like `greedy` and additionally refuses to accept any codec not in the profile's list. | `generous`, `greedy`, `scrooge` | `generous` |
+| `disable-transcoding` | When bridging, restrict the outbound leg to offer only the codec in use on the inbound leg, preventing transcoding. | `true`, `false` | `false` |
+| `media-option` | Modifies bypass-media behavior. `resume-media-on-hold` brings a bypass-media call back into media when hold is pressed. `bypass-media-after-att-xfer` returns a call to bypass-media after an attended transfer. `bypass-media-after-hold` returns to bypass-media after hold ends (requires `resume-media-on-hold` to also be set). `none` clears all options. This parameter can appear multiple times. | `resume-media-on-hold`, `bypass-media-after-att-xfer`, `bypass-media-after-hold`, `none` | (none) |
+| `rtp-timeout-sec` | Seconds of RTP inactivity on an active (non-held) call before FreeSWITCH terminates the call. **Deprecated:** prefer the `media_timeout` channel variable. | Integer seconds | `0` (disabled; zero-initialized) |
+| `rtp-hold-timeout-sec` | Seconds of RTP inactivity while a call is on hold before FreeSWITCH terminates the call. **Deprecated:** prefer the `media_hold_timeout` channel variable. | Integer seconds | `0` (disabled; zero-initialized) |
+| `rtp-timer-name` | Name of the RTP timer to use. `soft` is the software timer; other values depend on compiled timer modules. The vanilla config sets this to `soft`. | `soft`, or any loaded timer name | (none; uses stack default) |
+| `hold-music` | Music-on-hold source URI played to parties placed on hold by this profile's calls. | Any FreeSWITCH sound URI, e.g. `local_stream://moh` | (none) |
+| `inbound-late-negotiation` | Allow the call to reach the dialplan before FreeSWITCH selects the codec for the A-leg. Enables codec selection based on dialplan logic. Automatically enabled when `inbound-bypass-media` is set. | `true`, `false` | `false` |
+| `inbound-bypass-media` | Place all inbound calls immediately into bypass-media (no-media proxy) mode. Also accepted as `inbound-no-media`. Implicitly enables `inbound-late-negotiation`. | `true`, `false` | `false` |
+| `inbound-proxy-media` | Place all inbound calls immediately into proxy-media mode. | `true`, `false` | `false` |
+| `suppress-cng` | Suppress Comfort Noise Generation on this profile. Also accepted as `supress-cng`. | `true`, `false` | `false` |
+| `pass-rfc2833` | Pass RFC 2833 telephone-event RTP packets through without processing them, rather than converting to DTMF events internally. Useful in pure-proxy scenarios. | `true`, `false` | `false` |
+| `rtp-rewrite-timestamps` | Rewrite RTP timestamps from scratch rather than passing through the originating timestamps. Required in some transcoding or bridging scenarios to prevent timestamp discontinuities. | `true`, `false` | `false` |
+| `disable-rtp-auto-adjust` | Disable the automatic RTP source-address learning that updates the remote RTP destination when packets arrive from a different address than negotiated. Required when `rtp-rewrite-timestamps` is in use or when fixed RTP routing is required. | `true`, `false` | `false` |
+| `rtp-autofix-timing` | Automatically fix RTP packet timing irregularities caused by jitter in the sending endpoint. | `true`, `false` | `true` |
+| `vad` | Enable Voice Activity Detection on this profile. `in` applies VAD to inbound audio; `out` to outbound audio; `both` to both directions. | `in`, `out`, `both`, `none` | `none` |
+| `bitpacking` | Codec bitpacking mode for G.726. `aal2` enables AAL2-style bitpacking required by some ATM-derived equipment. | `aal2`, or omit for standard | Standard (not set) |
+| `rtcp-audio-interval-msec` | Interval in milliseconds at which RTCP packets are sent for audio streams. Set to `passthru` to relay RTCP across a bridge. | Integer milliseconds or `passthru` | (none; RTCP disabled) |
+| `rtcp-video-interval-msec` | Interval in milliseconds at which RTCP packets are sent for video streams. | Integer milliseconds or `passthru` | (none; RTCP disabled) |
+| `auto-jitterbuffer-msec` | Enable an automatic jitter buffer of the specified size (in milliseconds) on every call on this profile. Values below 20 ms are ignored. Can also be set per-channel with the `jitterbuffer_msec` channel variable. | Integer milliseconds | (none; jitter buffer disabled) |
+
+### 5.5 DTMF
+
+| Parameter | Purpose | Values | Default |
+|---|---|---|---|
+| `dtmf-type` | DTMF method used for outbound legs. `rfc2833` sends DTMF as RFC 2833 telephone-event packets. `info` sends DTMF as SIP INFO messages. `none` disables automatic DTMF handling. | `rfc2833`, `info`, `none` | `rfc2833` |
+| `rfc2833-pt` | RTP payload type number for RFC 2833 telephone-event. Must match the remote endpoint's expectation. | Integer payload type | `101` |
+| `dtmf-duration` | Duration in RTP timestamp units (8000 Hz clock) of generated RFC 2833 DTMF digits. Valid range is `SWITCH_MIN_DTMF_DURATION` (400) to `SWITCH_MAX_DTMF_DURATION` (192000); values outside this range fall back to `2000`. | Integer | `2000` (vanilla default; raw profile default is 100 before param is applied) |
+| `liberal-dtmf` | Accept DTMF using either RFC 2833 or SIP INFO without requiring the signaled method, improving compatibility with endpoints that send both. | `true`, `false` | `false` |
+| `rtp-digit-delay` | Milliseconds of delay to inject between consecutive RFC 2833 DTMF digits on send. Can help slow DTMF processors. Also overridable per-channel with the `rtp_digit_delay` variable. | Integer milliseconds | `40` |
+
+### 5.6 Call Control and Timers
+
+| Parameter | Purpose | Values | Default |
+|---|---|---|---|
+| `enable-timer` | Enable SIP session timers (RFC 4028). When `false`, session refresh is disabled. | `true`, `false` | `true` |
+| `session-timeout` | Session timer interval in seconds placed in the `Session-Expires` SIP header. `0` disables session timers. | Integer seconds | `0` |
+| `minimum-session-expires` | Minimum acceptable session-expires value in seconds for incoming requests. RFC 4028 requires this to be at least 90; values below 90 are coerced to 90. | Integer seconds | `0` (disabled) |
+| `sip-expires-max-deviation` | Random seconds added to registration expiry to spread re-registrations. Prevents thundering-herd re-registrations after an outage. | Integer seconds | `0` |
+| `sip-options-respond-503-on-busy` | Respond to SIP OPTIONS requests with `503 Service Unavailable` when the system is at capacity, instead of `200 OK`. | `true`, `false` | `false` |
+| `unregister-on-options-fail` | When sending keepalive OPTIONS pings to registered endpoints, unregister an endpoint if the OPTIONS probe fails. | `true`, `false` | `false` |
+| `nat-options-ping` | Send periodic OPTIONS pings to NATed registered endpoints to maintain NAT binding. `udp-only` restricts pings to UDP endpoints. | `true`, `false`, `udp-only` | `false` |
+| `all-reg-options-ping` | Send periodic OPTIONS pings to all registered endpoints, not only NATed ones. | `true`, `false` | `false` |
+| `disable-transfer` | Disable SIP REFER (blind and attended transfer) on this profile. | `true`, `false` | `false` |
+| `disable-register` | Disable REGISTER handling on this profile. | `true`, `false` | `false` |
+| `caller-id-type` | Supplementary caller ID header format. `rpid` adds a `Remote-Party-ID` header. `pid` adds a `P-Asserted-Identity` header. `none` suppresses supplementary caller-ID headers. | `rpid`, `pid`, `none` | (none added) |
+| `max-proceeding` | Maximum number of simultaneous outbound dialogs in the proceeding state. `0` means unlimited. | Integer | `0` |
+| `max-recv-requests-per-second` | Rate limit for inbound SIP requests per second per profile. `0` disables the limit. | Integer | `1000` |
+
+### 5.7 NAT Traversal
+
+| Parameter | Purpose | Values | Default |
+|---|---|---|---|
+| `ext-rtp-ip` | Public IP address advertised in SDP for RTP. Used when the FreeSWITCH host is behind NAT. Accepts a literal IP, `auto` (system-guessed external IP), `auto-nat` (IP learned via NAT-PMP or UPnP), `stun:host` (STUN query), or `host:hostname` (DNS lookup). | IP address, `auto`, `auto-nat`, `stun:host`, `host:hostname` | (none; uses `rtp-ip`) |
+| `ext-sip-ip` | Public IP address advertised in SIP Contact and Via headers for the SIP transport. Accepts the same forms as `ext-rtp-ip`. | IP address, `auto`, `auto-nat`, `stun:host`, `host:hostname` | (none; uses `sip-ip`) |
+| `apply-nat-acl` | ACL name used to detect NATed endpoints. Source IPs matching this ACL are treated as being behind NAT, causing the profile to adjust Contact and RTP addresses accordingly. Multiple instances supported. Use `none` to clear. | ACL name or `none` | (none) |
+| `aggressive-nat-detection` | Compare the source IP and port of received SIP packets against the values in the Contact header. If they differ, treat the endpoint as NATed regardless of the `apply-nat-acl` result. | `true`, `false` | `false` |
+| `local-network-acl` | ACL that defines the local network. Endpoints on the local network are not subjected to NAT handling. FreeSWITCH automatically generates `localnet.auto` for this purpose. Set to `none` to disable. | ACL name or `none` | `localnet.auto` |
+| `NDLB-received-in-nat-reg-contact` | Append `;received="ip:port"` to the Contact in REGISTER responses to assist NATed phones that do not detect their own public address. | `true`, `false` | `false` |
+| `NDLB-force-rport` | Force `rport` handling for NAT. `true` enables forced rport on both server and client; `safe` enables it only where it will not break compliant endpoints; `client-only` or `server-only` restrict to one direction; `disabled` turns it off entirely. | `true`, `false`, `safe`, `client-only`, `server-only`, `disabled` | Server and client both at level 1 (standard rport) |
+
+### 5.8 TLS
+
+TLS is disabled by default. Enabling it requires setting `tls` to `true` and providing valid certificate files in `tls-cert-dir`. The default TLS port for the internal profile is `5061`; for the external profile it is `5081`.
+
+| Parameter | Purpose | Values | Default |
+|---|---|---|---|
+| `tls` | Enable TLS transport on this profile. | `true`, `false` | `false` |
+| `tls-only` | When `true`, the profile does not bind the plain SIP port (`sip-port`) and accepts connections only on the TLS port. | `true`, `false` | `false` |
+| `tls-bind-params` | Additional parameters appended to the TLS bind URI. `transport=tls` is always injected automatically when TLS is enabled. | Parameter string | `transport=tls` |
+| `tls-sip-port` | Port number the TLS transport listens on. Accepts `auto`. Default is `5061` for the internal profile (from `$${internal_tls_port}`) and `5081` for the external profile (from `$${external_tls_port}`). | Port number or `auto` | `5061` (internal) / `5081` (external) |
+| `tls-cert-dir` | Directory containing the TLS certificate files `agent.pem` and `cafile.pem`. Required for TLS server operation. Defaults to the FreeSWITCH global `certs_dir`. | Absolute directory path | `$${certs_dir}` |
+| `tls-passphrase` | Passphrase used by OpenSSL to decrypt a password-protected private key file. Leave empty if the key is not encrypted. | String | (empty) |
+| `tls-version` | Comma-separated list of TLS/SSL protocol versions to enable. Accepted tokens: `sslv2`, `sslv3`, `sslv23`, `tlsv1`, `tlsv1.1`, `tlsv1.2`, `tlsv1.3`. The compiled default enables all of TLSv1 through TLSv1.3; the vanilla config variable `$${sip_tls_version}` sets `tlsv1,tlsv1.1,tlsv1.2`. | Comma-separated version tokens | `tlsv1,tlsv1.1,tlsv1.2,tlsv1.3` (compiled default) |
+| `tls-ciphers` | OpenSSL cipher string controlling which cipher suites are permitted. | OpenSSL cipher string | `ALL:!ADH:!LOW:!EXP:!MD5:@STRENGTH` |
+| `tls-verify-policy` | Controls certificate verification for inbound and outbound TLS connections. `none` disables verification. `in` verifies inbound connections. `out` verifies outbound connections. `all` verifies both. Prefix with `subjects_` to also validate the certificate Subject. Multiple policies can be combined with `\|`. | `none`, `in`, `out`, `all`, `subjects_in`, `subjects_out`, `subjects_all` | `none` |
+| `tls-verify-depth` | Maximum certificate chain depth for peer certificate validation when `tls-verify-policy` is not `none`. | Integer | `2` |
+| `tls-verify-date` | Verify that peer certificates are within their validity dates. | `true`, `false` | `true` |
+| `tls-verify-in-subjects` | Pipe-separated (`\|`) list of allowed certificate subjects when using a `subjects_*` verify policy. | Pipe-separated subject strings | (empty) |
+| `tls-timeout` | Timeout in seconds for inactive TLS connections before they are closed. | Integer seconds | `300` |
+| `tls-orq-connect-timeout` | Timeout in milliseconds for outgoing TLS connection attempts. When the timeout expires, FreeSWITCH retries and may use an alternate DNS-resolved address. `0` disables the timeout. | Integer milliseconds | `0` |
+
+### 5.9 WebSocket Bindings
+
+These parameters add WebSocket and secure WebSocket listeners to the profile, enabling SIP over WebSocket for WebRTC clients. They are independent of the TLS setting.
+
+| Parameter | Purpose | Values | Default |
+|---|---|---|---|
+| `ws-binding` | IP address and port for the WebSocket (WS) listener. Format is `[ip]:port`. Omitting the IP binds all interfaces. | `[ip]:port`, e.g. `:5066` | (none) |
+| `wss-binding` | IP address and port for the secure WebSocket (WSS) listener. Requires a `wss.pem` certificate in `$${certs_dir}`, which is auto-generated if absent. When `tls-cert-dir` is set, FreeSWITCH also looks for `wss.key` and `wss.crt` in that directory. | `[ip]:port`, e.g. `:7443` | (none) |
+
+### 5.10 Advanced Settings
+
+The following parameters are accepted by the parser but are less commonly set by operators. They are listed here for completeness. Verify current behavior against `sofia.c` before use.
+
+| Parameter | Purpose | Default |
+|---|---|---|
+| `debug` | Sofia module debug level for this profile. | `0` |
+| `sip-trace` | Log raw SIP messages to the FreeSWITCH log for this profile. | `false` |
+| `sip-capture` | Send SIP messages to the HEP capture server configured in `global_settings`. | `false` |
+| `odbc-dsn` | ODBC data source name for using an external database instead of SQLite for registration storage. Format: `dsn:user:pass`. | (none; uses SQLite) |
+| `dbname` | Override the SQLite database filename for this profile. | `sofia_reg_<profilename>` |
+| `db-spin-up-wait-ms` | Milliseconds to wait for the database to become available on profile load. | `1000` |
+| `inbound-use-callid-as-uuid` | Use the SIP Call-ID of inbound calls as the FreeSWITCH channel UUID. | `false` |
+| `outbound-use-uuid-as-callid` | Use the FreeSWITCH channel UUID as the SIP Call-ID for outbound calls. | `false` |
+| `enable-100rel` | Enable RFC 3262 reliable provisional responses (100rel / PRACK). | `false` |
+| `enable-compact-headers` | Send SIP messages using compact header forms. | `false` |
+| `enable-3pcc` | Enable third-party call control. `true` accepts immediately; `proxy` waits for answer. | `false` |
+| `enable-rfc-5626` | Include `reg-id` and `sip.instance` parameters in REGISTER requests (RFC 5626 outbound). | `false` |
+| `rtp-autoflush-during-bridge` | Flush RTP buffers during bridge when the socket already has data, reducing latency on lossy links. | `true` |
+| `manage-shared-appearance` | Enable Bridged Line Appearance (BLA/SCA) for shared line management per the BroadSoft spec. | `false` |
+| `parse-all-invite-headers` | Parse and expose all SIP headers from inbound INVITE requests as channel variables. | `false` |
+| `pass-callee-id` | Pass callee identity information to the far end as `X-` headers. | `true` |
+| `allow-update` | Allow SIP UPDATE method processing. | `true` |
+| `send-display-update` | Send re-INVITEs to update the remote display name when it changes. Requires `allow-update` to be `true`. | `true` |
+| `disable-hold` | Disable SIP hold (re-INVITE with `sendonly`/`inactive`). | `false` |
+| `proxy-refer-replaces` | Pass SIP REFER with Replaces header to the dialplan rather than processing internally. Also accepted as `proxy-refer`. | `false` |
+| `t38-passthru` | Enable T.38 fax passthrough mode. | `false` |
+| `manual-redirect` | Pass SIP 302 redirect responses to the dialplan rather than following them automatically. | `false` |
+| `presence-probe-on-register` | Send a presence probe to registered endpoints on every REGISTER to force them to re-publish presence state. | `false` |
+| `send-presence-on-register` | Push presence information to subscribers on each register. `true` or `all` pushes on every REGISTER; `first-only` pushes only on the first REGISTER. | `false` |
+| `NDLB-broken-auth-hash` | Work around endpoints that use `INVITE` instead of the correct method name when computing the digest hash for a challenged ACK. | `false` |
+| `NDLB-sendrecv-in-session` | Send `a=sendrecv` in the SDP session-level as well as in the media-level for compatibility with some devices. | `false` |
+| `NDLB-allow-bad-iananame` | Accept codecs with non-IANA-compliant names in SDP. | `false` |
+| `NDLB-expires-in-register-response` | Include an `Expires` header in REGISTER 200 responses (some phones require this). | `false` |
+| `NDLB-allow-crypto-in-avp` | Allow SDES crypto lines in AVP (non-SAVP) SDP for compatibility with some SBC and gateway equipment. | `false` |
+| `NDLB-allow-nondup-sdp` | Allow duplicate or non-unique SDP bodies in re-INVITEs. | `true` |
+| `NDLB-proxy-never-patch-reinvites` | Never rewrite SDP in re-INVITEs when in proxy mode. | `false` |
+| `disable-srv` | Disable SRV DNS lookups for outbound SIP destinations. | `false` |
+| `disable-naptr` | Disable NAPTR DNS lookups for outbound SIP destinations. | `false` |
+| `disable-srv503` | Do not try the next SRV destination on a `503` response (disables RFC 3263 Section 4.3 failover). | `false` |
+| `auto-rtp-bugs` | Comma-separated list of RTP bug workarounds to enable automatically. Supported tokens include `CISCO_SKIP_MARK_BIT_2833` and `SONUS_SEND_INVALID_TIMESTAMP_2833`. Use `clear` to disable all. | `CISCO_SKIP_MARK_BIT_2833` |
+| `timer-T1` | SIP transaction T1 retransmission interval in milliseconds. | `500` |
+| `timer-T1X64` | SIP transaction timeout (T1 x 64) in milliseconds. | `32000` |
+| `timer-T2` | Maximum SIP retransmission interval in milliseconds. | `4000` |
+| `timer-T4` | Completed SIP transaction lifetime in milliseconds. | `4000` |
+| `registration-thread-frequency` | Interval in seconds at which the profile re-checks active registrations. | `30` |
+| `bind-attempts` | Number of times to retry binding the SIP port on startup if it is unavailable. | `2` |
+| `bind-attempt-interval` | Seconds to wait between bind retry attempts. | `5` |
+| `watchdog-enabled` | Enable a watchdog that crashes FreeSWITCH if the Sofia stack stops processing events. Do not enable on idle systems. | `false` |
+| `watchdog-step-timeout` | Milliseconds without a Sofia stack step before the watchdog fires. | `30000` |
+| `watchdog-event-timeout` | Milliseconds without a Sofia stack event before the watchdog fires. | `30000` |
+| `log-auth-failures` | Log failed authentication attempts at the INFO level. | `false` |
+| `shutdown-on-fail` | Shut down FreeSWITCH if this profile fails to start. | `false` |
+| `profile-standby` | Place this profile in standby mode (accepts no calls). | `false` |
+| `reuse-connections` | Reuse existing TCP/TLS connections for outbound requests rather than opening a new connection each time. | `true` |
+| `sip-expires-late-margin` | Seconds before a registration expires that FreeSWITCH considers the registration stale and allows re-registration. | `60` |
+| `sip-force-expires` | Force all registration expiry to this value in seconds. `0` disables forcing. | `0` |
+| `sip-force-expires-min` | Minimum value applied when forcing registration expiry. | `0` |
+| `sip-force-expires-max` | Maximum value applied when forcing registration expiry. | `0` |
+| `sip-subscription-max-deviation` | Random seconds of deviation added to subscription expiry values in `202 Accepted` responses. | `0` |
+| `force-subscription-expires` | Force all subscription expiry to this value in seconds. | (none) |
+| `force-publish-expires` | Force all PUBLISH expiry to this value in seconds. | (none) |
+| `require-secure-rtp` | Require SRTP on all calls on this profile. | `false` |
+| `p-asserted-id-parse` | Controls how the `P-Asserted-Identity` header is parsed for inbound calls. `default` uses the display name and URI. `user-only` extracts only the user portion. `user-domain` extracts user and domain. `verbatim` passes the raw header value. | `default` |
+| `user-agent-filter` | A regex or string; only process requests whose `User-Agent` header matches. | (none) |
+| `max-registrations-per-extension` | Limit the number of simultaneous registrations per extension number. `0` means unlimited. | `0` |
+
+---
+
+## 6. Getting Started: Minimal Working Profile
+
+The following is a minimal profile sufficient to accept and authenticate SIP calls on a single NATed host. Expand it by adding parameters from the reference tables above as your deployment requires.
+
+```xml
+<profile name="myprofile">
+  <aliases></aliases>
+  <gateways></gateways>
+  <domains>
+    <domain name="all" alias="true" parse="false"/>
+  </domains>
+
+  <settings>
+    <!-- Bind to the local LAN address -->
+    <param name="sip-ip"  value="192.0.2.10"/>
+    <param name="rtp-ip"  value="192.0.2.10"/>
+    <param name="sip-port" value="5060"/>
+
+    <!-- Advertise the public IP to remote parties (NAT scenario) -->
+    <param name="ext-sip-ip"  value="203.0.113.1"/>
+    <param name="ext-rtp-ip"  value="203.0.113.1"/>
+
+    <!-- Dialplan dispatch -->
+    <param name="context"  value="default"/>
+    <param name="dialplan" value="XML"/>
+
+    <!-- Authentication -->
+    <param name="auth-calls"    value="true"/>
+    <param name="nonce-ttl"     value="60"/>
+    <param name="challenge-realm" value="auto_from"/>
+
+    <!-- ACL -->
+    <param name="apply-nat-acl"      value="nat.auto"/>
+    <param name="apply-inbound-acl"  value="domains"/>
+
+    <!-- Codec preferences -->
+    <param name="inbound-codec-prefs"       value="OPUS,G722,PCMU,PCMA"/>
+    <param name="outbound-codec-prefs"      value="OPUS,G722,PCMU,PCMA"/>
+    <param name="inbound-codec-negotiation" value="generous"/>
+
+    <!-- RTP timer -->
+    <param name="rtp-timer-name" value="soft"/>
+
+    <!-- DTMF -->
+    <param name="dtmf-type" value="rfc2833"/>
+
+    <!-- Hold music -->
+    <param name="hold-music" value="local_stream://moh"/>
+  </settings>
+</profile>
+```
+
+After creating this file at `conf/sip_profiles/myprofile.xml`, load it with:
+
+```
+sofia profile myprofile start
+```
+
+Verify it is running with:
+
+```
+sofia status
+```
+
+The profile should appear with its bound SIP URI and transport.
+
+---
+
+## 7. Presence, BLF, and MWI
+
+Presence, Busy Lamp Field (BLF), and Message Waiting Indication (MWI) all rely on the SIP SUBSCRIBE/NOTIFY mechanism. A phone sends a SUBSCRIBE for a specific event package; FreeSWITCH responds with a NOTIFY whenever the relevant state changes. The profile parameters in this section control whether FreeSWITCH accepts those subscriptions and how it handles them.
+
+### 7.1 Enabling Presence
+
+Presence is controlled by the `manage-presence` parameter on each profile. When set to `true`, the profile registers a full presence engine: it accepts SUBSCRIBE requests for dialog (BLF) and message-summary (MWI) event packages, stores subscriptions in the `sip_subscriptions` database table, and sends NOTIFY messages when state changes.
+
+```xml
+<param name="manage-presence" value="true"/>
+```
+
+Setting `manage-presence` to `passive` enables a read-only relay mode. A passive profile accepts presence events generated by the primary presence-enabled profile and forwards NOTIFYs to its own subscribers. This is used when a second profile (for example, an `external` profile) needs to relay presence state without driving it independently.
+
+Setting `manage-presence` to `false` disables presence entirely on the profile. The `external` profile uses `false` by default because carrier trunks do not register or subscribe to presence.
+
+The `presence-hosts` parameter is a comma-separated list of hostnames or IP addresses that this profile is responsible for in the presence domain. FreeSWITCH uses this list when matching an incoming SUBSCRIBE's Request-URI host against known profiles, and also when querying the `sip_subscriptions` table for matching subscribers. In the vanilla `internal` profile, this is set to the primary domain and the local IP:
+
+```xml
+<param name="presence-hosts" value="$${domain},$${local_ip_v4}"/>
+```
+
+If a phone subscribes to `sip:1001@pbx.example.com` and `pbx.example.com` is listed in `presence-hosts`, that profile will service the subscription.
+
+The `presence-privacy` parameter suppresses caller identity in presence NOTIFYs. When `true`, the status line in NOTIFY bodies for `early`, `confirmed`, and `hold` states omits the remote party name or number, showing only generic text such as `Ring`, `On The Phone`, or `Hold`. This limits information visible to BLF watchers.
+
+### 7.2 BLF (Busy Lamp Field)
+
+BLF is implemented using the `dialog` SIP event package (RFC 4235). A phone with a BLF key sends a SUBSCRIBE request targeting the extension it wants to monitor:
+
+```
+SUBSCRIBE sip:1001@pbx.example.com SIP/2.0
+Event: dialog
+Accept: application/dialog-info+xml
+```
+
+When `manage-presence` is `true` on the receiving profile, FreeSWITCH accepts the SUBSCRIBE, stores it in `sip_subscriptions`, and immediately sends a NOTIFY reflecting the current call state of extension `1001`. Subsequent NOTIFYs are sent whenever the dialog state of that extension changes: when a call arrives (early), when it is answered (confirmed), and when it ends (terminated).
+
+BLF keys on the monitoring phone must target the extension's presence identity. By default the presence identity (`presence_id` channel variable) is `user@domain`. If the `force-subscription-domain` parameter is set on the profile, that domain is used in place of the domain from the SUBSCRIBE URI, ensuring subscriptions resolve correctly in single-domain deployments.
+
+FreeSWITCH looks up active dialogs in the `sip_dialogs` table and joins them against `sip_registrations` to determine the current state of the subscribed entity. The NOTIFY body is formatted as `application/dialog-info+xml`.
+
+**Shared Line Appearance (SLA)**
+
+The `manage-shared-appearance` parameter enables Shared Line Appearance per the BroadSoft SCA specification. Setting it to `true` also forces `manage-presence` to full mode and enables multiple registrations (`PFLAG_MULTIREG`). SLA allows multiple phones registered to the same extension to coordinate call state through presence, so that all devices reflect whether the shared line is seized, active, or on hold. Set this on the profile serving the shared-line endpoints:
+
+```xml
+<param name="manage-shared-appearance" value="true"/>
+```
+
+### 7.3 MWI (Message Waiting Indication)
+
+MWI uses the `message-summary` SIP event package (RFC 3842). A phone subscribes to the event package for its own address:
+
+```
+SUBSCRIBE sip:1001@pbx.example.com SIP/2.0
+Event: message-summary
+Accept: application/simple-message-summary
+```
+
+FreeSWITCH stores the subscription and sends a NOTIFY whenever the voicemail state for that mailbox changes. The NOTIFY body uses `application/simple-message-summary` format, for example:
+
+```
+Messages-Waiting: yes
+Message-Account: sip:1001@pbx.example.com
+Voice-Message: 3/1 (0/0)
+```
+
+**How MWI is driven from voicemail**
+
+`mod_voicemail` fires a `SWITCH_EVENT_MESSAGE_WAITING` event each time a message is deposited, read, or deleted. That event carries the headers `MWI-Messages-Waiting`, `MWI-Message-Account`, and `MWI-Voice-Message`. `mod_sofia` listens for this event and queries `sip_subscriptions` for any subscriber whose `sub_to_user` and `sub_to_host` match the message account. For each matching subscription it sends a NOTIFY.
+
+**The `mwi-account` directory user variable**
+
+If a user's voicemail mailbox is different from their SIP registration address, set the `mwi-account` variable in the directory user entry. When the phone registers, FreeSWITCH stores the value of `mwi-account` as the `mwi_user` and `mwi_host` in `sip_registrations`. When a voicemail event arrives for that account, FreeSWITCH matches on `mwi_user` and `mwi_host` and delivers the NOTIFY to the registered contact even without an explicit subscription. This allows a phone registered as `1001@pbx.example.com` to receive MWI for a mailbox at a different address.
+
+```xml
+<!-- In conf/directory/default/1001.xml -->
+<user id="1001">
+  <params>
+    <param name="password" value="1234"/>
+  </params>
+  <variables>
+    <variable name="mwi-account" value="1001@voicemail.example.com"/>
+  </variables>
+</user>
+```
+
+The `mwi-account` value is a `user@host` string. If the host portion is absent, FreeSWITCH falls back to the registration host.
+
+### 7.4 presence\_map.conf.xml
+
+`presence_map.conf.xml` maps extension regex patterns to presence protocol identifiers. It is consulted when the profile parameter `presence-proto-lookup` is `true` and a SUBSCRIBE arrives for an extension whose protocol cannot be determined from the subscription itself. FreeSWITCH calls `switch_ivr_check_presence_mapping()`, which opens the config, iterates domain/extension entries, and returns the first `proto` whose `regex` matches the subscribed extension name.
+
+The primary use case is routing subscriptions for conference room extensions (matching a regex) to the `conf` presence protocol instead of the default endpoint presence handling.
+
+Enable the lookup on the profile:
+
+```xml
+<param name="presence-proto-lookup" value="true"/>
+```
+
+The file lives at `conf/autoload_configs/presence_map.conf.xml`. Structure:
+
+```xml
+<configuration name="presence_map.conf" description="PRESENCE MAP">
+  <domains>
+    <domain name="pbx.example.com">
+      <!-- Extensions matching 3xxx map to conference presence -->
+      <exten regex="3\d+" proto="conf"/>
+      <!-- Extensions matching 4xxx map to park presence -->
+      <exten regex="4\d+" proto="park"/>
+    </domain>
+  </domains>
+</configuration>
+```
+
+Use `name="*"` on the `domain` element to match all domains. Each `exten` element is evaluated in document order and the first match wins. If no entry matches, FreeSWITCH uses standard presence handling.
+
+### 7.5 Presence Parameter Reference
+
+The following parameters appear in the profile `settings` block. Parameters already covered in Section 5.3 are repeated here for completeness as part of the presence feature group.
+
+| Parameter | Purpose | Values | Default |
+|---|---|---|---|
+| `manage-presence` | Enable or disable the presence engine on this profile. `true` enables full SUBSCRIBE/NOTIFY handling. `passive` relays presence from a primary profile. `pnp` enables plug-and-play provisioning presence. `false` disables presence. | `true`, `false`, `passive`, `pnp` | `false` |
+| `presence-hosts` | Comma-separated list of hostnames or IP addresses that this profile services for presence subscriptions. Used to match SUBSCRIBE Request-URI hosts and to query `sip_subscriptions`. | Comma-separated host list | (none) |
+| `presence-privacy` | When `true`, suppress caller identity in BLF NOTIFYs; status shows generic text only (`Ring`, `On The Phone`, `Hold`) without the remote party number or name. | `true`, `false` | `false` |
+| `presence-probe-on-register` | On each REGISTER, send a presence probe to the registering endpoint to force it to re-publish its current presence state. | `true`, `false` | `false` |
+| `send-presence-on-register` | Push presence information to all watchers of this user on REGISTER. `true` or `all` pushes on every REGISTER; `first-only` pushes only on the initial REGISTER for a contact. | `true`, `all`, `first-only`, `false` | `false` |
+| `manage-shared-appearance` | Enable BroadSoft Shared Call Appearance (SCA/SLA) for shared line management. Setting `true` also enables full presence and multiple registrations. | `true`, `false` | `false` |
+| `presence-proto-lookup` | When `true`, consult `presence_map.conf.xml` to determine the presence protocol for a subscribed extension when it cannot be inferred from the SUBSCRIBE itself. | `true`, `false` | `false` |
+| `presence-hold-state` | Controls the dialog state reported in BLF NOTIFYs when a call is on hold. `confirmed` reports held calls as confirmed (active). `terminated` reports them as terminated. Default leaves hold state as-is in the dialog XML. | `confirmed`, `terminated` | (none) |
+| `force-subscription-domain` | Override the domain used when routing SUBSCRIBE requests, ensuring single-domain deployments resolve subscriptions correctly. | Domain name | (none; uses domain from request) |
+| `auth-subscriptions` | Require digest authentication for SUBSCRIBE requests. Set `true` on profiles that serve registered endpoints to prevent unauthenticated presence subscriptions. | `true`, `false` | `true` |

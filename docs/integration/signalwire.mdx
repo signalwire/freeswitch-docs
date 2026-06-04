@@ -1,0 +1,156 @@
+---
+id: signalwire
+slug: /integration/signalwire
+title: "Chapter 30: SignalWire Connectivity"
+sidebar_label: "30. SignalWire Connectivity"
+---
+
+# Chapter 30: SignalWire Connectivity
+
+`mod_signalwire` connects a FreeSWITCH instance to the SignalWire platform over a persistent WebSocket session, automatically provisioning a SIP profile and gateway that enable inbound and outbound PSTN calling through your SignalWire project. The module is included in the default build and is loaded automatically from `modules.conf.xml`.
+
+## Table of Contents
+
+- [How mod_signalwire Works](#how-mod_signalwire-works)
+- [Getting Started](#getting-started)
+- [Configuration: signalwire.conf.xml](#configuration-signalwireconfxml)
+  - [Parameter Reference](#parameter-reference)
+  - [Environment Variables](#environment-variables)
+- [Adoption and Token Workflow](#adoption-and-token-workflow)
+- [Console Command Reference](#console-command-reference)
+- [What the Connection Provides](#what-the-connection-provides)
+
+---
+
+## How mod_signalwire Works
+
+On load, `mod_signalwire` performs the following sequence automatically:
+
+1. Generates or loads a persistent connection token stored in the FreeSWITCH storage directory as `adoption-token.dat`.
+2. If no credentials exist, the module enters adoption state and polls the adoption service until the token is claimed in the SignalWire Dashboard.
+3. Once adopted, the module saves credentials to `adoption-auth.dat` and opens a WebSocket session to the SignalWire platform (the Blade protocol transport).
+4. The platform returns a SIP profile configuration. The module loads this as a `signalwire` sofia profile and registers the SIP gateway.
+5. Inbound calls from SignalWire arrive on the registered gateway. The module routes them through the `signalwire` dialplan, which transfers the call into the XML dialplan at the configured context.
+
+The module monitors the connection continuously and reconnects and re-provisions automatically on session loss or platform-pushed profile updates.
+
+---
+
+## Getting Started
+
+**Prerequisites:** `mod_sofia` must be loaded. `mod_signalwire` subscribes to `mod_sofia` load and unload events and will not start the SIP profile until `mod_sofia` is available.
+
+1. Confirm `mod_signalwire` is present in `modules.conf.xml` (it is by default in vanilla builds).
+2. Start FreeSWITCH. The module logs the connection token at `INFO` level and on the console:
+
+   ```
+    /=====================================================================\
+     Connection Token: <uuid>
+    \=====================================================================/
+    Go to https://signalwire.com to set up your Connector now!
+   ```
+
+3. Log in to your SignalWire Dashboard, navigate to the Relay / Connectors section, and enter the token to claim the FreeSWITCH instance. The module polls the adoption service and completes adoption automatically once the token is claimed.
+4. After adoption, `mod_signalwire` connects to the platform and loads the SIP profile. Verify registration with `sofia status profile signalwire` from the FreeSWITCH console.
+5. Inbound PSTN calls will now arrive in the XML dialplan at the context specified by `override-context` (default: the context supplied by the platform profile, typically `public`).
+
+---
+
+## Configuration: signalwire.conf.xml
+
+The configuration file is located at `conf/autoload_configs/signalwire.conf.xml`. In the default vanilla installation, every parameter is commented out; the module operates entirely on compiled-in defaults. Uncomment and set only the parameters you need to override.
+
+```xml
+<configuration name="signalwire.conf" description="SignalWire">
+  <settings>
+    <!-- on/off -->
+    <!--<param name="kslog" value="on"/>-->
+    <!--<param name="blade-bootstrap" value="blade://switchblade:2100"/>-->
+    <!--<param name="adoption-service" value="https://adopt.signalwire.com/adoption"/>-->
+    <!--<param name="stun-server" value="stun.freeswitch.org"/>-->
+    <!--<param name="ssl-verify" value="true"/>-->
+    <!--<authentication></authentication>-->
+
+    <!-- override dialplan context for calls on connector -->
+    <!--<param name="override-context" value="signalwire"/>-->
+  </settings>
+</configuration>
+```
+
+The vanilla conf file also contains a comment for `caller-id-in-from`. That parameter name is not parsed by `load_config()` in the current source and has no effect. Do not use it.
+
+### Parameter Reference
+
+| Parameter | Purpose | Values | Default |
+|---|---|---|---|
+| `kslog` | Enables the internal KS (libks) protocol library logger, writing connection-layer messages to the FreeSWITCH log. | `on` or `off` | `off` |
+| `blade-bootstrap` | WebSocket URI of the SignalWire Blade relay endpoint. Override only in private or on-premises SignalWire deployments. | URI string | `edge.SPACE.signalwire.com/api/relay/wss` (where `SPACE` is your SignalWire space name) |
+| `adoption-service` | HTTPS URL of the adoption API. Override only in private or on-premises SignalWire deployments. | URL string | `https://adopt.signalwire.com/adoption` |
+| `stun-server` | STUN server used to discover the external IP address of this FreeSWITCH instance during adoption and provisioning. Accepts `host` or `host:port` format. | Hostname or `host:port` | `stun.freeswitch.org` |
+| `ssl-verify` | Controls SSL peer and host verification for HTTPS adoption requests. Set to `false` only in controlled test environments. | Boolean (`true` or `false`) | `true` |
+| `override-context` | Forces all inbound calls arriving from the SignalWire gateway into the specified XML dialplan context, overriding whatever context the platform profile specifies. | Any valid dialplan context name | None (platform profile context is used) |
+| `authentication` | XML child element (not a `param`). Contains inline JSON authentication credentials. Used in private deployments where credentials are provisioned statically rather than through the adoption workflow. The text content is passed directly to the Blade client library. | JSON text content | None |
+
+### Environment Variables
+
+The following environment variables are read at module load time and take precedence over values in `signalwire.conf.xml`.
+
+| Variable | Overrides | Notes |
+|---|---|---|
+| `SW_BLADE_BOOTSTRAP` | `blade-bootstrap` | Set to the Blade relay URI for private deployments. |
+| `SW_ADOPTION_SERVICE` | `adoption-service` | Set to the adoption API URL for private deployments. |
+| `KSLOG` | `kslog` | Any non-empty value other than `0` enables the KS logger at startup, equivalent to `kslog on`. |
+
+---
+
+## Adoption and Token Workflow
+
+Adoption is a one-time registration step that associates a FreeSWITCH instance with a SignalWire project.
+
+**Token generation:** On first load, `mod_signalwire` generates a UUID token and writes it to `<storage_dir>/adoption-token.dat`. On subsequent loads the same token is read from that file.
+
+**Adoption polling:** While in adoption state, the module POSTs the token to the adoption service at increasing intervals (starting at 1 minute, increasing by 1 minute per attempt, capped at 15 minutes). A `404` response means the token has not yet been claimed in the dashboard. A `200` response completes adoption: credentials are saved to `<storage_dir>/adoption-auth.dat` and the module proceeds to connect.
+
+**Token reset:** `signalwire token-reset` deletes `adoption-token.dat`, `adoption-auth.dat`, and `signalwire-conf.dat`, generates a new token, and returns the instance to adoption state. Use this when re-associating a FreeSWITCH instance with a different SignalWire project.
+
+**Cached profile:** `signalwire-conf.dat` in the storage directory holds the last SIP profile received from the platform. On startup, if credentials already exist, the module loads this cached profile immediately so the SIP gateway can come up before the platform connection is re-established.
+
+---
+
+## Console Command Reference
+
+All commands are issued from the FreeSWITCH console or ESL as `signalwire <subcommand>`. The registered syntax is:
+
+```
+signalwire token | token-reset | adoption | adopted | reload | update | debug <level> | kslog <on|off>
+```
+
+| Command | Purpose |
+|---|---|
+| `signalwire token` | Prints the current connection token to the console with a banner. Returns `-ERR` if no token is available. |
+| `signalwire token-reset` | Deletes `adoption-token.dat`, `adoption-auth.dat`, and `signalwire-conf.dat` from the storage directory, generates a new token, and re-enters adoption state. Returns `-ERR` if any file cannot be deleted. |
+| `signalwire adoption` | Immediately triggers an adoption poll attempt when the module is in adoption state, bypassing the current backoff timer. Returns `-ERR` if the module is not in adoption state. |
+| `signalwire adopted` | Reports `+OK Adopted` if the instance has completed adoption, or `+OK Not Adopted` if adoption is still pending. |
+| `signalwire reload` | Sets a flag causing the module to restart the SIP profile on the next state cycle. Returns `+OK`. |
+| `signalwire update` | Sets a flag causing the module to re-fetch the provisioning configuration from the platform on the next state cycle. Returns `+OK`. |
+| `signalwire debug N` | Sets the KS library verbosity threshold to integer N. The internal logger suppresses messages at levels numerically greater than this value. The compiled-in default is `7`. Does not persist across restarts. |
+| `signalwire kslog on` | Enables the KS protocol logger at runtime, routing libks messages to the FreeSWITCH log. |
+| `signalwire kslog off` | Disables the KS protocol logger at runtime. |
+
+Note: the syntax comment in the source lists `logfile` as an option for `kslog`, but the command handler only implements `on` and `off`. File-path logging via the console command is not functional in the current source.
+
+---
+
+## What the Connection Provides
+
+Once the module reaches the ready state, the following are available to the operator:
+
+**SIP gateway:** A sofia SIP profile named `signalwire` and a gateway of the same name are created and maintained automatically. The gateway registers to the SignalWire SIP platform using credentials provisioned by the platform. The operator does not configure registration credentials manually.
+
+**Inbound PSTN calling:** Calls routed from SignalWire phone numbers to this FreeSWITCH instance arrive on the `signalwire` gateway. The module verifies the source IP matches the registered gateway IP before accepting a call. Accepted calls enter the XML dialplan. Without `override-context`, the context is determined by the platform-supplied profile. With `override-context` set, all inbound calls land in that named context regardless of the platform profile.
+
+**Outbound PSTN calling:** The `signalwire` gateway is available for outbound dialing via the `sofia` endpoint in the dialplan. Reference it as `sofia/gateway/signalwire/<number>`.
+
+**Automatic profile management:** The module listens for provisioning update events from the platform and re-fetches the SIP profile when the platform signals a change (for example, when phone numbers are added or removed in the SignalWire Dashboard). Profile updates are applied by rescanning or restarting the `signalwire` sofia profile without operator intervention.
+
+The operator has no direct configuration options for the SIP profile itself; it is entirely platform-managed and cached locally in `signalwire-conf.dat`.

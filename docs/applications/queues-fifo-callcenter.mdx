@@ -1,0 +1,398 @@
+---
+id: queues-fifo-callcenter
+slug: /applications/call-queues
+title: "Chapter 22: Queues: FIFO and Call Center"
+sidebar_label: "22. Queues: FIFO and Call Center"
+---
+
+# Chapter 22: Queues: FIFO and Call Center
+
+FreeSWITCH provides two distinct mechanisms for queuing inbound calls: `mod_fifo`, a lightweight first-in-first-out holding application, and `mod_callcenter`, a full agent-management system with routing strategies, tiers, and lifecycle tracking. This chapter covers the operator-facing configuration of both and explains when each is appropriate.
+
+## Table of Contents
+
+- [1. Choosing Between FIFO and Call Center](#1-choosing-between-fifo-and-call-center)
+- [2. mod_fifo: Configuration and the fifo Application](#2-mod_fifo-configuration-and-the-fifo-application)
+  - [2.1 fifo.conf.xml Settings](#21-fifoconfxml-settings)
+  - [2.2 Declaring a FIFO Node](#22-declaring-a-fifo-node)
+  - [2.3 Outbound Members](#23-outbound-members)
+  - [2.4 The fifo Dialplan Application](#24-the-fifo-dialplan-application)
+  - [2.5 FIFO Channel Variables](#25-fifo-channel-variables)
+- [3. mod_callcenter: Concepts and Loading](#3-mod_callcenter-concepts-and-loading)
+- [4. Call Center Queue Configuration](#4-call-center-queue-configuration)
+  - [4.1 Queue Parameter Reference](#41-queue-parameter-reference)
+- [5. Agent Configuration](#5-agent-configuration)
+  - [5.1 Agent Parameter Reference](#51-agent-parameter-reference)
+- [6. Tier Assignment](#6-tier-assignment)
+  - [6.1 Tier Parameter Reference](#61-tier-parameter-reference)
+- [7. The callcenter Dialplan Application](#7-the-callcenter-dialplan-application)
+- [8. Global Settings for mod_callcenter](#8-global-settings-for-mod_callcenter)
+
+---
+
+## 1. Choosing Between FIFO and Call Center
+
+| Capability | `mod_fifo` | `mod_callcenter` |
+|---|---|---|
+| Hold callers in order | Yes | Yes |
+| Named agents with status tracking | No | Yes |
+| Routing strategies | No (FIFO order only) | Yes (8 strategies) |
+| Agent tiers / priority groups | No | Yes |
+| Wrap-up time, no-answer handling | No | Yes |
+| DB-backed state | No | Yes (SQLite or ODBC) |
+
+Use `mod_fifo` when you need a simple holding queue with minimal configuration. Use `mod_callcenter` when you need named agents, routing strategies, tier-based escalation, or agent state management.
+
+---
+
+## 2. mod_fifo: Configuration and the fifo Application
+
+`mod_fifo` is loaded by default. Its configuration file is `autoload_configs/fifo.conf.xml`.
+
+### 2.1 fifo.conf.xml Settings
+
+The `<settings>` block contains global options for the module.
+
+```xml
+<configuration name="fifo.conf" description="FIFO Configuration">
+  <settings>
+    <param name="delete-all-outbound-member-on-startup" value="false"/>
+  </settings>
+  ...
+</configuration>
+```
+
+| Parameter | Purpose | Values | Default |
+|---|---|---|---|
+| `delete-all-outbound-member-on-startup` | Remove all outbound member records from the database when the module loads. | `true`, `false` | `false` |
+| `outbound-strategy` | Default outbound strategy applied to all FIFO nodes that do not specify their own `outbound_strategy` attribute. | `ringall`, `enterprise` | `ringall` |
+| `odbc-dsn` | ODBC connection string for external database storage. Format: `dsn:user:pass`. When set, the module uses ODBC instead of the internal SQLite database. | String | None (SQLite used) |
+| `dbname` | Name or path of the SQLite database file. | File path | `fifo` |
+| `allow-transcoding` | When `true`, allows transcoding between the caller and consumer legs. | `true`, `false` | `false` |
+| `disable-dtmf-moh-key` | When `true`, disables the `0` DTMF soft-hold feature for consumers. | `true`, `false` | `false` |
+
+### 2.2 Declaring a FIFO Node
+
+FIFO nodes are declared under the `<fifos>` element. Each `<fifo>` element defines one named queue.
+
+```xml
+<fifos>
+  <fifo name="support@$${domain}" importance="0">
+  </fifo>
+</fifos>
+```
+
+**`<fifo>` Attributes**
+
+| Attribute | Purpose | Values | Default |
+|---|---|---|---|
+| `name` | Unique name for the queue; typically `name@domain`. | String | Required |
+| `importance` | Priority of this FIFO relative to others when a consumer selects from multiple. Higher values are served first, overriding wait-time ordering. | Integer `>= 0` | `0` |
+| `outbound_strategy` | Strategy for calling outbound members: `ringall` calls members simultaneously and preserves caller ID; `enterprise` calls as many members as needed at the fastest rate without preserving caller ID. | `enterprise`, `ringall` | Value of the global `outbound-strategy` setting (default `ringall`) |
+| `outbound_per_cycle` | Maximum outbound members called per dispatch cycle. For `ringall`, limits the number of members rung simultaneously. For `enterprise`, limits the maximum agents dialed per caller. | Integer `>= 0` | `1` |
+| `outbound_per_cycle_min` | Minimum outbound members to call per dispatch cycle regardless of need. Allows `enterprise` to ring more than one agent per caller. | Integer `>= 0` | `1` |
+| `outbound_ring_timeout` | Seconds to ring an outbound member before giving up. Must be `> 10`. | Integer | `60` |
+| `outbound_default_lag` | Seconds to wait before making the member available again after a call. Must be `> 10`. | Integer | `30` |
+| `outbound_priority` | Priority when multiple FIFOs compete for the same outbound member. Range 1-10. | Integer `1`-`10` | `5` |
+| `outbound_name` | Caller ID name prefix presented to outbound members. | String | None |
+| `retry_delay` | Seconds to wait before retrying a failed outbound attempt. | Integer `>= 0` | `0` |
+
+### 2.3 Outbound Members
+
+Static outbound members are defined as `<member>` children of a `<fifo>` node. The module stores them in its internal database on load.
+
+```xml
+<fifo name="support@$${domain}" importance="0">
+  <member timeout="60" simo="1" lag="20">{member_wait=nowait}user/1005@$${domain}</member>
+</fifo>
+```
+
+**`<member>` Attributes**
+
+| Attribute | Purpose | Values | Default |
+|---|---|---|---|
+| `timeout` | Ring timeout in seconds for this member. Minimum 10; values below 10 fall back to the node `outbound_ring_timeout`. | Integer | Node `outbound_ring_timeout` (default `60`) |
+| `simo` | Maximum simultaneous calls to this member. | Integer `>= 1` | `1` |
+| `lag` | Seconds before the member is available again after a call ends. Negative values fall back to the node `outbound_default_lag`. | Integer | `10` (node `outbound_default_lag` used only when a negative value is given) |
+
+The member text body is the originate string. The channel variable `member_wait` (set as a channel pre-dial variable in the originate string) controls what the member does after answering: `wait` holds the call until a caller is available; `nowait` bridges immediately if a caller is already waiting and hangs up otherwise.
+
+### 2.4 The fifo Dialplan Application
+
+The `fifo` application places a channel into a named FIFO as either a caller (inbound, `in` mode) or a consumer/agent (outbound, `out` mode).
+
+**Syntax:**
+
+```
+fifo <name>[!<importance>] [in [<announce>|undef] [<music>|undef] [early|noans]
+                           | out [wait|nowait] [<announce>|undef] [<music>|undef]]
+```
+
+**Argument reference:**
+
+| Argument | Position | Purpose | Values |
+|---|---|---|---|
+| `<name>` | 1 | FIFO node name. Append `!<n>` to set or override importance at call time. | String |
+| `in` / `out` | 2 | Direction. `in` queues the caller; `out` makes this channel a consumer. | `in`, `out` |
+| `<announce>` | 3 | Audio file played to the channel on entry. Use `undef` to skip. | File path, `undef` |
+| `<music>` | 4 | Hold music file. Use `undef` to use the channel default. | File path, `undef` |
+| `early` / `noans` | 5 (in mode) | Controls when the caller channel is answered. Default (no argument): channel is answered immediately on queue entry. `noans`: channel is never auto-answered by the fifo application. `early`: channel is answered when the consumer bridges to the caller. | `early`, `noans` |
+| `wait` / `nowait` | 3 (out mode) | `wait`: consumer stays bridged until a caller arrives. `nowait`: consumer bridges immediately if a caller is waiting, otherwise returns. | `wait`, `nowait` |
+
+The channel variables `fifo_music` and `fifo_announce` set the hold music and announcement file respectively for a caller. These are checked before the application arguments and take precedence.
+
+**Importance at call time:** Appending `!<n>` to the FIFO name sets the importance for callers entered with `in`. If the node already exists, a lower importance value in the application argument is ignored; a higher value updates the node.
+
+**Example: caller enters queue**
+
+```xml
+<action application="fifo" data="support@$${domain} in undef $${hold_music}"/>
+```
+
+**Example: agent dials in as consumer**
+
+```xml
+<action application="fifo" data="support@$${domain} out wait"/>
+```
+
+---
+
+### 2.5 FIFO Channel Variables
+
+Channel variables control per-call behavior within `mod_fifo`. Set them on the caller or consumer channel before invoking the `fifo` application.
+
+**Caller-side variables (`in` mode)**
+
+| Variable | Purpose | Values | Notes |
+|---|---|---|---|
+| `fifo_music` | Hold music played to the caller while waiting. Overrides the application argument. | File path or stream | Read before application `<music>` argument. |
+| `fifo_announce` | Audio file played to caller on entry. Overrides the application argument. | File path | Read before application `<announce>` argument. |
+| `fifo_priority` | Priority slot within the FIFO. Lower numbers are dequeued first. | Integer `0`-`9` | Defaults to `0` if not set. |
+| `fifo_caller_exit_key` | DTMF digit(s) that cause the caller to exit the queue. After exit the variable is overwritten with the digit that was pressed. | DTMF digit string | Not set by default; no exit key. |
+| `fifo_caller_exit_to_orbit` | When `true`, a caller who presses an exit key is transferred to the orbit extension rather than hanging up. Requires `fifo_orbit_exten`. | `true`, `false` | Not set by default. |
+| `fifo_orbit_exten` | Extension to transfer the caller to after a timeout or exit key event. Format: `extension` or `extension:timeout_seconds`. When no colon is present the timeout defaults to 60 seconds. | `extension[:timeout]` | Not set by default. Orbit does not fire without this variable. |
+| `fifo_orbit_dialplan` | Dialplan to use for the orbit transfer. | Dialplan name | Defaults to the channel's current dialplan. |
+| `fifo_orbit_context` | Dialplan context to use for the orbit transfer. | Context name | Defaults to the channel's current context. |
+| `fifo_orbit_announce` | Audio file played to the caller immediately before the orbit transfer. | File path | Not set by default. |
+| `fifo_chime_list` | Comma-separated list of audio files played periodically to the caller while waiting. | `file1,file2,...` | Not set by default. |
+| `fifo_chime_freq` | Interval in seconds between chime file playbacks. | Integer `> 0` | Default `30` if `fifo_chime_list` is set and this variable is absent or non-positive. |
+| `fifo_vip` | When `true`, marks the caller as a VIP for priority dequeuing. Set automatically by the module when a caller is abandoned by an agent and re-queued. | `true` | Not set by default. |
+
+**Consumer-side variables (`out` mode)**
+
+| Variable | Purpose | Values | Notes |
+|---|---|---|---|
+| `fifo_consumer_exit_key` | DTMF digit that causes the consumer to hang up the caller and exit. | Single DTMF character | Default `*`. |
+| `fifo_hold_music` | Music played to the consumer when the consumer places the caller on soft-hold (digit `0`). Falls back to `fifo_music`, then the channel default. | File path or stream | Not set by default. |
+| `fifo_strategy` | Node selection strategy when a consumer is registered to multiple FIFO nodes. `waiting_longer`: serve the node that has been non-empty longest. `more_ppl`: serve the node with the most callers. | `waiting_longer`, `more_ppl` | Default `waiting_longer`. |
+| `fifo_pop_order` | Comma-separated priority slot numbers controlling the order in which the consumer pops callers from the node queues. | `0,1,2,...` | Default is ascending order `0` through `9`. |
+| `fifo_consumer_wrapup_time` | Milliseconds the consumer is held in wrap-up state after a call ends before returning to the pool. Set to `0` to disable the wrapup period. | Integer (milliseconds) | `5000` (applies whenever this variable is not set) |
+| `fifo_consumer_wrapup_sound` | Audio file played to the consumer during wrap-up time. | File path | Not set by default. |
+| `fifo_consumer_wrapup_key` | DTMF digit the consumer can press to end wrap-up early. | Single DTMF character | Not set by default. |
+| `fifo_record_template` | Path template for recording a bridged call. Supports channel variables and `strftime` tokens. | String | Not set by default. |
+| `fifo_outbound_announce` | Audio file played to the consumer before bridging to a caller that was an outbound callback (dial-url mode). | File path | Not set by default. |
+| `fifo_override_announce` | Set on the caller's channel. When present, overrides the consumer's announce file for that specific bridge. | File path | Not set by default. |
+
+---
+
+## 3. mod_callcenter: Concepts and Loading
+
+`mod_callcenter` is **not loaded by default**. To enable it, uncomment the relevant line in `autoload_configs/modules.conf.xml`:
+
+```xml
+<load module="mod_callcenter"/>
+```
+
+The module introduces three object types:
+
+- **Queue**: A named holding pool for inbound calls. Each queue has a routing strategy, hold music, and wait-time limits.
+- **Agent**: A named endpoint (person or device) that can receive calls from queues. Agents carry status (`Available`, `On Break`, `Logged Out`, `Available (On Demand)`) and state managed by the module.
+- **Tier**: An assignment linking one agent to one queue, with a `level` (priority group) and `position` (ordering within that level).
+
+State is stored in a SQLite database by default. An ODBC data source may be configured for shared access.
+
+The XML configuration (`callcenter.conf.xml`) defines queues, agents, and tiers that are synchronized into the database at startup.
+
+> **Important:** XML agent and tier configuration is re-applied to the database on every restart. Agent XML resets `level` and `position` to the configured values if they were supplied. This behavior is not suitable for multi-FreeSWITCH shared-database deployments.
+
+---
+
+## 4. Call Center Queue Configuration
+
+Queues are defined under the `<queues>` element of `callcenter.conf.xml`.
+
+```xml
+<queues>
+  <queue name="support@default">
+    <param name="strategy" value="longest-idle-agent"/>
+    <param name="moh-sound" value="$${hold_music}"/>
+    <param name="time-base-score" value="system"/>
+    <param name="max-wait-time" value="0"/>
+    <param name="max-wait-time-with-no-agent" value="0"/>
+    <param name="max-wait-time-with-no-agent-time-reached" value="5"/>
+    <param name="tier-rules-apply" value="false"/>
+    <param name="tier-rule-wait-second" value="300"/>
+    <param name="tier-rule-wait-multiply-level" value="true"/>
+    <param name="tier-rule-no-agent-no-wait" value="false"/>
+    <param name="discard-abandoned-after" value="60"/>
+    <param name="abandoned-resume-allowed" value="false"/>
+  </queue>
+</queues>
+```
+
+The `name` attribute on `<queue>` is required. The conventional format is `name@context` (for example, `support@default`), matching the agent name format.
+
+### 4.1 Queue Parameter Reference
+
+| Parameter | Purpose | Values | Default |
+|---|---|---|---|
+| `strategy` | Agent selection algorithm. | See table below | `longest-idle-agent` |
+| `moh-sound` | Hold music played to waiting callers. | File path or stream | None |
+| `announce-sound` | Audio file announced to the caller periodically while waiting. | File path | None |
+| `announce-frequency` | Seconds between `announce-sound` playbacks. `0` disables. | Integer `0`-`86400` | `0` |
+| `record-template` | Path template for recording bridged calls. Supports channel variables and `strftime` tokens. | String | None |
+| `time-base-score` | Reference point for calculating a caller's wait-time score used in agent selection. `queue` counts from when the caller entered the queue; `system` counts from call origination. | `queue`, `system` | `queue` |
+| `max-wait-time` | Maximum seconds a caller waits before being abandoned. `0` means unlimited. | Integer `0`-`86400` | `0` |
+| `max-wait-time-with-no-agent` | Maximum seconds a caller waits when no agents are logged in. `0` means unlimited. | Integer `0`-`86400` | `0` |
+| `max-wait-time-with-no-agent-time-reached` | Grace period in seconds after `max-wait-time-with-no-agent` is reached before the caller is removed. | Integer `0`-`86400` | `5` |
+| `tier-rules-apply` | Enable tier-based wait-time rules (see below). | `true`, `false` | `false` |
+| `tier-rule-wait-second` | Seconds a caller must wait before advancing to the next tier level. | Integer `0`-`86400` | `0` |
+| `tier-rule-wait-multiply-level` | When `true`, the wait time to reach tier level N is `N * tier-rule-wait-second`. When `false`, all higher tiers become reachable after a single `tier-rule-wait-second` interval. | `true`, `false` | `false` |
+| `tier-rule-no-agent-no-wait` | When `true`, callers skip tier wait times if no agents are available in the current tier. | `true`, `false` | `true` |
+| `discard-abandoned-after` | Seconds after which an abandoned caller's record is removed from the database, preventing resume. `0` keeps it indefinitely. | Integer `0`-`86400` | `60` |
+| `abandoned-resume-allowed` | When `true`, a caller who hung up and calls back within `discard-abandoned-after` seconds resumes their original position in the queue. | `true`, `false` | `false` |
+| `agent-no-answer-status` | Status assigned to an agent who does not answer within the ring timeout. | `Available`, `Available (On Demand)`, `On Break`, `Logged Out` | `On Break` |
+| `ring-progressively-delay` | For the `ring-progressively` strategy, seconds between each successive agent being added to the ring group. | Integer `0`-`86400` | `10` |
+| `skip-agents-with-external-calls` | When `true`, agents already on a call outside the call center are not offered queue calls. | `true`, `false` | `true` |
+
+**Strategy values:**
+
+| Value | Behavior |
+|---|---|
+| `longest-idle-agent` | Agent who has been idle the longest receives the call. |
+| `round-robin` | Agents are offered calls in rotation, resuming where the previous call left off. |
+| `top-down` | Agents are always tried in tier order from the beginning; the highest-priority available agent always answers. |
+| `agent-with-least-talk-time` | Agent with the fewest total talk-time seconds receives the call. |
+| `agent-with-fewest-calls` | Agent with the fewest answered calls receives the call. |
+| `sequentially-by-agent-order` | Agents are selected by tier level and position, then by `last_offered_call` timestamp. |
+| `ring-all` | All available agents in the eligible tier ring simultaneously. |
+| `ring-progressively` | Agents ring one at a time at the interval set by `ring-progressively-delay`, accumulating until one answers. |
+
+---
+
+## 5. Agent Configuration
+
+Agents are defined under the `<agents>` element of `callcenter.conf.xml`. XML agent configuration is applied to the database on restart; any runtime changes made via the API are overwritten.
+
+```xml
+<agents>
+  <agent name="1000@default"
+         type="callback"
+         contact="[leg_timeout=10]user/1000@default"
+         status="Available"
+         max-no-answer="3"
+         wrap-up-time="10"
+         reject-delay-time="10"
+         busy-delay-time="60" />
+</agents>
+```
+
+The `name` attribute is required and typically follows the format `extension@context`.
+
+### 5.1 Agent Parameter Reference
+
+| Parameter | Purpose | Values | Default |
+|---|---|---|---|
+| `type` | How the module reaches the agent. `Callback` originates an outbound call to `contact`; `uuid-standby` bridges to an existing channel UUID specified in `contact`. | `Callback`, `uuid-standby` | Required |
+| `contact` | Originate string (`Callback` type) or channel UUID (`uuid-standby` type) for the agent leg. Channel variables may be set in square brackets. | String | Required |
+| `status` | Initial status applied to the agent when the XML configuration is loaded. Status controls whether the agent is offered calls. | `Available`, `Available (On Demand)`, `On Break`, `Logged Out` | `Logged Out` |
+| `max-no-answer` | Number of consecutive unanswered calls before the agent's status is changed to `agent-no-answer-status`. `0` disables the limit. | Integer `>= 0` | `0` |
+| `wrap-up-time` | Seconds the agent is unavailable after a call ends before returning to `Available`. | Integer `>= 0` (seconds) | `0` |
+| `reject-delay-time` | Seconds to wait before offering another call to an agent who rejected the previous one. | Integer `>= 0` (seconds) | `0` |
+| `busy-delay-time` | Seconds to wait before offering another call to an agent whose line returned busy. | Integer `>= 0` (seconds) | `0` |
+| `no-answer-delay-time` | Seconds to wait before offering another call to an agent who did not answer. | Integer `>= 0` (seconds) | `0` |
+| `ready_time` | Unix epoch timestamp before which the agent is not offered calls. Set automatically by the module after a no-answer event; also settable via the `callcenter_config agent set ready_time` API command. | Integer (epoch seconds) | `0` (immediately available) |
+
+**Status values:**
+
+| Status | Behavior |
+|---|---|
+| `Available` | Agent is offered calls normally. |
+| `Available (On Demand)` | Agent is only offered a call when explicitly requested (used with some external systems). |
+| `On Break` | Agent is logged in but not accepting calls. |
+| `Logged Out` | Agent is not accepting calls and is not counted as available. |
+
+---
+
+## 6. Tier Assignment
+
+Tiers link an agent to a queue and define the agent's priority within that queue. Agents with a lower `level` number are offered calls before those with a higher number. Within the same level, `position` determines order.
+
+Tiers are defined under the `<tiers>` element of `callcenter.conf.xml`.
+
+```xml
+<tiers>
+  <tier agent="1000@default" queue="support@default" level="1" position="1"/>
+  <tier agent="1001@default" queue="support@default" level="2" position="1"/>
+</tiers>
+```
+
+If `level` or `position` is omitted, it defaults to `1`. When tier configuration is applied on restart, supplied values overwrite any runtime changes to `level` and `position`. Omitting both attributes preserves existing database values.
+
+### 6.1 Tier Parameter Reference
+
+| Parameter | Purpose | Values | Default |
+|---|---|---|---|
+| `agent` | Agent name, matching an entry in `<agents>`. | String | Required |
+| `queue` | Queue name, matching an entry in `<queues>`. | String | Required |
+| `level` | Priority group. Lower numbers are exhausted before higher numbers are tried (subject to `tier-rules-apply`). | Integer `>= 1` | `1` |
+| `position` | Order within a level when strategies that use position (for example, `top-down`, `sequentially-by-agent-order`) are active. | Integer `>= 1` | `1` |
+
+**Tier rules and escalation:** When `tier-rules-apply` is `false` (the default), callers are offered to all tiers simultaneously without delay. When `tier-rules-apply` is `true`, callers start at level 1 and advance to the next level only after waiting `tier-rule-wait-second` seconds (multiplied by the level number if `tier-rule-wait-multiply-level` is `true`). If no agents exist in the current tier and `tier-rule-no-agent-no-wait` is `true`, the caller advances immediately.
+
+---
+
+## 7. The callcenter Dialplan Application
+
+The `callcenter` dialplan application places an inbound call into a named queue. The call waits until an available agent is found and the agent leg is bridged.
+
+**Syntax:**
+
+```
+callcenter <queue_name>
+```
+
+**Example:**
+
+```xml
+<extension name="inbound-support">
+  <condition field="destination_number" expression="^5000$">
+    <action application="answer"/>
+    <action application="callcenter" data="support@default"/>
+  </condition>
+</extension>
+```
+
+The call must be answered before invoking `callcenter`. The application blocks until the call is bridged to an agent or the caller abandons. Queue wait-time limits (`max-wait-time`, `max-wait-time-with-no-agent`) cause the application to return, at which point the dialplan can route the call elsewhere.
+
+A companion application, `callcenter_track`, registers an externally originated call as a call center member for tracking purposes without placing it in the queue. This supports scenarios where a call was bridged outside of `mod_callcenter` but should be reflected in agent state.
+
+---
+
+## 8. Global Settings for mod_callcenter
+
+The `<settings>` block in `callcenter.conf.xml` configures module-wide options.
+
+```xml
+<settings>
+  <!--<param name="odbc-dsn" value="dsn:user:pass"/>-->
+  <!--<param name="dbname" value="/dev/shm/callcenter.db"/>-->
+  <!--<param name="cc-instance-id" value="single_box"/>-->
+</settings>
+```
+
+| Parameter | Purpose | Values | Default |
+|---|---|---|---|
+| `odbc-dsn` | ODBC connection string for external database storage. When set, the module uses ODBC instead of the internal SQLite database. Format: `dsn:user:pass`. | String | None (SQLite used) |
+| `dbname` | Path or name of the SQLite database file. | File path | `callcenter` |
+| `cc-instance-id` | Instance identifier used to namespace database rows. Relevant in deployments where multiple FreeSWITCH instances share a database. | String | `single_box` |

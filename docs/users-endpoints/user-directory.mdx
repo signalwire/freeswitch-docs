@@ -1,0 +1,347 @@
+---
+id: user-directory
+slug: /endpoints/user-directory
+title: "Chapter 6: The User Directory"
+sidebar_label: "6. The User Directory"
+---
+
+# Chapter 6: The User Directory
+
+The user directory is the XML-based identity store that FreeSWITCH consults for SIP authentication, call routing, caller ID presentation, and voicemail credential lookup. It organizes users into one or more domains, each containing user records composed of authentication parameters and channel variables that are stamped onto calls originating from or delivered to that user.
+
+## Table of Contents
+
+- [Directory Structure and File Layout](#directory-structure-and-file-layout)
+- [Domains](#domains)
+  - [The Default Domain](#the-default-domain)
+  - [Domain-Level Params and Variables](#domain-level-params-and-variables)
+- [Defining a User](#defining-a-user)
+  - [User Attributes](#user-attributes)
+  - [User Params](#user-params)
+  - [User Variables](#user-variables)
+- [Parameter Reference](#parameter-reference)
+  - [Common User Params](#common-user-params)
+  - [Voicemail Params](#voicemail-params)
+  - [Common User Variables](#common-user-variables)
+- [Groups](#groups)
+  - [Pointer Users](#pointer-users)
+  - [Calling a Group](#calling-a-group)
+- [Directory and SIP Authentication](#directory-and-sip-authentication)
+- [Routing Inbound Calls with user\_context](#routing-inbound-calls-with-user_context)
+- [Open-Ended Params and Variables](#open-ended-params-and-variables)
+
+---
+
+## Directory Structure and File Layout
+
+The directory section of the FreeSWITCH configuration tree lives under `conf/directory/`. The top-level entry point is `conf/directory/default.xml`, which wraps a `<domain>` element inside an `<include>` block. User records are stored in separate per-user XML files under `conf/directory/default/` and pulled in at startup via an `X-PRE-PROCESS` include directive:
+
+```xml
+<X-PRE-PROCESS cmd="include" data="default/*.xml"/>
+```
+
+This directive causes every `.xml` file in `conf/directory/default/` to be merged into the enclosing `<users>` block at configuration parse time. Each included file must be a valid XML fragment wrapped in `<include>` tags and containing one or more `<user>` elements.
+
+Files are merged, not overridden. Adding a new file to `conf/directory/default/` is sufficient to register a new user; no changes to `default.xml` are required. The merge order follows filesystem glob expansion, which is typically alphabetical.
+
+---
+
+## Domains
+
+### The Default Domain
+
+The directory is organized around domains, matching the right-hand side of a SIP address (the part after `@`). The vanilla configuration defines a single domain whose name is the preprocessor variable `$${domain}`:
+
+```xml
+<domain name="$${domain}">
+  ...
+</domain>
+```
+
+The `$${domain}` variable is set in `conf/vars.xml`:
+
+```xml
+<X-PRE-PROCESS cmd="set" data="domain=$${local_ip_v4}"/>
+```
+
+By default, `$${domain}` resolves to the machine's primary IPv4 address. To use a hostname instead, change that line to assign your desired hostname, for example:
+
+```xml
+<X-PRE-PROCESS cmd="set" data="domain=pbx.example.com"/>
+```
+
+Multiple domain blocks can coexist within the directory tree to support multi-tenant deployments. Each domain must have a unique `name` attribute.
+
+### Domain-Level Params and Variables
+
+A `<domain>` element may carry its own `<params>` and `<variables>` blocks. These values apply to every user in the domain and are overridden by user-level declarations of the same name.
+
+The vanilla `default.xml` sets two domain-level params and several variables:
+
+```xml
+<domain name="$${domain}">
+  <params>
+    <param name="dial-string" value="{^^:sip_invite_domain=${dialed_domain}:presence_id=${dialed_user}@${dialed_domain}}${sofia_contact(*/${dialed_user}@${dialed_domain})},${verto_contact(${dialed_user}@${dialed_domain})}"/>
+    <param name="jsonrpc-allowed-methods" value="verto"/>
+  </params>
+
+  <variables>
+    <variable name="record_stereo" value="true"/>
+    <variable name="default_gateway" value="$${default_provider}"/>
+    <variable name="default_areacode" value="$${default_areacode}"/>
+    <variable name="transfer_fallback_extension" value="operator"/>
+  </variables>
+  ...
+</domain>
+```
+
+The `dial-string` param at the domain level provides the default contact resolution expression used when a `user/` channel is originated. It can also be placed at the user level to override per-user routing.
+
+**Domain-level params reference:**
+
+| Param | Purpose | Values | Default |
+|---|---|---|---|
+| `dial-string` | Default contact resolution expression for `user/` origination within this domain. Overridden by a user-level `dial-string`. | FreeSWITCH dial string expression | None |
+| `jsonrpc-allowed-methods` | Comma-separated list of JSON-RPC method families permitted for Verto WebSocket connections in this domain. | `verto` and others | None |
+| `jsonrpc-allowed-event-channels` | Comma-separated list of event channel families a Verto client in this domain may subscribe to. | Channel family names | None |
+
+---
+
+## Defining a User
+
+Each user is represented by a `<user>` element with a mandatory `id` attribute. The `id` value is the left-hand side of the SIP address and must be unique within its domain.
+
+### User Attributes
+
+| Attribute | Purpose | Notes |
+|---|---|---|
+| `id` | Unique user identifier within the domain. Corresponds to the SIP username. | Required |
+| `number-alias` | Alternate number string that resolves to this user record. Allows a phone number to map to an alphanumeric `id`. | Optional |
+| `cidr` | Restricts registration to requests arriving from the specified CIDR range. Enables IP-based authentication without a password challenge. | Optional |
+
+Example using `cidr` and `number-alias`:
+
+```xml
+<user id="brian" number-alias="1000" cidr="192.0.2.0/24">
+```
+
+A minimal user record wraps `<params>` and `<variables>` blocks inside an `<include>` fragment:
+
+```xml
+<include>
+  <user id="1000">
+    <params>
+      <param name="password" value="$${default_password}"/>
+      <param name="vm-password" value="1000"/>
+    </params>
+    <variables>
+      <variable name="toll_allow" value="domestic,international,local"/>
+      <variable name="accountcode" value="1000"/>
+      <variable name="user_context" value="default"/>
+      <variable name="effective_caller_id_name" value="Extension 1000"/>
+      <variable name="effective_caller_id_number" value="1000"/>
+      <variable name="outbound_caller_id_name" value="$${outbound_caller_name}"/>
+      <variable name="outbound_caller_id_number" value="$${outbound_caller_id}"/>
+      <variable name="callgroup" value="techsupport"/>
+    </variables>
+  </user>
+</include>
+```
+
+### User Params
+
+`<params>` hold authentication credentials and per-user configuration that FreeSWITCH reads during registration and call setup. These are not automatically stamped onto call channel variables.
+
+### User Variables
+
+`<variables>` hold channel variables that FreeSWITCH sets on every call leg associated with this user. The variables are available to the dialplan, CDR, and other subsystems throughout the life of the call.
+
+---
+
+## Parameter Reference
+
+### Common User Params
+
+| Param | Purpose | Values | Default |
+|---|---|---|---|
+| `password` | SIP digest authentication password. Used by mod_sofia to verify the user's credentials via MD5 digest. | Any string | None (required for digest auth) |
+| `a1-hash` | Pre-computed MD5 hash of `user:domain:password` (HA1). Accepted in place of `password` to avoid storing plaintext credentials. | 32-character hex string | None |
+| `allow-empty-password` | When `true`, allows a user with no `password` or `a1-hash` to authenticate. Disabled by default; enabling it is a security risk. | `true`, `false` | `true` (core default; set `false` on the Sofia profile to deny) |
+| `auth-acl` | Named ACL that the registering IP must pass in addition to digest authentication. If the IP fails the ACL, registration is denied regardless of credentials. | ACL list name defined in `conf/autoload_configs/acl.conf.xml` | None |
+| `sip-forbid-register` | When `true`, REGISTER requests from this user are unconditionally rejected with 403. | `true`, `false` | `false` |
+| `dial-string` | Per-user override for the contact resolution expression used when originating to `user/id@domain`. Overrides the domain-level `dial-string`. | FreeSWITCH dial string expression | Inherited from domain |
+| `mwi-account` | Alternate `user@domain` address whose message-waiting indicator state is reported to this user's UA during registration. Useful when a user's SIP username differs from their voicemail mailbox identity. | `user@domain` string | Defaults to the registering user and domain |
+| `reverse-auth-user` | Username FreeSWITCH presents when authenticating outbound SIP requests (INVITEs) sent to this user's UA. Used when the remote UA challenges FreeSWITCH. | SIP username string | None |
+| `reverse-auth-pass` | Password FreeSWITCH presents when authenticating outbound SIP requests sent to this user's UA. Used together with `reverse-auth-user`. | Any string | None |
+| `user-agent-filter` | Regular expression applied to the `User-Agent` header of incoming REGISTER requests. Registration is denied if the header does not match. | POSIX regex string | None (no filtering) |
+| `max-registrations-per-extension` | Maximum number of simultaneous registrations allowed for this user. Additional REGISTER attempts beyond this limit are rejected. | Integer | Unlimited |
+| `jsonrpc-allowed-methods` | Per-user override of the JSON-RPC method families permitted over a Verto WebSocket connection. | `verto` and others | Inherited from domain |
+| `http-allowed-api` | Comma-separated list of HTTP API endpoints this user may access. | API names | None |
+
+### Voicemail Params
+
+All `vm-*` params are read from the user's `<params>` block by mod_voicemail. They are not channel variables and are not stamped onto call legs.
+
+| Param | Purpose | Values | Default |
+|---|---|---|---|
+| `vm-password` | PIN used to access the voicemail mailbox for this user. The special value `user-choose` allows the caller to set their own PIN on first access. If omitted, the `password` param is used as the PIN. | Numeric string or `user-choose` | Falls back to `password` |
+| `vm-a1-hash` | Pre-computed MD5 hash of `user:domain:vm-password`. Accepted in place of `vm-password` to avoid storing a plaintext PIN. | 32-character hex string | None |
+| `vm-enabled` | When `false`, voicemail is disabled for this user. Calls routed to voicemail return an invalid-extension prompt. | `true`, `false` | `true` |
+| `vm-mailto` | Email address to which new voicemail messages are sent as audio attachments or notifications. | Email address string | None |
+| `vm-notify-mailto` | Email address that receives a short notification (no audio attachment) when a new voicemail arrives. | Email address string | None |
+| `vm-mailfrom` | Sender address used in the `From` header of voicemail email notifications. | Email address string | Profile default |
+| `vm-cc` | Voicemail box (in `user@domain` format) to which a copy of every new message is forwarded. | `user@domain` string | None |
+| `vm-email-all-messages` | When `true`, emails are sent for every new voicemail regardless of whether the profile has email enabled globally. | `true`, `false` | `false` |
+| `vm-notify-email-all-messages` | When `true`, notification-only emails (no attachment) are sent for every new voicemail. | `true`, `false` | `false` |
+| `vm-attach-file` | When `true`, the voicemail audio file is attached to the notification email. | `true`, `false` | Profile default |
+| `vm-keep-local-after-email` | When `true`, the voicemail message is kept in the mailbox after it has been emailed. When `false`, the message is deleted from the mailbox once emailed. | `true`, `false` | `true` |
+| `vm-skip-instructions` | When `true`, the post-beep recording instructions are not played to the caller leaving a message. | `true`, `false` | `false` |
+| `vm-disk-quota` | Maximum total size in bytes of stored voicemail messages for this user. New messages are rejected when the quota is reached. | Integer (bytes) | Unlimited |
+| `vm-storage-dir` | Per-user directory path where voicemail recordings are stored, overriding the profile default. | Filesystem path | Profile default |
+| `vm-domain-storage-dir` | Directory path for domain-scoped voicemail storage. Deprecated `storage-dir` is an alias for this param. | Filesystem path | Profile default |
+| `vm-alternate-greet-id` | User `id` whose greeting is played instead of this user's own greeting. Useful for shared or virtual mailboxes. | User `id` string | None |
+| `vm-message-ext` | File extension for recorded voicemail messages for this user, overriding the profile default. | Extension string (e.g., `mp3`, `wav`) | Profile default |
+| `vm-operator-extension` | Extension dialed when the caller presses `0` during the voicemail greeting. | Extension string | None |
+| `vm-convert-cmd` | Shell command used to convert the recorded audio file before storage or email. | Command string | Profile default |
+| `vm-convert-ext` | File extension produced by `vm-convert-cmd`. | Extension string | Profile default |
+
+### Common User Variables
+
+| Variable | Purpose | Values | Default |
+|---|---|---|---|
+| `user_context` | Dialplan context that FreeSWITCH uses to route inbound calls from this user. | Any defined context name | None |
+| `toll_allow` | Comma-separated list of calling class tags that this user is permitted to use. The dialplan checks this variable to authorize call types. | Any string labels matching dialplan conditions | None |
+| `accountcode` | Billing or reporting identifier stamped on CDR records for calls associated with this user. | Any string | None |
+| `effective_caller_id_name` | Caller ID name presented on internal calls originating from this user. | Any string | None |
+| `effective_caller_id_number` | Caller ID number presented on internal calls originating from this user. | E.164 or extension number | None |
+| `outbound_caller_id_name` | Caller ID name used when this user places calls through an external gateway. | Any string | `$${outbound_caller_name}` in vanilla config |
+| `outbound_caller_id_number` | Caller ID number used when this user places calls through an external gateway. | E.164 number | `$${outbound_caller_id}` in vanilla config |
+| `callgroup` | Group label used by the `group_call` API and group pickup features to aggregate users into logical call groups. | Any string | None |
+| `presence_id` | Presence identity published for this user in the format `user@domain`. Required for BLF and presence subscription. | `user@domain` string | None |
+| `process_cdr` | Controls whether a CDR record is written for calls associated with this user. | `true`, `false`, `a_leg`, `b_leg` | `true` |
+| `record_stereo` | When `true`, calls are recorded in stereo with the two legs on separate channels. Set at the domain level in vanilla config. | `true`, `false` | `false` |
+| `default_gateway` | Name of the gateway used as the default outbound route for this user. | Gateway name | `$${default_provider}` in vanilla config |
+| `transfer_fallback_extension` | Extension dialed when a blind transfer fails to connect. | Extension string | `operator` in vanilla config |
+
+---
+
+## Groups
+
+Within a domain, users can be organized into named `<group>` elements. Groups serve two purposes: they allow users to be addressed collectively via the `group_call` API, and they provide a label that appears in directory API output.
+
+The vanilla `default.xml` defines four groups. The `default` group uses a glob include to pull in all user files:
+
+```xml
+<groups>
+  <group name="default">
+    <users>
+      <X-PRE-PROCESS cmd="include" data="default/*.xml"/>
+    </users>
+  </group>
+
+  <group name="sales">
+    <users>
+      <user id="1000" type="pointer"/>
+      <user id="1001" type="pointer"/>
+      <user id="1002" type="pointer"/>
+      <user id="1003" type="pointer"/>
+      <user id="1004" type="pointer"/>
+    </users>
+  </group>
+
+  <group name="billing">
+    <users>
+      <user id="1005" type="pointer"/>
+      <user id="1006" type="pointer"/>
+      <user id="1007" type="pointer"/>
+      <user id="1008" type="pointer"/>
+      <user id="1009" type="pointer"/>
+    </users>
+  </group>
+
+  <group name="support">
+    <users>
+      <user id="1010" type="pointer"/>
+      <user id="1011" type="pointer"/>
+      <user id="1012" type="pointer"/>
+      <user id="1013" type="pointer"/>
+      <user id="1014" type="pointer"/>
+    </users>
+  </group>
+</groups>
+```
+
+A `<group>` element may contain its own `<params>` block. The `dial-string` and `group-dial-string` params inside a group's `<params>` override the domain-level `dial-string` for members of that group when `group_call` resolves them.
+
+### Pointer Users
+
+A `<user>` element with `type="pointer"` does not define a user record itself. It is a reference that tells the directory lookup to continue searching for the full user record elsewhere in the domain (typically in the `default` group where the actual record lives). Pointer entries allow a single user to belong to multiple groups without duplicating the user record.
+
+```xml
+<user id="1000" type="pointer"/>
+```
+
+When FreeSWITCH resolves a pointer, it re-queries the directory for the same `id` without the `type="pointer"` constraint and uses the found record's params and variables.
+
+### Calling a Group
+
+The `group_call` API generates a dial string that simultaneously or sequentially targets all members of a named group. It is called from the dialplan using the API expansion syntax:
+
+```xml
+<action application="bridge" data="${group_call(sales@$${domain})}"/>
+```
+
+The syntax is `group_call(groupname@domain)`. An optional flag suffix controls the origination mode:
+
+| Flag | Mode |
+|---|---|
+| `+A` | Simultaneous (all members bridged at once, comma-delimited) |
+| `+F` | Sequential (members tried one at a time, pipe-delimited) |
+| `+E` | Enterprise origination (uses the enterprise originate delimiter) |
+
+Default mode when no flag is given is simultaneous (`+A`).
+
+---
+
+## Directory and SIP Authentication
+
+When a SIP UA sends a REGISTER or INVITE with digest credentials, FreeSWITCH (via mod_sofia) looks up the user in the directory using the domain from the SIP `From` or `To` header (depending on profile configuration). The lookup retrieves the `password` param or the `a1-hash` param.
+
+If `password` is present, FreeSWITCH computes the HA1 digest internally as `MD5(user:domain:password)` and compares it against the credential in the SIP Authorization header. If `a1-hash` is present, FreeSWITCH uses the stored hash directly, skipping the local MD5 computation. Only one of the two should be set per user.
+
+If `auth-acl` is set, the source IP of the request must pass the named ACL; failure denies registration regardless of the credential check result.
+
+Setting `sip-forbid-register` to `true` unconditionally rejects REGISTER for that user with a 403 response, regardless of credentials.
+
+The `cidr` attribute on the `<user>` element (see User Attributes above) bypasses digest authentication entirely for requests arriving from the specified IP range. A user with both `cidr` and `password` set will authenticate by CIDR for matching source IPs and fall back to digest for others.
+
+Which domain FreeSWITCH uses for the lookup depends on the `auth-calls` and related settings in the SIP profile. SIP profile configuration is covered in the chapter on SIP profiles.
+
+---
+
+## Routing Inbound Calls with user\_context
+
+When a registered user places a call, the endpoint module (mod_sofia or mod_verto) reads the `user_context` variable from the authenticated user's directory record and uses it as the dialplan context for that call leg.
+
+```xml
+<variable name="user_context" value="default"/>
+```
+
+This means different users can be routed into different dialplan contexts by assigning distinct `user_context` values. A user with `user_context` set to `restricted` will have their calls matched against the `restricted` context in `conf/dialplan/`, while a user with `user_context` set to `default` uses the standard `default` context.
+
+If `user_context` is absent from the user's variables and absent from the domain-level variables, the endpoint module falls back to a profile-level default context. Dialplan context structure is covered in the chapter on the dialplan.
+
+---
+
+## Open-Ended Params and Variables
+
+The `<params>` and `<variables>` blocks accept any name-value pair. Parameters not recognized by a built-in module are silently ignored during authentication and registration. Variables defined in `<variables>` are unconditionally stamped onto every call leg associated with the user and become available as channel variables throughout the dialplan, CDR modules, and any application that reads channel variables.
+
+This means arbitrary data can be stored on a user record and consumed by custom dialplan logic:
+
+```xml
+<variable name="department" value="engineering"/>
+<variable name="max_calls" value="5"/>
+```
+
+These would appear as `$${department}` and `$${max_calls}` on any call leg for that user. There is no validation; any string is accepted.

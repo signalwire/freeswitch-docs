@@ -1,0 +1,407 @@
+---
+id: cli-and-api
+slug: /reference/cli-and-api
+title: "Chapter 31: CLI and API Command Reference"
+sidebar_label: "31. CLI and API Command Reference"
+---
+
+# Chapter 31: CLI and API Command Reference
+
+FreeSWITCH exposes its entire runtime API through two interfaces that share the same command set: the interactive `fs_cli` console and the Event Socket. Any command entered at the `fs_cli` prompt can be sent verbatim over the Event Socket using the `api` or `bgapi` method, making this reference applicable to both surfaces.
+
+This chapter covers the operator-facing command set. FreeSWITCH registers over 150 API commands in total; the commands documented here are the ones operators use for daily administration, call control, and configuration management.
+
+## Table of Contents
+
+- [Connecting with fs\_cli](#connecting-with-fs_cli)
+- [Status and Inspection](#status-and-inspection)
+- [Call Control](#call-control)
+- [Configuration Control](#configuration-control)
+- [System Control](#system-control)
+- [Variables and Evaluation](#variables-and-evaluation)
+- [Scheduling](#scheduling)
+- [Background Execution](#background-execution)
+- [Sofia Command Tree](#sofia-command-tree)
+- [Example fs\_cli Session](#example-fs_cli-session)
+
+---
+
+## Connecting with fs\_cli {#connecting-with-fs_cli}
+
+`fs_cli` is the standard interactive client for the FreeSWITCH Event Socket interface. It connects to the address and port defined in `event_socket.conf.xml`. The default listen address is `::` (all interfaces), the default port is `8021`, and the default password is `ClueCon`.
+
+Common connection flags:
+
+| Flag | Purpose |
+|------|---------|
+| `-H <host>` | Event Socket host (default: `localhost`) |
+| `-P <port>` | Event Socket port (default: `8021`) |
+| `-p <password>` | Event Socket password |
+| `-x <command>` | Execute a single command and exit |
+| `-q` | Quiet mode; suppress log output |
+
+Example invocation connecting to a non-default host:
+
+```
+fs_cli -H 192.0.2.10 -P 8021 -p ClueCon
+```
+
+Commands issued at the `fs_cli` prompt are sent to the FreeSWITCH process as API calls over the Event Socket. The same commands work identically when sent via the Event Socket from an external application using `api <command> [args]`.
+
+---
+
+## Status and Inspection {#status-and-inspection}
+
+These commands return runtime state information about the FreeSWITCH process and its active sessions.
+
+| Command | Purpose | Syntax |
+|---------|---------|--------|
+| `status` | Show overall system status: uptime, session count, and rate statistics | `status` |
+| `version` | Report the FreeSWITCH version string | `version [short]` |
+| `uptime` | Report process uptime in a specified unit | `uptime [us\|ms\|s\|m\|h\|d\|microseconds\|milliseconds\|seconds\|minutes\|hours\|days]` |
+| `show channels` | List active channels | `show channels [count\|like <match>]` |
+| `show calls` | List active calls | `show calls [count]` |
+| `show detailed_calls` | List active calls with extended field detail | `show detailed_calls` |
+| `show bridged_calls` | List calls that are currently bridged | `show bridged_calls` |
+| `show detailed_bridged_calls` | List bridged calls with extended field detail | `show detailed_bridged_calls` |
+| `show registrations` | List current SIP registrations | `show registrations` |
+| `show modules` | List loaded modules | `show modules` |
+| `show interfaces` | List registered interfaces | `show interfaces` |
+| `show interface_types` | List registered interface type groups | `show interface_types` |
+| `show tasks` | List scheduled tasks | `show tasks` |
+| `show codec` | List registered codecs | `show codec` |
+| `show endpoint` | List registered endpoints | `show endpoint` |
+| `show application` | List registered dialplan applications | `show application` |
+| `show api` | List registered API commands | `show api` |
+| `show limits` | Show limit backend usage | `show limits` |
+| `hostname` | Return the system hostname | `hostname` |
+| `switchname` | Return the configured switch name | `switchname` |
+| `host_lookup` | Resolve a hostname to an IP address | `host_lookup <hostname>` |
+| `gethost` | Resolve a hostname using `gethostbyname` | `gethost <hostname>` |
+| `uuid_exists` | Check whether a channel UUID is currently active | `uuid_exists <uuid>` |
+| `uuid_dump` | Dump all variables and state for a session | `uuid_dump <uuid> [format]` |
+| `uuid_buglist` | List active media bugs on a session | `uuid_buglist <uuid>` |
+
+The `show` command accepts the full subject list from source:
+
+```
+codec|endpoint|application|api|dialplan|file|timer|calls [count]|
+channels [count|like <match string>]|calls|detailed_calls|bridged_calls|
+detailed_bridged_calls|aliases|complete|chat|management|modules|
+nat_map|say|interfaces|interface_types|tasks|limits|status
+```
+
+---
+
+## Call Control {#call-control}
+
+These commands act on active channels, identified by their UUID. Obtain UUIDs from `show channels` or `show calls`.
+
+| Command | Purpose | Syntax |
+|---------|---------|--------|
+| `originate` | Originate an outbound call leg | `originate <call_url> <exten>\|&<application_name>(<app_args>) [<dialplan>] [<context>] [<cid_name>] [<cid_num>] [<timeout_sec>]` |
+| `uuid_bridge` | Bridge two existing channel legs together | `uuid_bridge <uuid> <other_uuid>` |
+| `uuid_kill` | Terminate a channel, optionally specifying a hangup cause | `uuid_kill <uuid> [cause]` |
+| `uuid_transfer` | Transfer a channel to a dialplan extension | `uuid_transfer <uuid> [-bleg\|-both] <dest-exten> [<dialplan>] [<context>]` |
+| `uuid_dual_transfer` | Transfer a call and its partner leg simultaneously | `uuid_dual_transfer <uuid> <A-dest-exten>[/<A-dialplan>][/<A-context>] <B-dest-exten>[/<B-dialplan>][/<B-context>]` |
+| `uuid_hold` | Place or release a call hold on a channel | `uuid_hold [off\|toggle] <uuid> [<display>]` |
+| `uuid_park` | Park a channel | `uuid_park <uuid>` |
+| `uuid_answer` | Answer an unanswered channel | `uuid_answer <uuid>` |
+| `uuid_pre_answer` | Pre-answer a channel (183 Session Progress) | `uuid_pre_answer <uuid>` |
+| `uuid_ring_ready` | Send ringing to a channel | `uuid_ring_ready <uuid> [queued]` |
+| `uuid_setvar` | Set a channel variable on a session | `uuid_setvar <uuid> <var> [value]` |
+| `uuid_setvar_multi` | Set multiple channel variables in one call | `uuid_setvar_multi <uuid> <var>=<value>;<var>=<value>...` |
+| `uuid_getvar` | Retrieve the value of a channel variable | `uuid_getvar <uuid> <var>` |
+| `uuid_dump` | Dump all variables and state for a session | `uuid_dump <uuid> [format]` |
+| `uuid_broadcast` | Execute a dialplan application on a channel | `uuid_broadcast <uuid> <path> [aleg\|bleg\|holdb\|both]` |
+| `uuid_record` | Start, stop, mask, or unmask session audio recording | `uuid_record <uuid> [start\|stop\|mask\|unmask] <path> [<limit>] [<recording_vars>]` |
+| `uuid_displace` | Inject or remove an audio file on a channel | `uuid_displace <uuid> [start\|stop] <path> [<limit>] [mux]` |
+| `uuid_audio` | Mute or adjust audio level on a channel | `uuid_audio <uuid> [start [read\|write] [mute\|level <level>]\|stop]` |
+| `uuid_pause` | Pause or resume media on a channel | `uuid_pause <uuid> <on\|off>` |
+| `uuid_break` | Break out of the current application blocking a channel | `uuid_break <uuid> [all]` |
+| `break` | Alias for `uuid_break` | `break <uuid> [all]` |
+| `uuid_send_dtmf` | Send DTMF digits to a channel | `uuid_send_dtmf <uuid> <dtmf_data>` |
+| `uuid_recv_dtmf` | Inject received DTMF digits into a channel | `uuid_recv_dtmf <uuid> <dtmf_data>` |
+| `uuid_flush_dtmf` | Flush buffered DTMF from a channel | `uuid_flush_dtmf <uuid>` |
+| `uuid_media` | Reinvite FreeSWITCH in or out of the media path | `uuid_media [off] <uuid>` |
+| `uuid_media_reneg` | Trigger a media renegotiation on a channel | `uuid_media_reneg <uuid>[ <codec_string>]` |
+| `uuid_deflect` | Send a SIP REFER to redirect a call | `uuid_deflect <uuid> <uri>` |
+| `uuid_redirect` | Send a SIP redirect response | `uuid_redirect <uuid> <uri>` |
+| `uuid_display` | Update the phone display for a registered device | `uuid_display <uuid> <display>` |
+| `uuid_loglevel` | Set the log level for a specific session | `uuid_loglevel <uuid> <level>` |
+| `uuid_jitterbuffer` | Enable or configure the jitter buffer on a channel | `uuid_jitterbuffer <uuid> [0\|<min_msec>[:<max_msec>]]` |
+| `uuid_session_heartbeat` | Enable or set a heartbeat interval on a channel | `uuid_session_heartbeat <uuid> [sched] [0\|<seconds>]` |
+| `uuid_simplify` | Attempt to cut FreeSWITCH out of the media path | `uuid_simplify <uuid>` |
+| `uuid_fileman` | Control file playback on a channel | `uuid_fileman <uuid> <cmd>:<val>` |
+| `hupall` | Hang up all channels, optionally filtered by variable value | `hupall <cause> [<var> <value>] [<var2> <value2>]` |
+
+**Notes on `originate`:**
+
+The `<call_url>` argument is a FreeSWITCH endpoint dial string, for example `sofia/internal/1001@192.0.2.1`. The second positional argument is either a dialplan extension (`<exten>`) or an inline application prefixed with `&`, such as `&echo()`. The `<dialplan>` and `<context>` arguments default to `XML` and `default` respectively when omitted.
+
+**Notes on `uuid_transfer`:**
+
+`-bleg` transfers the B-leg of the call; `-both` transfers both legs simultaneously. Without a flag, the A-leg is transferred.
+
+**Notes on `uuid_broadcast`:**
+
+The `<path>` argument is a sound file path or an inline application invocation in `app::args` form. The `aleg`, `bleg`, `holdb`, and `both` flags control which leg receives the broadcast.
+
+**Notes on `uuid_record`:**
+
+`mask` replaces recorded audio with silence; `unmask` restores normal recording. The optional `<recording_vars>` argument accepts a semicolon-separated list of channel variables to attach as metadata.
+
+**Notes on `uuid_displace`:**
+
+`start` begins audio injection; `stop` ends it. The `mux` flag mixes the injected audio with the existing stream rather than replacing it.
+
+---
+
+## Configuration Control {#configuration-control}
+
+These commands reload configuration without restarting the FreeSWITCH process.
+
+| Command | Purpose | Syntax |
+|---------|---------|--------|
+| `reloadxml` | Reload all XML configuration from disk | `reloadxml` |
+| `reload` | Reload a loaded module (unload then load) | `reload [-f] <mod_name>` |
+| `load` | Load a module that is not currently loaded | `load <mod_name>` |
+| `unload` | Unload a loaded module | `unload [-f] <mod_name>` |
+| `reloadacl` | Reload access control lists from configuration | `reloadacl` |
+| `reloadcert` | Reload SSL/TLS certificates without restart | `reloadcert` |
+
+The `-f` flag on `reload` and `unload` forces the operation even if the module reports that it cannot be unloaded safely.
+
+---
+
+## System Control {#system-control}
+
+The `fsctl` command sends control messages to the FreeSWITCH core. All subcommands follow the pattern `fsctl <subcommand> [args]`. The `shutdown` command is also available as a standalone alias.
+
+| Command | Purpose | Syntax |
+|---------|---------|--------|
+| `fsctl loglevel` | Set the global console log level | `fsctl loglevel <level>` |
+| `fsctl debug_level` | Set the global debug verbosity level | `fsctl debug_level <level>` |
+| `fsctl pause` | Pause call processing (inbound, outbound, or both) | `fsctl pause [inbound\|outbound]` |
+| `fsctl resume` | Resume call processing | `fsctl resume [inbound\|outbound]` |
+| `fsctl max_sessions` | Set the maximum concurrent session limit | `fsctl max_sessions <num>` |
+| `fsctl sps` | Set the sessions-per-second limit | `fsctl sps <num>` |
+| `fsctl sps_peak_reset` | Reset the peak sessions-per-second counter | `fsctl sps_peak_reset` |
+| `fsctl shutdown` | Initiate a controlled shutdown | `fsctl shutdown [cancel\|elegant\|asap\|now\|restart]` |
+| `fsctl recover` | Recover sessions from the core recovery database | `fsctl recover` |
+| `fsctl hupall` | Hang up all active sessions via core control | `fsctl hupall` |
+| `fsctl min_dtmf_duration` | Set the minimum DTMF duration in milliseconds | `fsctl min_dtmf_duration <num>` |
+| `fsctl max_dtmf_duration` | Set the maximum DTMF duration in milliseconds | `fsctl max_dtmf_duration <num>` |
+| `fsctl default_dtmf_duration` | Set the default DTMF duration in milliseconds | `fsctl default_dtmf_duration <num>` |
+| `fsctl min_idle_cpu` | Set the minimum idle CPU percentage before call rejection | `fsctl min_idle_cpu <num>` |
+| `fsctl sync_clock` | Sync the internal clock to the system clock immediately | `fsctl sync_clock` |
+| `fsctl sync_clock_when_idle` | Sync the internal clock the next time the system is idle | `fsctl sync_clock_when_idle` |
+| `fsctl send_sighup` | Send SIGHUP to the process, triggering log rotation | `fsctl send_sighup` |
+| `fsctl uuid_version` | Set the UUID generation version | `fsctl uuid_version [4\|7]` |
+| `fsctl api_expansion` | Enable or disable API expansion in dialplan | `fsctl api_expansion [on\|off]` |
+| `fsctl reclaim_mem` | Reclaim unused memory from core memory pools | `fsctl reclaim_mem` |
+| `fsctl mdns_resolve` | Enable or disable mDNS resolution | `fsctl mdns_resolve [enable\|disable]` |
+| `shutdown` | Initiate immediate shutdown (no modifier flags) | `shutdown` |
+
+FreeSWITCH log levels, from most to least verbose: `console`, `alert`, `crit`, `err`, `warning`, `notice`, `info`, `debug`.
+
+The full `fsctl` syntax string from source:
+
+```
+fsctl [api_expansion [on|off]|recover|send_sighup|hupall|
+       pause [inbound|outbound]|resume [inbound|outbound]|
+       shutdown [cancel|elegant|asap|now|restart]|
+       uuid_version [4|7]|sps|sps_peak_reset|sync_clock|
+       sync_clock_when_idle|reclaim_mem|max_sessions|
+       min_dtmf_duration [num]|max_dtmf_duration [num]|
+       default_dtmf_duration [num]|min_idle_cpu|
+       loglevel [level]|debug_level [level]|
+       mdns_resolve [enable|disable]]
+```
+
+**Notes on `fsctl shutdown`:**
+
+`cancel` aborts a pending shutdown. `elegant` waits for all active sessions to complete. `asap` waits only until no sessions are active (does not wait for existing sessions to finish). `now` terminates immediately. Adding `restart` to `elegant`, `asap`, or `now` causes a restart after shutdown.
+
+---
+
+## Variables and Evaluation {#variables-and-evaluation}
+
+These commands read, write, and evaluate FreeSWITCH global variables and expressions.
+
+| Command | Purpose | Syntax |
+|---------|---------|--------|
+| `global_getvar` | Get a global variable value; with no argument, dumps all global variables | `global_getvar [<var>]` |
+| `global_setvar` | Set a global variable; conditionally if a second value is provided | `global_setvar <var>=<value> [=<value2>]` |
+| `eval` | Evaluate a string with variable expansion; no-op if no variables present | `eval [uuid:<uuid> ]<expression>` |
+| `expand` | Execute an API command after performing variable expansion on its arguments | `expand [uuid:<uuid> ]<cmd> <args>` |
+| `regex` | Evaluate a regular expression and optionally apply a substitution | `regex <data>\|<pattern>[\|<subst string>][n\|b]` |
+| `strftime_tz` | Format a time value in a named timezone | `strftime_tz <timezone_name> [<epoch>\|][format string]` |
+| `url_encode` | URL-encode a string | `url_encode <string>` |
+| `url_decode` | URL-decode a string | `url_decode <string>` |
+| `md5` | Return the MD5 hash of a string | `md5 <data>` |
+| `cond` | Evaluate a conditional expression | `cond <expr> ? <true val> : <false val>` |
+| `coalesce` | Return the first non-empty value from a list | `coalesce [^^<delim>]<value1>,<value2>,...` |
+| `replace` | Replace all occurrences of a substring within a string | `replace <data>\|<string1>\|<string2>` |
+| `escape` | Escape special characters in a string | `escape <data>` |
+| `toupper` | Convert a string to upper case | `toupper <string>` |
+| `tolower` | Convert a string to lower case | `tolower <string>` |
+| `create_uuid` | Generate and return a new UUID | `create_uuid` |
+
+**Notes on `global_setvar`:**
+
+When `=<value2>` is supplied, the variable is set to `<value>` only if its current value equals `<value2>` (conditional set).
+
+**Notes on `eval`:**
+
+When a `uuid:<uuid>` prefix is supplied, expansion resolves channel variables from that session in addition to global variables.
+
+**Notes on `regex`:**
+
+The `n` flag returns the matched group number; `b` returns a boolean `true`/`false`. The delimiter is `|` within the syntax string, which must be escaped as `\|` when entered at `fs_cli`.
+
+---
+
+## Scheduling {#scheduling}
+
+These commands schedule API calls or call events at a future time.
+
+| Command | Purpose | Syntax |
+|---------|---------|--------|
+| `sched_api` | Schedule an API command to run at an absolute or relative time | `sched_api [+\|@]<time> <group_name> <command_string>[&]` |
+| `sched_del` | Delete a scheduled task by task ID or group name | `sched_del <task_id>\|<group_id>` |
+| `sched_hangup` | Schedule a running call to hang up | `sched_hangup [+]<time> <uuid> [<cause>]` |
+| `sched_broadcast` | Schedule a broadcast application on a running call | `sched_broadcast [[+]<time>\|@time] <uuid> <path> [aleg\|bleg\|both]` |
+| `sched_transfer` | Schedule a transfer for a running call | `sched_transfer [+]<time> <uuid> <extension> [<dialplan>] [<context>]` |
+| `show tasks` | List all currently scheduled tasks | `show tasks` |
+
+**Notes on `sched_api` time argument:**
+
+A leading `+` means relative seconds from now. A leading `@` means recurring: the command re-schedules itself every `<N>` seconds. A plain numeric value is an absolute Unix timestamp. Appending `&` runs the scheduled command in its own thread.
+
+---
+
+## Background Execution {#background-execution}
+
+`bgapi` executes any API command in a background thread and returns a Job-UUID immediately. The result of the command is delivered as a `BACKGROUND_JOB` event on the Event Socket.
+
+| Command | Purpose | Syntax |
+|---------|---------|--------|
+| `bgapi` | Execute an API command in a background thread | `bgapi <command>[ <arg>]` |
+
+`bgapi` accepts an optional `uuid:<uuid>` prefix to assign a specific Job-UUID to the background task:
+
+```
+bgapi uuid:my-job-id status
+```
+
+`bgapi` is registered as an API command in `mod_commands` and is available at the `fs_cli` prompt as well as over the Event Socket. When used over the Event Socket as the ESL `bgapi` method, the transport layer handles the `Background-Job` event header directly; the behavior is otherwise identical.
+
+---
+
+## Sofia Command Tree {#sofia-command-tree}
+
+The `sofia` command is registered by `mod_sofia` and controls SIP profile and gateway state. All subcommands follow the pattern `sofia <subcommand> [args]`.
+
+### Status Subcommands
+
+| Command | Purpose | Syntax |
+|---------|---------|--------|
+| `sofia status` | Show all loaded profiles and gateways with their state | `sofia status` |
+| `sofia status profile` | Show detailed status for a named profile, including bindings and registration counts | `sofia status profile <name>` |
+| `sofia status profile ... reg` | Filter status output to registrations matching an optional contact string | `sofia status profile <name> reg [<contact>]` |
+| `sofia status profile ... pres` | Show presence data for a profile | `sofia status profile <name> pres <pres_str>` |
+| `sofia status profile ... user` | Show status for a specific user on a profile | `sofia status profile <name> user <user@domain>` |
+| `sofia status gateway` | Show status of a named gateway | `sofia status gateway <name>` |
+| `sofia xmlstatus` | Same as `sofia status` but output in XML format | `sofia xmlstatus [profile <name>\|gateway <name>]` |
+| `sofia jsonstatus` | Same as `sofia status` but output in JSON format | `sofia jsonstatus [profile <name>\|gateway <name>]` |
+
+### Profile Management Subcommands
+
+| Command | Purpose | Syntax |
+|---------|---------|--------|
+| `sofia profile ... rescan` | Re-read profile configuration from XML without a full restart; preserves existing calls | `sofia profile <name> rescan [wait]` |
+| `sofia profile ... restart` | Fully stop and restart a profile | `sofia profile <name> restart [wait]` |
+| `sofia profile ... start` | Start a stopped profile | `sofia profile <name> start` |
+| `sofia profile ... stop` | Stop a running profile | `sofia profile <name> stop [wait]` |
+| `sofia profile ... flush_inbound_reg` | Flush inbound registrations, optionally scoped to a call ID or user at domain | `sofia profile <name> flush_inbound_reg [<call_id>\|<user>@<domain>] [reboot]` |
+| `sofia profile ... check_sync` | Force re-sync of registrations matching a call ID | `sofia profile <name> check_sync [<call_id>]` |
+| `sofia profile ... register` | Force registration of a named gateway or all gateways | `sofia profile <name> register [<gateway_name>\|all]` |
+| `sofia profile ... unregister` | Unregister a named gateway or all gateways | `sofia profile <name> unregister [<gateway_name>\|all]` |
+| `sofia profile ... killgw` | Remove a gateway from a profile | `sofia profile <name> killgw <gateway_name>` |
+| `sofia profile ... startgw` | Add and start a gateway from the current XML configuration | `sofia profile <name> startgw <gateway_name>` |
+| `sofia profile ... gwlist` | List gateways on a profile | `sofia profile <name> gwlist [down]` |
+| `sofia profile ... siptrace` | Enable or disable SIP trace logging for a profile | `sofia profile <name> siptrace <on\|off>` |
+| `sofia profile ... capture` | Enable or disable HEP/HOMER packet capture for a profile | `sofia profile <name> capture <on\|off>` |
+| `sofia profile ... watchdog` | Enable or disable the profile watchdog | `sofia profile <name> watchdog <on\|off>` |
+| `sofia profile ... recover` | Recover sessions from the recovery database for a profile | `sofia profile <name> recover [flush]` |
+
+**Note on `sofia profile ... stop` and `sofia profile ... restart`:**
+
+A profile must have been running for at least 10 seconds before it can be stopped or restarted. The `wait` option blocks until the profile finishes its current SIP transactions.
+
+### Global Subcommands
+
+| Command | Purpose | Syntax |
+|---------|---------|--------|
+| `sofia global siptrace` | Enable or disable SIP trace logging across all profiles | `sofia global siptrace <on\|off>` |
+| `sofia global capture` | Enable or disable HEP/HOMER capture globally | `sofia global capture <on\|off>` |
+| `sofia global watchdog` | Enable or disable the profile watchdog globally | `sofia global watchdog <on\|off>` |
+| `sofia global standby` | Enable or disable standby mode globally | `sofia global standby <on\|off>` |
+| `sofia global debug` | Enable or disable presence or SLA debugging | `sofia global debug [presence\|sla\|none]` |
+| `sofia restart all` | Restart all SIP profiles simultaneously | `sofia restart all` |
+
+### Logging Subcommands
+
+| Command | Purpose | Syntax |
+|---------|---------|--------|
+| `sofia loglevel` | Get or set the sofia-sip library log level for a named component | `sofia loglevel <component> [0-9]` |
+| `sofia tracelevel` | Set the FreeSWITCH log level at which sofia-sip trace output is emitted | `sofia tracelevel <console\|alert\|crit\|err\|warning\|notice\|info\|debug>` |
+
+Valid `<component>` values for `sofia loglevel`: `all`, `default`, `tport`, `iptsec`, `nea`, `nta`, `nth_client`, `nth_server`, `nua`, `soa`, `sresolv`, `stun`.
+
+### Utility API Commands
+
+| Command | Purpose | Syntax |
+|---------|---------|--------|
+| `sofia_contact` | Return the contact URI for a registered user | `sofia_contact [profile/]<user>@<domain>` |
+| `sofia_count_reg` | Return the registration count for a user | `sofia_count_reg [profile/]<user>@<domain>` |
+| `sofia_gateway_data` | Retrieve a variable from a gateway | `sofia_gateway_data <gateway_name> [ivar\|ovar\|var] <name>` |
+| `sofia_username_of` | Look up the username associated with a registration | `sofia_username_of [profile/]<user>@<domain>` |
+| `sofia_dig` | Perform a SIP DNS lookup (NAPTR/SRV) | `sofia_dig <url>` |
+
+---
+
+## Example fs\_cli Session {#example-fs_cli-session}
+
+The following illustrates a typical operator workflow: checking system state, inspecting an active call, and transferring it.
+
+```
+freeswitch@pbx> status
+UP 0 years, 0 days, 2 hours, 14 minutes, 33 seconds, 412 milliseconds, 744 microseconds
+FreeSWITCH (Version 1.10.x) is ready
+2 session(s) since startup
+1 session(s) - peak 1, last 5min 1
+0 session(s) per Sec out of max 30, peak 1, last 5min 1
+1000 session(s) max
+min idle cpu 0.00/99.60
+Current Stack Size/Max 240K/8192K
+
+freeswitch@pbx> show channels
+uuid,direction,created,created_epoch,name,state,cid_name,cid_num,...
+5a3f1c2e-...,inbound,2026-06-02 10:31:00,...
+
+freeswitch@pbx> uuid_transfer 5a3f1c2e-... 2000 XML default
++OK
+
+freeswitch@pbx> sofia status profile internal
+=================================
+Name             internal
+...
+RUNNING (2)
+
+freeswitch@pbx> fsctl loglevel debug
+
+freeswitch@pbx> reloadxml
++OK [Success]
+```

@@ -1,0 +1,321 @@
+---
+id: fax-t38
+slug: /applications/fax
+title: "Chapter 24: Fax and T.38"
+sidebar_label: "24. Fax and T.38"
+---
+
+# Chapter 24: Fax and T.38
+
+FreeSWITCH delivers fax functionality through `mod_spandsp`, a module built on the SpanDSP library. It exposes two dialplan applications for sending and receiving fax documents over audio (G.711) and T.38 (UDPTL), a T.38 gateway mode for bridging between fax endpoints that negotiate different transport types, and a set of channel variables that control behavior at the session level.
+
+## Table of Contents
+
+- [1. Overview](#1-overview)
+- [2. Module Configuration](#2-module-configuration)
+  - [2.1 spandsp.conf.xml Structure](#21-spandspconfxml-structure)
+  - [2.2 Fax Settings Parameter Reference](#22-fax-settings-parameter-reference)
+- [3. Receiving a Fax with rxfax](#3-receiving-a-fax-with-rxfax)
+- [4. Sending a Fax with txfax](#4-sending-a-fax-with-txfax)
+- [5. T.38 Protocol Support](#5-t38-protocol-support)
+  - [5.1 T.38 Negotiation via rxfax and txfax](#51-t38-negotiation-via-rxfax-and-txfax)
+  - [5.2 T.38 Gateway Mode](#52-t38-gateway-mode)
+- [6. Channel Variable Reference](#6-channel-variable-reference)
+  - [6.1 Input Variables](#61-input-variables)
+  - [6.2 Result Variables](#62-result-variables)
+- [7. Default Dialplan Examples](#7-default-dialplan-examples)
+
+---
+
+## 1. Overview
+
+`mod_spandsp` must be loaded before fax applications are available. It registers the `rxfax`, `txfax`, `stopfax`, and `t38_gateway` applications and reads its configuration from `autoload_configs/spandsp.conf.xml` at load time and on module reload.
+
+Fax sessions begin in audio mode using G.711. If T.38 is enabled and the remote endpoint supports it, the module issues or accepts a re-INVITE to switch to UDPTL transport mid-call. The jitter buffer is disabled automatically when a fax application is invoked.
+
+Echo cancellation should be disabled before invoking a fax application. Use the `disable_ec` application in the dialplan before calling `rxfax` or `txfax`.
+
+---
+
+## 2. Module Configuration
+
+### 2.1 spandsp.conf.xml Structure
+
+The configuration file contains two relevant sections: `<modem-settings>` for software modem configuration and `<fax-settings>` for fax behavior. The `<descriptors>` section configures call-progress tone detection and is not part of fax document transfer.
+
+```xml
+<configuration name="spandsp.conf" description="SpanDSP config">
+  <fax-settings>
+    <param name="use-ecm"      value="true"/>
+    <param name="verbose"      value="false"/>
+    <param name="disable-v17"  value="false"/>
+    <param name="ident"        value="SpanDSP Fax Ident"/>
+    <param name="header"       value="SpanDSP Fax Header"/>
+    <param name="spool-dir"    value="$${temp_dir}"/>
+    <param name="file-prefix"  value="faxrx"/>
+    <!-- <param name="t38-tx-reinvite-packet-count" value="100"/> -->
+    <!-- <param name="t38-rx-reinvite-packet-count" value="50"/> -->
+  </fax-settings>
+</configuration>
+```
+
+### 2.2 Fax Settings Parameter Reference
+
+| Parameter | Purpose | Values | Default |
+|---|---|---|---|
+| `use-ecm` | Enable ITU-T T.30 Error Correction Mode | `true`, `false` | `true` |
+| `verbose` | Enable verbose SpanDSP library logging | `true`, `false` | `false` |
+| `verbose-log-level` | FreeSWITCH log level used for SpanDSP verbose output | FreeSWITCH log level string (e.g., `INFO`, `DEBUG`) | `DEBUG` |
+| `disable-v17` | Disable V.17 modem support, limiting transfer to 9600 bps maximum | `true`, `false` | `false` |
+| `enable-tep` | Enable Telephone Extension Processor preamble | `true`, `false` | `false` |
+| `enable-colour` | Enable colour fax support | `true`, `false` | `false` |
+| `enable-image-resizing` | Enable image rescaling compression | `true`, `false` | `false` |
+| `enable-colour-to-bilevel` | Convert colour images to bi-level on receive | `true`, `false` | `false` |
+| `enable-grayscale-to-bilevel` | Convert grayscale images to bi-level on receive | `true`, `false` | `false` |
+| `enable-t38` | Allow T.38 negotiation when the remote endpoint offers it | `true`, `false` | `true` |
+| `enable-t38-request` | Actively request a T.38 re-INVITE after audio fax tone is detected | `true`, `false` | `false` |
+| `ident` | Local station identifier (TSI) transmitted to the remote | String | `SpanDSP Fax Ident` |
+| `header` | Page header text printed on transmitted pages | String | `SpanDSP Fax Header` |
+| `spool-dir` | Directory where received fax files are written when no filename is passed to `rxfax` | Path | `$${temp_dir}` |
+| `file-prefix` | Filename prefix used for auto-generated received fax filenames | String | `faxrx` |
+| `t38-tx-reinvite-packet-count` | Number of audio packets to process before sending a T.38 re-INVITE on transmit | Integer 0-999 | `100` |
+| `t38-rx-reinvite-packet-count` | Number of audio packets to process before sending a T.38 re-INVITE on receive | Integer 0-999 | `50` |
+
+---
+
+## 3. Receiving a Fax with rxfax
+
+The `rxfax` application answers the call (if not already answered), switches the codec to linear PCM, and receives an incoming fax document, writing it to a TIFF file.
+
+**Syntax:**
+
+```
+rxfax [/path/to/output.tif]
+```
+
+The filename argument is optional. When omitted, `rxfax` generates a filename automatically using the `spool-dir` and `file-prefix` configuration values in the format:
+
+```
+{spool-dir}/{file-prefix}-{session_count}-{timestamp}.tif
+```
+
+The channel variable `fax_filename` is set to the path of the written file after the application completes.
+
+**Minimal dialplan action:**
+
+```xml
+<action application="rxfax" data="/var/spool/fax/inbound.tif"/>
+```
+
+**With T.38 enabled and echo cancellation disabled:**
+
+```xml
+<action application="disable_ec"/>
+<action application="set" data="fax_enable_t38=true"/>
+<action application="set" data="fax_ident=+15551234567"/>
+<action application="set" data="fax_header=My Company Fax"/>
+<action application="answer"/>
+<action application="playback" data="silence_stream://2000"/>
+<action application="rxfax" data="/var/spool/fax/inbound.tif"/>
+<action application="hangup"/>
+```
+
+---
+
+## 4. Sending a Fax with txfax
+
+The `txfax` application transmits a fax document from a local TIFF file to the remote endpoint. The channel must be answered or in a bridged state before `txfax` is invoked; `txfax` does not answer the channel.
+
+**Syntax:**
+
+```
+txfax /path/to/document.tif
+```
+
+The filename argument is required. The file must exist at the specified path. Page range selection is controlled by the channel variables `fax_start_page` and `fax_end_page`; there are no positional page-range arguments to the application.
+
+**Minimal dialplan action:**
+
+```xml
+<action application="txfax" data="/var/spool/fax/outbound.tif"/>
+```
+
+**With per-session overrides:**
+
+```xml
+<action application="set" data="fax_ident=+15551234567"/>
+<action application="set" data="fax_header=My Company - Page %p of %t"/>
+<action application="set" data="fax_enable_t38=true"/>
+<action application="set" data="fax_start_page=0"/>
+<action application="txfax" data="/var/spool/fax/outbound.tif"/>
+<action application="hangup"/>
+```
+
+---
+
+## 5. T.38 Protocol Support
+
+T.38 is the ITU-T standard for carrying fax signals over IP networks as UDPTL packets rather than audio. `mod_spandsp` supports two T.38 operating modes: negotiated T.38 within `rxfax` and `txfax`, and a dedicated T.38 gateway mode.
+
+### 5.1 T.38 Negotiation via rxfax and txfax
+
+When `fax_enable_t38` is `true` (or `enable-t38` is set in `spandsp.conf.xml`), the fax applications will accept a T.38 re-INVITE from the remote endpoint and switch from audio to UDPTL transport mid-call. The transition occurs transparently during the fax session.
+
+When `fax_enable_t38_request` is `true` (or `enable-t38-request` is set globally), the module will itself issue a re-INVITE requesting T.38 after a configured number of audio packets. The packet count threshold is set by `fax_t38_tx_reinvite_packet_count` (for `txfax`) or `fax_t38_rx_reinvite_packet_count` (for `rxfax`).
+
+When `fax_enable_t38_insist` is `true`, the re-INVITE or response is sent with a flag that causes FreeSWITCH to require T.38 and hang up the session if the remote endpoint declines.
+
+The `fax_t38_status` result variable reports the outcome: `negotiated`, `requested`, `refused`, or `off`.
+
+### 5.2 T.38 Gateway Mode
+
+The `t38_gateway` application places a B2BUA leg into T.38 gateway mode, converting between audio fax signals on one leg and T.38 UDPTL on the other. This is used when one endpoint supports T.38 and the other does not.
+
+**Syntax:**
+
+```
+t38_gateway [self|peer] [nocng]
+```
+
+| Argument | Purpose |
+|---|---|
+| `self` | Apply gateway processing to the current (A) leg |
+| `peer` | Apply gateway processing to the peer (B) leg (default) |
+| `nocng` | Start gateway mode immediately without waiting for fax tone detection |
+
+When `nocng` is not specified, `t38_gateway` listens for CED (2100 Hz) or V.21 preamble before activating gateway mode. The timeout for tone detection is controlled by the channel variable `t38_gateway_detect_timeout` (integer, seconds; default `20`).
+
+The channel variable `t38_gateway_redundancy` sets the UDPTL redundancy level used by the gateway (integer; affects both FEC span and FEC entries).
+
+**Example: inline gateway on a bridged call:**
+
+```xml
+<action application="set" data="execute_on_answer=t38_gateway peer"/>
+<action application="bridge" data="sofia/gateway/mycarrier/${destination_number}"/>
+```
+
+---
+
+## 6. Channel Variable Reference
+
+Channel variables override the global defaults from `spandsp.conf.xml` on a per-session basis. Input variables are read before the fax application begins. Result variables are set by the application when it completes.
+
+### 6.1 Input Variables
+
+| Variable | Purpose |
+|---|---|
+| `fax_ident` | Overrides the global `ident` setting for this session (station identifier transmitted to remote) |
+| `fax_header` | Overrides the global `header` setting for this session (page header text) |
+| `fax_timezone` | Timezone name used to format the page header timestamp |
+| `fax_use_ecm` | Overrides `use-ecm` for this session (`true` or `false`) |
+| `fax_disable_v17` | Disables V.17 for this session (`true` or `false`) |
+| `fax_enable_tep` | Enables TEP preamble for this session (`true` or `false`) |
+| `fax_enable_colour` | Enables colour fax for this session (`true` or `false`) |
+| `fax_enable_image_resizing` | Enables image rescaling for this session (`true` or `false`) |
+| `fax_enable_colour_to_bilevel` | Enables colour-to-bi-level conversion for this session (`true` or `false`) |
+| `fax_enable_grayscale_to_bilevel` | Enables grayscale-to-bi-level conversion for this session (`true` or `false`) |
+| `fax_enable_t38` | Enables T.38 negotiation for this session (`true` or `false`) |
+| `fax_enable_t38_request` | Enables active T.38 re-INVITE for this session (`true` or `false`) |
+| `fax_enable_t38_insist` | Requires T.38; hangs up if remote declines (`true` or `false`) |
+| `fax_t38_tx_reinvite_packet_count` | Audio packet count before T.38 re-INVITE is sent during transmit (integer) |
+| `fax_t38_rx_reinvite_packet_count` | Audio packet count before T.38 re-INVITE is sent during receive (integer) |
+| `fax_spool` | Overrides `spool-dir` for auto-generated filenames in `rxfax` |
+| `fax_prefix` | Overrides `file-prefix` for auto-generated filenames in `rxfax` |
+| `fax_start_page` | First page to transmit (0-based index; `txfax` only) |
+| `fax_end_page` | Last page to transmit (0-based index; `txfax` only; `-1` means last page) |
+| `fax_force_caller` | Force the fax session to act as caller (`true`) or answerer (`false`) regardless of call direction |
+| `fax_verbose` | Enables per-session verbose SpanDSP logging (`true` or `false`) |
+| `fax_verbose_log_level` | FreeSWITCH log level for per-session verbose output |
+| `fax_trace_dir` | Directory path for writing a per-session SpanDSP trace log |
+| `t38_gateway_detect_timeout` | Seconds to wait for fax tone before activating `t38_gateway` (integer; default `20`) |
+| `t38_gateway_redundancy` | UDPTL redundancy level for `t38_gateway` mode (integer) |
+
+### 6.2 Result Variables
+
+The following variables are set on the channel when `rxfax` or `txfax` completes. They are available for subsequent dialplan actions or ESL event handlers.
+
+| Variable | Purpose |
+|---|---|
+| `fax_success` | `1` if the fax completed without error; `0` otherwise |
+| `fax_result_code` | Numeric T.30 completion code |
+| `fax_result_text` | Human-readable description of the T.30 completion code |
+| `fax_filename` | Path to the TIFF file written (receive) or read (transmit) |
+| `fax_document_transferred_pages` | Number of pages actually transferred in this session |
+| `fax_document_total_pages` | Total pages in the file (pages sent for `txfax`; pages written to TIFF for `rxfax`) |
+| `fax_image_resolution` | Line resolution of the last transferred page in `{x}x{y}` meters-per-pixel format |
+| `fax_file_image_resolution` | File resolution of the last transferred page |
+| `fax_image_pixel_size` | Pixel dimensions of the last transferred page as `{width}x{height}` |
+| `fax_file_image_pixel_size` | Pixel dimensions as stored in the TIFF file |
+| `fax_image_size` | Compressed image size in bytes |
+| `fax_bad_rows` | Number of bad rows detected in the last page |
+| `fax_longest_bad_row_run` | Length of the longest run of consecutive bad rows |
+| `fax_encoding` | Numeric compression code for the last page |
+| `fax_encoding_name` | String name of the compression type (e.g., `T.6`) |
+| `fax_transfer_rate` | Negotiated modem bit rate in bits per second |
+| `fax_ecm_used` | `on` if ECM was used during the session; `off` otherwise |
+| `fax_ecm_requested` | `1` if ECM was requested; `0` otherwise (in gateway mode the values are `true` and `false` respectively) |
+| `fax_t38_status` | T.38 outcome: `negotiated`, `requested`, `refused`, or `off` |
+| `fax_v17_disabled` | `1` if V.17 was disabled for this session; `0` otherwise |
+| `fax_local_station_id` | Local station identifier used during this session |
+| `fax_remote_station_id` | Remote station identifier received from the far end |
+| `fax_remote_country` | Country reported by the remote fax device (set at T.30 phase B negotiation; empty string if not provided) |
+| `fax_remote_vendor` | Vendor string reported by the remote fax device (set at T.30 phase B negotiation; empty string if not provided) |
+| `fax_remote_model` | Model string reported by the remote fax device (set at T.30 phase B negotiation; empty string if not provided) |
+| `fax_trace_file` | Full path to the per-session SpanDSP trace log file; set only when `fax_trace_dir` input variable is provided |
+
+---
+
+## 7. Default Dialplan Examples
+
+The vanilla `conf/vanilla/dialplan/default.xml` includes two fax extensions that demonstrate minimal usage.
+
+### fax_receive (extension 9178)
+
+Answers the call, plays two seconds of silence to allow the fax CED tone to stabilize, receives the fax to a temporary file, then hangs up.
+
+```xml
+<extension name="fax_receive">
+  <condition field="destination_number" expression="^9178$">
+    <action application="answer"/>
+    <action application="playback" data="silence_stream://2000"/>
+    <action application="rxfax" data="$${temp_dir}/rxfax.tif"/>
+    <action application="hangup"/>
+  </condition>
+</extension>
+```
+
+### fax_transmit (extension 9179)
+
+Transmits a fax from a temporary file. The channel is in a bridged state when `txfax` is called; no explicit `answer` is required because the outbound bridge has already answered the session.
+
+```xml
+<extension name="fax_transmit">
+  <condition field="destination_number" expression="^9179$">
+    <action application="txfax" data="$${temp_dir}/txfax.tif"/>
+    <action application="hangup"/>
+  </condition>
+</extension>
+```
+
+### Practical Inbound Fax with T.38 and Result Logging
+
+The following is a complete inbound fax extension using per-session overrides, T.38 support, and result handling via `execute_on_fax_result`.
+
+```xml
+<extension name="inbound_fax">
+  <condition field="destination_number" expression="^1234$">
+    <action application="set" data="fax_ident=+15551234567"/>
+    <action application="set" data="fax_header=ACME Corp"/>
+    <action application="set" data="fax_enable_t38=true"/>
+    <action application="set" data="fax_enable_t38_request=true"/>
+    <action application="set" data="execute_on_fax_result=lua fax_result.lua"/>
+    <action application="disable_ec"/>
+    <action application="answer"/>
+    <action application="playback" data="silence_stream://2000"/>
+    <action application="rxfax" data="/var/spool/fax/${uuid}.tif"/>
+    <action application="hangup"/>
+  </condition>
+</extension>
+```
+
+After `rxfax` completes, FreeSWITCH executes the application defined in `execute_on_fax_result`. The result variables `fax_success`, `fax_result_code`, `fax_document_transferred_pages`, and `fax_filename` are available at that point.

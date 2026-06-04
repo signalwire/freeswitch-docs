@@ -1,0 +1,881 @@
+---
+id: audio-files-and-streaming
+slug: /media/audio-files
+title: "Chapter 18: Audio Files and Streaming Sources"
+sidebar_label: "18. Audio Files and Streaming Sources"
+---
+
+# Chapter 18: Audio Files and Streaming Sources
+
+FreeSWITCH resolves audio from multiple source types: plain file paths resolved through the media file system, synthesized tone streams, locally managed playlist streams, and remote MP3 or Icecast feeds. Each source type is handled by a dedicated format module that registers one or more URI schemes or file extensions. This chapter describes every playable source type available to the operator, the modules that back them, and the configuration parameters that govern their behavior.
+
+## Table of Contents
+
+- [18.1 Playable Sources Overview](#181-playable-sources-overview)
+- [18.2 mod\_sndfile and Supported File Formats](#182-mod_sndfile-and-supported-file-formats)
+- [18.3 mod\_native\_file](#183-mod_native_file)
+- [18.4 mod\_local\_stream and Music on Hold](#184-mod_local_stream-and-music-on-hold)
+  - [18.4.1 Configuration File](#1841-configuration-file)
+  - [18.4.2 Directory Parameter Reference](#1842-directory-parameter-reference)
+  - [18.4.3 Runtime Management](#1843-runtime-management)
+- [18.5 mod\_tone\_stream and the TGML Generator](#185-mod_tone_stream-and-the-tgml-generator)
+  - [18.5.1 TGML Syntax](#1851-tgml-syntax)
+  - [18.5.2 silence\_stream](#1852-silence_stream)
+- [18.6 mod\_shout and the shout:// Scheme](#186-mod_shout-and-the-shout-scheme)
+- [18.7 The hold\_music Variable](#187-the-hold_music-variable)
+- [18.8 Recording Calls](#188-recording-calls)
+  - [18.8.1 record\_session: Full-Call Recording from the Dialplan](#1881-record_session-full-call-recording-from-the-dialplan)
+  - [18.8.2 uuid\_record: Live Recording Control via API](#1882-uuid_record-live-recording-control-via-api)
+  - [18.8.3 Stereo Recordings](#1883-stereo-recordings)
+  - [18.8.4 RECORD\_\* Control and Metadata Variables](#1884-record_-control-and-metadata-variables)
+  - [18.8.5 Masking Sensitive Audio](#1885-masking-sensitive-audio)
+  - [18.8.6 Post-Processing Recordings](#1886-post-processing-recordings)
+  - [18.8.7 Worked Examples](#1887-worked-examples)
+- [18.9 Phrases and the Say System](#189-phrases-and-the-say-system)
+  - [18.9.1 Three-Layer Model](#1891-three-layer-model)
+  - [18.9.2 Language Loading: the languages Section](#1892-language-loading-the-languages-section)
+  - [18.9.3 Language File Structure](#1893-language-file-structure)
+  - [18.9.4 Phrase Macro Structure](#1894-phrase-macro-structure)
+  - [18.9.5 The say Application](#1895-the-say-application)
+  - [18.9.6 Say Types Implemented in mod\_say\_en](#1896-say-types-implemented-in-mod_say_en)
+  - [18.9.7 Say Methods](#1897-say-methods)
+  - [18.9.8 sound\_prefix and Language Sound Files](#1898-sound_prefix-and-language-sound-files)
+  - [18.9.9 Adding a Custom Phrase Macro](#1899-adding-a-custom-phrase-macro)
+
+---
+
+## 18.1 Playable Sources Overview
+
+Wherever FreeSWITCH accepts an audio source -- dialplan applications such as `playback`, `ringback`, `hold_music`, conference prompts, IVR menus, and so on -- the value is one of:
+
+- A **file path**: an absolute path or a path relative to `$${sound_prefix}`.
+- A **stream URI**: a scheme-qualified string such as `local_stream://moh`, `tone_stream://...`, `shout://...`, or `silence_stream://500`.
+
+### The sound\_prefix Variable
+
+`$${sound_prefix}` is a preprocessor variable set in `conf/vanilla/vars.xml`:
+
+```xml
+<X-PRE-PROCESS cmd="set" data="sound_prefix=$${sounds_dir}/en/us/callie"/>
+```
+
+When a bare filename is given (no leading `/`), FreeSWITCH prepends `$${sound_prefix}` to form a full path. The variable can be overridden at runtime with `global_setvar sound_prefix=<path>`; persistent changes require editing `vars.xml` and reloading the configuration.
+
+`$${sounds_dir}` is a built-in variable automatically resolved by FreeSWITCH to the compiled-in sounds installation directory (typically `/usr/share/freeswitch/sounds` on Debian-family systems).
+
+### URI Scheme Summary
+
+| Scheme | Module | Purpose |
+|---|---|---|
+| `local_stream://` | `mod_local_stream` | Directory-backed playlist stream |
+| `tone_stream://` | `mod_tone_stream` | Synthesized TGML tone |
+| `silence_stream://` | `mod_tone_stream` | Timed silence |
+| `shout://` | `mod_shout` | HTTP MP3 or Icecast stream (plain) |
+| `shouts://` | `mod_shout` | HTTP MP3 or Icecast stream (TLS) |
+
+Plain file paths (`.wav`, `.ogg`, `.mp3`, etc.) are dispatched to `mod_sndfile` or `mod_shout` based on extension.
+
+---
+
+## 18.2 mod\_sndfile and Supported File Formats
+
+`mod_sndfile` wraps libsndfile and is the default handler for recorded audio files. It registers file extensions dynamically at load time based on what libsndfile reports as available on the host system.
+
+### Core Extensions
+
+The following extensions are always registered (subject to libsndfile support and the optional `allowed-extensions` configuration parameter):
+
+| Extension(s) | Format |
+|---|---|
+| `wav` | Microsoft WAV (PCM, commonly 16-bit) |
+| `aiff`, `iff` | AIFF / IFF (16-bit PCM) |
+| `ogg`, `oga` | Ogg Vorbis |
+| `flac` | FLAC |
+| `au`, `snd` | Sun AU |
+| `raw`, `r8` | Raw PCM 16-bit, 8 kHz |
+| `r16` | Raw PCM 16-bit, 16 kHz |
+| `r24` | Raw PCM 24-bit, 24 kHz |
+| `r32` | Raw PCM 32-bit, 32 kHz |
+| `gsm` | GSM 6.10 raw, 8 kHz |
+| `ul`, `ulaw` | Raw G.711 ulaw, 8 kHz |
+| `al`, `alaw` | Raw G.711 alaw, 8 kHz |
+| `vox` | Dialogic VOX ADPCM, 8 kHz, mono |
+| `adpcm` | IMA ADPCM WAV, 8 kHz, mono |
+| `wve` | Psion WVE (alaw), 8 kHz |
+| `htk` | HTK format, 8 kHz |
+| `xi` | Instrument file (DPCM 16-bit, 44.1 kHz) |
+| `sds` | Midi Sample Dump Standard, 8 kHz |
+
+### Sample-Rate Resolution
+
+When opening a file, `mod_sndfile` first attempts to open `<dir>/<rate>/<filename>` (inserting the session sample rate as a path component). If that path does not exist it falls back to the highest available rate directory (48000, 32000, 16000, 8000) and finally to the literal path provided.
+
+### Configuration
+
+`mod_sndfile` has no mandatory configuration. The vanilla configuration ships `conf/autoload_configs/sndfile.conf.xml` with all parameters commented out. The optional `allowed-extensions` parameter (comma-separated list) restricts which extensions are registered. When `allowed-extensions` is absent, all extensions that libsndfile reports are registered.
+
+---
+
+## 18.3 mod\_native\_file
+
+`mod_native_file` handles files whose data is already encoded in a codec-native format, bypassing any PCM transcoding. At load time it enumerates every audio codec implementation that has a non-zero `encoded_bytes_per_packet` and registers the codec's IANA name as a file extension.
+
+Typical extensions registered: `PCMU`, `PCMA`, `G722`, `G729`, `GSM`, `iLBC`, `OPUS`, and others depending on which codec modules are loaded.
+
+Files handled by `mod_native_file` are transmitted directly without re-encoding (the `SWITCH_FILE_NATIVE` and `SWITCH_FILE_NOMUX` flags are set). The module infers the sample rate from the extension: `G722` files default to 16000 Hz; all others default to 8000 Hz.
+
+---
+
+## 18.4 mod\_local\_stream and Music on Hold
+
+`mod_local_stream` provides a shared, continuously running audio stream backed by a directory of audio files. Multiple channels can attach to the same stream simultaneously; all listeners receive the same audio at the same position. This makes it suitable for music-on-hold (MOH) and background music applications.
+
+The URI scheme is:
+
+```
+local_stream://<directory-name>
+```
+
+where `<directory-name>` matches the `name` attribute of a `<directory>` element in `local_stream.conf.xml`.
+
+When FreeSWITCH opens `local_stream://moh` it first attempts to find `moh/<session_sample_rate>` (e.g., `moh/16000`). If that directory is not configured it falls back to `moh`, and if that is also absent it falls back to `default`.
+
+### 18.4.1 Configuration File
+
+`conf/autoload_configs/local_stream.conf.xml` defines one or more named directories. The vanilla configuration ships four rate-specific MOH directories and a `default` directory:
+
+```xml
+<configuration name="local_stream.conf" description="stream files from local dir">
+
+  <!-- fallback to default if requested moh class isn't found -->
+  <directory name="default" path="$${sounds_dir}/music/8000">
+    <param name="rate"       value="8000"/>
+    <param name="shuffle"    value="true"/>
+    <param name="channels"   value="1"/>
+    <param name="interval"   value="20"/>
+    <param name="timer-name" value="soft"/>
+  </directory>
+
+  <directory name="moh/8000" path="$${sounds_dir}/music/8000">
+    <param name="rate"       value="8000"/>
+    <param name="shuffle"    value="true"/>
+    <param name="channels"   value="1"/>
+    <param name="interval"   value="20"/>
+    <param name="timer-name" value="soft"/>
+  </directory>
+
+  <directory name="moh/16000" path="$${sounds_dir}/music/16000">
+    <param name="rate"       value="16000"/>
+    <param name="shuffle"    value="true"/>
+    <param name="channels"   value="1"/>
+    <param name="interval"   value="20"/>
+    <param name="timer-name" value="soft"/>
+  </directory>
+
+  <directory name="moh/32000" path="$${sounds_dir}/music/32000">
+    <param name="rate"       value="32000"/>
+    <param name="shuffle"    value="true"/>
+    <param name="channels"   value="1"/>
+    <param name="interval"   value="20"/>
+    <param name="timer-name" value="soft"/>
+  </directory>
+
+  <directory name="moh/48000" path="$${sounds_dir}/music/48000">
+    <param name="rate"       value="48000"/>
+    <param name="shuffle"    value="true"/>
+    <param name="channels"   value="1"/>
+    <param name="interval"   value="10"/>
+    <param name="timer-name" value="soft"/>
+  </directory>
+
+</configuration>
+```
+
+The `path` attribute specifies the filesystem directory from which audio files are read. The module reads every supported audio file in that directory; files with a `.loc` extension are treated as plain-text lists of file paths, one per line.
+
+### 18.4.2 Directory Parameter Reference
+
+| Parameter | Purpose | Accepted Values | Default |
+|---|---|---|---|
+| `rate` | Sample rate of the stream. Files are opened at this rate. | `8000`, `12000`, `16000`, `24000`, `32000`, `48000` | `8000` |
+| `shuffle` | Randomize playback order across the directory. When `true`, the stream starts at a random position in the file list. | `true`, `false` | `false` |
+| `channels` | Number of audio channels. | `1` (mono), `2` (stereo) | `1` |
+| `interval` | Packetization interval in milliseconds. Must be a multiple of 10 and within the platform maximum interval. | Integer (multiples of 10, typically 10, 20, 30) | `20` |
+| `timer-name` | Timer used to pace audio output. `soft` is the software timer; `posix` uses the POSIX timer. | `soft`, `posix` | `soft` |
+| `chime-list` | Comma-separated list of audio files to interject periodically. Files are played in rotation. | Comma-separated file paths | _(none)_ |
+| `chime-freq` | How often (in seconds) a chime file is played. Must be greater than 1. | Integer `> 1` | `30` |
+| `chime-max` | Maximum number of seconds the chime file plays before cutting back to the main stream. Must be greater than 1. | Integer `> 1` | _(unlimited)_ |
+| `volume` | Adjusts output volume. Granular volume control; the value is normalized to the allowed range internally. | Integer | `0` (no change) |
+| `auto-volume` | Target energy average for automatic gain control. `0` disables AGC. | Integer `0`-`20000` | `0` |
+| `auto-volume-low-point` | Low-energy threshold for the AGC. Used alongside `auto-volume`. | Integer `0`-`20000` | `0` |
+| `prebuf` | Pre-buffer size in bytes. Controls how much audio is buffered before distribution to listeners. | Integer (bytes) | `65536` |
+| `blank-img` | Path to a PNG image displayed when the stream has no video. | File path to a `.png` | _(none)_ |
+| `logo-img` | Path to a PNG logo overlaid on video frames when a banner is active. | File path to a `.png` | _(none)_ |
+| `logo-always` | When `true`, the logo is displayed even when no banner text is present. | `true`, `false` | `false` |
+| `logo-position` | Position of the logo image on the video frame. | `left-top`, `left-mid`, `left-bot`, `center-top`, `center-mid`, `center-bot`, `right-top`, `right-mid`, `right-bot`, `none` | _(none)_ |
+| `logo-opacity` | Opacity of the logo overlay (0 = transparent, 100 = opaque). | Integer `0`-`100` | `100` |
+| `text-opacity` | Opacity of banner text overlaid on video frames. | Integer `0`-`100` | `100` |
+
+### 18.4.3 Runtime Management
+
+`mod_local_stream` exposes an API command for runtime control:
+
+```
+local_stream <show|start|reload|stop|hup> <stream-name>
+```
+
+| Subcommand | Effect |
+|---|---|
+| `show` | Lists all running streams (name and path). With a stream name, shows detail. Append `as xml` for XML output. |
+| `start` | Starts a stopped or newly added stream by name. |
+| `stop` | Stops the named stream. Attached listeners receive silence. |
+| `reload` | Reloads the stream's configuration and restarts playback. If the stream is in use, a partial reload applies the subset of parameters that can change without restarting the thread. |
+| `hup` | Skips the current file and begins the next one immediately. |
+
+Example:
+
+```
+local_stream show moh/8000
+local_stream reload moh/8000
+```
+
+---
+
+## 18.5 mod\_tone\_stream and the TGML Generator
+
+`mod_tone_stream` synthesizes audio from a text description using the Teletone Generation Markup Language (TGML). The URI scheme is:
+
+```
+tone_stream://<tgml-string>[;loops=<n>]
+```
+
+The optional `loops` suffix (separated by `;`) specifies how many times the tone sequence repeats. A value of `-1` loops indefinitely.
+
+### 18.5.1 TGML Syntax
+
+TGML is a semicolon-delimited sequence of commands and tone specifications. Each tone specification has the form:
+
+```
+%(on_ms,off_ms,freq1[,freq2,...])
+```
+
+| Field | Meaning |
+|---|---|
+| `on_ms` | Tone-on duration in milliseconds |
+| `off_ms` | Silence duration in milliseconds (0 for continuous tone) |
+| `freq1`, `freq2`, ... | One or more frequencies in Hz (mixed together) |
+
+Additional TGML modifiers (applied before a tone spec, terminated with `;`):
+
+| Modifier | Syntax | Meaning |
+|---|---|---|
+| Volume | `v=<db>` | Set initial volume in dB (e.g., `v=-7`) |
+| Duration limit | `d=<ms>` | Maximum duration in milliseconds applied to subsequent tones |
+| Loops (spec) | `l=<n>` | Repeat count for the immediately following tone spec |
+| Loops (sequence) | `L=<n>` | Repeat count for the entire tone sequence |
+| Volume decay step | `>=<ms>` | Apply volume decay every `<ms>` milliseconds; volume decreases by the decay factor each step |
+| Volume growth step | `<=<ms>` | Apply volume growth every `<ms>` milliseconds; volume increases by the decay factor each step |
+| Volume decay amount | `+=<db>` | Amount in dB to change volume on each decay or growth step (used with `>` or `<`) |
+| Wait | `w=<ms>` | Insert a silent wait period in milliseconds before the next tone |
+| Channels | `c=<n>` | Set the number of output channels |
+| Sample rate | `r=<hz>` | Set the sample rate for subsequent generation |
+
+**Example: US dial tone (350 Hz + 440 Hz, continuous)**
+
+```
+tone_stream://%(10000,0,350,440);loops=-1
+```
+
+**Example: US ringback (2 seconds on, 4 seconds off)**
+
+```
+tone_stream://%(2000,4000,440,480);loops=-1
+```
+
+**Example: SIT (Special Information Tone)**
+
+```
+tone_stream://%(274,0,913.8);%(274,0,1370.6);%(380,0,1776.7)
+```
+
+The `vars.xml` vanilla configuration defines national ringback tones using this syntax, for example:
+
+```xml
+<X-PRE-PROCESS cmd="set" data="us-ring=%(2000,4000,440,480)"/>
+```
+
+These variables are then referenced as `$${us-ring}` wherever a ringback tone is needed.
+
+### Tone File Input
+
+Instead of an inline TGML string, `tone_stream` can read from a file:
+
+```
+tone_stream://path=</path/to/tone.tgml>
+```
+
+The file contains TGML lines, one command or tone spec per line.
+
+### 18.5.2 silence\_stream
+
+`mod_tone_stream` also registers the `silence_stream://` scheme, which generates silence:
+
+```
+silence_stream://<duration_ms>[,<comfort_noise_level>]
+```
+
+`duration_ms` specifies the length of silence in milliseconds. A negative value produces silence indefinitely. The optional `comfort_noise_level` is a positive integer divisor that controls the amplitude of generated comfort noise: smaller values produce louder noise, larger values produce quieter noise (e.g., `400` is a typical light comfort noise level). When omitted, the stream produces pure digital silence (all zeros).
+
+**Example: 5 seconds of silence**
+
+```
+silence_stream://5000
+```
+
+**Example: infinite silence with comfort noise**
+
+```
+silence_stream://-1,400
+```
+
+---
+
+## 18.6 mod\_shout and the shout:// Scheme
+
+`mod_shout` provides read and write access to MP3 files and HTTP-based Icecast/SHOUTcast streams. It links against libshout, libmp3lame, and libmpg123.
+
+### Registered Extensions and Schemes
+
+`mod_shout` registers the following file extensions: `mp3`, `mpga`.
+
+It registers the following URI schemes: `shout`, `shouts`.
+
+When a `shout://` or `shouts://` URI is used, the module constructs an HTTP or HTTPS URL internally and fetches the stream using libcurl. The `shouts://` scheme maps to `https://`.
+
+The source comment in the module source documents the URL form for Icecast broadcasting:
+
+```
+shout://user:pass@host.com/mount.mp3
+```
+
+### Reading: HTTP and Icecast Streams
+
+To play an MP3 file from HTTP or an Icecast stream:
+
+```xml
+<action application="playback" data="shout://icecast.example.com/stream.mp3"/>
+```
+
+```xml
+<action application="playback" data="shout://user:password@broadcast.example.com/live.mp3"/>
+```
+
+For TLS-secured streams:
+
+```xml
+<action application="playback" data="shouts://secure.example.com/stream.mp3"/>
+```
+
+Local MP3 files are opened directly by path using the registered `mp3` extension; no `shout://` prefix is needed:
+
+```xml
+<action application="playback" data="/var/sounds/hold_music.mp3"/>
+```
+
+### Writing: Icecast Broadcasting
+
+`mod_shout` can encode and broadcast audio to an Icecast server when used as a recording target with a `shout://` URL. The module encodes PCM audio to MP3 using LAME at runtime.
+
+### Global Configuration
+
+The vanilla configuration ships `conf/autoload_configs/shout.conf.xml` with all parameters commented out. `mod_shout` reads this file at load time for optional global settings:
+
+| Parameter | Purpose | Default |
+|---|---|---|
+| `decoder` | Force a specific mpg123 decoder architecture (e.g., `i586`). When empty, mpg123 selects the optimal decoder automatically. | _(empty, auto-select)_ |
+| `volume` | mpg123 playback volume as a floating-point multiplier (e.g., `0.1`). Applied only when `decoder` or `outscale` is also set. | _(unset)_ |
+| `outscale` | mpg123 output scale factor (integer). On 64-bit builds, FreeSWITCH applies a default of `8192` when no explicit globals are configured; set this param to override. | _(unset; 8192 applied on 64-bit when no other globals are set)_ |
+| `encode-brate` | Default encoding bit rate in kbps for the LAME encoder when writing MP3 or broadcasting to Icecast. | _(LAME default, scaled to session rate and channels)_ |
+| `encode-resample` | Output sample rate for the LAME encoder in Hz. | _(unset, LAME uses session rate)_ |
+| `encode-quality` | LAME encoding quality (integer; lower is higher quality). When unset, FreeSWITCH uses quality `2` (high). | `2` |
+
+---
+
+## 18.7 The hold\_music Variable
+
+The global variable `hold_music` specifies the audio source played to a caller placed on hold. It is set in `conf/vanilla/vars.xml`:
+
+```xml
+<X-PRE-PROCESS cmd="set" data="hold_music=local_stream://moh"/>
+```
+
+Any playable source accepted by the FreeSWITCH file interface can be assigned to `hold_music`: a `local_stream://` URI, a `tone_stream://` URI, an absolute file path, or a `shout://` stream URL.
+
+The variable is evaluated at hold time. Overriding it on a per-call or per-directory basis follows standard variable precedence: a channel variable set in the dialplan or user directory takes precedence over the global value.
+
+**Examples:**
+
+```xml
+<!-- Use a local stream (default) -->
+<X-PRE-PROCESS cmd="set" data="hold_music=local_stream://moh"/>
+
+<!-- Use a synthesized ringback tone as hold music -->
+<X-PRE-PROCESS cmd="set" data="hold_music=tone_stream://%(2000,4000,440,480);loops=-1"/>
+
+<!-- Use a remote Icecast stream -->
+<X-PRE-PROCESS cmd="set" data="hold_music=shout://icecast.example.com/jazz.mp3"/>
+
+<!-- Per-call override in dialplan -->
+<action application="set" data="hold_music=local_stream://moh/16000"/>
+```
+
+When `hold_music` points to `local_stream://moh`, FreeSWITCH automatically selects the sample-rate-appropriate sub-directory (`moh/8000`, `moh/16000`, etc.) based on the session's negotiated codec rate, falling back through `moh` to `default` if no matching directory exists.
+
+---
+
+## 18.8 Recording Calls
+
+FreeSWITCH provides two complementary mechanisms for recording calls: the `record_session` dialplan application, which attaches a recorder to the session at call setup time, and the `uuid_record` API command, which starts or stops recording on a live call from the CLI or ESL. Both mechanisms write to any file format supported by the loaded format modules (WAV, MP3 via `mod_shout`, OGG, etc.). Recording behavior is governed by a set of channel variables prefixed with `RECORD_`.
+
+### 18.8.1 record\_session: Full-Call Recording from the Dialplan
+
+`record_session` starts a background media tap that captures both the read (inbound, caller) and write (outbound, callee) audio legs mixed together into a single file. The recorder runs independently of dialplan execution; it continues until the call ends, an explicit `stop_record_session` is executed, or the optional timeout expires.
+
+**Syntax:**
+
+```text
+record_session <path> [+<timeout_sec>] [{var1=val1,var2=val2,...}]
+```
+
+| Argument | Description |
+|---|---|
+| `<path>` | Destination file path. Must be an absolute path or a path relative to `sound_prefix`. The file extension determines the output format. |
+| `+<timeout_sec>` | Optional. Stops the recording after the specified number of seconds. The `+` prefix is required. |
+| `{var=val,...}` | Optional inline variable block. Sets `RECORD_*` variables scoped to this recording only (preferred over channel variables when multiple recordings are active). |
+
+To stop a recording started with `record_session`:
+
+```text
+stop_record_session <path>
+```
+
+The `<path>` argument to `stop_record_session` must match the path given to `record_session` exactly.
+
+Additional per-recording controls (all accept `<path>` matching the active recording):
+
+| Application | Effect |
+|---|---|
+| `record_session_pause <path>` | Pauses writing audio to the file. Audio received during a pause is discarded. |
+| `record_session_resume <path>` | Resumes writing to a paused recording. |
+| `record_session_mask <path>` | Replaces audio with silence (comfort noise) in the file without stopping the recording. See section 18.8.5. |
+| `record_session_unmask <path>` | Restores normal audio capture after a mask. |
+
+### 18.8.2 uuid\_record: Live Recording Control via API
+
+`uuid_record` is a FreeSWITCH API command (available at the `fs_cli` prompt and over ESL) that attaches or detaches a recorder on an already-established call.
+
+**Syntax:**
+
+```text
+uuid_record <uuid> <start|stop|mask|unmask|pause|resume> <path> [<limit>] [<recording_vars>]
+```
+
+| Field | Description |
+|---|---|
+| `<uuid>` | The UUID of the target session. |
+| `<start\|stop\|mask\|unmask\|pause\|resume>` | Action to perform. |
+| `<path>` | Destination file path. Required for all actions; must match the path used at `start` when stopping or masking. |
+| `<limit>` | Optional. Maximum recording duration in seconds (applies to `start` only). |
+| `<recording_vars>` | Optional. URL-encoded inline variable block (same `{var=val,...}` syntax as the dialplan application). |
+
+**Examples:**
+
+```text
+uuid_record 2dcb9f46-3a73-11ef-8d62-b7e5a3d1e2f9 start /var/recordings/2dcb9f46.wav
+uuid_record 2dcb9f46-3a73-11ef-8d62-b7e5a3d1e2f9 stop  /var/recordings/2dcb9f46.wav
+uuid_record 2dcb9f46-3a73-11ef-8d62-b7e5a3d1e2f9 pause /var/recordings/2dcb9f46.wav
+uuid_record 2dcb9f46-3a73-11ef-8d62-b7e5a3d1e2f9 resume /var/recordings/2dcb9f46.wav
+```
+
+### 18.8.3 Stereo Recordings
+
+By default, `record_session` mixes both legs of a call into a mono file. Setting `RECORD_STEREO=true` produces a 2-channel WAV where channel 1 carries the read stream (caller audio) and channel 2 carries the write stream (callee audio). This requires a file format that supports stereo; `.wav` and `.ogg` both qualify. `.mp3` encoding via `mod_shout` also supports stereo output.
+
+`RECORD_STEREO_SWAP=true` produces the same stereo split but reverses the channel assignment: channel 1 receives the write stream and channel 2 receives the read stream.
+
+`RECORD_STEREO` and `RECORD_STEREO_SWAP` are mutually exclusive; if both are set, `RECORD_STEREO` takes precedence. Stereo recording is only available when the session leg being tapped is mono; if the codec negotiated for the leg is already stereo, neither flag has any effect.
+
+### 18.8.4 RECORD\_\* Control and Metadata Variables
+
+The following channel variables (or inline recording variables) control recording behavior. Variables can be set as standard channel variables with `set`, or scoped to a single recording by passing them in the inline variable block `{...}` argument.
+
+| Variable | Purpose |
+|---|---|
+| `RECORD_STEREO` | When `true`, write a 2-channel file with read leg on channel 1 and write leg on channel 2. |
+| `RECORD_STEREO_SWAP` | When `true`, write a 2-channel file with write leg on channel 1 and read leg on channel 2. |
+| `RECORD_READ_ONLY` | When `true`, record only the read (inbound/caller) leg; the write leg is excluded. |
+| `RECORD_WRITE_ONLY` | When `true`, record only the write (outbound/callee) leg; the read leg is excluded. |
+| `RECORD_ANSWER_REQ` | When `true`, do not begin writing audio until the channel is answered. |
+| `RECORD_BRIDGE_REQ` | When `true`, do not begin writing audio until the channel is bridged to another leg. |
+| `RECORD_MIN_SEC` | Minimum duration in seconds. If the recording is shorter than this value when stopped, the file is deleted. Default is `0` (no minimum); when `RECORD_APPEND` is active, the effective default is `3`. |
+| `RECORD_APPEND` | When `true`, open the file in append mode rather than overwriting it. |
+| `record_sample_rate` | Force the recording sample rate (e.g., `8000`, `16000`). When unset, the session's negotiated sample rate is used. |
+| `record_waste_resources` | When `true` (or a positive integer specifying amplitude), generate comfort noise to keep the encoder active even during silence. Useful for formats that require continuous frames. |
+| `RECORD_TITLE` | Title metadata tag written to the output file (supported formats: WAV, OGG, FLAC). Cleared from the channel after being applied. |
+| `RECORD_ARTIST` | Artist metadata tag written to the output file. Cleared after being applied. |
+| `RECORD_COMMENT` | Comment metadata tag written to the output file. Cleared after being applied. |
+| `RECORD_COPYRIGHT` | Copyright metadata tag written to the output file. Cleared after being applied. |
+| `RECORD_DATE` | Date metadata tag written to the output file. Cleared after being applied. |
+| `RECORD_SOFTWARE` | Software metadata tag written to the output file. Cleared after being applied. |
+| `record_post_process_exec_app` | Dialplan application to execute after the recording completes. Format: `app_name::app_args`. Channel variables are expanded at execution time. |
+| `record_post_process_exec_api` | API command to execute after the recording completes. Format: `api_name:api_args`. Channel variables are expanded at execution time. |
+
+### 18.8.5 Masking Sensitive Audio
+
+When a call enters a phase where audio must not appear in the recording (for example, while a caller enters a payment card number on their keypad), the recording can be masked without being stopped and restarted. Masking replaces captured audio with silence in the output file; the timestamp of the recording continues advancing normally so the surrounding context is preserved.
+
+From the dialplan:
+
+```xml
+<!-- Begin masking -->
+<action application="record_session_mask" data="/var/recordings/${uuid}.wav"/>
+
+<!-- ... IVR steps for card-number entry ... -->
+
+<!-- End masking -->
+<action application="record_session_unmask" data="/var/recordings/${uuid}.wav"/>
+```
+
+From the CLI or ESL:
+
+```text
+uuid_record <uuid> mask   /var/recordings/<uuid>.wav
+uuid_record <uuid> unmask /var/recordings/<uuid>.wav
+```
+
+The path supplied to `record_session_mask`/`record_session_unmask` must match the path of an active recording on that session.
+
+### 18.8.6 Post-Processing Recordings
+
+Two channel variables trigger automatic post-processing after a recording stops.
+
+`record_post_process_exec_app` specifies a dialplan application to execute. The value format is `<app_name>::<app_args>`. Channel variables in `<app_args>` are expanded at execution time, so the recording file path can be passed via `${record_file_path}` or any other variable set by the session.
+
+`record_post_process_exec_api` specifies a FreeSWITCH API command to execute. The value format is `<api_name>:<api_args>`. Channel variables are expanded in `<api_args>` before the command is dispatched.
+
+Both variables are checked after every recording stops on the session, including recordings stopped by `stop_record_session` or by call hangup.
+
+**Example: convert WAV to MP3 after the call ends**
+
+```xml
+<action application="set"
+        data="record_post_process_exec_api=system:lame --quiet /var/recordings/${uuid}.wav /var/recordings/${uuid}.mp3"/>
+```
+
+### 18.8.7 Worked Examples
+
+**Dialplan: record a bridged call to a per-UUID file in stereo**
+
+```xml
+<extension name="outbound-record">
+  <condition field="destination_number" expression="^(\d+)$">
+
+    <!-- Enable stereo recording: caller on ch1, callee on ch2 -->
+    <action application="set"          data="RECORD_STEREO=true"/>
+
+    <!-- Delete the file if the call is shorter than 3 seconds -->
+    <action application="set"          data="RECORD_MIN_SEC=3"/>
+
+    <!-- Start recording before bridge so hold audio is captured -->
+    <action application="record_session"
+            data="/var/recordings/${uuid}.wav"/>
+
+    <action application="bridge"       data="sofia/gateway/mygateway/$1"/>
+
+    <!-- Explicit stop is optional; the recording stops on hangup -->
+    <action application="stop_record_session"
+            data="/var/recordings/${uuid}.wav"/>
+  </condition>
+</extension>
+```
+
+**CLI: attach a recording to an active call, then stop it**
+
+```text
+uuid_record 2dcb9f46-3a73-11ef-8d62-b7e5a3d1e2f9 start /var/recordings/2dcb9f46.wav
+uuid_record 2dcb9f46-3a73-11ef-8d62-b7e5a3d1e2f9 stop  /var/recordings/2dcb9f46.wav
+```
+
+**Sofia profile auto-recording (cross-reference)**
+
+The Sofia SIP profile parameters `record-template` and `record-path` instruct `mod_sofia` to call `record_session` automatically for every call handled by that profile, without requiring dialplan actions. Refer to the Sofia SIP Profiles chapter for the full parameter reference for those settings.
+
+---
+
+## 18.9 Phrases and the Say System
+
+FreeSWITCH provides two higher-level audio primitives that sit above fixed file playback: the `say` application, which renders a value (a number, date, currency amount, and so on) by passing it to a language-specific say module; and the `phrase` application, which executes a named macro that can combine pre-recorded files, `say` actions, and dialplan application calls into a single compound prompt. Together they form the system used to build spoken IVR prompts, voicemail announcements, and any other prompt that depends on run-time data.
+
+### 18.9.1 Three-Layer Model
+
+| Layer | Application | What it does |
+|---|---|---|
+| Fixed file | `playback` | Plays a static audio file from disk. No run-time rendering. |
+| Say module | `say` | Passes a value to a language say module (`mod_say_en`, and so on) which assembles pre-recorded digit and word files into spoken output. |
+| Phrase macro | `phrase` | Looks up a named macro in the loaded language XML, then executes its sequence of `play-file`, `say`, `execute`, and `phrase` actions. |
+
+The phrase system is the highest level: a single `phrase` call can play a fixed file, invoke `say` to render a number, and insert a pause, all in the correct order for the target language.
+
+### 18.9.2 Language Loading: the languages Section
+
+`conf/vanilla/freeswitch.xml` contains a `languages` configuration section that includes every lang file at startup:
+
+```xml
+<section name="languages" description="Language Management">
+  <X-PRE-PROCESS cmd="include" data="lang/de/*.xml"/>
+  <X-PRE-PROCESS cmd="include" data="lang/en/*.xml"/>
+  <X-PRE-PROCESS cmd="include" data="lang/fr/*.xml"/>
+  <X-PRE-PROCESS cmd="include" data="lang/ru/*.xml"/>
+  <X-PRE-PROCESS cmd="include" data="lang/he/*.xml"/>
+  <X-PRE-PROCESS cmd="include" data="lang/es/es_ES.xml"/>
+  <X-PRE-PROCESS cmd="include" data="lang/pt/pt_BR.xml"/>
+</section>
+```
+
+Each included XML file defines one `<language>` element. FreeSWITCH parses all included `<language>` elements at startup and makes them available to the `phrase` and `say` applications by language name. Changes to lang files take effect on a full `reloadxml`.
+
+### 18.9.3 Language File Structure
+
+`conf/vanilla/lang/en/en.xml` is the English language root file. It defines the `en` language entry and uses `<X-PRE-PROCESS cmd="include">` to pull in macro files from subdirectories:
+
+```xml
+<language name="en" say-module="en" sound-prefix="$${sound_prefix}"
+          tts-engine="cepstral" tts-voice="callie">
+  <phrases>
+    <macros>
+      <X-PRE-PROCESS cmd="include" data="demo/*.xml"/>
+      <X-PRE-PROCESS cmd="include" data="vm/sounds.xml"/>
+      <X-PRE-PROCESS cmd="include" data="dir/sounds.xml"/>
+      <X-PRE-PROCESS cmd="include" data="ivr/*.xml"/>
+    </macros>
+  </phrases>
+</language>
+```
+
+| Attribute | Purpose |
+|---|---|
+| `name` | The language identifier used by `phrase` and `say` to look up this language. |
+| `say-module` | The say module (`mod_say_en`) loaded to handle `say` actions within macros and `say` application calls. |
+| `sound-prefix` | Base path prepended to relative filenames in `play-file` actions. Overrides the channel `sound_prefix` variable for the duration of the macro. |
+| `tts-engine` | Default TTS engine for `speak-text` actions within macros (requires a TTS module). |
+| `tts-voice` | Default TTS voice paired with `tts-engine`. |
+
+The `<phrases>` element contains one or more `<macros>` blocks. Each `<macros>` block holds `<macro>` elements, which are the named phrase macros the `phrase` application looks up by name.
+
+### 18.9.4 Phrase Macro Structure
+
+A phrase macro is a `<macro>` element containing one or more `<input>` blocks. Each `<input>` tests the data string passed to `phrase` against a regular expression pattern. If the pattern matches, the actions inside `<match>` execute; if it does not match, actions inside `<nomatch>` execute (if present).
+
+**General skeleton:**
+
+```xml
+<macro name="macro-name">
+  <input pattern="<regex>">
+    <match>
+      <action function="play-file" data="path/to/file.wav"/>
+      <action function="say" data="$1" method="pronounced" type="number"/>
+      <action function="execute" data="sleep(100)"/>
+    </match>
+    <nomatch>
+      <action function="play-file" data="path/to/error.wav"/>
+    </nomatch>
+  </input>
+</macro>
+```
+
+**Real example from `conf/vanilla/lang/en/vm/sounds.xml` -- `voicemail_message_count`:**
+
+```xml
+<macro name="voicemail_message_count">
+  <input pattern="^(1):(.*)$" break_on_match="true">
+    <match>
+      <action function="play-file" data="voicemail/vm-you_have.wav"/>
+      <action function="say" data="$1" method="pronounced" type="items"/>
+      <action function="play-file" data="voicemail/vm-$2.wav"/>
+      <action function="play-file" data="voicemail/vm-message.wav"/>
+    </match>
+  </input>
+  <input pattern="^(\d+):(.*)$">
+    <match>
+      <action function="play-file" data="voicemail/vm-you_have.wav"/>
+      <action function="say" data="$1" method="pronounced" type="items"/>
+      <action function="play-file" data="voicemail/vm-$2.wav"/>
+      <action function="play-file" data="voicemail/vm-messages.wav"/>
+    </match>
+  </input>
+</macro>
+```
+
+This macro is called with a data string like `1:new` or `3:new`. The first `<input>` uses `break_on_match="true"` so that when its pattern matches, FreeSWITCH stops evaluating further `<input>` blocks. Capture groups from the regex are available as `$1`, `$2`, and so on in `data` attributes.
+
+**Real example from `conf/vanilla/lang/en/demo/demo.xml` -- `saydate`:**
+
+```xml
+<macro name="saydate">
+  <input pattern="(.*)">
+    <match>
+      <action function="say" data="$1" method="pronounced" type="current_date_time"/>
+    </match>
+  </input>
+</macro>
+```
+
+**Action functions available inside `<match>` and `<nomatch>`:**
+
+| `function` value | Effect |
+|---|---|
+| `play-file` | Plays the audio file at `data`. The path is relative to the language `sound-prefix`. |
+| `say` | Invokes the language say module. Requires `type` and `method` attributes; `data` is the value to say. |
+| `execute` | Runs a dialplan application named in `data` (for example, `sleep(100)`). |
+| `phrase` | Recursively executes another named phrase macro. Requires a `phrase` attribute naming the target macro. |
+| `speak-text` | Passes `data` to the TTS engine configured on the `<language>` element. |
+| `break` | Stops all further action and input processing immediately. |
+
+The `phrase` application is invoked from the dialplan as:
+
+```xml
+<action application="phrase" data="macro-name,data-string"/>
+```
+
+The `phrase` application reads the channel variable `language` (or falls back to `default_language`, then to `en`) to select which loaded `<language>` block to search for the named macro.
+
+### 18.9.5 The say Application
+
+The `say` dialplan application passes a value directly to a language say module without going through a phrase macro.
+
+**Syntax (from `mod_dptools`):**
+
+```
+say <module_name>[:<lang>] <say_type> <say_method> [<say_gender>] <text>
+```
+
+| Field | Description |
+|---|---|
+| `<module_name>[:<lang>]` | The say module to use, optionally followed by a colon and a language code. Example: `en` or `en:en`. When the colon form is absent, the language is resolved from the channel variable `language`, then `default_language`, then the module name itself. |
+| `<say_type>` | What kind of value `<text>` represents. See section 18.9.6 for the full table. Case-insensitive. |
+| `<say_method>` | How the value is spoken. See section 18.9.7. Case-insensitive. |
+| `<say_gender>` | Optional. `masculine`, `feminine`, or `neuter`. Used by languages whose grammar requires gender agreement. Ignored by `mod_say_en`. |
+| `<text>` | The value to speak. Its interpretation depends on `<say_type>`. |
+
+**Dialplan examples:**
+
+```xml
+<!-- Speak a cardinal number -->
+<action application="say" data="en number pronounced 1234"/>
+
+<!-- Speak a dollar amount -->
+<action application="say" data="en currency pronounced 9.95"/>
+
+<!-- Speak an IP address, digit by digit -->
+<action application="say" data="en ip_address iterated 192.168.1.1"/>
+
+<!-- Speak the current date and time -->
+<action application="say" data="en current_date_time pronounced 0"/>
+
+<!-- Speak a phone number -->
+<action application="say" data="en telephone_number pronounced 18005551212"/>
+```
+
+For `current_date`, `current_time`, and `current_date_time` types, the text value is ignored; the module reads the system clock directly.
+
+### 18.9.6 Say Types Implemented in mod\_say\_en
+
+The table below lists only the types that `mod_say_en` actually handles. Types defined in the core enum but not listed here (`telephone_extension`, `url`, `email_address`, `postal_address`, `account_number`) are not implemented in `mod_say_en` and will log an error if used with that module.
+
+| Type | What `text` should contain | What is spoken |
+|---|---|---|
+| `number` | An integer or decimal string | Cardinal number ("one thousand two hundred thirty four") |
+| `items` | An integer | Ordinal count, same audio set as `number` but used in list contexts |
+| `persons` | An integer | Person count, same audio set as `number` |
+| `messages` | An integer | Message count, same audio set as `number` |
+| `currency` | A decimal value such as `9.95` | Dollar and cent amounts ("nine dollars and ninety-five cents") |
+| `time_measurement` | An integer number of seconds | Duration in hours, minutes, and seconds |
+| `current_date` | Any (ignored) | Today's date from the system clock (month, day, year) |
+| `current_time` | Any (ignored) | Current time from the system clock (hour and minute) |
+| `current_date_time` | Any (ignored) | Current date and time from the system clock |
+| `short_date_time` | A Unix epoch timestamp as a string | A compact date and time rendering |
+| `ip_address` | A dotted-quad IPv4 address | Each octet spoken as a number with "dot" separators |
+| `name_spelled` | Any alphanumeric string | Each character spoken individually using `ascii/` sound files |
+| `name_phonetic` | Any alphanumeric string | Each character spoken using `phonetic-ascii/` sound files |
+| `telephone_number` | A digit string (may include `+` and letters) | Each digit spoken individually with pauses at non-digit separators |
+
+### 18.9.7 Say Methods
+
+Methods control how a numeric value is rendered. Not every method has a distinct effect for every type; the say module implementation determines what changes.
+
+| Method | String used in dialplan or macro | Effect for `mod_say_en` |
+|---|---|---|
+| `pronounced` | `pronounced` | Reads the value as a natural spoken number or phrase ("one thousand two hundred"). |
+| `iterated` | `iterated` | Reads each digit or character individually ("one two zero zero"). |
+| `counted` | `counted` | Reads the value as an ordinal ("first", "second", "third"). |
+| `pronounced_year` | `pronounced_year` | Reads a 4-digit year in the conventional spoken form ("nineteen ninety-nine"). Used internally by date handling; available explicitly. |
+
+### 18.9.8 sound\_prefix and Language Sound Files
+
+When a phrase macro action uses `play-file` with a relative path, FreeSWITCH prepends the language `sound-prefix` attribute to build the full path. For the `en` language, `sound-prefix` is set to `$${sound_prefix}` in `en.xml`, which evaluates to the value of the preprocessor variable from `conf/vanilla/vars.xml`:
+
+```xml
+<X-PRE-PROCESS cmd="set" data="sound_prefix=$${sounds_dir}/en/us/callie"/>
+```
+
+So a `play-file` action with `data="voicemail/vm-you_have.wav"` resolves to:
+
+```
+/usr/share/freeswitch/sounds/en/us/callie/voicemail/vm-you_have.wav
+```
+
+The `say` application also uses this same path root: when `mod_say_en` assembles digit files it references relative paths such as `digits/1.wav`, `digits/million.wav`, `currency/dollars.wav`, and `phonetic-ascii/65.wav`, all resolved under the active `sound_prefix`.
+
+The channel variable `sound_prefix` can be overridden per call:
+
+```xml
+<action application="set" data="sound_prefix=/var/sounds/en/us/myvoice"/>
+```
+
+The language XML can also lock the prefix so the channel variable cannot override it by setting `sound-prefix-enforced="true"` on a `<macros>` block.
+
+### 18.9.9 Adding a Custom Phrase Macro
+
+Place a new XML file in `conf/vanilla/lang/en/ivr/` (the `ivr/*.xml` glob is already included by `en.xml`) or create a new file and add an explicit `<X-PRE-PROCESS cmd="include">` for it inside the `<macros>` block in `en.xml`.
+
+**Example: a macro that announces an account balance**
+
+```xml
+<macro name="account_balance">
+  <!-- Match a decimal amount like "142.50" -->
+  <input pattern="^(\d+\.\d+)$">
+    <match>
+      <action function="play-file" data="custom/your_balance_is.wav"/>
+      <action function="say" data="$1" method="pronounced" type="currency"/>
+    </match>
+    <nomatch>
+      <action function="play-file" data="custom/invalid_amount.wav"/>
+    </nomatch>
+  </input>
+</macro>
+```
+
+Save it to `conf/vanilla/lang/en/ivr/account.xml`. Run `reloadxml` at the FreeSWITCH console. Call it from the dialplan:
+
+```xml
+<action application="phrase" data="account_balance,142.50"/>
+```
+
+The `phrase` application passes the string `142.50` as the data argument. The `<input>` pattern `^(\d+\.\d+)$` matches, the capture group `$1` becomes `142.50`, `play-file` plays `custom/your_balance_is.wav` from the sound prefix directory, and then `say` with type `currency` and method `pronounced` renders "one hundred forty-two dollars and fifty cents".
+
+To target a language other than the channel default, set the `language` channel variable before calling `phrase`:
+
+```xml
+<action application="set"    data="language=en"/>
+<action application="phrase" data="account_balance,142.50"/>
+```

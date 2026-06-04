@@ -1,0 +1,293 @@
+---
+id: call-detail-records
+slug: /integration/cdr
+title: "Chapter 27: Call Detail Records"
+sidebar_label: "27. Call Detail Records"
+---
+
+# Chapter 27: Call Detail Records
+
+FreeSWITCH generates one Call Detail Record (CDR) per call leg at hangup. Three modules are available to capture and deliver those records: `mod_cdr_csv` writes delimited text files, `mod_xml_cdr` HTTP-POSTs an XML document to a remote endpoint, and `mod_cdr_sqlite` inserts rows into a local SQLite database. Each module is configured independently and can be loaded alongside the others.
+
+## Table of Contents
+
+- [1. How CDRs Are Produced](#1-how-cdrs-are-produced)
+- [2. mod_cdr_csv](#2-mod_cdr_csv)
+  - [2.1 Configuration Parameters](#21-configuration-parameters)
+  - [2.2 Templates](#22-templates)
+  - [2.3 The Built-in Default Template](#23-the-built-in-default-template)
+  - [2.4 File Output](#24-file-output)
+  - [2.5 Log Rotation](#25-log-rotation)
+  - [2.6 Custom CSV Template Example](#26-custom-csv-template-example)
+- [3. mod_xml_cdr](#3-mod_xml_cdr)
+  - [3.1 Configuration Parameters](#31-configuration-parameters)
+  - [3.2 TLS and Authentication Parameters](#32-tls-and-authentication-parameters)
+  - [3.3 Example URL Binding](#33-example-url-binding)
+- [4. mod_cdr_sqlite](#4-mod_cdr_sqlite)
+  - [4.1 Configuration Parameters](#41-configuration-parameters)
+  - [4.2 Default Table Schema](#42-default-table-schema)
+  - [4.3 Templates](#43-templates)
+- [5. Module Load Status](#5-module-load-status)
+
+---
+
+## 1. How CDRs Are Produced
+
+CDR generation is triggered by the `on_reporting` state-handler callback that each CDR module registers. The callback fires once per call leg at the moment the channel transitions to the reporting state, which occurs immediately after hangup processing completes.
+
+A bridged call produces two legs: the A-leg (originating channel) and the B-leg (originated channel). Each CDR module exposes a `legs` parameter that controls which legs are recorded. Recording only the A-leg is the default for `mod_cdr_csv` and `mod_cdr_sqlite`.
+
+Channel variables are expanded at record time. Any channel variable accessible on the session at hangup can be referenced in a template using `${variable_name}` syntax.
+
+---
+
+## 2. mod_cdr_csv
+
+`mod_cdr_csv` appends one line per call leg to flat CSV files. It is loaded by default in the vanilla configuration.
+
+Configuration file: `conf/autoload_configs/cdr_csv.conf.xml`
+
+### 2.1 Configuration Parameters
+
+| Parameter | Purpose | Values | Default |
+|---|---|---|---|
+| `log-base` | Parent directory for CDR output. The string `cdr-csv` is always appended to form the actual directory path. | Absolute path | FreeSWITCH log directory |
+| `default-template` | Name of the template to use for all records that do not match an account-code-specific template. | Any named template | `default` |
+| `legs` | Which call legs to record. | `a`, `b`, or `ab` | `a` |
+| `rotate-on-hup` | When `true`, rotate all open log files when the process receives SIGHUP. When `false`, SIGHUP still triggers close-and-reopen without renaming. | `true`, `false` | `false` (source default; vanilla conf.xml sets `true`) |
+| `master-file-only` | When `true`, suppress per-account-code CSV files; write only to `Master.csv`. | `true`, `false` | `false` |
+| `debug` | Log the full channel variable set to the FreeSWITCH log at INFO level for each CDR event. | `true`, `false` | `false` |
+
+### 2.2 Templates
+
+A template is a string in which channel variables are referenced as `${variable_name}`. At call teardown the module expands all variables against the live channel and appends the resulting line to the output file.
+
+Templates are defined inside the `<templates>` block of the configuration file:
+
+```xml
+<templates>
+  <template name="my_template">"${caller_id_name}","${caller_id_number}","${destination_number}"</template>
+</templates>
+```
+
+The template name `default` is reserved. If no `<template name="default">` element is present, the module falls back to its compiled-in default (see section 2.3).
+
+Account-code routing: when the channel variable `ACCOUNTCODE` is set, the module looks for a template whose name matches that account code. If found, records for that channel are written to a file named `<accountcode>.csv` in addition to `Master.csv`. If not found, the `default-template` is used for both files.
+
+The vanilla configuration ships these named templates:
+
+| Template name | Intended use |
+|---|---|
+| `example` | General purpose; includes codec information |
+| `sql` | INSERT statement suitable for direct database import |
+| `snom` | Snom SIP phones; adds user-agent and RTP statistics |
+| `linksys` | Linksys/Cisco ATA devices |
+| `asterisk` | Field-compatible with Asterisk CDR output |
+| `opencdrrate` | OpenCDRate billing system format |
+
+### 2.3 The Built-in Default Template
+
+At module startup, the module pre-registers one template into the template hash under the key `default`:
+
+```
+"${caller_id_name}","${caller_id_number}","${destination_number}","${context}","${start_stamp}","${answer_stamp}","${end_stamp}","${duration}","${billsec}","${hangup_cause}","${uuid}","${bleg_uuid}", "${accountcode}"
+```
+
+Note the space before `"${accountcode}"` -- this is a literal space in the compiled-in string, so the field appears as ` "${accountcode}"` (with a leading space) in the CSV output.
+
+If `default-template` is set to a name that is not found in the template hash at call time, the module substitutes a second compiled-in Asterisk-compatible fallback:
+
+```
+"${accountcode}","${caller_id_number}","${destination_number}","${context}","${caller_id}","${channel_name}","${bridge_channel}","${last_app}","${last_arg}","${start_stamp}","${answer_stamp}","${end_stamp}","${duration}","${billsec}","${hangup_cause}","${amaflags}","${uuid}","${userfield}"
+```
+
+This 18-field Asterisk-compatible template is used only when the named template cannot be resolved. It is not the same as the pre-registered `default` template above.
+
+The vanilla configuration sets `default-template` to `example`, so by default the `example` template from `cdr_csv.conf.xml` is active, not either compiled-in fallback.
+
+### 2.4 File Output
+
+The module writes two categories of files into the `log-base`/`cdr-csv` directory:
+
+- `Master.csv` - receives every CDR regardless of account code, using the template selected by `default-template`.
+- `<accountcode>.csv` - receives CDRs for calls where `ACCOUNTCODE` is set, rendered with the matching account-code template if one exists, or the default template otherwise. Suppressed when `master-file-only` is `true`.
+
+The channel variable `cdr_csv_base` overrides the global `log-base` on a per-channel basis. When `cdr_csv_base` is set on a session, all CDR files for that call are written to the specified directory instead of the global `log-base`/`cdr-csv` path.
+
+### 2.5 Log Rotation
+
+When `rotate-on-hup` is `true`, sending SIGHUP to the FreeSWITCH process renames each open file by appending a timestamp suffix in the format `YYYY-MM-DD-HH-MM-SS`, then reopens a fresh file at the original path. The API command `cdr_csv rotate` triggers the same rotation without a signal.
+
+When `rotate-on-hup` is `false`, a SIGHUP causes the files to be closed and reopened in place (useful when an external log management tool has already moved them).
+
+### 2.6 Custom CSV Template Example
+
+```xml
+<configuration name="cdr_csv.conf" description="CDR CSV Format">
+  <settings>
+    <param name="default-template" value="my_billing"/>
+    <param name="legs" value="a"/>
+    <param name="rotate-on-hup" value="true"/>
+    <param name="log-base" value="/var/log/freeswitch"/>
+  </settings>
+  <templates>
+    <template name="my_billing">"${uuid}","${caller_id_number}","${destination_number}","${start_stamp}","${answer_stamp}","${end_stamp}","${billsec}","${hangup_cause}","${accountcode}"</template>
+  </templates>
+</configuration>
+```
+
+With this configuration, `mod_cdr_csv` writes to `/var/log/freeswitch/cdr-csv/Master.csv` using the `my_billing` template for every A-leg.
+
+---
+
+## 3. mod_xml_cdr
+
+`mod_xml_cdr` generates a structured XML document for each call leg and delivers it via HTTP POST to one or more configured URLs. When no URL is configured, or as a fallback on POST failure, it writes the XML to disk. `mod_xml_cdr` is not loaded by default; enable it in `conf/autoload_configs/modules.conf.xml`.
+
+Configuration file: `conf/autoload_configs/xml_cdr.conf.xml`
+
+The module is located under `src/mod/xml_int/mod_xml_cdr` (not `event_handlers`).
+
+### 3.1 Configuration Parameters
+
+| Parameter | Purpose | Values | Default |
+|---|---|---|---|
+| `url` | HTTP or HTTPS endpoint to POST records to. Up to 20 URLs may be specified; the module cycles through them on failure. Omitting this parameter disables HTTP delivery. | URL string | None |
+| `cred` | HTTP credentials in `user:password` form. | String | None |
+| `retries` | Number of additional POST attempts after the first failure. Setting retries without setting `delay` forces `delay` to 5. | Integer | `0` |
+| `delay` | Seconds to wait between retry attempts. Also used as the TCP connection timeout for each attempt; when `delay` is `0`, the connection timeout defaults to 5 seconds. | Integer | `0` (forced to `5` if `retries` is set and `delay` is `0`) |
+| `timeout` | Total HTTP transaction timeout in seconds. `0` disables the timeout. | Integer | `0` |
+| `log-dir` | Directory for on-disk XML records. An empty value resolves to `${prefix}/logs/xml_cdr`. A relative value is interpreted relative to `${prefix}/logs`. An absolute path is used as-is. Omitting the parameter entirely disables disk logging (unless HTTP fails). | Path or empty string | Not set |
+| `err-log-dir` | Directory for XML records that could not be delivered via HTTP. Defaults to `log-dir` when unset. Accepts the same path forms as `log-dir`. | Path or empty string | Same as `log-dir` |
+| `log-http-and-disk` | When `true`, write every record to disk even when HTTP POST succeeds. | `true`, `false` | `false` |
+| `log-b-leg` | When `false`, suppress CDR generation for B-legs unless the channel variable `force_process_cdr` is `true`. | `true`, `false` | `true` (source default; vanilla conf.xml sets `false`) |
+| `prefix-a-leg` | When `true`, prefix on-disk filenames for A-legs with `a_`. The channel variable `prefix-a-leg` on the session overrides this global setting per-call. | `true`, `false` | `false` (source default; vanilla conf.xml sets `true`) |
+| `encode` | Encoding applied to the XML payload before POST. `true` applies URL encoding (`application/x-www-form-urlencoded`); `base64` applies Base64 encoding; `textxml` sends raw XML as `text/xml`; `false` sends unencoded plaintext with `Content-Type: application/x-www-form-plaintext`. | `true`, `false`, `base64`, `textxml` | `false` (source default; vanilla conf.xml sets `true`) |
+| `rotate` | When `true`, on SIGHUP the log directories are rotated into timestamped subdirectories. | `true`, `false` | `false` |
+| `disable-100-continue` | When `true`, suppress the `Expect: 100-continue` header. Required for some lighttpd configurations. | `true`, `false` | `false` |
+| `auth-scheme` | HTTP authentication scheme for credential delivery. | `basic`, `digest`, `NTLM`, `GSS-NEGOTIATE`, `any` | `basic` |
+| `cookie-file` | Path to a file used for cookie persistence across requests. | Absolute path | None |
+
+### 3.2 TLS and Authentication Parameters
+
+| Parameter | Purpose | Values | Default |
+|---|---|---|---|
+| `enable-cacert-check` | Instruct libcurl to verify the server certificate against the system CA bundle. Disabled by default. | `true`, `false` | `false` |
+| `enable-ssl-verifyhost` | Verify that the server hostname matches the certificate CN. | `true`, `false` | `false` |
+| `ssl-cert-path` | Path to the PEM-encoded client public key certificate. | Absolute path | None |
+| `ssl-key-path` | Path to the PEM-encoded client private key. | Absolute path | None |
+| `ssl-key-password` | Passphrase for the private key if it is encrypted. | String | None |
+| `ssl-version` | Force a specific SSL/TLS version. | `SSLv3`, `TLSv1` | libcurl auto-negotiates |
+| `ssl-cacert-file` | Path to a custom PEM CA certificate for peer verification. Meaningful only when `enable-cacert-check` is `true`. | Absolute path | None |
+
+### 3.3 Example URL Binding
+
+```xml
+<configuration name="xml_cdr.conf" description="XML CDR CURL logger">
+  <settings>
+    <param name="url" value="https://billing.example.com/cdr"/>
+    <param name="cred" value="fsuser:secret"/>
+    <param name="retries" value="2"/>
+    <param name="delay" value="5"/>
+    <param name="encode" value="textxml"/>
+    <param name="log-dir" value="/var/log/freeswitch/xml_cdr"/>
+    <param name="err-log-dir" value="/var/log/freeswitch/xml_cdr_err"/>
+    <param name="log-b-leg" value="false"/>
+    <param name="prefix-a-leg" value="true"/>
+    <param name="enable-cacert-check" value="true"/>
+    <param name="auth-scheme" value="basic"/>
+  </settings>
+</configuration>
+```
+
+With `encode` set to `textxml`, the module sends the XML document as-is with a `Content-Type: text/xml` header. Setting `encode` to `true` sends URL-encoded data with `Content-Type: application/x-www-form-urlencoded`. Setting `encode` to `false` sends plaintext with `Content-Type: application/x-www-form-plaintext`. In all non-textxml cases, the body is wrapped as `cdr=<payload>`.
+
+The UUID of the session is appended to the configured URL as a query parameter: `uuid=<uuid>` (or `uuid=a_<uuid>` when `prefix-a-leg` is active and the leg is an A-leg). If the URL already contains a `?`, the parameter is joined with `&` instead.
+
+When all HTTP attempts fail, the module writes the XML to `err-log-dir` with the filename `<uuid>.cdr.xml` (or `a_<uuid>.cdr.xml` when `prefix-a-leg` is `true` and the leg is an A-leg).
+
+The channel variable `xml_cdr_base` on the session overrides the global `log-dir` on a per-call basis for on-disk writes.
+
+---
+
+## 4. mod_cdr_sqlite
+
+`mod_cdr_sqlite` inserts one row per call leg into a SQLite database table. The database file is created automatically if it does not exist; the table is created automatically if it does not exist, using the default schema. `mod_cdr_sqlite` is not loaded by default; enable it in `conf/autoload_configs/modules.conf.xml`.
+
+Configuration file: `conf/autoload_configs/cdr_sqlite.conf.xml`
+
+### 4.1 Configuration Parameters
+
+| Parameter | Purpose | Values | Default |
+|---|---|---|---|
+| `db-name` | Base name of the SQLite database file. The `.db` suffix is appended automatically by the FreeSWITCH DSN layer. | String | `cdr` |
+| `db-table` | Name of the table within the database that receives CDR rows. | String | `cdr` |
+| `legs` | Which call legs to record. | `a`, `b`, or `ab` | `a` |
+| `default-template` | Name of the template used to generate the VALUES clause of each INSERT statement. | Any named template | `default` |
+| `debug` | Log the full channel variable set to the FreeSWITCH log at INFO level for each CDR event. | `true`, `false` | `false` |
+
+### 4.2 Default Table Schema
+
+When the configured table does not exist at startup, the module creates it with the following schema:
+
+```sql
+CREATE TABLE cdr (
+    caller_id_name   VARCHAR,
+    caller_id_number VARCHAR,
+    destination_number VARCHAR,
+    context          VARCHAR,
+    start_stamp      DATETIME,
+    answer_stamp     DATETIME,
+    end_stamp        DATETIME,
+    duration         INTEGER,
+    billsec          INTEGER,
+    hangup_cause     VARCHAR,
+    uuid             VARCHAR,
+    bleg_uuid        VARCHAR,
+    account_code     VARCHAR
+);
+```
+
+The table name substituted for `cdr` is the value of `db-table`. The module executes `INSERT INTO <db-table> VALUES (...)` at hangup; the VALUES clause is generated by expanding the active template. Column order in the template must match column order in the table definition, or inserts will fail.
+
+Note that the auto-created schema names the last column `account_code` (with an underscore), while the channel variable referenced in the built-in default template is `${accountcode}` (no underscore). These refer to the same call data; the discrepancy is in the column name vs the channel variable name.
+
+### 4.3 Templates
+
+Templates for `mod_cdr_sqlite` follow the same `${variable_name}` expansion syntax as `mod_cdr_csv`, but the output is used as the VALUES clause of an SQL INSERT, not as a CSV line. Numeric fields (`duration`, `billsec`) must not be quoted in the template; string fields must be quoted.
+
+The built-in `default` template:
+
+```
+"${caller_id_name}","${caller_id_number}","${destination_number}","${context}",
+"${start_stamp}","${answer_stamp}","${end_stamp}",${duration},${billsec},
+"${hangup_cause}","${uuid}","${bleg_uuid}","${accountcode}"
+```
+
+Custom templates are defined in the `<templates>` block and referenced by name with `default-template`:
+
+```xml
+<configuration name="cdr_sqlite.conf" description="SQLite CDR">
+  <settings>
+    <param name="db-name" value="freeswitch_cdr"/>
+    <param name="db-table" value="cdr"/>
+    <param name="legs" value="ab"/>
+    <param name="default-template" value="example"/>
+  </settings>
+  <templates>
+    <template name="example">"${caller_id_name}","${caller_id_number}","${destination_number}","${context}","${start_stamp}","${answer_stamp}","${end_stamp}",${duration},${billsec},"${hangup_cause}","${uuid}","${bleg_uuid}","${accountcode}"</template>
+  </templates>
+</configuration>
+```
+
+---
+
+## 5. Module Load Status
+
+| Module | Loaded by default (vanilla conf) |
+|---|---|
+| `mod_cdr_csv` | Yes |
+| `mod_xml_cdr` | No |
+| `mod_cdr_sqlite` | No |
+
+To enable a module that is not loaded by default, uncomment or add its `<load module="..."/>` entry in `conf/autoload_configs/modules.conf.xml` and reload or restart FreeSWITCH. Multiple CDR modules may be active simultaneously; each fires its own `on_reporting` callback independently.

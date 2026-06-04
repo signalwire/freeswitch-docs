@@ -1,0 +1,813 @@
+---
+id: xml-dialplan
+slug: /dialplan/xml
+title: "Chapter 12: The XML Dialplan"
+sidebar_label: "12. The XML Dialplan"
+---
+
+# Chapter 12: The XML Dialplan
+
+The XML dialplan is FreeSWITCH's primary call-routing engine. It is provided by `mod_dialplan_xml`, which evaluates an ordered set of extensions and conditions against every inbound call to decide what applications to execute. Routing logic lives in plain XML files that are loaded into the FreeSWITCH XML registry at startup and reloaded on demand with `reloadxml`.
+
+## Table of Contents
+
+- [The Dialplan Model](#the-dialplan-model)
+- [Contexts](#contexts)
+  - [How a Call Enters a Context](#how-a-call-enters-a-context)
+  - [The default Context](#the-default-context)
+  - [The public Context](#the-public-context)
+  - [Linking from the Directory: user_context](#linking-from-the-directory-user_context)
+- [Extensions](#extensions)
+  - [The continue Attribute](#the-continue-attribute)
+- [Conditions](#conditions)
+  - [Field Sources](#field-sources)
+  - [The expression Attribute and Regex Matching](#the-expression-attribute-and-regex-matching)
+  - [Capture References](#capture-references)
+  - [The break Attribute](#the-break-attribute)
+  - [The regex Attribute (Multi-Regex Mode)](#the-regex-attribute-multi-regex-mode)
+  - [Absolute Conditions](#absolute-conditions)
+  - [Time-Based Conditions](#time-based-conditions)
+  - [Nested Conditions and require-nested](#nested-conditions-and-require-nested)
+- [Actions and Anti-Actions](#actions-and-anti-actions)
+  - [action](#action)
+  - [anti-action](#anti-action)
+- [Recursion and Re-Entry via transfer](#recursion-and-re-entry-via-transfer)
+- [Getting Started: A Minimal Working Dialplan](#getting-started-a-minimal-working-dialplan)
+- [Variable Expansion and Inline Functions](#variable-expansion-and-inline-functions)
+  - [Channel Variable Expansion](#channel-variable-expansion)
+  - [Preprocessor Variables](#preprocessor-variables)
+  - [Inline API Expansion](#inline-api-expansion)
+  - [The cond Inline Function](#the-cond-inline-function)
+  - [Arithmetic with expr](#arithmetic-with-expr)
+  - [Substring Offsets](#substring-offsets)
+  - [Quick Reference](#quick-reference)
+- [Chatplan and Text Messaging](#chatplan-and-text-messaging)
+  - [How the Chatplan Works](#how-the-chatplan-works)
+  - [Event Fields Available as Condition Fields](#event-fields-available-as-condition-fields)
+  - [Chat Applications](#chat-applications)
+  - [Chatplan Example](#chatplan-example)
+- [ENUM Number Lookup](#enum-number-lookup)
+  - [How ENUM Works](#how-enum-works)
+  - [enum.conf.xml Parameters](#enumconfxml-parameters)
+  - [Route Entries](#route-entries)
+  - [The enum Dialplan Application](#the-enum-dialplan-application)
+  - [The enum API Command](#the-enum-api-command)
+  - [Routing via ENUM in the Dialplan](#routing-via-enum-in-the-dialplan)
+
+---
+
+## The Dialplan Model
+
+`mod_dialplan_xml` implements the `XML` dialplan interface. When a call arrives, FreeSWITCH invokes the `XML` dialplan handler, which:
+
+1. Determines the context for the call.
+2. Iterates through every `extension` element in that context in document order.
+3. For each extension, evaluates all `condition` elements in order.
+4. If the conditions match, queues the `action` applications for execution; if they do not match, queues the `anti-action` applications instead.
+5. Stops at the first matching extension unless `continue="true"` is set on the extension.
+
+The dialplan XML lives under `conf/dialplan/`. Each file contains a `<context>` element wrapped in an `<include>` element. Multiple files contribute to the same context via `X-PRE-PROCESS` include directives.
+
+---
+
+## Contexts
+
+A context is a named, isolated routing table. Extensions in one context have no effect on calls in another context unless a call is explicitly transferred between them.
+
+```xml
+<include>
+  <context name="default">
+    <!-- extensions go here -->
+  </context>
+</include>
+```
+
+The `name` attribute is arbitrary. The vanilla configuration ships with three contexts: `default`, `public`, and `features`.
+
+### How a Call Enters a Context
+
+Every call carries a context string in the caller profile. `mod_dialplan_xml` matches that string against the `name` attribute of `context` elements. If no match is found, FreeSWITCH falls back to the `global` context if one exists; otherwise routing fails.
+
+The context is set in one of two ways:
+
+- **SIP profile context.** Each SIP profile has a `context` parameter (typically in `conf/sip_profiles/`). Unauthenticated calls arriving on that profile are placed directly into that context.
+- **Directory user context.** Authenticated SIP registrations use the `user_context` variable from the directory entry (see the section on `user_context` below).
+
+### The default Context
+
+The `default` context (`conf/vanilla/dialplan/default.xml`) handles authenticated internal callers. It contains extensions for local extensions (1000-1019), voicemail, conferencing, call parking, intercom, group calls, and feature codes. It is the destination for calls transferred from the `public` context once they have been validated.
+
+### The public Context
+
+The `public` context (`conf/vanilla/dialplan/public.xml`) handles unauthenticated inbound calls from the external SIP profile (typically port 5080). Its purpose is to act as a security perimeter: it accepts only specific destination numbers and transfers them to the `default` context, rather than allowing arbitrary routing that could be exploited for toll fraud.
+
+```xml
+<extension name="public_extensions">
+  <condition field="destination_number" expression="^(10[01][0-9])$">
+    <action application="transfer" data="$1 XML default"/>
+  </condition>
+</extension>
+```
+
+Any call that reaches the end of `public` without matching an extension is dropped.
+
+### Linking from the Directory: user_context
+
+In the user directory (typically `conf/directory/`), each user element may carry a `user_context` variable:
+
+```xml
+<variable name="user_context" value="default"/>
+```
+
+When a registered SIP endpoint authenticates and places a call, FreeSWITCH assigns the context named in `user_context` to that caller's profile. This lets different user populations be routed into different contexts without changing the SIP profile.
+
+---
+
+## Extensions
+
+An `extension` element is an ordered list of conditions. It is the unit of routing logic. Attributes:
+
+| Attribute | Purpose | Default |
+|-----------|---------|---------|
+| `name` | Descriptive label; used in log output and in `auto_hunt` lookups (see below). Required. | (required) |
+| `continue` | When `"true"`, dialplan evaluation continues to the next extension even after this one matches. | `"false"` |
+
+**`auto_hunt`:** When the channel variable `auto_hunt` is set to `true`, `mod_dialplan_xml` first searches the context for an extension whose `name` attribute exactly equals `destination_number` before falling back to sequential evaluation. This allows a single extension to be targeted by name rather than relying solely on regex matching.
+
+```xml
+<extension name="echo-test">
+  <condition field="destination_number" expression="^9196$">
+    <action application="answer"/>
+    <action application="echo"/>
+  </condition>
+</extension>
+```
+
+### The continue Attribute
+
+By default, the first extension whose conditions all match terminates the search. Setting `continue="true"` on an extension causes evaluation to proceed to the next extension regardless of match outcome. This is used to chain side-effect extensions (such as setting variables or logging) before a terminal routing extension.
+
+```xml
+<extension name="global" continue="true">
+  <condition field="${call_debug}" expression="^true$" break="never">
+    <action application="info"/>
+  </condition>
+  <!-- additional conditions ... -->
+</extension>
+```
+
+---
+
+## Conditions
+
+A `condition` element tests a field value against a regular expression. An extension may contain multiple conditions; all conditions in an extension are evaluated in document order subject to the `break` attribute.
+
+```xml
+<condition field="destination_number" expression="^(10[01][0-9])$">
+  <action application="bridge" data="user/$1@${domain_name}"/>
+</condition>
+```
+
+### Field Sources
+
+The `field` attribute names the value to test. It accepts two forms:
+
+- A **caller profile field name** (a bare identifier): resolved from the caller profile struct.
+- A **channel variable expression** (containing `$`): expanded against the channel variable table before matching.
+
+Common field sources:
+
+| Field | Meaning |
+|-------|---------|
+| `destination_number` | The dialed number (Request-URI user part for SIP) |
+| `caller_id_number` | The calling party number |
+| `caller_id_name` | The calling party name |
+| `source` | The module that created the channel, e.g. `mod_sofia` |
+| `network_addr` | The source IP address of the call |
+| `rdnis` | The redirecting DNIS, when present |
+| `${channel_variable}` | Any channel variable, expanded at match time |
+
+When `field` contains `$`, the engine calls `switch_channel_expand_variables()` on it first. When it is a bare name, the engine calls `switch_caller_get_field_by_name()` to look up the value from the caller profile. Examples from the vanilla dialplan:
+
+```xml
+<!-- bare caller profile field -->
+<condition field="destination_number" expression="^9196$"/>
+
+<!-- channel variable as field -->
+<condition field="${rtp_has_crypto}" expression="^(AES_CM_128_HMAC_SHA1_32|AES_CM_128_HMAC_SHA1_80)$"/>
+<condition field="${call_debug}" expression="^true$"/>
+```
+
+### The expression Attribute and Regex Matching
+
+The `expression` attribute is a POSIX extended regular expression tested against the resolved `field` value. Matching is performed by `switch_regex_perform()`. The expression may also be given as a child `<expression>` element (useful for expressions that contain characters problematic in XML attributes, such as CDATA-wrapped content).
+
+```xml
+<!-- attribute form -->
+<condition field="destination_number" expression="^(30\d{2})$"/>
+
+<!-- child element form, used when the expression contains XML-special characters -->
+<condition field="${sip_refer_to}">
+  <expression><![CDATA[<sip:callpark@${domain_name};orbit=(\d+)>]]></expression>
+</condition>
+```
+
+The engine always anchors implicitly to the full value when the regex contains `^` and `$` anchors; omitting anchors matches anywhere within the field value.
+
+### Capture References
+
+When `expression` contains capture groups delimited by `(` and `)`, the engine populates back-references `$1` through `$N` for use in subsequent `action` and `anti-action` `data` attributes within the same condition. The variable `${DP_MATCH}` is also set to the full matched string of the regex (via `switch_capture_regex`).
+
+```xml
+<extension name="Local_Extension">
+  <condition field="destination_number" expression="^(10[01][0-9])$">
+    <action application="export" data="dialed_extension=$1"/>
+    <action application="bridge" data="user/$1@${domain_name}"/>
+  </condition>
+</extension>
+```
+
+Here `$1` resolves to the four-digit number captured by `(10[01][0-9])`.
+
+### The break Attribute
+
+The `break` attribute controls what happens after a condition is evaluated, regardless of whether it matched. It applies per condition.
+
+| Value | Effect |
+|-------|--------|
+| `on-true` | Stop evaluating further conditions in this extension if this condition matched (was true). |
+| `on-false` | Stop evaluating further conditions in this extension if this condition did not match (was false). This is the default. |
+| `always` | Stop evaluating further conditions in this extension unconditionally. |
+| `never` | Always continue to the next condition, regardless of match outcome. |
+
+The default (when `break` is absent) is `on-false`: if a condition fails, no further conditions in the extension are evaluated and the extension does not match.
+
+```xml
+<!-- Run info app regardless, then continue to the next condition -->
+<condition field="${call_debug}" expression="^true$" break="never">
+  <action application="info"/>
+</condition>
+```
+
+### The regex Attribute (Multi-Regex Mode)
+
+A `condition` element may carry a `regex` attribute instead of (or in addition to) a single `field`/`expression` pair. When `regex` is present the condition switches to multi-regex mode: its child `<regex>` elements are evaluated collectively, and the parent condition passes or fails based on the aggregate result.
+
+Each `<regex>` child element takes the same `field` and `expression` attributes as a regular condition. A `<regex>` element may also carry time-based attributes; a `<regex>` with no `field` and no time attributes is treated as an absolute match (always passes).
+
+| `regex` value | Pass rule |
+|---------------|-----------|
+| `any` | At least 1 child `<regex>` passes. Evaluation stops at the first pass. |
+| `all` | Every child `<regex>` must pass. Evaluation stops at the first failure. |
+| `xor` | Exactly 1 child `<regex>` passes. All children are evaluated. |
+
+When `regex="any"` or `regex="all"`, the engine short-circuits: `any` stops on the first success and `all` stops on the first failure. `xor` always evaluates all children.
+
+Capture variables from each `<regex>` child are stored in `${DP_REGEX_MATCH_N}` (where `N` is the 1-based index of the child), in addition to `${DP_MATCH}` which is set from the last matching child that had a capture group. The channel variable prefix `DP_REGEX_MATCH` is cleared at the start of each multi-regex evaluation.
+
+```xml
+<!-- Pass if destination matches 1000-1019 OR caller is from 192.168.1.x -->
+<condition regex="any">
+  <regex field="destination_number" expression="^(10[01][0-9])$"/>
+  <regex field="network_addr" expression="^192\.168\.1\.\d+$"/>
+  <action application="bridge" data="user/${DP_REGEX_MATCH_1}@${domain_name}"/>
+</condition>
+```
+
+```xml
+<!-- Pass only if BOTH source is mod_sofia AND destination matches -->
+<condition regex="all">
+  <regex field="source" expression="^mod_sofia$"/>
+  <regex field="destination_number" expression="^(10[01][0-9])$"/>
+  <action application="bridge" data="user/$1@${domain_name}"/>
+</condition>
+```
+
+### Absolute Conditions
+
+A `condition` element with no `field` attribute (and no time-based attributes) is an absolute condition: it always matches. Its `action` elements are always executed.
+
+```xml
+<condition>
+  <action application="set" data="outside_call=true"/>
+</condition>
+```
+
+### Time-Based Conditions
+
+A `condition` element can match on date and time attributes instead of or in addition to a `field`/`expression` pair. Supported attributes include `year`, `yday`, `mon`, `mday`, `week`, `mweek`, `wday`, `hour`, `minute`, and `minute-of-day`. Multiple time attributes on a single condition are ANDed together.
+
+```xml
+<!-- Matches Monday through Friday, 9:00 to 18:59 -->
+<condition wday="2-6" hour="9-18">
+  <action application="set" data="open=true"/>
+</condition>
+```
+
+Ranges are expressed as `low-high` values. `wday` uses 1 (Sunday) through 7 (Saturday). `hour` uses 0-23. Time-zone offset can be applied via the channel variable `tod_tz_offset` (numeric offset in hours) or `timezone` (IANA zone name).
+
+### Nested Conditions and require-nested
+
+A `condition` that itself contains a child `condition` element creates a nested condition. The inner condition is evaluated only if the outer condition matched. This is distinct from sequential (peer) conditions, where each condition is a direct child of `extension`.
+
+When the outer condition passes, `mod_dialplan_xml` calls `parse_exten` recursively with the outer `<condition>` element as the new root, evaluating all of its child `<condition>` elements in order.
+
+**`require-nested`** is an attribute on the **outer `<condition>` element** (not on `<extension>`). It controls whether a failed nested sub-condition causes the outer condition to fail. Default is `true`: a nested failure propagates up. When set to `false`, the outer condition is considered to have passed regardless of what the nested conditions return.
+
+```xml
+<!-- Sequential (peer) conditions: all three must pass -->
+<extension name="unpark">
+  <condition field="source" expression="mod_sofia"/>
+  <condition field="destination_number" expression="^parking$"/>
+  <condition field="${sip_to_params}" expression="fifo\=(\d+)">
+    <action application="answer"/>
+    <action application="fifo" data="$1@${domain_name} out nowait"/>
+  </condition>
+</extension>
+```
+
+```xml
+<!-- Truly nested: inner condition evaluated only if outer matches -->
+<condition field="destination_number" expression="^(10[01][0-9])$" require-nested="false">
+  <condition field="${user_exists}" expression="^true$">
+    <action application="bridge" data="user/$1@${domain_name}"/>
+  </condition>
+  <!-- require-nested="false" means extension still matches even if inner fails -->
+</condition>
+```
+
+In the sequential example, the three conditions are peers: each is a direct child of `extension`, and all three must pass. A truly nested condition occurs only when a `condition` element is a direct XML child of another `condition` element.
+
+---
+
+## Actions and Anti-Actions
+
+### action
+
+An `action` element names a dialplan application to execute when the enclosing condition matches. Attributes:
+
+| Attribute | Purpose |
+|-----------|---------|
+| `application` | Name of the FreeSWITCH application to invoke. Required. |
+| `data` | Argument string passed to the application. Optional; defaults to empty. If the element has non-empty text content, that text is used as `data` instead of the attribute. |
+| `inline` | When `"true"`, execute the application immediately during dialplan evaluation rather than queuing it. Default `"false"`. Only applications flagged `SAF_ROUTING_EXEC` in their module definition may be executed inline; others will fail and hang up the call. |
+| `loop` | Integer; repeat the application this many times. Default `1`. |
+
+`action` elements are queued in document order and executed after the dialplan finishes evaluating (unless `inline="true"`).
+
+**Inline actions** are useful for applications that set channel variables (`set`, `export`, `unset`) or perform lookups during dialplan evaluation itself, before any application queue is run. Not all applications support inline execution.
+
+```xml
+<action application="set" data="ringback=${us-ring}"/>
+<action application="set" data="call_timeout=30"/>
+<action application="bridge" data="user/${dialed_extension}@${domain_name}"/>
+```
+
+### anti-action
+
+An `anti-action` element names an application to execute when the enclosing condition does NOT match. It accepts the same `application`, `data`, `inline`, and `loop` attributes as `action`, including the text-content form for `data`. Anti-actions are useful for providing alternative behavior in a single condition block.
+
+```xml
+<condition field="${rtp_has_crypto}" expression="^(AES_CM_128_HMAC_SHA1_32|AES_CM_128_HMAC_SHA1_80)$">
+  <action application="answer"/>
+  <action application="playback" data="misc/call_secured.wav"/>
+  <anti-action application="answer"/>
+  <anti-action application="playback" data="${hold_music}"/>
+</condition>
+```
+
+---
+
+## Recursion and Re-Entry via transfer
+
+The `transfer` application re-enters the dialplan with a new destination number, context, and optionally dialplan type. It does not fork a new call; it redirects the current channel through dialplan evaluation again.
+
+Syntax: `transfer <destination_number> [<dialplan_type> [<context>]]`
+
+```xml
+<!-- Transfer to extension 1000 in the default context using the XML dialplan -->
+<action application="transfer" data="1000 XML default"/>
+
+<!-- Transfer to whatever was captured in $1, within the current XML default context -->
+<action application="transfer" data="$1 XML default"/>
+
+<!-- Transfer to a different dialplan type -->
+<action application="transfer" data="$1 enum"/>
+```
+
+When `dialplan_type` is omitted, it defaults to `XML`. When `context` is omitted, the call remains in its current context. The `public` context uses `transfer` exclusively to hand calls off to `default`:
+
+```xml
+<extension name="public_extensions">
+  <condition field="destination_number" expression="^(10[01][0-9])$">
+    <action application="transfer" data="$1 XML default"/>
+  </condition>
+</extension>
+```
+
+The `-bleg` and `-both` flags on `transfer` direct the transfer to the B-leg or both legs of a bridged call, respectively, as shown in the `features` context:
+
+```xml
+<action application="transfer" data="-bleg ${digits} XML default"/>
+<action application="transfer" data="-both 30${dialed_extension:2} XML default"/>
+```
+
+---
+
+## Getting Started: A Minimal Working Dialplan
+
+The following illustrates a self-contained context that handles local four-digit extensions with fallback to voicemail.
+
+**Step 1.** Confirm `mod_dialplan_xml` is loaded. In `conf/autoload_configs/modules.conf.xml`, ensure:
+
+```xml
+<load module="mod_dialplan_xml"/>
+```
+
+**Step 2.** Set the SIP profile context. In `conf/sip_profiles/internal.xml` (or equivalent), set:
+
+```xml
+<param name="context" value="default"/>
+```
+
+Authenticated registrations override this with the `user_context` directory variable.
+
+**Step 3.** Write a minimal context. Place the following in `conf/dialplan/default.xml`:
+
+```xml
+<?xml version="1.0" encoding="utf-8"?>
+<include>
+  <context name="default">
+
+    <!-- Route calls to local extensions 1000-1099 -->
+    <extension name="local_extensions">
+      <condition field="destination_number" expression="^(10[0-9]{2})$">
+        <action application="set" data="call_timeout=30"/>
+        <action application="set" data="hangup_after_bridge=true"/>
+        <action application="set" data="continue_on_fail=true"/>
+        <action application="bridge" data="user/$1@${domain_name}"/>
+        <action application="answer"/>
+        <action application="sleep" data="1000"/>
+        <action application="bridge" data="loopback/app=voicemail:default ${domain_name} $1"/>
+      </condition>
+    </extension>
+
+    <!-- Voicemail access -->
+    <extension name="voicemail_access">
+      <condition field="destination_number" expression="^\*98$">
+        <action application="answer"/>
+        <action application="voicemail" data="check default ${domain_name}"/>
+      </condition>
+    </extension>
+
+  </context>
+</include>
+```
+
+**Step 4.** Apply the configuration. At the FreeSWITCH console:
+
+```
+reloadxml
+```
+
+**Step 5.** Verify routing. Register a SIP device as extension 1001 and call extension 1000. If extension 1000 is registered, it rings for 30 seconds. If it does not answer, the call falls through to voicemail.
+
+**Key parameters used above:**
+
+| Variable | Purpose |
+|----------|---------|
+| `call_timeout` | Maximum ring time in seconds before the bridge attempt ends. |
+| `hangup_after_bridge` | When `true`, hang up the A-leg when the B-leg disconnects. |
+| `continue_on_fail` | When `true`, execution continues past a failed `bridge` application. |
+| `domain_name` | The SIP domain; set automatically by the profile. |
+
+---
+
+## Variable Expansion and Inline Functions
+
+FreeSWITCH expands variable references and inline API calls in `action` and `anti-action` `data` strings, in `condition` `field` values that contain `$`, and in `condition` `expression` values. Expansion is performed by `switch_event_expand_headers_check` in `src/switch_event.c`. The engine supports up to 100 levels of recursive expansion before stopping.
+
+### Channel Variable Expansion
+
+`${variable_name}` is replaced with the value of the named channel variable. If the variable is not set, the reference expands to an empty string.
+
+```xml
+<action application="bridge" data="user/${dialed_extension}@${domain_name}"/>
+```
+
+Two modifier forms are supported:
+
+- `${variable_name:N}` - offset the value by `N` characters from the start (positive) or from the end (negative).
+- `${variable_name:N:M}` - take `M` characters starting at offset `N`.
+
+```xml
+<!-- Remove the first character of caller_id_number -->
+<action application="set" data="stripped=${caller_id_number:1}"/>
+
+<!-- Take 3 characters starting at position 1 -->
+<action application="set" data="area_code=${caller_id_number:1:3}"/>
+```
+
+### Preprocessor Variables
+
+`$${variable_name}` is a preprocessor substitution, not a runtime expansion. It is replaced once when the XML configuration file is loaded or reloaded, using the value of a global variable set by `X-PRE-PROCESS` directives. It cannot reference channel state and does not change per call.
+
+### Inline API Expansion
+
+`${api_name(args)}` calls a FreeSWITCH API command at call time and substitutes its output. The API name and argument string are separated by the first space or opening parenthesis; the argument string is itself variable-expanded before the API is called. API expansion requires the `SCF_API_EXPANSION` core flag to be set (it is set by default).
+
+Common inline API calls used in dialplans:
+
+| Expression | What it produces |
+|-----------|-----------------|
+| `${sofia_contact(internal/1001@example.com)}` | The registered SIP contact URI for user 1001 |
+| `${create_uuid()}` | A new UUID string |
+| `${cond(${call_timeout} > 0 ? ${call_timeout} : 30)}` | Conditional value (see below) |
+| `${expr(1 + 1)}` | Arithmetic result via mod_expr (see below) |
+| `${enum_auto(+12125551212)}` | ENUM lookup result for the number |
+
+```xml
+<!-- Bridge directly to a registered contact URI -->
+<action application="bridge" data="${sofia_contact(internal/${dialed_extension}@${domain_name})}"/>
+
+<!-- Generate a unique identifier for this call leg -->
+<action application="set" data="my_ref=${create_uuid()}"/>
+```
+
+### The cond Inline Function
+
+`${cond(A OP B ? TRUE_VALUE : FALSE_VALUE)}` evaluates a comparison and returns one of two values. It is implemented as the `cond` API in `mod_commands`. The syntax parsed by `cond_function` is:
+
+```
+A OP B ? TRUE_VALUE : FALSE_VALUE
+```
+
+Where `A` and `B` are the operands and `OP` is one of: `==`, `!=`, `>`, `>=`, `<`, `<=`. Operands may be quoted with single quotes to force string comparison; unquoted numeric operands are compared as floating-point numbers. If both operands are non-numeric strings, `==` and `!=` use string comparison; the ordering operators compare string lengths. The `TRUE_VALUE` or `FALSE_VALUE` portions may themselves contain variable references (expanded before `cond` is called).
+
+```xml
+<!-- Use a variable timeout if set, otherwise default to 30 -->
+<action application="set" data="effective_timeout=${cond(${call_timeout} != 0 ? ${call_timeout} : 30)}"/>
+
+<!-- Route to voicemail if the user does not exist -->
+<action application="transfer" data="${cond(${user_exists} == true ? ${dialed_extension} : 9999)} XML default"/>
+```
+
+### Arithmetic with expr
+
+`${expr(EXPRESSION)}` evaluates a numeric expression using the `expr` API provided by `mod_expr`. The expression string uses standard arithmetic operators (`+`, `-`, `*`, `/`) and a library of built-in functions. Results are returned as a numeric string with trailing zeros removed.
+
+Built-in functions available in `expr`:
+
+| Function | Description |
+|---------|------------|
+| `abs(x)` | Absolute value |
+| `mod(x, y)` | Modulo |
+| `pow(x, y)` | x raised to the power y |
+| `sqrt(x)` | Square root |
+| `floor(x)` | Floor |
+| `ceil(x)` | Ceiling |
+| `min(x, ...)` | Minimum of one or more values |
+| `max(x, ...)` | Maximum of one or more values |
+| `log(x)` | Base-10 logarithm |
+| `ln(x)` | Natural logarithm |
+| `exp(x)` | e raised to x |
+| `ipart(x)` | Integer part |
+| `fpart(x)` | Fractional part |
+| `if(cond, a, b)` | Returns `a` if `cond` is nonzero, else `b` |
+| `and(a, b)`, `or(a, b)`, `not(a)` | Bitwise operations |
+
+Constants `M_PI`, `M_E`, and related math constants are also available.
+
+```xml
+<!-- Multiply the call duration variable by 0.0167 to convert seconds to minutes -->
+<action application="set" data="duration_min=${expr(${billsec} * 0.0167)}"/>
+```
+
+Note: `mod_expr` is loaded by default in `conf/vanilla/autoload_configs/modules.conf.xml`. The `expr` functions operate on numeric values only; string manipulation is not supported.
+
+### Substring Offsets
+
+The `:offset` and `:offset:length` modifiers apply directly to channel variable names without requiring a separate API call:
+
+```xml
+<!-- ${number:1} strips the leading + from +12125551212 -->
+<action application="set" data="e164_local=${caller_id_number:1}"/>
+
+<!-- ${number:1:10} takes 10 digits starting at position 1 -->
+<action application="set" data="ten_digit=${destination_number:1:10}"/>
+```
+
+### Quick Reference
+
+| Expression | Result |
+|-----------|--------|
+| `${domain_name}` | Value of channel variable `domain_name` |
+| `${caller_id_number:1}` | Caller ID number with first character removed |
+| `${sofia_contact(internal/1001@example.com)}` | Registered contact URI for extension 1001 |
+| `${create_uuid()}` | A new UUID |
+| `${cond(3 > 2 ? yes : no)}` | `yes` |
+| `${expr(2 + 2)}` | `4` |
+| `${cond(${var} == '' ? default : ${var})}` | `default` if `var` is empty, else value of `var` |
+
+---
+
+## Chatplan and Text Messaging
+
+The chatplan is a parallel routing engine for text messages. It uses the same `context` / `extension` / `condition` / `action` XML model as the XML dialplan, but operates on message events rather than call sessions. It is implemented in `mod_sms` (`src/mod/applications/mod_sms/mod_sms.c`).
+
+The chatplan section is declared in `conf/vanilla/freeswitch.xml`:
+
+```xml
+<section name="chatplan" description="Regex/XML Chatplan">
+  <X-PRE-PROCESS cmd="include" data="chatplan/*.xml"/>
+</section>
+```
+
+Chatplan files live in `conf/chatplan/`. The vanilla configuration ships with `conf/vanilla/chatplan/default.xml` as the only context.
+
+### How the Chatplan Works
+
+When an inbound SIP MESSAGE is received on a Sofia profile, `mod_sofia` creates a `SWITCH_EVENT_MESSAGE` event and populates it with headers from the SIP request. It then calls `switch_core_chat_send`, which routes the event to the `GLOBAL_SMS` chat interface registered by `mod_sms`. `mod_sms` calls `chatplan_hunt` to evaluate the chatplan.
+
+`chatplan_hunt` looks up the `context` header on the event (defaulting to `"default"` if absent) and finds the matching `<context>` element. It then iterates extensions in document order, evaluating `<condition>` elements using the same field/expression/break logic as the XML dialplan. Nested conditions are explicitly not supported in the chatplan; the engine logs an error and stops if one is encountered.
+
+Condition field values that contain `$` are expanded with `switch_event_expand_headers` against the message event headers. Fields without `$` are resolved with `switch_event_get_header`.
+
+When actions are executed, each action's `data` string is expanded via `switch_event_expand_headers` before being passed to the chat application.
+
+### Event Fields Available as Condition Fields
+
+| Field | Content |
+|-------|---------|
+| `to` | `user@domain` of the message recipient |
+| `from` | `user@domain` of the message sender |
+| `from_user` | User part of the sender address |
+| `from_host` | Host part of the sender address |
+| `to_user` | User part of the recipient address |
+| `to_host` | Host part of the recipient address |
+| `proto` | Chat protocol identifier; `sofia` for SIP MESSAGE |
+| `context` | The chatplan context, set from the SIP profile `context` parameter |
+| `type` | MIME content type of the message body, e.g. `text/plain` |
+| `sip_profile` | Name of the SIP profile that received the message |
+
+The message body is stored as the event body (internal name `_body`). To access it in action `data` strings, use `${_body}`.
+
+### Chat Applications
+
+`mod_sms` registers the following chat applications:
+
+| Application | Purpose |
+|------------|---------|
+| `reply` | Send a reply to the originating endpoint. The `data` argument is the reply body. |
+| `send` | Forward the message to a specified destination protocol. `data` is the destination proto; if omitted, uses the `dest_proto` event header. |
+| `set` | Set a message event header. `data` is `header=value`; omitting the value deletes the header. |
+| `unset` | Delete a message event header. `data` is the header name. |
+| `fire` | Fire the message event into the FreeSWITCH event system. |
+| `stop` | Stop chatplan execution; no further applications are run. |
+| `final` | Mark the message as finally delivered and stop execution. |
+| `info` | Log all message event headers and body at INFO level. Accepts an optional log level name as `data`. |
+| `system` | Execute a shell command. `data` is the command string. |
+
+The `inline` and `loop` attributes work the same as in the XML dialplan. Applications marked inline execute during chatplan evaluation; otherwise they are queued and executed after the chatplan finishes.
+
+### Chatplan Example
+
+```xml
+<?xml version="1.0" encoding="utf-8"?>
+<include>
+  <context name="default">
+
+    <!-- Echo the message body back to the sender -->
+    <extension name="echo">
+      <condition field="to" expression="^echo@">
+        <action application="reply" data="You said: ${_body}"/>
+        <action application="stop"/>
+      </condition>
+    </extension>
+
+    <!-- Route messages addressed to a local extension to that user's SIP endpoint -->
+    <extension name="local_sms">
+      <condition field="to_user" expression="^(10[0-9]{2})$">
+        <action application="send" data="sofia"/>
+      </condition>
+    </extension>
+
+    <!-- Log and drop everything else -->
+    <extension name="default_drop">
+      <condition field="to" expression="^(.*)$">
+        <action application="info"/>
+        <action application="stop"/>
+      </condition>
+    </extension>
+
+  </context>
+</include>
+```
+
+`mod_sms` is not loaded by default in the vanilla configuration (it is commented out in `modules.conf.xml`). To enable the chatplan, uncomment `mod_sms` and ensure chatplan XML files are present.
+
+---
+
+## ENUM Number Lookup
+
+ENUM (E.164 Number Mapping, RFC 3761) resolves an E.164 telephone number to a SIP URI by performing a DNS NAPTR query on the reversed digits of the number appended to a DNS root zone. `mod_enum` implements ENUM as a dialplan application, an API command, and a standalone dialplan interface. It is loaded by default.
+
+### How ENUM Works
+
+1. The E.164 number (e.g. `+12125551212`) has its digits reversed and separated by dots, then the configured root zone is appended to form a DNS name: `2.1.2.1.5.5.5.2.1.2.1.e164.org`.
+2. A DNS NAPTR query is performed on that name.
+3. Each NAPTR record carries a service tag (e.g. `E2U+SIP`), a regex, and a replacement string. The regex is applied to the original number and the replacement produces a URI.
+4. The resulting URI is matched against the `<route>` entries in `enum.conf.xml` to produce the final bridge string.
+
+### enum.conf.xml Parameters
+
+Configuration file: `conf/autoload_configs/enum.conf.xml`.
+
+| Parameter | Purpose | Default |
+|----------|---------|---------|
+| `default-root` | DNS root zone for standard ENUM queries | `e164.org` |
+| `default-isn-root` | DNS root zone for ISN (ITAD Subscriber Number) queries | `freenum.org` |
+| `auto-reload` | When `true`, reload config on `SWITCH_EVENT_RELOADXML` | `true` |
+| `query-timeout-ms` | DNS query timeout in milliseconds | `200` |
+| `query-timeout-retry` | Number of DNS query retries | `2` |
+| `random-nameserver` | When `true`, select a configured nameserver at random | `false` |
+| `nameserver` | Specific DNS server IP for ENUM queries (up to 10 entries). If none are set, the system resolver is used. | (system resolver) |
+
+Note: the older `query-timeout` parameter (without `-ms`) is also parsed and treated as a value in seconds, multiplied by 1000. The `-ms` form is preferred.
+
+### Route Entries
+
+The `<routes>` section maps NAPTR service tags to FreeSWITCH bridge strings. Each `<route>` has three attributes:
+
+| Attribute | Purpose |
+|----------|---------|
+| `service` | NAPTR service tag to match, e.g. `E2U+SIP` |
+| `regex` | Regular expression applied to the URI produced by the NAPTR replacement |
+| `replace` | Bridge string template; capture references from `regex` are substituted using `$N` notation |
+
+The `replace` string is variable-expanded after substitution, so it may contain `${variable}` references. The variable `${use_profile}` is typically set on the channel to select the Sofia profile for the bridge.
+
+The vanilla `enum.conf.xml` ships with three routes:
+
+```xml
+<routes>
+  <route service="E2U+SIP"  regex="sip:(.*)"
+         replace="sofia/${use_profile}-ipv6/$1;transport=udp|sofia/${use_profile}/$1;transport=udp"/>
+  <route service="E2T+SIP"  regex="sip:(.*)"
+         replace="sofia/${use_profile}-ipv6/$1;transport=tcp|sofia/${use_profile}/$1;transport=tcp"/>
+  <route service="E2T+SIPS" regex="sip:(.*)"
+         replace="sofia/${use_profile}-ipv6/$1;transport=tls|sofia/${use_profile}/$1;transport=tls"/>
+</routes>
+```
+
+### The enum Dialplan Application
+
+`enum [<number> [<root>]]`
+
+When executed from the dialplan, `enum` performs an ENUM lookup for `number` (defaults to `destination_number` if omitted) against `root` (defaults to `default-root` from config). On success it sets the following channel variables:
+
+| Variable | Content |
+|---------|---------|
+| `enum_route_1`, `enum_route_2`, ... | Individual supported routes in priority order |
+| `enum_route_count` | Total number of supported routes found |
+| `enum_auto_route` | All supported routes joined with `\|`, suitable as a `bridge` data argument |
+
+```xml
+<action application="enum" data="${destination_number} e164.org"/>
+<action application="bridge" data="${enum_auto_route}"/>
+```
+
+### The enum API Command
+
+`enum [reload | <number> [<root>]]`
+
+From the FreeSWITCH console or as an inline API expansion, `enum` performs a lookup and prints a table of all NAPTR records found (both supported and unsupported routes). Use `enum reload` to reload `enum.conf.xml` without a full `reloadxml`.
+
+The `enum_auto` API performs the same lookup as the application but returns only the pipe-delimited list of supported routes as a string, suitable for inline expansion:
+
+```xml
+<action application="bridge" data="${enum_auto(${destination_number})}"/>
+```
+
+### Routing via ENUM in the Dialplan
+
+A typical pattern: attempt ENUM resolution and bridge if routes were found; otherwise fall through to a PSTN gateway.
+
+```xml
+<extension name="enum_outbound">
+  <condition field="destination_number" expression="^(\+1[2-9]\d{9})$">
+    <!-- Perform ENUM lookup and store routes -->
+    <action application="enum" data="$1"/>
+    <!-- Bridge using the ENUM result if any routes were found -->
+    <action application="bridge" data="${enum_auto_route}"/>
+  </condition>
+</extension>
+```
+
+To use mod_enum as the dialplan interface directly (bypassing the XML dialplan entirely for a call), set the dialplan type on transfer:
+
+```xml
+<action application="transfer" data="${destination_number} enum"/>
+```
+
+This invokes `enum_dialplan_hunt`, which performs the ENUM lookup and builds a caller extension that bridges to each supported route in order of NAPTR preference.

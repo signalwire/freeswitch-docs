@@ -1,0 +1,278 @@
+---
+id: other-endpoints
+slug: /endpoints/other
+title: "Chapter 11: Other Endpoints"
+sidebar_label: "11. Other Endpoints"
+---
+
+# Chapter 11: Other Endpoints
+
+FreeSWITCH ships with several endpoint modules beyond `mod_sofia` and `mod_verto`. This chapter covers the four most commonly referenced: `mod_loopback`, which provides an internal re-entrant channel used in dialplan construction; `mod_skinny`, which implements the Cisco SCCP protocol for IP desk phones; `mod_rtmp`, which bridges Flash/RTMP audio clients into the switch; and `mod_alsa`, which exposes the local ALSA sound card as a single endpoint. Only `mod_loopback` is enabled by default in the vanilla `modules.conf.xml`; the other three must be explicitly enabled.
+
+## Table of Contents
+
+- [mod\_loopback](#mod_loopback)
+  - [Dial String](#dial-string)
+  - [Configuration File](#loopback-configuration-file)
+  - [Parameters](#loopback-parameters)
+  - [Channel Variables](#loopback-channel-variables)
+  - [The null Endpoint](#the-null-endpoint)
+- [mod\_skinny](#mod_skinny)
+  - [Configuration Files](#skinny-configuration-files)
+  - [Profile Parameters](#skinny-profile-parameters)
+  - [Soft Key Sets](#soft-key-sets)
+  - [Device Types](#device-types)
+- [mod\_rtmp](#mod_rtmp)
+  - [Configuration File](#rtmp-configuration-file)
+  - [Parameters](#rtmp-parameters)
+- [mod\_alsa](#mod_alsa)
+  - [Configuration File](#alsa-configuration-file)
+  - [Parameters](#alsa-parameters)
+
+---
+
+## mod_loopback {#mod_loopback}
+
+`mod_loopback` registers the `loopback` endpoint, which creates a pair of internally bridged channels (`-a` and `-b` legs) that re-enter the dialplan. It is loaded by default.
+
+A `loopback/` call creates two sessions: an outbound A-leg (`loopback/\<destination\>-a`) and a matching B-leg (`loopback/\<destination\>-b`) that enters the dialplan as an inbound call. This lets you use `bridge`, `originate`, or any bridge-based application to send a call back through the dialplan for additional routing logic, IVRs, or conference injection.
+
+### Dial String {#dial-string}
+
+```
+loopback/<destination>[/<context>[/<dialplan>]]
+```
+
+- `<destination>` is the number or string routed by the target context.
+- `<context>` overrides the dialplan context for the B-leg (default: `default`).
+- `<dialplan>` overrides the dialplan module (default: `XML`).
+
+An alternate form routes the B-leg directly to an application:
+
+```
+loopback/app=<application>[:<argument>]
+```
+
+### Configuration File {#loopback-configuration-file}
+
+`mod_loopback` reads `autoload_configs/loopback.conf.xml` if present. No vanilla copy of this file ships with FreeSWITCH; all parameters default to the compiled-in values. The module operates without the file.
+
+```xml
+<configuration name="loopback.conf" description="Loopback Endpoint">
+  <settings>
+    <param name="early-set-loopback-id" value="false"/>
+    <param name="fire-bowout-on-bridge" value="false"/>
+    <param name="ignore-channel-ready" value="false"/>
+    <param name="bowout-hangup-cause" value="NORMAL_UNSPECIFIED"/>
+    <param name="bowout-controlled-hangup" value="false"/>
+    <param name="bowout-transfer-recording" value="false"/>
+    <param name="bowout-disable-on-inner-bridge" value="false"/>
+  </settings>
+</configuration>
+```
+
+### Parameters {#loopback-parameters}
+
+| Parameter | Purpose | Values | Default |
+|---|---|---|---|
+| `early-set-loopback-id` | Set the loopback channel variables `loopback_leg` and `is_loopback` on both legs before the B-leg is answered | `true` / `false` | `false` |
+| `fire-bowout-on-bridge` | Fire `loopback::direct` custom events when a media-path bowout bridge is executed | `true` / `false` | `false` |
+| `ignore-channel-ready` | Allow media reads to continue even when the channel is not yet in the ready state | `true` / `false` | `false` |
+| `bowout-hangup-cause` | Hangup cause applied to both loopback legs when a bowout terminates them | Any FreeSWITCH cause name | `NORMAL_UNSPECIFIED` |
+| `bowout-controlled-hangup` | Set `CF_INTERCEPTED` on both legs and explicitly hang them up after a bowout bridge | `true` / `false` | `false` |
+| `bowout-transfer-recording` | Transfer active call recordings to the bridged real legs when a bowout succeeds | `true` / `false` | `false` |
+| `bowout-disable-on-inner-bridge` | Suppress automatic bowout when the A-leg carries the `CF_INNER_BRIDGE` flag | `true` / `false` | `false` |
+
+**Bowout** is the automatic replacement of the loopback bridge with a direct media bridge between the two real endpoints once both legs are answered, eliminating the loopback relay.
+
+### Channel Variables {#loopback-channel-variables}
+
+The following channel variables influence per-call loopback behavior at runtime.
+
+| Variable | Effect |
+|---|---|
+| `loopback_bowout` | Set to `false` on either leg to prevent automatic bowout for that call |
+| `loopback_bowout_on_execute` | Set to `true` on the A-leg to trigger a bowout-style replacement when the B-leg enters the execute state |
+| `loopback_export` | Comma-separated list of variable names to copy from the A-leg to the B-leg at channel creation |
+| `loopback_no_pre_answer` | Set to `true` on the originating channel to suppress the automatic `pre_answer` issued before the A-leg is created |
+| `loopback_initial_codec` | Codec string (e.g. `PCMU/8000/20`) to use for the initial loopback codec instead of inheriting from the originating channel |
+
+### The null Endpoint {#the-null-endpoint}
+
+`mod_loopback` also registers the `null` endpoint. A `null` channel accepts and immediately terminates a call with a configurable hangup cause. It is useful in dialplan actions that require a bridgeable destination with no media. To cause a specific failure, use `null/cause-\<cause-name\>` (for example, `null/cause-USER_BUSY`).
+
+---
+
+## mod_skinny {#mod_skinny}
+
+`mod_skinny` implements the Cisco Skinny Client Control Protocol (SCCP), supporting Cisco IP phones that use SCCP firmware. It is **not loaded by default**.
+
+### Configuration Files {#skinny-configuration-files}
+
+`mod_skinny` uses two configuration layers:
+
+1. `autoload_configs/skinny.conf.xml` - the top-level file that includes profile definitions.
+2. `skinny_profiles/*.xml` - one file per SCCP listener profile.
+
+`skinny.conf.xml` contains only the include directive:
+
+```xml
+<configuration name="skinny.conf" description="Skinny Endpoints">
+  <profiles>
+    <X-PRE-PROCESS cmd="include" data="../skinny_profiles/*.xml"/>
+  </profiles>
+</configuration>
+```
+
+Each file under `skinny_profiles/` defines one listener profile. The vanilla profile is `skinny_profiles/internal.xml`:
+
+```xml
+<profile name="internal">
+  <settings>
+    <param name="domain" value="$${domain}"/>
+    <param name="ip" value="$${local_ip_v4}"/>
+    <param name="port" value="2000"/>
+    <param name="patterns-dialplan" value="XML"/>
+    <param name="patterns-context" value="skinny-patterns"/>
+    <param name="dialplan" value="XML"/>
+    <param name="context" value="default"/>
+    <param name="keep-alive" value="60"/>
+    <param name="date-format" value="D/M/Y"/>
+    <param name="odbc-dsn" value=""/>
+    <param name="debug" value="4"/>
+    <param name="auto-restart" value="true"/>
+    <param name="digit-timeout" value="10000"/>
+  </settings>
+  <soft-key-set-sets>
+    <!-- ... -->
+  </soft-key-set-sets>
+  <device-types>
+    <!-- ... -->
+  </device-types>
+</profile>
+```
+
+### Profile Parameters {#skinny-profile-parameters}
+
+Changing `ip` or `port` sets a `PFLAG_SHOULD_RESPAWN` flag on the profile. `odbc-dsn` cannot be changed while the listener socket is open.
+
+| Parameter | Purpose | Values | Default (compiled-in) |
+|---|---|---|---|
+| `domain` | Domain name sent to phones in SCCP messages | Hostname or IP string | (none; required) |
+| `ip` | IP address the SCCP TCP listener binds to | IPv4 address | (none; required) |
+| `port` | TCP port the SCCP listener binds to | Integer | `2000` |
+| `dialplan` | Dialplan module for inbound calls from registered phones | Module name | `XML` |
+| `context` | Dialplan context for inbound calls | Context name | `default` |
+| `patterns-dialplan` | Dialplan module used to resolve dial-pattern matching | Module name | `XML` |
+| `patterns-context` | Dialplan context used to resolve dial-pattern matching | Context name | `skinny-patterns` |
+| `keep-alive` | Interval in seconds between keep-alive messages sent to phones | Integer (seconds) | `60` (vanilla: `60`) |
+| `date-format` | Date format string pushed to phone displays | `D/M/Y`, `M/D/Y`, `Y/M/D`, etc. | (none; vanilla: `D/M/Y`) |
+| `odbc-dsn` | ODBC data source name for device/line registration persistence | DSN string | (empty; uses SQLite) |
+| `digit-timeout` | Milliseconds to wait for the next digit during dialing | Integer (ms) | `10000` |
+| `debug` | Verbosity of SCCP debug logging | Integer | `0` (compiled-in); vanilla sets `4` |
+| `auto-restart` | Automatically restart the profile listener on configuration reload | `true` / `false` | `true` |
+| `non-blocking` | Use non-blocking I/O on the listener socket | `true` / `false` | `false` |
+| `ext-voicemail` | Extension dialed when a phone presses the voicemail softkey | Extension string | `vmain` |
+| `ext-redial` | Extension dialed when a phone presses the redial softkey | Extension string | `redial` |
+| `ext-meetme` | Extension dialed when a phone presses the meet-me softkey | Extension string | `conference` |
+| `ext-pickup` | Extension dialed when a phone presses the pickup softkey | Extension string | `pickup` |
+| `ext-cfwdall` | Extension dialed when a phone presses the call-forward-all softkey | Extension string | `cfwdall` |
+
+### Soft Key Sets {#soft-key-sets}
+
+The `<soft-key-set-sets>` block inside a profile defines the buttons displayed on the phone screen for each call state. The vanilla profile provides a `default` set with entries for states such as `KeySetOnHook`, `KeySetConnected`, `KeySetOnHold`, `KeySetRingIn`, `KeySetOffHook`, `KeySetConnectedWithTransfer`, `KeySetDigitsAfterDialingFirstDigit`, `KeySetRingOut`, `KeySetOffHookWithFeatures`, and `KeySetInUseHint`. Each entry maps a state name to a comma-separated list of softkey names (for example, `SoftkeyEndcall`, `SoftkeyHold`, `SoftkeyTransfer`).
+
+### Device Types {#device-types}
+
+The `<device-types>` block allows per-model firmware overrides. Each `<device-type>` entry identifies a phone model by its `id` attribute and accepts a `firmware-version` parameter specifying the firmware string pushed to matching devices.
+
+```xml
+<device-types>
+  <device-type id="Cisco ATA 186">
+    <param name="firmware-version" value="ATA030101SCCP04"/>
+  </device-type>
+</device-types>
+```
+
+---
+
+## mod_rtmp {#mod_rtmp}
+
+`mod_rtmp` implements the Real-Time Messaging Protocol (RTMP), allowing Flash-based browser clients to place and receive calls through FreeSWITCH. It is **not loaded by default**.
+
+### Configuration File {#rtmp-configuration-file}
+
+`autoload_configs/rtmp.conf.xml` contains one or more named profiles. The vanilla file ships with a single `default` profile:
+
+```xml
+<configuration name="rtmp.conf" description="RTMP Endpoint">
+  <profiles>
+    <profile name="default">
+      <settings>
+        <param name="bind-address" value="0.0.0.0:1935"/>
+        <param name="context" value="public"/>
+        <param name="dialplan" value="XML"/>
+        <param name="auth-calls" value="true"/>
+        <param name="buffer-len" value="50"/>
+        <param name="chunksize" value="512"/>
+      </settings>
+    </profile>
+  </profiles>
+</configuration>
+```
+
+### Parameters {#rtmp-parameters}
+
+The table below lists the compiled-in defaults. The vanilla `rtmp.conf.xml` overrides three of them: `auth-calls` is `true`, `chunksize` is `512`, and `buffer-len` is `50`.
+
+| Parameter | Purpose | Values | Compiled Default |
+|---|---|---|---|
+| `bind-address` | IP address and port the RTMP listener binds to; not reloadable | `ip:port` string | `0.0.0.0:1935` |
+| `context` | Dialplan context for inbound RTMP calls | Context name | `public` |
+| `dialplan` | Dialplan module for inbound RTMP calls | Module name | `XML` |
+| `io` | I/O transport module; not reloadable | `tcp` | `tcp` |
+| `auth-calls` | Reject unauthenticated inbound calls | `true` / `false` | `false` (vanilla: `true`) |
+| `chunksize` | Maximum size in bytes of outbound RTMP chunks | Integer (128-65536) | `128` (vanilla: `512`) |
+| `buffer-len` | Media buffer length in milliseconds sent to Flash clients | Integer (0-`INT32_MAX`) | `500` (vanilla: `50`) |
+
+`bind-address` and `io` are applied at profile load time and are not reloadable at runtime. All other parameters accept live reload via `reload mod_rtmp`.
+
+---
+
+## mod_alsa {#mod_alsa}
+
+`mod_alsa` exposes the local ALSA sound card as a single FreeSWITCH endpoint, allowing the server host machine to act as a phone handset. It is **not loaded by default** and is only useful on systems with a local audio device (for example, an embedded appliance or development workstation).
+
+### Configuration File {#alsa-configuration-file}
+
+`autoload_configs/alsa.conf.xml` configures the single global device. The module fails to load if the file is absent. The vanilla file ships with only the 5 parameters shown in the example below; the remaining parameters listed in the table accept defaults when omitted.
+
+```xml
+<configuration name="alsa.conf" description="Soundcard Endpoint">
+  <settings>
+    <param name="dialplan" value="XML"/>
+    <param name="cid-name" value="N800 Alsa"/>
+    <param name="cid-num" value="5555551212"/>
+    <param name="sample-rate" value="8000"/>
+    <param name="codec-ms" value="20"/>
+  </settings>
+</configuration>
+```
+
+### Parameters {#alsa-parameters}
+
+| Parameter | Purpose | Values | Default |
+|---|---|---|---|
+| `dialplan` | Dialplan module used for inbound calls from the sound card | Module name | `default` |
+| `cid-name` | Caller ID name presented on outbound calls from this device | String | (none) |
+| `cid-num` | Caller ID number presented on outbound calls from this device | String | (none) |
+| `sample-rate` | Audio sample rate in Hz for both capture and playback | Integer | `8000` |
+| `codec-ms` | Codec packet interval in milliseconds; must be a multiple of 10 and no greater than `SWITCH_MAX_INTERVAL` | Integer | `20` |
+| `device-name` | ALSA device name passed to `snd_pcm_open` for both capture and playback | ALSA device string | `default` |
+| `ring-file` | Path to an audio file played through the speaker when an inbound call is ringing | File path | (none) |
+| `hold-file` | Path to an audio file played to the held party; can be overridden per-call with the `pa_hold_file` channel variable | File path | (none) |
+| `ring-interval` | Seconds between ring-file playback repetitions | Integer (seconds) | `5` |
+| `timer-name` | FreeSWITCH timer module used for codec pacing | Timer name | `soft` |
+| `debug` | Enable debug logging for the module | Integer (0 or 1) | `0` |
+
+`mod_alsa` supports only one active audio device at a time. Only the call flagged as master receives and sends audio; all other concurrent calls receive comfort noise or the hold file. The channel variable `pa_ring_file` overrides `ring-file` per outbound call.

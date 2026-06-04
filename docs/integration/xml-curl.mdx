@@ -1,0 +1,505 @@
+---
+id: xml-curl
+slug: /integration/xml-curl
+title: "Chapter 26: HTTP Integration: XML Curl and HTTAPI"
+sidebar_label: "26. HTTP Integration"
+---
+
+# Chapter 26: HTTP Integration: XML Curl and HTTAPI
+
+FreeSWITCH provides two distinct HTTP integration points. `mod_xml_curl` replaces the static XML file lookup for one or more configuration sections with an HTTP request to a backend service, enabling centralized, database-driven configuration. `mod_httapi` is a dialplan application that hands live call control to an HTTP backend: for each step of the call, FreeSWITCH posts current call state to a URL and the backend returns an XML document telling FreeSWITCH what to do next. The two mechanisms are independent and complementary.
+
+## Table of Contents
+
+- [Part 1: XML Curl](#part-1-xml-curl)
+  - [1. How XML Curl Works](#1-how-xml-curl-works)
+  - [2. Enabling the Module](#2-enabling-the-module)
+  - [3. Configuration File](#3-configuration-file)
+  - [4. Bindings](#4-bindings)
+    - [4.1 The gateway-url Parameter and the bindings Attribute](#41-the-gateway-url-parameter-and-the-bindings-attribute)
+    - [4.2 Bindable Section Names](#42-bindable-section-names)
+    - [4.3 Binding Parameter Reference](#43-binding-parameter-reference)
+  - [5. The HTTP Request](#5-the-http-request)
+  - [6. The HTTP Response](#6-the-http-response)
+    - [6.1 Found Response](#61-found-response)
+    - [6.2 Not-Found Response](#62-not-found-response)
+  - [7. Loading mod_xml_curl Early](#7-loading-mod_xml_curl-early)
+  - [8. Behavior with Static Files](#8-behavior-with-static-files)
+  - [9. Debug Mode](#9-debug-mode)
+- [Part 2: HTTAPI](#part-2-httapi)
+  - [10. HTTAPI Overview](#10-httapi-overview)
+  - [11. Enabling mod_httapi](#11-enabling-mod_httapi)
+  - [12. httapi.conf.xml](#12-httapiconfxml)
+    - [12.1 Global Settings](#121-global-settings)
+    - [12.2 Profile Params Reference](#122-profile-params-reference)
+    - [12.3 Permissions Reference](#123-permissions-reference)
+  - [13. The httapi Dialplan Application](#13-the-httapi-dialplan-application)
+    - [13.1 Application Syntax](#131-application-syntax)
+    - [13.2 Fields Posted to the Backend](#132-fields-posted-to-the-backend)
+    - [13.3 Response Document Structure](#133-response-document-structure)
+    - [13.4 Response Verb Reference](#134-response-verb-reference)
+    - [13.5 Worked Example](#135-worked-example)
+
+---
+
+## Part 1: XML Curl
+
+## 1. How XML Curl Works
+
+FreeSWITCH uses an XML registry as its runtime data store. When FreeSWITCH needs to look up a dialplan, a directory entry, or a module configuration, it queries the registry for the appropriate section. By default, the registry is served from static files on disk.
+
+`mod_xml_curl` registers a fetch handler for one or more sections. When FreeSWITCH queries a bound section, `mod_xml_curl` makes an HTTP request to a configured URL, passing the lookup context as POST fields. The backend must return a well-formed XML document for that section. FreeSWITCH parses the response and uses it in place of the static file it would otherwise read.
+
+The binding is exclusive for the bound sections: once a section is bound to a URL, that URL is the sole source for that section. Static files for bound sections are not consulted.
+
+---
+
+## 2. Enabling the Module
+
+Add `mod_xml_curl` to `autoload_configs/modules.conf.xml` if it is not already present:
+
+```xml
+<load module="mod_xml_curl"/>
+```
+
+When `mod_xml_curl` must serve configuration for modules that load at startup, it must load before those modules. See [Section 7](#7-loading-mod_xml_curl-early) for the early-load mechanism.
+
+---
+
+## 3. Configuration File
+
+`mod_xml_curl` reads `autoload_configs/xml_curl.conf.xml`. The root element is a `<configuration>` element containing a single `<bindings>` child. Each `<binding>` element defines one HTTP gateway.
+
+```xml
+<configuration name="xml_curl.conf" description="cURL XML Gateway">
+  <bindings>
+    <binding name="my-backend">
+      <param name="gateway-url" value="https://example.com/freeswitch/xml" bindings="directory"/>
+      <param name="gateway-credentials" value="fsuser:secret"/>
+      <param name="auth-scheme" value="basic"/>
+      <param name="timeout" value="10"/>
+    </binding>
+  </bindings>
+</configuration>
+```
+
+Multiple `<binding>` elements are permitted. Each binding is independent and may serve different sections.
+
+---
+
+## 4. Bindings
+
+### 4.1 The gateway-url Parameter and the bindings Attribute
+
+The `gateway-url` parameter sets the HTTP endpoint for the binding. Its `bindings` XML attribute (not a child `<param>`) declares which sections this binding handles:
+
+```xml
+<param name="gateway-url" value="https://example.com/freeswitch/xml" bindings="directory"/>
+```
+
+The `bindings` attribute accepts one or more pipe-delimited section names:
+
+```xml
+<param name="gateway-url" value="https://example.com/freeswitch/xml" bindings="directory|dialplan"/>
+```
+
+If the `bindings` attribute is omitted, the binding handles all sections.
+
+The value may also use the `file:` scheme to read from a local file path instead of making an HTTP request:
+
+```xml
+<param name="gateway-url" value="file:/etc/freeswitch/static-directory.xml" bindings="directory"/>
+```
+
+When a `file:` URL is used, `mod_xml_curl` reads the named file directly. The `gateway-credentials`, `method`, `timeout`, and all TLS parameters are ignored for file-scheme URLs.
+
+### 4.2 Bindable Section Names
+
+The following section names are recognized by `switch_xml_parse_section_string` and may be used in the `bindings` attribute:
+
+| Section Name | What It Covers |
+|---|---|
+| `config` | Module configuration (`autoload_configs/*.conf.xml`) |
+| `directory` | User directory and SIP authentication |
+| `dialplan` | Dialplan contexts and extensions |
+| `languages` | Phrase macro language definitions |
+| `chatplan` | Chat routing plans |
+| `channels` | Channel variable lookups |
+
+### 4.3 Binding Parameter Reference
+
+All parameters are child `<param>` elements of a `<binding>` element.
+
+| Parameter | Purpose | Values | Default |
+|---|---|---|---|
+| `gateway-url` | Endpoint to fetch XML from. Carries a `bindings` XML attribute to declare which sections this binding serves. Also accepts a `file:` scheme path to read from a local file. | HTTP or HTTPS URL, or `file:/path/to/file`. Variable substitution in the URL is supported when `use-dynamic-url` is enabled. | None (required) |
+| `gateway-credentials` | HTTP authentication credentials. | `username:password` string | None |
+| `auth-scheme` | Authentication scheme used when `gateway-credentials` is set. Prefix with `=` to use the specified scheme exclusively rather than allowing libcurl to negotiate. | `basic`, `digest`, `NTLM`, `GSS-NEGOTIATE`, `any` | `basic` |
+| `method` | HTTP method for the request. When absent or set to `post`, the fields are sent as a POST body. When set to any other value, the fields are appended to the URL as a query string and the request is issued with that method name. | `post`, or any HTTP method string | Absent (POST behavior) |
+| `disable-100-continue` | Controls whether the `Expect: 100-continue` header is suppressed. Set to `false` to send the header; omitting this parameter or setting it to `true` suppresses it. | `true`, `false` | `true` (header suppressed) |
+| `timeout` | Maximum seconds to wait for a response from the backend. Zero means no timeout. | Non-negative integer | `0` (no timeout) |
+| `enable-cacert-check` | Enables libcurl CA root certificate verification. Only meaningful for HTTPS URLs. | `true`, `false` | `false` |
+| `enable-ssl-verifyhost` | Verifies that the server hostname matches the certificate's CN or SAN. | `true`, `false` | `false` |
+| `ssl-cert-path` | Path to the PEM-format client public certificate for mutual TLS. Use with `ssl-key-path`. | Absolute file path | None |
+| `ssl-key-path` | Path to the PEM-format client private key for mutual TLS. Use with `ssl-cert-path`. | Absolute file path | None |
+| `ssl-key-password` | Passphrase for the private key specified in `ssl-key-path`. | String | None |
+| `ssl-version` | Forces a specific TLS/SSL protocol version. | `SSLv3`, `TLSv1` | libcurl auto-negotiates |
+| `ssl-cacert-file` | Path to a PEM-format CA certificate used to verify the peer. Requires `enable-cacert-check` to be `true`. | Absolute file path | None |
+| `cookie-file` | Path to a file for storing and sending HTTP cookies across requests. | Absolute file path | None |
+| `bind-local` | Source IP address or interface to use for outbound requests. | IP address string | System default |
+| `use-dynamic-url` | Enables FreeSWITCH channel variable expansion in the `gateway-url` value at request time. When enabled, the five core request fields (`hostname`, `section`, `tag_name`, `key_name`, `key_value`) are added to the variable set available for expansion. | `true`, `false` | `false` |
+| `enable-post-var` | Restricts which POST fields are sent. Each instance names one variable to include. Without any `enable-post-var` parameters, all available fields are sent. | Variable name string | All fields sent |
+| `response-max-bytes` | Maximum response body size in bytes that FreeSWITCH will accept. Responses exceeding this limit are discarded. | Non-negative integer | `1048576` (1 MB) |
+
+---
+
+## 5. The HTTP Request
+
+`mod_xml_curl` uses libcurl to contact the configured `gateway-url`. By default the request is HTTP POST with `Content-Type: application/x-www-form-urlencoded`. The `User-Agent` header is `freeswitch-xml/1.0`.
+
+The request body (or query string, when using non-POST method) contains the following fields, plus any additional FreeSWITCH channel or event variables in scope at the time of the lookup:
+
+| Field | Description |
+|---|---|
+| `hostname` | The FreeSWITCH switch name (the `switch_name` value from `switch.conf.xml`, or the system hostname if not configured) |
+| `section` | The section being requested (e.g., `directory`, `dialplan`) |
+| `tag_name` | The XML tag being searched (e.g., `domain`, `context`) |
+| `key_name` | The attribute name used for the lookup (e.g., `name`) |
+| `key_value` | The attribute value being looked up (e.g., the domain name or context name) |
+
+When `enable-post-var` parameters are present, only the named variables and the five core fields above are included.
+
+When `method` is set to any value other than `post`, all fields are appended to the URL as a query string and the request is issued using that method.
+
+FreeSWITCH follows up to 10 HTTP redirects.
+
+---
+
+## 6. The HTTP Response
+
+### 6.1 Found Response
+
+The backend must return HTTP `200` with a body that is a valid FreeSWITCH XML section document. The document must begin with a `<document>` root element containing a `<section>` element whose `name` attribute matches the requested section.
+
+Example response for a `directory` lookup:
+
+```xml
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<document type="freeswitch/xml">
+  <section name="directory">
+    <domain name="example.com">
+      <users>
+        <user id="1000">
+          <params>
+            <param name="password" value="correcthorsebatterystaple"/>
+          </params>
+          <variables>
+            <variable name="toll_allow" value="domestic"/>
+          </variables>
+        </user>
+      </users>
+    </domain>
+  </section>
+</document>
+```
+
+Any HTTP status code other than `200` causes FreeSWITCH to discard the response and log an error.
+
+### 6.2 Not-Found Response
+
+When the backend cannot find the requested entry, it must return HTTP `200` with a not-found result document. FreeSWITCH checks for this structure and treats it as a miss, allowing the lookup to fall through:
+
+```xml
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<document type="freeswitch/xml">
+  <section name="result">
+    <result status="not found"/>
+  </section>
+</document>
+```
+
+Returning an empty body or a non-200 status code is not equivalent to a not-found result and will produce log errors.
+
+---
+
+## 7. Loading mod_xml_curl Early
+
+`mod_xml_curl` loads in the normal module load sequence defined by `autoload_configs/modules.conf.xml`. If `mod_xml_curl` is bound to the `config` section and another module that loads at startup reads its configuration from that section, a race condition occurs: the module loads before `mod_xml_curl` is ready to serve its configuration.
+
+To load `mod_xml_curl` before any other modules, add it to `autoload_configs/pre_load_modules.conf.xml`:
+
+```xml
+<configuration name="pre_load_modules.conf" description="Modules">
+  <modules>
+    <load module="mod_xml_curl"/>
+  </modules>
+</configuration>
+```
+
+Modules listed in `pre_load_modules.conf.xml` are loaded before the main module list is processed. Do not duplicate the entry in `modules.conf.xml`; list `mod_xml_curl` in only one file.
+
+---
+
+## 8. Behavior with Static Files
+
+A binding to a section completely replaces static-file lookup for that section. FreeSWITCH does not fall back to disk files when `mod_xml_curl` returns a valid not-found document. The backend is the sole authority for every lookup in a bound section.
+
+Sections not listed in any binding's `bindings` attribute continue to be served from static files as normal.
+
+---
+
+## 9. Debug Mode
+
+`mod_xml_curl` exposes an API command to retain temporary response files on disk for inspection instead of deleting them after each fetch:
+
+```
+freeswitch> xml_curl debug_on
+freeswitch> xml_curl debug_off
+```
+
+When debug mode is on, each response is written to a `.tmp.xml` file in the FreeSWITCH `temp` directory and the path is printed to the console log. Use `debug_off` to resume normal cleanup.
+
+---
+
+## Part 2: HTTAPI
+
+## 10. HTTAPI Overview
+
+`mod_httapi` is a dialplan application. Instead of statically configuring call flow in the dialplan, the operator points a call at the `httapi` application with a URL. For each step of the call, FreeSWITCH POSTs the current session state to that URL and expects an XML document in response. The document contains a `<work>` element whose child elements are verbs that instruct FreeSWITCH what to do next: play a file, collect digits, transfer the call, hang up, and so on. When the verb completes, FreeSWITCH POSTs again, creating a request-response loop until the call ends.
+
+This is distinct from XML Curl. XML Curl serves static configuration and directory data to FreeSWITCH at lookup time; it is not involved in live call control. HTTAPI drives call control step by step over HTTP during a live session.
+
+`mod_httapi` is included in the default FreeSWITCH build and is loaded automatically when present in `autoload_configs/modules.conf.xml`.
+
+---
+
+## 11. Enabling mod_httapi
+
+Confirm that `mod_httapi` is listed in `autoload_configs/modules.conf.xml`:
+
+```xml
+<load module="mod_httapi"/>
+```
+
+The module reads its configuration from `autoload_configs/httapi.conf.xml` on load.
+
+---
+
+## 12. httapi.conf.xml
+
+The configuration file has three top-level sections under the `<configuration>` root: `<settings>` for global parameters, `<profiles>` containing one or more `<profile>` elements, and within each profile: a `<params>` block for HTTP connection settings, a `<permissions>` block controlling what the backend is allowed to do, and optional `<conference>` and `<dial>` blocks for defaults used by those verbs.
+
+```xml
+<configuration name="httapi.conf" description="HT-TAPI Hypertext Telephony API">
+  <settings>
+    <param name="debug" value="false"/>
+    <param name="file-cache-ttl" value="300"/>
+    <param name="file-not-found-expires" value="300"/>
+  </settings>
+  <profiles>
+    <profile name="default">
+      <conference>
+        <param name="default-profile" value="default"/>
+      </conference>
+      <dial>
+        <param name="context" value="default"/>
+        <param name="dialplan" value="XML"/>
+      </dial>
+      <permissions>
+        <permission name="set-params" value="true"/>
+        <permission name="execute-apps" value="true">
+          <application-list default="deny">
+            <application name="info"/>
+            <application name="hangup"/>
+          </application-list>
+        </permission>
+        <permission name="dial" value="true"/>
+        <permission name="conference" value="true"/>
+      </permissions>
+      <params>
+        <param name="gateway-url" value="http://example.com/httapi"/>
+      </params>
+    </profile>
+  </profiles>
+</configuration>
+```
+
+### 12.1 Global Settings
+
+These parameters appear in the `<settings>` element and apply to all profiles.
+
+| Parameter | Purpose | Values | Default |
+|---|---|---|---|
+| `debug` | Print the full XML response to the console on every request. | `true`, `false` | `true` (in sample config; use `false` in production) |
+| `file-cache-ttl` | Seconds before re-checking the HTTP server to see whether a remotely fetched audio file has changed. | Non-negative integer | `300` |
+| `abs-file-cache-ttl` | Absolute maximum seconds a cached file is kept regardless of server headers. | Non-negative integer | `0` (disabled) |
+| `file-not-found-expires` | Seconds to cache a 404 response for a remote audio file before retrying. Set to `-1` to cache indefinitely. | Integer | `300` |
+
+### 12.2 Profile Params Reference
+
+Parameters inside a profile's `<params>` block configure the HTTP connection used when contacting the backend for call control. All are optional except `gateway-url`.
+
+| Parameter | Purpose | Values | Default |
+|---|---|---|---|
+| `gateway-url` | URL that FreeSWITCH POSTs call state to. Can be overridden per-call by passing a URL as application data. | HTTP or HTTPS URL | None (required) |
+| `gateway-credentials` | HTTP authentication credentials. | `username:password` string | None |
+| `auth-scheme` | Authentication scheme when `gateway-credentials` is set. Prefix with `=` to force the exact scheme rather than allowing negotiation. | `basic`, `digest`, `NTLM`, `GSS-NEGOTIATE`, `any` | `basic` |
+| `method` | HTTP method. When absent or set to `post`, fields are sent as a POST body. Any other value causes parameters to be appended as a query string using that method. | `post`, or any HTTP method string | POST |
+| `disable-100-continue` | Suppresses the `Expect: 100-continue` header when `true`. | `true`, `false` | `true` (header suppressed) |
+| `timeout` | Maximum seconds to wait for the backend response. | Non-negative integer | `0` (no timeout) |
+| `connect-timeout` | Maximum seconds to wait when establishing the TCP connection. | Non-negative integer | `0` (no timeout) |
+| `enable-cacert-check` | Enables libcurl CA certificate verification for HTTPS. | `true`, `false` | `false` |
+| `enable-ssl-verifyhost` | Verifies that the server hostname matches the TLS certificate. | `true`, `false` | `false` |
+| `ssl-cert-path` | Path to the PEM client public certificate for mutual TLS. | Absolute file path | None |
+| `ssl-key-path` | Path to the PEM client private key for mutual TLS. | Absolute file path | None |
+| `ssl-key-password` | Passphrase for the private key in `ssl-key-path`. | String | None |
+| `ssl-version` | Forces a specific TLS protocol version. | `SSLv3`, `TLSv1` | libcurl auto-negotiates |
+| `ssl-cacert-file` | PEM CA certificate to verify the peer. Requires `enable-cacert-check true`. | Absolute file path | None |
+| `cookie-file` | Path to a file for storing and sending HTTP cookies across requests. | Absolute file path | None |
+| `bind-local` | Source IP address for outbound HTTP requests. | IP address string | System default |
+| `enable-post-var` | Restricts which POST fields are sent. Each instance names one variable to include. Without any `enable-post-var` params, all available fields are sent. | Variable name string | All fields sent |
+| `user-agent` | HTTP `User-Agent` header value. | String | `mod_httapi/1.0` |
+
+### 12.3 Permissions Reference
+
+Permissions are child `<permission>` elements of the `<permissions>` block inside a profile. They control what actions the HTTP backend is allowed to request. Setting `name="all" value="true"` enables everything; `name="none" value="true"` disables everything. Individual permissions override `all`/`none` when listed after them.
+
+| Permission | Default | What it allows |
+|---|---|---|
+| `set-params` | `true` | Backend can set named parameters in the `<params>` section of a response, which are then included in subsequent POSTs. |
+| `set-vars` | `false` | Backend can set FreeSWITCH channel variables via a `<variables>` section in the response. Supports an optional `<variable-list>` child to allowlist or denylist specific variable names. |
+| `get-vars` | `false` | Backend can request channel variable values using the `<getVariable>` verb. Supports an optional `<variable-list>` child. |
+| `extended-data` | `false` | Full channel event data (caller profile and all channel variables) is included in every POST, not just on the first request. |
+| `execute-apps` | `true` | Backend can execute FreeSWITCH dialplan applications using the `<execute>` verb. Requires an `<application-list>` child element to define which applications are allowed or denied; the `default` attribute on `<application-list>` sets the list's default policy (`allow` or `deny`). |
+| `expand-vars-in-tag-body` | `false` | FreeSWITCH expands channel variable references found in verb tag body text before executing the verb. Supports `<variable-list>` and `<api-list>` children to restrict which variables and API functions can be expanded. |
+| `dial` | `true` | Backend can use the `<dial>` verb to transfer the call or bridge to a destination. |
+| `dial-set-context` | `false` | Backend can override the dialplan context used by `<dial>`. Enabling this implicitly enables `dial`. |
+| `dial-set-dialplan` | `false` | Backend can override the dialplan module used by `<dial>`. Enabling this implicitly enables `dial`. |
+| `dial-set-cid-name` | `false` | Backend can override the caller ID name via the `caller-id-name` attribute of `<dial>`. Enabling this implicitly enables `dial`. |
+| `dial-set-cid-number` | `false` | Backend can override the caller ID number via the `caller-id-number` attribute of `<dial>`. Enabling this implicitly enables `dial`. |
+| `dial-full-originate` | `false` | Backend can supply a full originate string (with `/`) in the `<dial>` verb body, causing FreeSWITCH to bridge the call directly rather than performing a session transfer. Enabling this implicitly enables `dial`. |
+| `conference` | `true` | Backend can use the `<conference>` verb to drop the call into a conference room. |
+| `conference-set-profile` | `false` | Backend can override the conference profile via the `profile` attribute of `<conference>`. Enabling this implicitly enables `conference`. |
+
+---
+
+## 13. The httapi Dialplan Application
+
+### 13.1 Application Syntax
+
+The `httapi` application is invoked from the dialplan like any other application:
+
+```xml
+<action application="httapi" data="http://example.com/ivr/start"/>
+```
+
+The `data` field accepts:
+
+- A plain URL: FreeSWITCH uses the `default` profile and contacts that URL.
+- A URL with inline parameters in curly-brace notation: `{param=value,param2=value2}http://example.com/ivr/start`. The key `httapi_profile` selects which profile to use.
+- No data: FreeSWITCH uses the `default` profile's `gateway-url`.
+
+The profile can also be selected by setting the channel variable `httapi_profile` before invoking the application.
+
+### 13.2 Fields Posted to the Backend
+
+FreeSWITCH sends an HTTP POST with `Content-Type: application/x-www-form-urlencoded` to the configured URL. The following fields are always present:
+
+| Field | Description |
+|---|---|
+| `session_id` | The FreeSWITCH session UUID for this call. |
+| `hostname` | The FreeSWITCH switch name. |
+| `url` | The current gateway URL being requested. |
+| `exiting` | Set to `true` on the final POST made when the call ends (sent during the reporting state handler). Absent on all other requests. |
+
+When a call is first handled, caller profile fields are added under the `Caller-` prefix (for example, `Caller-Caller-ID-Name`, `Caller-Destination-Number`). When `extended-data` is enabled, all channel variables are included on the first request, and optionally on every subsequent request if `full_channel_data_on_every_req` is set in the backend's `<params>` response.
+
+Parameters set by the backend in a `<params>` response block (see Section 13.3) are carried forward and re-POSTed on every subsequent request in the session, making them available as persistent state across the request-response loop.
+
+When `enable-post-var` entries are configured in the profile, only the named variables (plus the core fields above) are included.
+
+### 13.3 Response Document Structure
+
+The backend must return HTTP `200` with `Content-Type: text/xml`. The document envelope is:
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<document type="xml/freeswitch-httapi">
+  <params>
+    <!-- persistent key-value pairs re-posted on every subsequent request -->
+    <mykey>myvalue</mykey>
+  </params>
+  <variables>
+    <!-- channel variables to set (requires set-vars permission) -->
+    <some_variable>value</some_variable>
+  </variables>
+  <work>
+    <!-- one or more verb elements executed in order -->
+    <playback file="http://example.com/audio/welcome.wav" loops="1"/>
+    <hangup/>
+  </work>
+</document>
+```
+
+The `<params>` and `<variables>` sections are optional. The `<work>` section is required; if it is absent or empty, FreeSWITCH logs a warning and ends the loop.
+
+Verbs inside `<work>` are processed in document order. Processing stops when a verb returns a non-success status (for example, `<hangup>` or `<break>`), or when the channel is no longer active.
+
+Most verbs accept an `action` attribute that redirects subsequent requests to a different URL for that step, and a `temp-action` attribute that redirects only the immediately following request.
+
+### 13.4 Response Verb Reference
+
+| Verb | Effect | Key Attributes |
+|---|---|---|
+| `<playback>` | Plays an audio file or prompt to the caller. Supports digit collection via `<bind>` child elements. | `file` (URL or path), `loops`, `name` (param name for collected input), `action` (URL for next step), `error-file`, `digit-timeout`, `input-timeout`, `terminators`, `asr-engine`, `asr-grammar` |
+| `<say>` | Speaks text using the FreeSWITCH `say` engine (text-to-speech via language modules). | `language`, `type`, `method`, `text` (or tag body), `gender`, plus digit-collection attributes |
+| `<speak>` | Speaks text using a TTS engine directly. | `engine`, `voice`, `text` (or tag body), plus digit-collection attributes |
+| `<pause>` | Waits silently for the specified duration. | `milliseconds` |
+| `<record>` | Records caller audio to a file or URL, then submits it to the backend. | `file` (destination filename or HTTP URL), `name` (param name), `action`, `beep-file`, `error-file`, `digit-timeout`, `terminators`, `<bind>` children |
+| `<recordCall>` | Records the entire call (both legs) to a file; the recording runs in the background until the call ends. | `name`, `limit` (seconds), `action` (URL to notify when recording completes) |
+| `<execute>` | Executes a FreeSWITCH dialplan application. Requires `execute-apps` permission and the application must pass the `<application-list>` policy. | `application`, `data` (or tag body) |
+| `<dial>` | Transfers the call to a dialplan destination or bridges it. Requires `dial` permission. The `context` and `dialplan` attributes require `dial-set-context`/`dial-set-dialplan`. Full originate strings require `dial-full-originate`. | `context`, `dialplan`, `caller-id-name`, `caller-id-number`; destination in tag body |
+| `<conference>` | Drops the call into a conference room. Requires `conference` permission. | `profile` (requires `conference-set-profile`), `pin`, `flags`; room name in tag body |
+| `<sms>` | Sends an SMS message from the caller's number. | `to` (destination number); message text in tag body |
+| `<answer>` | Answers the call (transitions channel to answered state). | `is-conference` (`true` sets the conference flag) |
+| `<preAnswer>` | Pre-answers the call (early media). | None |
+| `<ringReady>` | Sends ring indication without answering. | None |
+| `<hangup>` | Hangs up the call and ends the HTTAPI loop. | `cause` (FreeSWITCH hangup cause string, or tag body); defaults to `NORMAL_CLEARING` |
+| `<getVariable>` | Retrieves a channel variable value and adds it to the params POSTed on the next request. Requires `get-vars` permission. | `name`, `permanent` (`true` persists across the session; `false` sends only on the next request) |
+| `<log>` | Writes a message to the FreeSWITCH console log. | `level` (FreeSWITCH log level string), `clean` (`true` omits location prefix) |
+| `<voicemail>` | Accesses the voicemail application for the specified user. | `profile`, `domain`, `id`, `check` (boolean), `auth-only` (boolean) |
+| `<continue>` | No-op. Continues to the next verb or re-requests the current URL. | None |
+| `<break>` | Stops processing the current `<work>` block without hanging up. | None |
+
+### 13.5 Worked Example
+
+The following dialplan extension routes an inbound call to the HTTAPI application using the `default` profile:
+
+```xml
+<extension name="httapi-ivr">
+  <condition field="destination_number" expression="^5000$">
+    <action application="httapi" data="http://example.com/ivr/welcome"/>
+  </condition>
+</extension>
+```
+
+The backend at `http://example.com/ivr/welcome` receives the POST and returns:
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<document type="xml/freeswitch-httapi">
+  <params>
+    <step>1</step>
+  </params>
+  <work>
+    <answer/>
+    <playback file="http://example.com/audio/welcome.wav" name="choice" action="http://example.com/ivr/menu" input-timeout="5000" digit-timeout="2000">
+      <bind action="http://example.com/ivr/sales">1</bind>
+      <bind action="http://example.com/ivr/support">2</bind>
+      <bind action="http://example.com/ivr/operator">0</bind>
+    </playback>
+  </work>
+</document>
+```
+
+FreeSWITCH answers the call, plays `welcome.wav`, and waits for a digit. When the caller presses `1`, FreeSWITCH POSTs to `http://example.com/ivr/sales` with the session state including `step=1` from the `<params>` block and the collected digit. If no digit is collected within the input timeout, FreeSWITCH POSTs to the `action` URL (`http://example.com/ivr/menu`). The `<params>` value `step=1` is carried forward on all subsequent requests in the session.

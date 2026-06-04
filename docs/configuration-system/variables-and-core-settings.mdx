@@ -1,0 +1,495 @@
+---
+id: variables-and-core-settings
+slug: /configuration/core-settings
+title: "Chapter 4: Global Variables and Core Settings"
+sidebar_label: "4. Global Variables and Core Settings"
+---
+
+# Chapter 4: Global Variables and Core Settings
+
+Two files hold the values that apply to the whole system: `vars.xml`, which
+defines the global preprocessor variables, and `switch.conf.xml`, which sets the
+core runtime parameters. This chapter documents both.
+
+## Table of Contents
+- [Global Variables in vars.xml](#global-variables-in-varsxml)
+- [Dynamically Calculated Variables](#dynamically-calculated-variables)
+- [Commonly Edited Variables](#commonly-edited-variables)
+- [Core Settings in switch.conf.xml](#core-settings-in-switchconfxml)
+- [Core Settings Reference](#core-settings-reference)
+- [Console Key Bindings](#console-key-bindings)
+- [Logging Configuration](#logging-configuration)
+  - [Log Levels](#log-levels)
+  - [mod_console](#mod_console)
+  - [mod_logfile](#mod_logfile)
+  - [mod_syslog](#mod_syslog)
+  - [Enabling Logger Modules](#enabling-logger-modules)
+
+## Global Variables in vars.xml
+
+`vars.xml` is included first by `freeswitch.xml`, so the preprocessor variables it
+defines are available to every file assembled afterward. Each is set with the
+`set` preprocessor instruction and referenced elsewhere as `$${name}`.
+
+```xml
+<X-PRE-PROCESS cmd="set" data="default_password=1234"/>
+<X-PRE-PROCESS cmd="set" data="domain=$${local_ip_v4}"/>
+<X-PRE-PROCESS cmd="set" data="sound_prefix=$${sounds_dir}/en/us/callie"/>
+<X-PRE-PROCESS cmd="set" data="hold_music=local_stream://moh"/>
+```
+
+The `set` instruction cannot be commented out to disable it. Remove the line
+instead. This is noted directly in the file.
+
+## Dynamically Calculated Variables
+
+FreeSWITCH computes a set of variables at startup and exposes them to the
+configuration as `$${name}`. You do not set these; you reference them. To see a
+computed value from the console, use `eval`, for example `eval $${local_ip_v4}`.
+
+| Variable | Value |
+| --- | --- |
+| `hostname` | The system hostname |
+| `local_ip_v4` | The primary IPv4 address |
+| `local_mask_v4` | The netmask for the primary IPv4 address |
+| `local_ip_v6` | The primary IPv6 address |
+| `switch_serial` | The switch serial number |
+| `base_dir` | The install base directory |
+| `conf_dir` | The configuration root |
+| `sounds_dir` | The sound files directory |
+| `recordings_dir` | The recordings directory |
+| `log_dir` | The log directory |
+| `db_dir` | The database directory |
+| `script_dir` | The scripts directory |
+| `certs_dir` | The TLS certificate directory |
+| `storage_dir` | The storage directory |
+| `temp_dir` | The temporary directory |
+| `core_uuid` | The unique id of this running instance |
+| `nat_public_addr` | The discovered public NAT address |
+| `nat_private_addr` | The discovered private NAT address |
+| `nat_type` | The detected NAT type |
+
+## Commonly Edited Variables
+
+These variables in `vars.xml` are the ones you are most likely to change.
+
+| Variable | Purpose | Default |
+| --- | --- | --- |
+| `default_password` | Shared password for the bundled test users | `1234` |
+| `domain` | Default SIP domain used for authentication and routing | `$${local_ip_v4}` |
+| `domain_name` | Alias of `domain` used in the directory | `$${domain}` |
+| `sound_prefix` | Path prefix for prompt sound files | `$${sounds_dir}/en/us/callie` |
+| `hold_music` | Source for music on hold | `local_stream://moh` |
+| `use_profile` | Default outbound SIP profile | `external` |
+| `global_codec_prefs` | Codecs offered on negotiation | set in `vars.xml` |
+| `outbound_codec_prefs` | Codecs offered on outbound legs | set in `vars.xml` |
+| `rtp_sdes_suites` | SRTP crypto suites offered and accepted | set in `vars.xml` |
+
+Changing `domain` affects SIP authentication. Review the User Directory chapter
+before changing it. Codec variables are covered in the Codecs and Negotiation
+chapter.
+
+## Core Settings in switch.conf.xml
+
+`switch.conf.xml` configures the core itself, in a `<settings>` block of
+`<param name="..." value="..."/>` elements. Most parameters are commented out in
+the default file and take an internal default until you enable them. The core
+also reads `<cli-keybindings>` and `<default-ptimes>` from this file.
+
+```xml
+<configuration name="switch.conf" description="Core Configuration">
+  <settings>
+    <param name="max-sessions" value="1000"/>
+    <param name="sessions-per-second" value="30"/>
+    <param name="loglevel" value="debug"/>
+  </settings>
+</configuration>
+```
+
+## Core Settings Reference
+
+All parameters parsed by the core from the `<settings>` block of `switch.conf.xml`.
+The Default column reflects the internal code default when the parameter is absent
+from the configuration file; where the vanilla `switch.conf.xml` ships with the
+parameter explicitly set, that value is noted in parentheses.
+
+### Session and Call Control
+
+| Parameter | Purpose | Values | Default |
+| --- | --- | --- | --- |
+| `max-sessions` | Maximum simultaneous sessions | integer | `1000` |
+| `sessions-per-second` | Maximum new sessions created per second | integer | `30` |
+| `multiple-registrations` | Allow multiple registrations per account in the central registration table | `true`, `false` | `false` |
+| `max-audio-channels` | Maximum audio channels per session; 0 means unlimited | integer | `0` (unlimited) |
+| `enable-early-hangup` | Hang up a channel as soon as the far end indicates hangup, before media teardown completes | `true`, `false` | `false` |
+| `min-idle-cpu` | Minimum idle CPU percentage before refusing new calls | float | unset (no limit) |
+| `tipping-point` | Number of active sessions at which FreeSWITCH begins shedding load; `0` disables | integer | `0` |
+
+### Logging
+
+| Parameter | Purpose | Values | Default |
+| --- | --- | --- | --- |
+| `loglevel` | Global log level | `debug`, `info`, `notice`, `warning`, `err`, `crit`, `alert` | `debug` |
+| `debug-level` | Core debug verbosity level | `0`-`10` | `0` |
+| `colorize-console` | Colorize console output | `true`, `false` | `false` (vanilla config ships `true`) |
+| `dialplan-timestamps` | Include full timestamps in dialplan logs | `true`, `false` | `false` |
+| `verbose-channel-events` | Include every channel variable on every channel event | `true`, `false` | `false` |
+
+### Database
+
+| Parameter | Purpose | Values | Default |
+| --- | --- | --- | --- |
+| `max-db-handles` | Maximum simultaneous core database handles; must be between 5 and 5000 | integer | `50` |
+| `db-handle-timeout` | Seconds to wait for a database handle before failing; must be between 1 and 5000 | integer | `5` (vanilla config ships `10`) |
+| `core-db-dsn` | DSN for an external core database; see below for format | DSN string | unset (uses SQLite) |
+| `core-db-name` | Alternate path or name for the SQLite core database; an absolute path is used as-is; a bare name resolves to `$${db_dir}/name.db` | path or name | `$${db_dir}/core.db` |
+| `core-dbtype` | Database type hint for SQL dialect; only `MSSQL` is recognized; any other value selects the default dialect | `MSSQL` | default dialect |
+| `auto-create-schemas` | Create database schemas automatically on startup | `true`, `false` | `true` |
+| `auto-clear-sql` | Clear SQL tables on startup | `true`, `false` | `true` |
+| `odbc-skip-autocommit-flip` | Suppress the autocommit toggle FreeSWITCH normally performs on ODBC connections | `true`, `false` | `false` |
+| `core-non-sqlite-db-required` | Abort startup if no external database connection can be established | `true`, `false` | `false` |
+| `core-db-pre-trans-execute` | SQL statement executed before each database transaction | SQL string | unset |
+| `core-db-post-trans-execute` | SQL statement executed after each database transaction | SQL string | unset |
+| `core-db-inner-pre-trans-execute` | SQL statement executed before each inner database transaction | SQL string | unset |
+| `core-db-inner-post-trans-execute` | SQL statement executed after each inner database transaction | SQL string | unset |
+
+Setting `core-db-dsn` moves the core database to PostgreSQL or MariaDB; this
+requires loading `mod_pgsql` or `mod_mariadb`. Example DSN formats:
+
+```
+pgsql://hostaddr=127.0.0.1 dbname=freeswitch user=freeswitch password=''
+postgresql://user:secret@localhost/freeswitch
+mariadb://Server=localhost;Database=freeswitch;Uid=freeswitch;Pwd=pass;
+dsn:username:password
+```
+
+### RTP
+
+| Parameter | Purpose | Values | Default |
+| --- | --- | --- | --- |
+| `rtp-start-port` | Lowest UDP port allocated for RTP | port number | `16384` |
+| `rtp-end-port` | Highest UDP port allocated for RTP | port number | `32768` |
+| `rtp-port-usage-robustness` | Test each port to confirm it is not in use before allocating it to RTP | `true`, `false` | `false` |
+| `rtp-retain-crypto-keys` | Store SRTP encryption keys in channel variables and CDRs; enabling this allows anyone with CDR access to decrypt secure media | `true`, `false` | `false` |
+| `ice-resolve-candidate` | Resolve ICE candidates | `true`, `false` | `false` |
+
+### DTMF
+
+| Parameter | Purpose | Values | Default |
+| --- | --- | --- | --- |
+| `min-dtmf-duration` | Minimum DTMF event duration in samples; events shorter than this are padded; cannot be set below `400` | integer | `400` |
+| `max-dtmf-duration` | Maximum DTMF event duration in samples; events longer than this are truncated; cannot exceed `192000` | integer | `192000` |
+| `default-dtmf-duration` | DTMF duration for originated events or events received without a duration | integer | `2000` |
+
+### Timing
+
+| Parameter | Purpose | Values | Default |
+| --- | --- | --- | --- |
+| `1ms-timer` | Run the core timer at 1 ms resolution instead of the default 20 ms | `true` | `false` |
+| `enable-monotonic-timing` | Use monotonic clock for timing | `true`, `false` | `false` |
+| `enable-clock-nanosleep` | Use `clock_nanosleep` for timer wake-ups | `true`, `false` | `false` |
+| `enable-softtimer-timerfd` | Use Linux `timerfd` for the soft timer; accepted values are `true`, `false`, `broadcast`, or `fd-per-timer` | `true`, `false`, `broadcast`, `fd-per-timer` | `false` |
+| `enable-cond-yield` | Enable conditional yielding in the timer | `true`, `false` | `false` |
+| `enable-timer-matrix` | Enable the timer matrix | `true`, `false` | `false` |
+| `timer-affinity` | CPU affinity for the timer thread; `disabled` pins to no CPU; an integer pins to that CPU index | `disabled` or integer | `disabled` |
+| `cpu-idle-smoothing-depth` | Number of CPU idle samples to average when computing idle percentage | integer | `0` |
+
+### System Execution
+
+| Parameter | Purpose | Values | Default |
+| --- | --- | --- | --- |
+| `threaded-system-exec` | Run `system()` calls in a dedicated thread; not supported on Windows | `true`, `false` | `true` (non-Windows) |
+| `spawn-instead-of-system` | Use `posix_spawn` instead of `system()` for external commands; not supported on Windows | `true`, `false` | `false` |
+| `session-thread-pool` | Use a thread pool for session threads instead of allocating a thread per session | `true`, `false` | `true` |
+
+### Events
+
+| Parameter | Purpose | Values | Default |
+| --- | --- | --- | --- |
+| `event-heartbeat-interval` | Interval in seconds between `HEARTBEAT` events | integer | `20` |
+| `events-use-dispatch` | Route events through a dispatch thread pool | `true`, `false` | `true` |
+| `initial-event-threads` | Number of event dispatch threads to launch at startup; implicitly enables `events-use-dispatch`; capped at half the CPU count | integer | unset |
+| `api-expansion` | Allow API expansion in event headers | `true`, `false` | `true` |
+| `event-channel-key-separator` | Separator character for event channel key hierarchy | string | `.` |
+| `event-channel-enable-hierarchy-deliver` | Deliver events to all parent nodes in the channel hierarchy | `true`, `false` | `false` |
+| `event-channel-hierarchy-deliver-once` | Deliver a hierarchical event only once even if matched by multiple subscribers | `true`, `false` | `false` |
+| `event-channel-log-undeliverable-json` | Log event channel messages that cannot be delivered | `true`, `false` | `false` |
+
+### Identity
+
+| Parameter | Purpose | Values | Default |
+| --- | --- | --- | --- |
+| `switchname` | Override the system hostname for database and CURL identity; useful in HA clusters where nodes share a config but must present different identities | string | system hostname |
+| `uuid-version` | UUID version used for channel IDs | `4`, `7` | `4` |
+
+### Miscellaneous
+
+| Parameter | Purpose | Values | Default |
+| --- | --- | --- | --- |
+| `mailer-app` | Program used to send voicemail email | program name | `sendmail` |
+| `mailer-app-args` | Arguments passed to `mailer-app` | string | `-t` |
+| `dump-cores` | Remove core dump size limits so crashes produce a core file; requires `HAVE_SETRLIMIT` | `yes`, `no` | `no` |
+| `enable-use-system-time` | Use system wall clock time rather than FreeSWITCH internal time | `true`, `false` | `false` |
+| `exclude-error-log-from-xml-cdr` | Exclude the error log from XML CDR output | `true`, `false` | `false` |
+| `caller-profile-soft-variables-uses-prefix` | Prefix soft variables in caller profiles | `true`, `false` | `false` |
+| `caller-profile-soft-lookup-values` | Look up soft variable values in caller profiles | `true`, `false` | `false` |
+
+## Console Key Bindings
+
+`switch.conf.xml` maps function keys in `fs_cli` to commands through
+`<cli-keybindings>`. Each `<key>` maps a number, surfaced as a function key, to a
+command string.
+
+```xml
+<cli-keybindings>
+  <key name="1" value="help"/>
+  <key name="2" value="status"/>
+  <key name="5" value="sofia status"/>
+  <key name="6" value="reloadxml"/>
+</cli-keybindings>
+```
+
+| Key | Default command |
+| --- | --- |
+| F1 | `help` |
+| F2 | `status` |
+| F3 | `show channels` |
+| F4 | `show calls` |
+| F5 | `sofia status` |
+| F6 | `reloadxml` |
+| F7 | `console loglevel 0` |
+| F8 | `console loglevel 7` |
+| F9 | `sofia status profile internal` |
+| F10 | `sofia profile internal siptrace on` |
+| F11 | `sofia profile internal siptrace off` |
+| F12 | `version` |
+
+## Logging Configuration
+
+FreeSWITCH routes log output through one or more logger modules. Each logger
+registers itself with the core and receives log records independently. The
+core `loglevel` parameter in `switch.conf.xml` sets the global ceiling: the
+core discards records above that level before they reach any logger. Each
+logger then applies its own filter on top of that ceiling. A logger cannot
+surface levels that the core has already discarded.
+
+### Log Levels
+
+FreeSWITCH defines 8 log levels, listed here from lowest numeric value to
+highest verbosity. The numeric values are used by the `console loglevel`
+command; the names are used in configuration files.
+
+| Numeric | Name | Meaning |
+| --- | --- | --- |
+| 0 | `console` | Output directed specifically at the console channel |
+| 1 | `alert` | Immediate action required |
+| 2 | `crit` | Critical conditions |
+| 3 | `err` | Error conditions |
+| 4 | `warning` | Warning conditions |
+| 5 | `notice` | Normal but significant events |
+| 6 | `info` | Informational messages |
+| 7 | `debug` | Debug-level messages |
+
+The core `loglevel` in `switch.conf.xml` accepts the name values (`debug`,
+`info`, `notice`, `warning`, `err`, `crit`, `alert`). Setting it to `warning`
+means only `warning`, `err`, `crit`, and `alert` records reach the loggers.
+The vanilla config ships with `loglevel` set to `debug`, which passes all
+records to the loggers; each logger then applies its own filter.
+
+### mod_console
+
+`mod_console` writes log output to the FreeSWITCH console (the terminal or
+`fs_cli` session). It is configured in `console.conf.xml`.
+
+#### Settings
+
+| Parameter | Purpose | Values | Default |
+| --- | --- | --- | --- |
+| `colorize` | Emit ANSI color codes to distinguish log levels | `true`, `false` | `false` |
+| `loglevel` | Maximum level this logger accepts; records above this level are suppressed | `console`, `alert`, `crit`, `err`, `warning`, `notice`, `info`, `debug` | `debug` |
+| `uuid` | Prefix each log line with the session UUID | `true`, `false` | `false` |
+| `json` | Emit log lines as JSON objects instead of plain text | `true`, `false` | `false` |
+
+The vanilla config sets `loglevel` to the preprocessor variable
+`$${console_loglevel}`, which `vars.xml` defines as `info`. To pass all
+levels to the console, set `loglevel` to `debug`.
+
+```xml
+<configuration name="console.conf" description="Console Logger">
+  <settings>
+    <param name="colorize" value="true"/>
+    <param name="loglevel" value="info"/>
+  </settings>
+  <mappings>
+    <map name="all" value="console,debug,info,notice,warning,err,crit,alert"/>
+  </mappings>
+</configuration>
+```
+
+#### Level Maps
+
+The `<mappings>` block controls which levels appear for specific source files
+or functions. Each `<map>` element has a `name` attribute identifying the
+source file name, function name, or `all`, and a `value` attribute listing
+one or more comma-separated level names.
+
+- `name="all"` applies to every source location. When present, it overrides
+  any other map entries.
+- A named entry applies only when the log record originates from that file or
+  function. Named entries allow enabling verbose output for one module without
+  affecting the rest.
+
+```xml
+<mappings>
+  <!-- Pass all levels globally -->
+  <map name="all" value="warning,err,crit,alert"/>
+  <!-- Also pass debug and info from a specific source file -->
+  <map name="mod_sofia.c" value="debug,info,warning,err,crit,alert"/>
+</mappings>
+```
+
+The level values in a `<map>` entry are a mask, not a threshold. Listing
+`warning,err,crit,alert` passes exactly those four levels and nothing else.
+Use `all` as the value to pass every level.
+
+The `console loglevel` API command adjusts the `loglevel` setting at runtime
+without reloading configuration. The `console colorize`, `console uuid`, and
+`console json` commands toggle the corresponding settings at runtime as well.
+
+### mod_logfile
+
+`mod_logfile` writes log output to one or more files. It is configured in
+`logfile.conf.xml`. The file uses a profile-based structure: one global
+`<settings>` block holds the HUP behavior, and each `<profile>` inside
+`<profiles>` defines an independent log destination with its own path, rotation
+policy, and level filter.
+
+#### Global Settings
+
+| Parameter | Purpose | Values | Default |
+| --- | --- | --- | --- |
+| `rotate-on-hup` | When FreeSWITCH receives SIGHUP, rotate the log file instead of closing and reopening it | `true`, `false` | `false` |
+
+#### Profile Settings
+
+| Parameter | Purpose | Values | Default |
+| --- | --- | --- | --- |
+| `logfile` | Absolute path to the log file | path string | `$${log_dir}/freeswitch.log` |
+| `rollover` | Size in bytes at which the log file is rotated; `0` disables size-based rotation | integer | `10485760` (about 10 MB; vanilla ships `1048576000`) |
+| `maximum-rotate` | Maximum number of rotated log files to keep; when set, filenames use a numeric suffix (`.1`, `.2`, ...) instead of a date stamp; the oldest file is deleted when the limit is reached; `0` disables the cap | integer | `0` (no cap; uses date-stamped filenames) |
+| `uuid` | Prefix each log line with the session UUID | `true`, `false` | `true` |
+
+The vanilla config ships with `rollover` set to `1048576000` (approximately
+1 GB) and `maximum-rotate` set to `32`, which produces up to 32 numbered
+rotation files (`freeswitch.log.1` through `freeswitch.log.32`).
+
+#### Rotation Behavior
+
+Size-based rotation triggers automatically when the current log file reaches
+the `rollover` byte threshold. Signal-based rotation behavior depends on
+`rotate-on-hup`:
+
+- `rotate-on-hup true`: receiving SIGHUP rotates each profile's log file.
+- `rotate-on-hup false`: receiving SIGHUP closes and reopens each profile's
+  log file without renaming it, which is suitable for external log rotation
+  tools that rename the file themselves and then send SIGHUP.
+
+When `maximum-rotate` is set to a nonzero value, rotation renames the current
+log file to `logfile.1`, shifts prior numbered files up by 1, and deletes the
+file that would exceed the maximum. When `maximum-rotate` is 0 (the default),
+rotation appends a date-time stamp and an index to the filename.
+
+#### Profile Level Maps
+
+Each profile has a `<mappings>` block that works identically to the one in
+`console.conf.xml`: `<map>` elements with `name` (file, function, or `all`)
+and `value` (comma-separated level names or `all`).
+
+```xml
+<configuration name="logfile.conf" description="File Logging">
+  <settings>
+    <param name="rotate-on-hup" value="true"/>
+  </settings>
+  <profiles>
+    <profile name="default">
+      <settings>
+        <param name="logfile" value="/var/log/freeswitch/freeswitch.log"/>
+        <param name="rollover" value="52428800"/>
+        <param name="maximum-rotate" value="10"/>
+        <param name="uuid" value="true"/>
+      </settings>
+      <mappings>
+        <map name="all" value="notice,warning,err,crit,alert"/>
+      </mappings>
+    </profile>
+  </profiles>
+</configuration>
+```
+
+Multiple profiles may exist in one `logfile.conf.xml`. Each is loaded
+independently, so you can direct different level sets to different files.
+
+### mod_syslog
+
+`mod_syslog` forwards log records to the system syslog daemon. It is
+configured in `syslog.conf.xml` and is not loaded by default.
+
+#### Settings
+
+| Parameter | Purpose | Values | Default |
+| --- | --- | --- | --- |
+| `ident` | The identity string passed to `openlog()`; appears as the program name in syslog entries | string | `freeswitch` |
+| `facility` | The syslog facility | `auth`, `cron`, `daemon`, `kern`, `local0`-`local7`, `lpr`, `mail`, `news`, `syslog`, `user`, `uucp` (and `authpriv`, `ftp` where available) | `user` |
+| `loglevel` | Maximum FreeSWITCH log level forwarded to syslog; records above this level are dropped | `console`, `alert`, `crit`, `err`, `warning`, `notice`, `info`, `debug` | `warning` |
+| `uuid` | Prefix each syslog message with the session UUID | `true`, `false` | `true` |
+
+FreeSWITCH log levels map to syslog priorities as follows: `debug` to
+`LOG_DEBUG`, `info` to `LOG_INFO`, `notice` to `LOG_NOTICE`, `warning` to
+`LOG_WARNING`, `err` to `LOG_ERR`, `crit` to `LOG_CRIT`, `alert` to
+`LOG_ALERT`. The `console` level maps to `LOG_NOTICE`.
+
+`mod_syslog` does not support per-source-file or per-function level maps. The
+`loglevel` parameter is a single global threshold for this logger.
+
+The `format` parameter is parsed from the configuration file but has no
+effect in the current implementation; log lines are passed to `syslog()` as
+plain text regardless of its value.
+
+```xml
+<configuration name="syslog.conf" description="Syslog Logger">
+  <settings>
+    <param name="ident" value="freeswitch"/>
+    <param name="facility" value="local0"/>
+    <param name="loglevel" value="notice"/>
+    <param name="uuid" value="true"/>
+  </settings>
+</configuration>
+```
+
+### Enabling Logger Modules
+
+Logger modules are loaded through `modules.conf.xml` in the
+`autoload_configs` directory, inside the `<modules>` block.
+
+`mod_console` and `mod_logfile` are loaded by default in the vanilla
+configuration:
+
+```xml
+<load module="mod_console"/>
+<load module="mod_logfile"/>
+```
+
+`mod_syslog` is present but commented out:
+
+```xml
+<!-- <load module="mod_syslog"/> -->
+```
+
+To enable `mod_syslog`, remove the comment delimiters and ensure
+`syslog.conf.xml` is present in the `autoload_configs` directory.
+
+All three modules can be loaded simultaneously. Each independently receives
+log records from the core and applies its own filter, so a record that passes
+the global `loglevel` ceiling may be passed to the console, written to file,
+and forwarded to syslog at the same time if all three loggers are loaded and
+their filters include that level.
