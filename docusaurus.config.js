@@ -14,10 +14,9 @@ const config = {
   title: "FreeSWITCH Users Manual",
   tagline: "Configure, set up, and use FreeSWITCH",
   url: "https://developer.signalwire.com",
-  baseUrl: "/freeswitch/",
+  baseUrl: "/freeswitch",
   onBrokenLinks: "throw",
   onBrokenAnchors: "throw",
-  trailingSlash: false,
   favicon: "img/favicon.webp",
   markdown: {
     hooks: {
