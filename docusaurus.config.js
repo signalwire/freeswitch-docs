@@ -16,11 +16,13 @@ const config = {
   url: "https://developer.signalwire.com",
   baseUrl: "/freeswitch/",
   onBrokenLinks: "throw",
-  onBrokenAnchors: "warn",
+  onBrokenAnchors: "throw",
+  trailingSlash: false,
   favicon: "img/favicon.webp",
   markdown: {
     hooks: {
-      onBrokenMarkdownLinks: "warn",
+      onBrokenMarkdownLinks: "throw",
+      onBrokenMarkdownImages: "throw"
     },
   },
 
