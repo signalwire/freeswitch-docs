@@ -60,18 +60,6 @@ const config = {
         },
         items: [
           {
-            type: "doc",
-            docId: "index",
-            position: "left",
-            label: "Manual",
-          },
-          {
-            type: "doc",
-            docId: "reference/channel-variables",
-            position: "left",
-            label: "Channel Variables",
-          },
-          {
             href: "https://github.com/signalwire/freeswitch",
             label: "GitHub",
             position: "right",
