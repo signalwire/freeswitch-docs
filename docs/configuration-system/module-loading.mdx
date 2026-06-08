@@ -1,0 +1,393 @@
+---
+sidebar_position: 3
+id: module-loading
+slug: /configuration/module-loading
+title: "Chapter 5: Module Loading and Management"
+description: "How FreeSWITCH selects modules to load at startup, the early and late load files, and how to load, unload, and reload modules from the console."
+sidebar_label: "5. Module Loading and Management"
+---
+
+# Chapter 5: Module Loading and Management
+
+Functionality in FreeSWITCH comes from modules. This chapter documents how
+modules are selected for loading at startup, the special early and late load
+files, and how to load, unload, and reload modules from the console.
+
+## Table of Contents
+- [Build-time vs Runtime Module Selection](#build-time-vs-runtime-module-selection)
+- [modules.conf.xml](#modulesconfxml)
+- [The Default Load Set](#the-default-load-set)
+  - [Loggers](#loggers)
+  - [Multi-Faceted](#multi-faceted)
+  - [Event Handlers](#event-handlers)
+  - [Endpoints](#endpoints)
+  - [Applications](#applications)
+  - [Dialplan Interfaces](#dialplan-interfaces)
+  - [Codec Interfaces](#codec-interfaces)
+  - [File Format Interfaces](#file-format-interfaces)
+  - [Languages](#languages)
+  - [Say](#say)
+- [Optional Modules (Shipped Commented Out)](#optional-modules-shipped-commented-out)
+- [Early and Late Loading](#early-and-late-loading)
+- [Module Categories](#module-categories)
+- [Managing Modules at Runtime](#managing-modules-at-runtime)
+
+## Build-time vs Runtime Module Selection
+
+FreeSWITCH separates module availability into two distinct stages: compilation
+and runtime loading.
+
+**Build time** -- `build/modules.conf.in` (or a local `modules.conf` created
+from it) controls which modules the build system compiles. A line without a
+leading `#` causes the corresponding `.so` shared library to be built and
+installed. A commented line means the shared library is not built.
+
+**Runtime** -- `autoload_configs/modules.conf.xml` controls which installed
+modules FreeSWITCH actually loads at startup. A `<load>` element tells
+FreeSWITCH to open the named shared library from the modules directory.
+
+The relationship is a strict prerequisite: a module must be compiled and
+installed before it can appear in `modules.conf.xml`. Enabling a `<load>` for a
+module that was not built results in a load error logged at startup; FreeSWITCH
+continues starting but that module is unavailable. The inverse is harmless: a
+module can be compiled but left commented out in `modules.conf.xml`, in which
+case the `.so` exists on disk but is not loaded.
+
+A common workflow: edit `build/modules.conf.in`, recompile (`make && make
+install`), then enable the corresponding `<load>` line in `modules.conf.xml`.
+
+`build/modules.conf.most` is a broader alternative build manifest that enables
+the majority of optional modules. It is not used by the default build; copy or
+reference it when you want to build a more complete module set in one step.
+
+## modules.conf.xml
+
+`modules.conf.xml` lists the modules loaded at startup. It is a single
+`<modules>` block of `<load>` elements, one per module:
+
+```xml
+<configuration name="modules.conf" description="Modules">
+  <modules>
+    <load module="mod_console"/>
+    <load module="mod_sofia"/>
+    <load module="mod_dptools"/>
+  </modules>
+</configuration>
+```
+
+To enable a module, add or uncomment its `<load>` line. To disable one, comment
+the line out or remove it. Changes take effect on restart, or immediately with
+the runtime commands below. A module loads only if it is installed; enabling a
+`<load>` line for a module that is not built produces a load error in the log.
+
+## The Default Load Set
+
+The tables below list every uncommented `<load>` in the shipped
+`modules.conf.xml`, organized by the comment categories used in that file. Each
+entry carries a one-line role description.
+
+### Loggers
+
+| Module | Role |
+| --- | --- |
+| `mod_console` | Writes log output to the foreground terminal or `fs_cli` |
+| `mod_logfile` | Writes log output to rotating files on disk |
+
+### Multi-Faceted
+
+| Module | Role |
+| --- | --- |
+| `mod_enum` | ENUM telephone number lookups; also provides a dialplan interface and API commands |
+
+### Event Handlers
+
+| Module | Role |
+| --- | --- |
+| `mod_cdr_csv` | Writes call detail records to CSV files using a configurable template |
+| `mod_event_socket` | Exposes the FreeSWITCH event system over a TCP socket for external control |
+
+### Endpoints
+
+| Module | Role |
+| --- | --- |
+| `mod_sofia` | SIP endpoint using the Sofia-SIP stack; the primary signaling module |
+| `mod_loopback` | Internal loopback endpoint for back-to-back call legs within the switch |
+| `mod_rtc` | WebRTC DTLS-SRTP transport layer shared by `mod_verto` and SIP-over-WSS |
+| `mod_verto` | WebRTC endpoint using the Verto JSON-RPC signaling protocol |
+
+### Applications
+
+| Module | Role |
+| --- | --- |
+| `mod_signalwire` | SignalWire cloud connectivity and token provisioning |
+| `mod_commands` | Core API command set (originate, uuid_kill, status, etc.) |
+| `mod_conference` | Multi-party audio and video conferencing engine |
+| `mod_db` | Key-value store backed by an internal database; used by dialplan and scripts |
+| `mod_dptools` | Standard dialplan applications (answer, bridge, playback, record, etc.) |
+| `mod_expr` | Expression evaluation library used in dialplan conditions |
+| `mod_fifo` | First-in-first-out call queue application |
+| `mod_hash` | In-memory hash table accessible from dialplan and API |
+| `mod_voicemail` | Integrated voicemail system with IVR, storage, and MWI |
+| `mod_esf` | Multicast paging support (Polycom-compatible group page) |
+| `mod_fsv` | FreeSWITCH video file format recorder and player |
+| `mod_valet_parking` | Named call-park slots with retrieval by extension |
+| `mod_httapi` | HTTP-based application interface; fetches dialplan instructions from a web server |
+
+### Dialplan Interfaces
+
+| Module | Role |
+| --- | --- |
+| `mod_dialplan_xml` | Processes dialplan from `dialplan/*.xml` (the default and most-used interpreter) |
+| `mod_dialplan_asterisk` | Processes Asterisk-style `extensions.conf` dialplan syntax |
+
+### Codec Interfaces
+
+| Module | Role |
+| --- | --- |
+| `mod_spandsp` | DSP functions: T.38 fax, G.711 A-law/u-law, tone detection, and transcoding helpers |
+| `mod_g723_1` | G.723.1 narrowband codec (5.3 kbps and 6.3 kbps) |
+| `mod_g729` | G.729 narrowband codec (8 kbps); free software implementation |
+| `mod_amr` | AMR narrowband codec for mobile and VoIP interoperability |
+| `mod_b64` | Base64 codec pass-through used for transparent relay of encoded payloads |
+| `mod_opus` | Opus wideband/fullband codec; primary codec for WebRTC |
+
+### File Format Interfaces
+
+| Module | Role |
+| --- | --- |
+| `mod_av` | Audio and video file read/write via libavformat (MP4, WebM, and others) |
+| `mod_sndfile` | Audio file read/write via libsndfile (WAV, AIFF, AU, and others) |
+| `mod_native_file` | Plays audio files without transcoding by matching the file's native format |
+| `mod_png` | Sends a PNG image as a video frame; used for video hold slides |
+| `mod_local_stream` | Streams audio from a directory of files in rotation (music on hold source) |
+| `mod_tone_stream` | Generates tones and tone sequences from a description string |
+
+### Languages
+
+| Module | Role |
+| --- | --- |
+| `mod_lua` | Embeds the Lua 5.x runtime for dialplan scripts and event handlers |
+
+### Say
+
+| Module | Role |
+| --- | --- |
+| `mod_say_en` | English language phrase rendering (numbers, dates, currency, spelling) |
+
+## Optional Modules (Shipped Commented Out)
+
+The following modules are present in `modules.conf.xml` as commented-out
+`<load>` lines. Enable them by uncommenting the line (and ensuring the module
+is compiled).
+
+**Loggers**
+
+| Module | When to enable |
+| --- | --- |
+| `mod_graylog2` | Centralized log shipping to a Graylog2 GELF endpoint |
+| `mod_syslog` | Send log output to the system syslog daemon |
+
+**XML Interfaces**
+
+| Module | When to enable |
+| --- | --- |
+| `mod_xml_rpc` | Exposes an HTTP/XML-RPC management interface; used by some web admin panels |
+| `mod_xml_curl` | Fetches dialplan, directory, and configuration XML from an HTTP server at runtime |
+| `mod_xml_cdr` | Posts call detail records as XML to an HTTP endpoint |
+| `mod_xml_scgi` | Fetches XML documents via the SCGI protocol |
+
+**Event Handlers**
+
+| Module | When to enable |
+| --- | --- |
+| `mod_amqp` | Publishes events to an AMQP broker (RabbitMQ) |
+| `mod_cdr_sqlite` | Writes CDR records to a local SQLite database |
+| `mod_event_multicast` | Broadcasts events over UDP multicast to peer FreeSWITCH nodes |
+| `mod_erlang_event` | Event interface for Erlang nodes via the Erlang port mapper |
+| `mod_smpp` | SMPP SMS gateway integration |
+| `mod_snmp` | Exposes switch statistics via SNMP |
+
+**Directory Interfaces**
+
+| Module | When to enable |
+| --- | --- |
+| `mod_ldap` | Authenticates and looks up users from an LDAP directory |
+
+**Endpoints**
+
+| Module | When to enable |
+| --- | --- |
+| `mod_alsa` | ALSA audio endpoint for local sound card access on Linux |
+| `mod_skinny` | Cisco SCCP (Skinny) endpoint for Cisco desk phones |
+| `mod_rtmp` | RTMP streaming endpoint |
+| `mod_dingaling` | Jingle/XMPP endpoint |
+| `mod_freetdm` | TDM telephony endpoint for hardware span cards via FreeTDM |
+
+**Applications**
+
+| Module | When to enable |
+| --- | --- |
+| `mod_curl` | Makes HTTP requests from dialplan; fetches or posts data to web services |
+| `mod_directory` | Company directory application with DTMF name search |
+| `mod_distributor` | Routes calls across a weighted list of gateways |
+| `mod_lcr` | Least-cost routing engine with database-backed rate tables |
+| `mod_easyroute` | Lightweight DID routing from a database table |
+| `mod_fsk` | FSK modem for caller ID and data signaling |
+| `mod_spy` | Silent call monitoring application |
+| `mod_sms` | SMS message routing and handling application |
+| `mod_random` | Generates random numbers for use in dialplan variables |
+| `mod_translate` | Number translation using regular expression or database rules |
+| `mod_callcenter` | Full-featured ACD call center queue engine |
+| `mod_nibblebill` | Real-time billing and credit deduction for active calls |
+| `mod_mongo` | MongoDB integration for dialplan and data storage |
+
+**Dialplan Interfaces**
+
+| Module | When to enable |
+| --- | --- |
+| `mod_dialplan_directory` | Looks up dialplan routing from the user directory |
+
+**Codec Interfaces**
+
+| Module | When to enable |
+| --- | --- |
+| `mod_ilbc` | iLBC narrowband codec (13.3 kbps and 15.2 kbps) |
+| `mod_siren` | G.722.1 (Siren) wideband codec for Polycom interoperability |
+
+**File Format Interfaces**
+
+| Module | When to enable |
+| --- | --- |
+| `mod_opusfile` | Reads Ogg Opus files for playback |
+| `mod_shout` | Reads and writes MP3 streams and files via libshout and libmp3lame; Icecast source |
+| `mod_shell_stream` | Streams audio from the output of an arbitrary shell command |
+
+**Timers**
+
+| Module | When to enable |
+| --- | --- |
+| `mod_timerfd` | High-resolution timer using Linux `timerfd` kernel interface |
+| `mod_posix_timer` | POSIX interval timer as an alternative timing source |
+
+**Languages**
+
+| Module | When to enable |
+| --- | --- |
+| `mod_v8` | Embeds the V8 JavaScript engine for dialplan scripting |
+| `mod_perl` | Embeds the Perl runtime for dialplan scripts |
+| `mod_python3` | Embeds the Python 3 runtime for dialplan scripts |
+| `mod_java` | Embeds the JVM for dialplan scripts |
+
+**ASR/TTS**
+
+| Module | When to enable |
+| --- | --- |
+| `mod_flite` | Text-to-speech using the CMU Flite engine |
+| `mod_pocketsphinx` | Automatic speech recognition using the PocketSphinx engine |
+| `mod_tts_commandline` | TTS via an external command-line program |
+
+**Say**
+
+| Module | When to enable |
+| --- | --- |
+| `mod_say_ru` | Russian language phrase rendering |
+| `mod_say_zh` | Chinese language phrase rendering |
+| `mod_say_sv` | Swedish language phrase rendering |
+
+Additional say modules available in the build system (not listed in the default
+`modules.conf.xml`) include `mod_say_de`, `mod_say_es`, `mod_say_es_ar`,
+`mod_say_fa`, `mod_say_fr`, `mod_say_he`, `mod_say_hr`, `mod_say_hu`,
+`mod_say_it`, `mod_say_ja`, `mod_say_nl`, `mod_say_pl`, `mod_say_pt`,
+`mod_say_th`.
+
+**Third-party Applications**
+
+| Module | When to enable |
+| --- | --- |
+| `mod_nibblebill` | Real-time per-leg billing with configurable deduction intervals |
+| `mod_callcenter` | ACD queue with agent skill routing, wrap-up, and reporting |
+
+## Early and Late Loading
+
+Two companion files control modules that must load before or after the main set.
+FreeSWITCH processes them in this order:
+
+1. `pre_load_modules.conf.xml`
+2. `modules.conf.xml`
+3. `post_load_modules.conf.xml`
+
+Each file uses identical `<load module="..."/>` syntax.
+
+**`pre_load_modules.conf.xml`** -- The shipped default loads one module:
+
+```xml
+<configuration name="pre_load_modules.conf" description="Modules">
+  <modules>
+    <!-- Databases -->
+    <!-- <load module="mod_mariadb"/> -->
+    <load module="mod_pgsql"/>
+  </modules>
+</configuration>
+```
+
+`mod_pgsql` provides the PostgreSQL database backend. Because other modules
+(including core subsystems) may open database connections during their own
+initialization, the database driver must be available before the main load
+sequence begins. `mod_mariadb` is a commented-out alternative for MariaDB or
+MySQL backends; enable it in place of or alongside `mod_pgsql` as needed.
+
+`mod_xml_curl` is another common candidate for early loading: when FreeSWITCH
+fetches configuration, directory, and dialplan documents from an HTTP server,
+that XML interface must be registered before the modules that consume those
+documents initialize.
+
+**`post_load_modules.conf.xml`** -- Empty by default. Use it for modules that
+depend on the full module set being initialized first. No shipped modules
+require this currently.
+
+| File | Default content | Typical use |
+| --- | --- | --- |
+| `pre_load_modules.conf.xml` | `mod_pgsql` enabled | Database backends, XML providers |
+| `modules.conf.xml` | Full working PBX set | All standard modules |
+| `post_load_modules.conf.xml` | Empty | Modules with late-init dependencies |
+
+## Module Categories
+
+A module's category determines the kind of interface it provides and which
+configuration file it reads. Categories are an organizing concept; a single module
+can register more than one interface. For example `mod_enum` provides a dialplan
+interface, an application, and an API command.
+
+| Category | Interface provided |
+| --- | --- |
+| `endpoints` | Call signaling protocols |
+| `applications` | Dialplan applications and API commands |
+| `dialplans` | Dialplan interpreters |
+| `codecs` | Audio and video codecs |
+| `formats` | File and stream readers and writers |
+| `event_handlers` | External event interfaces and CDR backends |
+| `loggers` | Log destinations |
+| `languages` | Embedded scripting runtimes |
+| `say` | Phrase rendering per language |
+| `asr_tts` | Speech recognition and synthesis |
+| `timers` | Timing sources |
+| `databases` | External database backends |
+| `directories` | External directory backends |
+| `xml_int` | Dynamic XML providers |
+
+## Managing Modules at Runtime
+
+You can load, unload, and reload modules from `fs_cli` without restarting.
+
+| Command | Effect |
+| --- | --- |
+| `load mod_name` | Load a module now |
+| `unload mod_name` | Unload a module now |
+| `reload mod_name` | Unload and load a module, re-reading its configuration |
+| `reloadxml` | Reparse the XML document without touching loaded modules |
+| `show modules` | List currently loaded modules |
+
+`reloadxml` refreshes the configuration document but does not load or unload
+modules. Use `reload mod_name` when a module caches its own configuration and you
+have changed it. The per-module reload requirement is noted in each module's
+chapter.

@@ -1,0 +1,202 @@
+---
+sidebar_position: 1
+id: xml-configuration
+slug: /configuration/xml
+title: "Chapter 3: The XML Configuration System"
+description: "How FreeSWITCH assembles its single XML configuration from many files: the preprocessor, include directives, variable syntax, and top-level sections."
+sidebar_label: "3. The XML Configuration System"
+---
+
+# Chapter 3: The XML Configuration System
+
+FreeSWITCH reads its entire configuration as a single XML document. On disk that
+document is split across many files that a preprocessor assembles before the XML
+is parsed. This chapter explains how the assembly works, the preprocessor
+instructions, the variable syntax, and the document's top-level sections.
+
+## Table of Contents
+- [The Root Document](#the-root-document)
+- [The Preprocessor](#the-preprocessor)
+  - [Preprocessor Commands](#preprocessor-commands)
+  - [Inline Comment Form](#inline-comment-form)
+- [Include Files and Partials](#include-files-and-partials)
+- [Preprocessor Variables](#preprocessor-variables)
+- [The Top-Level Sections](#the-top-level-sections)
+- [The Compiled Document](#the-compiled-document)
+- [Editing and Reloading](#editing-and-reloading)
+
+## The Root Document
+
+The entry point is `freeswitch.xml` in the configuration root. It defines the
+five sections and pulls in the files that populate them. The structure is fixed:
+
+```xml
+<document type="freeswitch/xml">
+  <X-PRE-PROCESS cmd="include" data="vars.xml"/>
+
+  <section name="configuration" description="Various Configuration">
+    <X-PRE-PROCESS cmd="include" data="autoload_configs/*.xml"/>
+  </section>
+
+  <section name="dialplan" description="Regex/XML Dialplan">
+    <X-PRE-PROCESS cmd="include" data="dialplan/*.xml"/>
+  </section>
+
+  <section name="chatplan" description="Regex/XML Chatplan">
+    <X-PRE-PROCESS cmd="include" data="chatplan/*.xml"/>
+  </section>
+
+  <section name="directory" description="User Directory">
+    <X-PRE-PROCESS cmd="include" data="directory/*.xml"/>
+  </section>
+
+  <section name="languages" description="Language Management">
+    <X-PRE-PROCESS cmd="include" data="lang/de/*.xml"/>
+    <X-PRE-PROCESS cmd="include" data="lang/en/*.xml"/>
+    <X-PRE-PROCESS cmd="include" data="lang/fr/*.xml"/>
+    <X-PRE-PROCESS cmd="include" data="lang/ru/*.xml"/>
+    <X-PRE-PROCESS cmd="include" data="lang/he/*.xml"/>
+    <X-PRE-PROCESS cmd="include" data="lang/es/es_ES.xml"/>
+    <X-NO-PRE-PROCESS cmd="include" data="lang/es/es_MX.xml"/>
+    <X-PRE-PROCESS cmd="include" data="lang/pt/pt_BR.xml"/>
+    <X-NO-PRE-PROCESS cmd="include" data="lang/pt/pt_PT.xml"/>
+    <X-NO-PRE-PROCESS cmd="include" data="lang/sv/*.xml"/>
+  </section>
+</document>
+```
+
+You rarely edit `freeswitch.xml` itself. You edit the files it includes.
+
+## The Preprocessor
+
+Before the XML parser runs, a preprocessor walks the document and executes
+instructions. An instruction is written either as an `<X-PRE-PROCESS>` tag with
+`cmd` and `data` attributes, or, inside an XML comment, as a `#command`.
+
+### Preprocessor Commands
+
+The following `cmd` values are recognized on `<X-PRE-PROCESS>` elements.
+
+| `cmd` | `data` format | Effect |
+| --- | --- | --- |
+| `include` | file path or glob pattern | Inserts the contents of the named file or glob at this exact point. A glob includes every matching file in sorted order. |
+| `set` | `name=value` | Defines a preprocessor variable. Referenced elsewhere as `$${name}`. |
+| `exec-set` | `name=shell command` | Runs the shell command and assigns its trimmed stdout to the named preprocessor variable. |
+| `stun-set` | `name=stun-server-host` | Queries the named STUN server and assigns the discovered public IP address to the named preprocessor variable. |
+| `env-set` | `name=$ENVVAR` | Reads the named OS environment variable and assigns its value to the named preprocessor variable. The `$` prefix in the value is required and consumed as a marker. |
+| `exec` | shell command | Runs the shell command and splices its stdout output directly into the document at this point. |
+
+`cmd` matching is case-insensitive. Any unrecognized `cmd` value is silently ignored.
+
+The `<X-NO-PRE-PROCESS>` tag is not a preprocessor instruction. The preprocessor
+does not match it (the substring `X-pre-process` does not appear in
+`X-NO-PRE-PROCESS`), so the tag passes through unmodified into the compiled
+document as a literal XML element, which the configuration system ignores. This
+effectively suppresses inclusion of the named file. It appears in `freeswitch.xml`
+to exclude certain language files from the default configuration.
+
+### Inline Comment Form
+
+The preprocessor also recognizes instructions embedded in XML comments using the
+`<!--#` prefix. The supported `cmd` names in this form are `set`, `exec-set`,
+`stun-set`, `include`, and `exec`. Note that `env-set` is not handled in the
+inline comment form; use the `<X-PRE-PROCESS>` element form instead.
+
+```xml
+<!--#set name=value-->
+<!--#include "path/to/file.xml"-->
+<!--#comment This text is stripped and never reaches the XML parser.-->
+```
+
+Any `<!--#...-->` block is consumed by the preprocessor before the XML parser
+sees the document. The `#comment` keyword has no special behavior beyond causing
+the entire comment block to be stripped; it is a conventional label for human
+readability.
+
+## Include Files and Partials
+
+A file pulled in with `include` is not a standalone document. It is a fragment
+spliced into the parent at the include point. Fragments that contain more than a
+single element are wrapped in `<include>` tags so they remain well formed:
+
+```xml
+<include>
+  <user id="1000">
+    <params>
+      <param name="password" value="$${default_password}"/>
+    </params>
+  </user>
+</include>
+```
+
+The `<include>` wrapper is consumed by the preprocessor and does not appear in the
+final document. This is why directory users, dialplan contexts, and SIP profiles
+each live in their own file yet merge into the correct section.
+
+## Preprocessor Variables
+
+Preprocessor variables are global strings resolved during assembly. They use two
+dollar signs and are defined with `set`:
+
+```xml
+<X-PRE-PROCESS cmd="set" data="domain=example.com"/>
+```
+
+Reference a preprocessor variable as `$${name}`. The double dollar sign marks a
+value that is expanded once, during preprocessing, before the XML parser sees it.
+
+This is distinct from a channel variable, which uses a single dollar sign,
+`${name}`, and is expanded at call time on a specific channel. The distinction
+matters:
+
+| Syntax | Resolved | Scope |
+| --- | --- | --- |
+| `$${name}` | During configuration assembly | Global, same for every call |
+| `${name}` | At call time | The current channel |
+
+Most global values, including paths, the default domain, and the default
+password, are preprocessor variables defined in `vars.xml`. They are documented in
+Chapter 4 (Variables and Core Settings).
+
+## The Top-Level Sections
+
+After assembly the document contains five sections. Each is owned by a different
+part of the system.
+
+| Section | Populated from | Documented in |
+| --- | --- | --- |
+| `configuration` | `autoload_configs/*.xml` | Throughout Parts 2 to 7 |
+| `dialplan` | `dialplan/*.xml` | Part 4 (XML Dialplan) |
+| `chatplan` | `chatplan/*.xml` | Text message routing |
+| `directory` | `directory/*.xml` | Chapter 6 (User Directory) |
+| `languages` | `lang/*/*.xml` | Phrase rendering |
+
+Each file under `autoload_configs/` is a `configuration` block named for the
+module it configures, for example `<configuration name="sofia.conf" ...>` in
+`sofia.conf.xml`. A module reads the block whose name matches the name it
+registers.
+
+## The Compiled Document
+
+When the preprocessor finishes, FreeSWITCH writes the fully assembled document to
+`freeswitch.xml.fsxml` in the log directory (the path configured as `log_dir`,
+typically `/var/log/freeswitch`). The filename is the root config filename with
+`.fsxml` appended. This file is the exact XML the parser consumed, with every
+include resolved and every `$${...}` variable expanded. It is a read-only
+artifact for confirming what the running configuration looks like. Do not edit
+it; it is regenerated on each `reloadxml` and is memory mapped while FreeSWITCH
+runs.
+
+## Editing and Reloading
+
+Edit the small files under `autoload_configs/`, `dialplan/`, `directory/`, and
+`sip_profiles/`, never the compiled document. Apply changes with:
+
+```
+reloadxml
+```
+
+`reloadxml` re-runs the preprocessor and reparses the document. Directory and
+dialplan changes take effect on the next call. Some modules cache their own
+configuration and need a targeted reload or rescan, noted in each module's
+chapter.

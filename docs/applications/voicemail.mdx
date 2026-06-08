@@ -1,0 +1,538 @@
+---
+sidebar_position: 1
+id: voicemail
+slug: /applications/voicemail
+title: "Chapter 19: Voicemail"
+description: "Integrated voicemail with mod_voicemail: per-user mailboxes, caller recording, playback and configuration menus, and email delivery."
+sidebar_label: "19. Voicemail"
+---
+
+# Chapter 19: Voicemail
+
+The `mod_voicemail` module provides integrated voicemail for FreeSWITCH, supporting per-user mailboxes defined in the user directory, caller-side recording, subscriber-side playback and configuration menus, and email delivery of messages with optional audio attachments.
+
+## Table of Contents
+
+- [19.1 Getting Started](#191-getting-started)
+- [19.2 Profile Configuration](#192-profile-configuration)
+  - [19.2.1 Profile Parameter Reference](#1921-profile-parameter-reference)
+  - [19.2.2 DTMF Key Bindings](#1922-dtmf-key-bindings)
+  - [19.2.3 Email Sub-element](#1923-email-sub-element)
+  - [19.2.4 Storage and Database Options](#1924-storage-and-database-options)
+- [19.3 User Directory Integration](#193-user-directory-integration)
+  - [19.3.1 Per-User Parameters](#1931-per-user-parameters)
+- [19.4 The voicemail Dialplan Application](#194-the-voicemail-dialplan-application)
+  - [19.4.1 Leave-Message Mode](#1941-leave-message-mode)
+  - [19.4.2 Check-Mailbox Mode](#1942-check-mailbox-mode)
+  - [19.4.3 Channel Variables](#1943-channel-variables)
+- [19.5 Email Notification](#195-email-notification)
+  - [19.5.1 Email Template Variables](#1951-email-template-variables)
+- [19.6 Default Dialplan Entries](#196-default-dialplan-entries)
+- [19.7 Global Settings](#197-global-settings)
+
+---
+
+## 19.1 Getting Started
+
+**Prerequisites:** `mod_voicemail` must be loaded. Confirm it appears in `autoload_configs/modules.conf.xml`. The module reads its configuration from `autoload_configs/voicemail.conf.xml`.
+
+**Minimum working configuration steps:**
+
+1. Confirm `voicemail.conf.xml` contains a profile named `default` (the vanilla configuration ships one).
+2. Ensure each user in the directory has a `vm-password` param set (see Section 19.3).
+3. Confirm the dialplan extensions `4000` and `*98` (or their equivalents) exist to route mailbox check calls (see Section 19.6).
+4. For email delivery, configure a working MTA on the FreeSWITCH host and set `email-from` inside the profile's `<email>` block.
+
+A caller who reaches a busy or unanswered extension is bridged to:
+
+```xml
+<action application="bridge" data="loopback/app=voicemail:default ${domain_name} ${dialed_extension}"/>
+```
+
+This invokes the `voicemail` application in leave-message mode for the mailbox matching `${dialed_extension}` in the `default` profile.
+
+---
+
+## 19.2 Profile Configuration
+
+Profiles are defined in `autoload_configs/voicemail.conf.xml`. Each profile is a named collection of parameters that governs recording behavior, DTMF menus, storage paths, and email delivery. Multiple profiles can coexist; each invocation of the `voicemail` dialplan application specifies which profile to use.
+
+```xml
+<configuration name="voicemail.conf" description="Voicemail">
+  <settings>
+  </settings>
+  <profiles>
+    <profile name="default">
+      <param name="file-extension" value="wav"/>
+      <param name="terminator-key" value="#"/>
+      <param name="max-login-attempts" value="3"/>
+      <param name="digit-timeout" value="10000"/>
+      <param name="min-record-len" value="3"/>
+      <param name="max-record-len" value="300"/>
+      <param name="max-retries" value="3"/>
+      <param name="tone-spec" value="%(1000, 0, 640)"/>
+      <param name="callback-dialplan" value="XML"/>
+      <param name="callback-context" value="default"/>
+      <param name="play-new-messages-key" value="1"/>
+      <param name="play-saved-messages-key" value="2"/>
+      <param name="login-keys" value="0"/>
+      <param name="main-menu-key" value="0"/>
+      <param name="config-menu-key" value="5"/>
+      <param name="record-greeting-key" value="1"/>
+      <param name="choose-greeting-key" value="2"/>
+      <param name="change-pass-key" value="6"/>
+      <param name="record-name-key" value="3"/>
+      <param name="record-file-key" value="3"/>
+      <param name="listen-file-key" value="1"/>
+      <param name="save-file-key" value="2"/>
+      <param name="delete-file-key" value="7"/>
+      <param name="undelete-file-key" value="8"/>
+      <param name="email-key" value="4"/>
+      <param name="pause-key" value="0"/>
+      <param name="restart-key" value="1"/>
+      <param name="ff-key" value="6"/>
+      <param name="rew-key" value="4"/>
+      <param name="skip-greet-key" value="#"/>
+      <param name="previous-message-key" value="1"/>
+      <param name="next-message-key" value="3"/>
+      <param name="skip-info-key" value="*"/>
+      <param name="repeat-message-key" value="0"/>
+      <param name="record-silence-threshold" value="200"/>
+      <param name="record-silence-hits" value="2"/>
+      <param name="web-template-file" value="web-vm.tpl"/>
+      <param name="db-password-override" value="false"/>
+      <param name="allow-empty-password-auth" value="true"/>
+      <param name="operator-extension" value="operator XML default"/>
+      <param name="operator-key" value="9"/>
+      <param name="vmain-extension" value="vmain XML default"/>
+      <param name="vmain-key" value="*"/>
+      <email>
+        <param name="template-file" value="voicemail.tpl"/>
+        <param name="notify-template-file" value="notify-voicemail.tpl"/>
+        <param name="date-fmt" value="%A, %B %d %Y, %I %M %p"/>
+        <param name="email-from" value="${voicemail_account}@${voicemail_domain}"/>
+      </email>
+      <!--<param name="storage-dir" value="$${storage_dir}"/>-->
+      <!--<param name="odbc-dsn" value="dsn:user:pass"/>-->
+    </profile>
+  </profiles>
+</configuration>
+```
+
+### 19.2.1 Profile Parameter Reference
+
+**Recording and audio format:**
+
+| Parameter | Purpose | Values | Default |
+|---|---|---|---|
+| `file-extension` | Audio format for recorded messages and greetings | Any format string supported by the installed codec modules, e.g. `wav`, `mp3` | `wav` |
+| `terminator-key` | DTMF digit that ends a recording | Single DTMF digit | `#` |
+| `min-record-len` | Minimum recording duration in seconds; recordings shorter than this are discarded | Integer >= 0 | `3` |
+| `max-record-len` | Maximum message recording duration in seconds | Integer >= 0 | `300` |
+| `tone-spec` | TGML tone specification played as the record-beep before message recording | TGML string | `%(1000, 0, 640)` |
+| `record-silence-threshold` | Energy threshold below which audio is considered silence during recording | Integer (0-10000) | `200` |
+| `record-silence-hits` | Number of consecutive silence frames required to stop recording | Integer | `2` |
+| `record-sample-rate` | Override the sample rate of recorded files; useful for players with limited codec support (e.g. `11025` for some email clients) | Integer (Hz); `0` means use channel native rate | `0` (native) |
+| `record-title` | ID3-style title tag embedded in recorded files | String | `FreeSWITCH Voicemail` |
+| `record-comment` | ID3-style comment tag embedded in recorded files | String | `FreeSWITCH Voicemail` |
+| `record-copyright` | ID3-style copyright tag embedded in recorded files | String | `http://www.freeswitch.org` |
+| `convert-cmd` | Shell command used to convert recorded files to another format before email attachment; used together with `convert-ext` | Command string | (none) |
+| `convert-ext` | File extension produced by `convert-cmd`; the converted file is used as the email attachment | Extension string | (none) |
+| `auto-playback-recordings` | When `true`, newly recorded greetings or name recordings are played back immediately after recording | `true`, `false` | `false` |
+
+**Session and menu behavior:**
+
+| Parameter | Purpose | Values | Default |
+|---|---|---|---|
+| `digit-timeout` | Milliseconds to wait for a DTMF digit during menu navigation | Integer (ms) | `10000` |
+| `max-login-attempts` | Number of failed PIN attempts allowed before the mailbox check session is terminated | Integer | `3` |
+| `max-retries` | Maximum number of retries for menu input before the session ends | Integer | `3` |
+| `play-new-messages-lifo` | When `true`, new messages are played in last-in-first-out order (newest first) | `true`, `false` | `false` |
+| `play-saved-messages-lifo` | When `true`, saved messages are played in last-in-first-out order (newest first) | `true`, `false` | `false` |
+| `play-date-announcement` | Controls when the message date/time stamp is announced during playback | `first`, `last`, `never` | `first` |
+| `db-password-override` | When `true`, the password stored in the voicemail database takes precedence over the directory `vm-password` param | `true`, `false` | `false` |
+| `allow-empty-password-auth` | When `true`, a user with no password set can authenticate with no input | `true`, `false` | `true` |
+
+**Callback and transfer destinations:**
+
+| Parameter | Purpose | Values | Default |
+|---|---|---|---|
+| `callback-dialplan` | Dialplan type used when a subscriber presses the callback key during message playback | `XML`, `ENUM`, or other configured dialplan type | `XML` |
+| `callback-context` | Dialplan context used for the callback call | Context name string | `default` |
+| `operator-extension` | Destination transferred to when the caller presses the operator key; format is `dest [dialplan] [context]` | Destination string | (empty; operator key disabled) |
+| `operator-key` | DTMF digit that transfers the caller to `operator-extension` during greeting playback | Single DTMF digit | (empty) |
+| `vmain-extension` | Destination transferred to when the subscriber presses the vmain key; format is `dest [dialplan] [context]` | Destination string | (empty) |
+| `vmain-key` | DTMF digit that jumps to `vmain-extension` during mailbox check | Single DTMF digit | (empty) |
+
+**Storage and database:**
+
+| Parameter | Purpose | Values | Default |
+|---|---|---|---|
+| `storage-dir` | Base directory for storing voicemail message files; when empty, messages are stored under the global FreeSWITCH storage directory | Absolute path | (empty; uses global storage dir) |
+| `storage-dir-shared` | When `true`, mailbox directories under `storage-dir` include a `voicemail/` segment in the path, enabling a shared storage root across domains | `true`, `false` | `false` |
+| `odbc-dsn` | ODBC data source name for storing voicemail metadata in an external database; format `dsn:user:pass` | DSN string | (none; uses SQLite) |
+| `dbname` | Override the SQLite database filename (without path); used only when `odbc-dsn` is not set | String | `voicemail_<profile_name>` |
+
+**MWI (Message Waiting Indicator):**
+
+| Parameter | Purpose | Values | Default |
+|---|---|---|---|
+| `send-full-vm-header` | When `true`, the MWI `Voice-Message` SIP header includes urgent message counts in the format `new/saved (new-urgent/saved-urgent)` instead of the abbreviated `new/saved` form | `true`, `false` | `false` |
+
+**Email delivery (inline profile params, not inside `<email>`):**
+
+| Parameter | Purpose | Values | Default |
+|---|---|---|---|
+| `notify-email-body` | Literal body text for notification-only emails when no template file is used; set as a `<param>` in the profile (outside `<email>`) | String | (none) |
+| `notify-email-headers` | Literal RFC 2822 headers for notification-only emails; set as a `<param>` in the profile (outside `<email>`) | String | (none) |
+
+**Web interface:**
+
+| Parameter | Purpose | Values | Default |
+|---|---|---|---|
+| `web-template-file` | Path to a template file used to generate a web-based voicemail interface response | Filename relative to the FreeSWITCH config directory | `web-vm.tpl` |
+
+### 19.2.2 DTMF Key Bindings
+
+These parameters assign DTMF digits to menu actions. Each accepts a single DTMF digit (`0`-`9`, `*`, `#`).
+
+**Main menu (mailbox check):**
+
+| Parameter | Action | Default |
+|---|---|---|
+| `login-keys` | Digit(s) that prompt for mailbox ID at the start of a check session | `0` |
+| `main-menu-key` | Return to the main menu | `0` |
+| `play-new-messages-key` | Play new messages | `1` |
+| `play-saved-messages-key` | Play saved messages | `2` |
+| `config-menu-key` | Enter configuration menu | `5` |
+
+**During message playback:**
+
+| Parameter | Action | Default |
+|---|---|---|
+| `listen-file-key` | Listen to the current message | `1` |
+| `save-file-key` | Save (move to saved folder) | `2` |
+| `delete-file-key` | Delete the message | `7` |
+| `undelete-file-key` | Undelete the message | `8` |
+| `email-key` | Email the message to the subscriber | `4` |
+| `callback-key` | Initiate a callback call to the message sender | `5` |
+| `forward-key` | Forward the message to another mailbox | `8` |
+| `prepend-key` | Prepend a recording to the message before forwarding | `1` |
+| `urgent-key` | Mark the message as urgent during leave-message recording | `*` |
+| `previous-message-key` | Go to previous message | `1` |
+| `next-message-key` | Go to next message | `3` |
+| `repeat-message-key` | Repeat the current message | `0` |
+| `skip-info-key` | Skip envelope information | `*` |
+| `pause-key` | Pause/resume playback | `0` |
+| `restart-key` | Restart message from beginning | `1` |
+| `ff-key` | Fast-forward | `6` |
+| `rew-key` | Rewind | `4` |
+
+**During greeting (caller side):**
+
+| Parameter | Action | Default |
+|---|---|---|
+| `skip-greet-key` | Skip the greeting and go directly to record tone | `#` |
+| `operator-key` | Transfer to `operator-extension` | (empty; disabled) |
+
+**Configuration menu:**
+
+| Parameter | Action | Default |
+|---|---|---|
+| `record-greeting-key` | Record a new greeting | `1` |
+| `choose-greeting-key` | Select among recorded greetings | `2` |
+| `record-name-key` | Record the subscriber name | `3` |
+| `change-pass-key` | Change the mailbox PIN | `6` |
+
+**Recording sub-menu (when recording a greeting):**
+
+| Parameter | Action | Default |
+|---|---|---|
+| `record-file-key` | Start recording | `3` |
+| `listen-file-key` | Listen to recording | `1` |
+| `save-file-key` | Save the recording | `2` |
+
+### 19.2.3 Email Sub-element
+
+Email delivery parameters are nested inside an `<email>` child element within the profile. The `<email>` block supports `<param>` elements and two special raw-text children, `<body>` and `<headers>`:
+
+```xml
+<email>
+  <param name="template-file" value="voicemail.tpl"/>
+  <param name="notify-template-file" value="notify-voicemail.tpl"/>
+  <param name="date-fmt" value="%A, %B %d %Y, %I:%M %p"/>
+  <param name="email-from" value="${voicemail_account}@${voicemail_domain}"/>
+  <!-- Optional: inline body and headers instead of template files -->
+  <!-- <body>Voicemail from ${voicemail_caller_id_name}</body> -->
+  <!-- <headers>X-Custom-Header: value</headers> -->
+</email>
+```
+
+**`<email>` `<param>` reference:**
+
+| Parameter | Purpose | Values | Default |
+|---|---|---|---|
+| `template-file` | Template file for the email sent with an attached message audio file | Filename relative to the FreeSWITCH config directory | `voicemail.tpl` |
+| `notify-template-file` | Template file for the notification-only email (no audio attachment) | Filename relative to the FreeSWITCH config directory | `notify-voicemail.tpl` |
+| `date-fmt` | `strftime(3)` format string used to render `${voicemail_time}` in templates | strftime format string | `%A, %B %d %Y, %I:%M %p` |
+| `email-from` | From address for outbound voicemail email; supports channel variable expansion | Email address or expression | `${voicemail_account}@${voicemail_domain}` |
+
+**`<email>` raw-text children:**
+
+| Element | Purpose |
+|---|---|
+| `<body>` | Literal email body text used in place of a template file for message delivery emails |
+| `<headers>` | Literal RFC 2822 header lines appended to the outgoing message delivery email |
+
+When `<body>` is present, it overrides the `template-file` for the delivery email. When `<headers>` is present, those header lines are included in the outgoing email. Both elements support `${variable}` expansion.
+
+Template files are located in the FreeSWITCH configuration root (the same directory as `voicemail.conf.xml`). The vanilla configuration ships `voicemail.tpl` (message delivery with attachment) and `notify-voicemail.tpl` (notification only, no attachment). Both are RFC 2822 formatted MIME multipart documents with plain text and HTML parts.
+
+### 19.2.4 Storage and Database Options
+
+By default, `mod_voicemail` uses an SQLite database to store message metadata and places recorded audio files under the global FreeSWITCH storage directory in a `voicemail/` subdirectory, organized as `voicemail/<domain>/<mailbox-id>/`.
+
+Setting `storage-dir` in the profile overrides the storage root:
+
+```xml
+<param name="storage-dir" value="/var/lib/freeswitch/voicemail"/>
+```
+
+When `storage-dir-shared` is `false` (the default), the layout under `storage-dir` is `<domain>/<mailbox-id>/`. When `true`, it is `<domain>/voicemail/<mailbox-id>/`.
+
+For ODBC storage of message metadata:
+
+```xml
+<param name="odbc-dsn" value="voicemail:fsuser:fspassword"/>
+```
+
+Per-user storage overrides are available via the user directory parameters `vm-storage-dir` and `vm-domain-storage-dir` (see Section 19.3.1). The user-level `vm-domain-storage-dir` parameter supersedes the profile `storage-dir`. The older per-user `storage-dir` variable is deprecated; use `vm-domain-storage-dir` instead.
+
+---
+
+## 19.3 User Directory Integration
+
+Each voicemail mailbox corresponds to a user entry in the FreeSWITCH XML user directory (typically under `directory/default/`). The mailbox ID is the user's `id` attribute. The `vm-password` param in the user's `<params>` block sets the PIN required to authenticate during mailbox check.
+
+```xml
+<user id="1000">
+  <params>
+    <param name="password" value="$${default_password}"/>
+    <param name="vm-password" value="1000"/>
+  </params>
+</user>
+```
+
+When `db-password-override` is `false` in the profile (the default), the directory `vm-password` is authoritative. When set to `true`, a password stored in the voicemail database (set by the subscriber via the change-password menu) takes precedence.
+
+### 19.3.1 Per-User Parameters
+
+The following `<param>` entries in a user's directory entry override profile-level behavior for that mailbox:
+
+| Parameter | Purpose |
+|---|---|
+| `vm-password` | Mailbox PIN |
+| `vm-mailto` | Email address to deliver voicemail messages with audio attachment |
+| `vm-notify-mailto` | Email address for notification-only delivery (no audio attachment) |
+| `vm-mailfrom` | Override the From address for this user's voicemail email |
+| `vm-cc` | CC address added to the voicemail delivery email |
+| `vm-email-all-messages` | Set to `true` to email every new message automatically |
+| `vm-notify-email-all-messages` | Set to `true` to send a notification email for every new message |
+| `vm-attach-file` | Set to `true` to attach the audio file to the delivery email |
+| `vm-keep-local-after-email` | Set to `true` to retain the local message file after emailing |
+| `vm-storage-dir` | Per-user override for the audio file storage path |
+| `vm-domain-storage-dir` | Per-user override for the domain-level storage path |
+| `vm-message-ext` | Override the file extension (audio format) for this user's messages |
+| `vm-enabled` | Set to `false` to disable voicemail for this user |
+| `vm-disk-quota` | Maximum total storage in bytes allowed for this mailbox |
+| `vm-alternate-greet-id` | Use a different mailbox ID's greeting when leaving a message for this user |
+| `vm-operator-extension` | Per-user operator extension, overriding the profile-level setting |
+| `vm-skip-instructions` | Set to `true` to skip the post-greeting recording instructions for this user |
+| `vm-convert-cmd` | Override the audio conversion command for this user |
+| `vm-convert-ext` | Override the converted file extension for this user |
+| `timezone` | Timezone used to render `${voicemail_time}` in email templates; set in `<variables>` or `<params>` |
+
+---
+
+## 19.4 The voicemail Dialplan Application
+
+The application name is `voicemail`. The full argument syntax is:
+
+```
+[check] [auth] [auth_only] <profile_name> <domain_name> [<id>] [uuid]
+```
+
+`profile_name` and `domain_name` are required. `id` is the mailbox identifier; when omitted, the module reads the channel variable `voicemail_id`. If `profile_name` or `domain_name` is missing from the argument string, the module reads `voicemail_profile_name` and `voicemail_domain_name` channel variables respectively.
+
+The optional keywords `check`, `auth`, and `auth_only` are parsed in order before the positional arguments. They are case-insensitive. Multiple keywords can appear together (e.g., `check auth`).
+
+### 19.4.1 Leave-Message Mode
+
+When neither `check` nor `auth_only` is specified, the application runs in leave-message mode: it plays the mailbox owner's greeting, records a message from the caller, and stores the recording.
+
+```xml
+<!-- Leave a message in mailbox 1001, profile "default", domain "example.com" -->
+<action application="voicemail" data="default example.com 1001"/>
+```
+
+A typical use is as a post-bridge fallback when a called extension is unavailable:
+
+```xml
+<action application="bridge" data="user/1001@example.com"/>
+<action application="voicemail" data="default ${domain_name} 1001"/>
+```
+
+### 19.4.2 Check-Mailbox Mode
+
+When `check` is present, the application enters mailbox check mode: the subscriber is prompted to enter their mailbox ID (if not supplied in the argument) and PIN, then presented with the message playback menu.
+
+```xml
+<!-- Prompt for mailbox ID and PIN -->
+<action application="voicemail" data="check default ${domain_name}"/>
+
+<!-- Pre-supply the mailbox ID; subscriber still enters PIN -->
+<action application="voicemail" data="check default ${domain_name} 1001"/>
+```
+
+The `auth` keyword bypasses PIN authentication, treating the caller as already authenticated. This is appropriate when the subscriber is calling from their own registered extension and the dialplan has verified identity:
+
+```xml
+<action application="voicemail" data="check auth default ${domain_name} ${dialed_extension}"/>
+```
+
+The `auth_only` keyword causes the session to enter check mode and exit immediately after successful PIN authentication, without presenting the message menu. This is useful for two-factor flows or PIN verification integrations. The `auth_only` keyword implies check mode; `check` does not need to be specified alongside it.
+
+```xml
+<action application="voicemail" data="auth_only default ${domain_name} ${dialed_extension}"/>
+```
+
+The optional `uuid` positional argument (after the mailbox `id`) is only meaningful in check mode. When supplied, it opens a specific message directly by UUID.
+
+### 19.4.3 Channel Variables
+
+**Input variables (read before or during execution):**
+
+| Variable | Purpose |
+|---|---|
+| `voicemail_profile_name` | Profile name fallback when not supplied in the argument string |
+| `voicemail_domain_name` | Domain name fallback when not supplied in the argument string |
+| `voicemail_id` | Mailbox ID fallback when not supplied in the argument string |
+| `voicemail_authorized` | When set to `true`, the subscriber is treated as authenticated (equivalent to the `auth` keyword) |
+| `vm_auth_only` | When set to `true` inside an active check-mode session, the session exits after successful authentication |
+| `skip_greeting` | When set to `true` before invoking leave-message mode, the mailbox owner's greeting is skipped; cleared after use |
+| `skip_instructions` | When set to `true` before invoking leave-message mode, the post-greeting recording instructions are skipped; cleared after use |
+| `skip_record_urgent_check` | When set to `true`, the urgent-message prompt at the end of leave-message recording is suppressed; cleared after use |
+| `voicemail_skip_goodbye` | When set to `true`, the goodbye prompt at the end of leave-message mode is suppressed; cleared after use |
+| `vm_cc` | Comma-separated list of additional mailbox addresses to copy the message to after delivery |
+
+**Output variables (set by the module after execution):**
+
+| Variable | Purpose |
+|---|---|
+| `voicemail_account` | Mailbox ID (user ID) of the destination mailbox |
+| `voicemail_domain` | Domain of the destination mailbox |
+| `voicemail_caller_id_name` | Caller ID name of the message sender |
+| `voicemail_caller_id_number` | Caller ID number of the message sender |
+| `voicemail_formatted_caller_id_number` | Formatted (localized) version of the caller ID number |
+| `voicemail_file_path` | Absolute path to the recorded message file |
+| `voicemail_message_len` | Duration of the recorded message in seconds |
+| `voicemail_read_flags` | Read state flags for the message |
+| `voicemail_time` | Message timestamp formatted per the `date-fmt` profile setting |
+| `voicemail_priority` | Message priority value (maps to `X-Priority` header in email) |
+| `voicemail_email` | Delivery email address (`vm-mailto`) for the mailbox owner |
+| `voicemail_email_from` | From address used for the voicemail delivery email |
+| `voicemail_notify_email` | Notification email address (`vm-notify-mailto`) for the mailbox owner |
+| `voicemail_current_folder` | Name of the current message folder (`new` or `saved`) |
+| `voicemail_total_new_messages` | Total count of new (unread) messages in the mailbox |
+| `voicemail_total_saved_messages` | Total count of saved messages in the mailbox |
+| `voicemail_urgent_new_messages` | Total count of urgent new messages in the mailbox |
+| `voicemail_urgent_saved_messages` | Total count of urgent saved messages in the mailbox |
+| `user_pin_authenticated` | Set to `true` after successful PIN authentication in `auth_only` mode |
+| `user_pin_authenticated_user` | Mailbox ID of the user who authenticated in `auth_only` mode |
+
+---
+
+## 19.5 Email Notification
+
+When a new message is left and the user directory has `vm-mailto` or `vm-notify-mailto` configured, `mod_voicemail` generates and sends an email using FreeSWITCH's internal `switch_simple_email` function. The host must have a working MTA (such as `sendmail` or `postfix`) installed and accessible from the default PATH.
+
+Two delivery modes exist:
+
+- **Message delivery** (`vm-mailto` + `vm-attach-file true`): The email is rendered using the profile `template-file` and includes the recorded audio as a MIME attachment.
+- **Notification only** (`vm-notify-mailto`): The email is rendered using `notify-template-file` with no attachment. The `notify-voicemail.tpl` template differs from `voicemail.tpl` only in that it addresses `${voicemail_notify_email}` rather than `${voicemail_email}`.
+
+Setting `vm-notify-email-all-messages true` on the user triggers a notification email for every inbound message automatically, without requiring the subscriber to configure forwarding interactively.
+
+Audio format conversion before attachment is available via `vm-convert-cmd` and `vm-convert-ext` (or the profile-level equivalents `convert-cmd` and `convert-ext`). The convert command is called as a shell command with the source file path; the resulting file with the new extension is attached.
+
+### 19.5.1 Email Template Variables
+
+Templates are plain RFC 2822 text files with FreeSWITCH variable substitution (`${variable}`). The following variables are populated by the module for use in template files:
+
+| Variable | Content |
+|---|---|
+| `${voicemail_caller_id_name}` | Caller ID name of the message sender |
+| `${voicemail_caller_id_number}` | Caller ID number of the message sender |
+| `${voicemail_domain}` | Domain of the mailbox |
+| `${voicemail_account}` | Mailbox ID (user ID) |
+| `${voicemail_email}` | Delivery email address (`vm-mailto`) |
+| `${voicemail_email_from}` | From address for the delivery email (`vm-mailfrom` or profile `email-from`) |
+| `${voicemail_notify_email}` | Notification email address (`vm-notify-mailto`) |
+| `${voicemail_time}` | Message timestamp formatted per the `date-fmt` profile setting |
+| `${voicemail_message_len}` | Duration of the recorded message in seconds |
+| `${voicemail_priority}` | Message priority value; maps to `X-Priority` header |
+| `${voicemail_read_flags}` | Read state flags for the message |
+| `${voicemail_total_new_messages}` | Total new (unread) message count for the mailbox |
+| `${voicemail_total_saved_messages}` | Total saved message count for the mailbox |
+| `${RFC2822_DATE}` | Current date and time in RFC 2822 format |
+
+The default `voicemail.tpl` produces a `multipart/alternative` message with plain text and HTML parts. The HTML part includes a `tel:` URI link on the caller number. The `notify-voicemail.tpl` template addresses `${voicemail_notify_email}` instead of `${voicemail_email}` and sends no audio attachment. Both templates ship as files in the FreeSWITCH configuration root and can be edited freely.
+
+---
+
+## 19.6 Default Dialplan Entries
+
+The vanilla `dialplan/default.xml` ships with two voicemail-related extension patterns.
+
+**Leave a message (post-bridge fallback):**
+
+When a local extension does not answer, the dialplan bridges to the `voicemail` application in leave-message mode using a loopback channel:
+
+```xml
+<action application="bridge" data="loopback/app=voicemail:default ${domain_name} ${dialed_extension}"/>
+```
+
+This pattern appears in the `Local_Extension` and `Local_Extension_Skinny` extensions.
+
+**Mailbox check (`vmain` extension):**
+
+```xml
+<extension name="vmain">
+  <condition field="destination_number" expression="^vmain$|^4000$|^\*98$">
+    <action application="answer"/>
+    <action application="sleep" data="1000"/>
+    <action application="voicemail" data="check default ${domain_name}"/>
+  </condition>
+</extension>
+```
+
+This extension matches destination numbers `vmain`, `4000`, and `*98`. After answering and a brief 1-second sleep, it invokes the `voicemail` application in check mode with the `default` profile. Because no mailbox ID is supplied, the subscriber is prompted to enter their mailbox number followed by their PIN.
+
+To restrict mailbox check to a subscriber's own extension (pre-authenticated), set the `voicemail_authorized` channel variable to `true` before invoking the application, or include the `auth` keyword in the application data.
+
+---
+
+## 19.7 Global Settings
+
+The `<settings>` block at the top level of `voicemail.conf.xml` (outside any profile) accepts module-wide parameters:
+
+```xml
+<settings>
+  <param name="message-query-exact-match" value="false"/>
+</settings>
+```
+
+| Parameter | Purpose | Values | Default |
+|---|---|---|---|
+| `message-query-exact-match` | When `true`, the `vm_count` API and related queries match the domain field exactly. Operators who use distinct domain names per tenant must enable this and define a dedicated profile per domain. | `true`, `false` | `false` |
+| `debug` | Enables additional debug logging for the module | Integer (0 = off) | `0` |

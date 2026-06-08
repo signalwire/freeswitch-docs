@@ -1,0 +1,255 @@
+---
+sidebar_position: 3
+id: gateways
+slug: /users-and-endpoints/gateways
+title: "Chapter 8: Gateways and Trunk Registration"
+description: "Define outbound SIP trunks (gateways) inside a Sofia profile, with optional registration and the named handle used in dialplan bridge strings."
+sidebar_label: "8. Gateways and Trunk Registration"
+---
+
+# Chapter 8: Gateways and Trunk Registration
+
+A FreeSWITCH gateway is a named outbound SIP trunk definition that lives inside a Sofia profile's `<gateways>` block. It tells the Sofia endpoint how to reach a remote SIP provider or peer, optionally registers a SIP account with that provider, and provides the named handle used in dialplan bridge strings to route outbound calls.
+
+## Table of Contents
+
+- [What a Gateway Is](#what-a-gateway-is)
+- [Where Gateway Files Live](#where-gateway-files-live)
+- [Gateway Parameter Reference](#gateway-parameter-reference)
+- [Gateway Channel Variables](#gateway-channel-variables)
+- [Registering vs. Non-Registering Trunks](#registering-vs-non-registering-trunks)
+- [Complete Registering Gateway Example](#complete-registering-gateway-example)
+- [Non-Registering (IP-Authenticated) Gateway Example](#non-registering-ip-authenticated-gateway-example)
+- [Routing Outbound Calls Through a Gateway](#routing-outbound-calls-through-a-gateway)
+- [Inbound Calls From a Trunk](#inbound-calls-from-a-trunk)
+
+---
+
+## What a Gateway Is
+
+A gateway is a `<gateway>` element nested inside a Sofia profile's `<gateways>` block. Each gateway has a unique name that becomes the identifier used in dialplan bridge strings. At startup, FreeSWITCH reads each gateway definition, optionally sends a SIP REGISTER to the provider, and maintains the registration for the lifetime of the profile.
+
+Gateways belong to a Sofia profile. The `external` profile in the vanilla configuration is the conventional home for provider-facing gateways because it is configured with `context="public"` for inbound calls and does not enforce authentication on inbound requests.
+
+---
+
+## Where Gateway Files Live
+
+The vanilla configuration centralizes gateway definitions in:
+
+```
+conf/sip_profiles/external/
+```
+
+Each file in this directory is a separate XML fragment wrapped in `<include>`. The `external` profile pulls them in with an `X-PRE-PROCESS` include directive:
+
+```xml
+<profile name="external">
+  <gateways>
+    <X-PRE-PROCESS cmd="include" data="external/*.xml"/>
+  </gateways>
+  ...
+</profile>
+```
+
+You may place any number of gateway XML files in this directory. You may also define gateways inline inside any profile's `<gateways>` block.
+
+---
+
+## Gateway Parameter Reference
+
+All parameters are `<param name="..." value="..."/>` children of the `<gateway>` element.
+
+### Identity and Authentication
+
+| Parameter | Purpose | Values | Default |
+|---|---|---|---|
+| `username` | SIP username for authentication and the user part of the outbound Request-URI. Required when `register` is `true`. When `register` is `false` and omitted, defaults to `FreeSWITCH`. | String | None |
+| `password` | SIP password for digest authentication. Required when `register` is `true`. When `register` is `false` and omitted, defaults to empty string. | String | None |
+| `auth-username` | Digest authentication username when it differs from `username`. | String | Same as `username` |
+| `realm` | Authentication realm used in the REGISTER challenge response. When omitted, falls back to `proxy` if set, otherwise to the gateway name. | Hostname or IP | Gateway name |
+| `scheme` | Authentication scheme placed in the Authorization header. | `Digest` | `Digest` |
+| `from-user` | User part of the SIP `From` header on outbound requests. | String | Same as `username` |
+| `from-domain` | Domain part of the SIP `From` header on outbound requests. Affects the `From` header and the OPTIONS ping target URI. | Hostname or IP | Same as `proxy` |
+
+### Routing
+
+| Parameter | Purpose | Values | Default |
+|---|---|---|---|
+| `proxy` | SIP server that receives REGISTER and INVITE requests. Constructs the outbound Request-URI host. Defaults to `realm` when omitted. | Hostname, IP, or `sip:` URI | Same as `realm` |
+| `register-proxy` | SIP server that receives only REGISTER requests. Use when the registration target differs from the call routing target. | Hostname, IP, or `sip:` URI | Same as `proxy` |
+| `outbound-proxy` | Route all outbound INVITEs through this SIP proxy regardless of the Request-URI. Applied in addition to `proxy`. | Hostname, IP, or `sip:` URI | None |
+| `destination-prefix` | String prepended to the destination number on every outbound call through this gateway. | String | Empty |
+
+### Registration Behavior
+
+| Parameter | Purpose | Values | Default |
+|---|---|---|---|
+| `register` | Whether to send SIP REGISTER to the provider. Set to `false` for IP-authenticated trunks. | `true`, `false` | `true` |
+| `register-transport` | Transport used for REGISTER requests. Must be supported by the parent profile. Specifying `tls` requires `enable-tls` on the profile. | `udp`, `tcp`, `tls` | `udp` |
+| `expire-seconds` | Requested registration expiry in seconds placed in the `Expires` header. Values below `5` are rejected and `3600` is used instead. | Integer | `3600` |
+| `retry-seconds` | Seconds to wait before retrying after a registration failure or timeout. Values below `5` are raised to `30`. | Integer | `30` |
+| `908-retry-seconds` | Override `retry-seconds` specifically for SIP 908 responses. When omitted, `retry-seconds` applies to 908 failures as well. | Integer | Same as `retry-seconds` |
+| `timeout-seconds` | Seconds to wait for a REGISTER response before declaring a timeout. Values below `5` are raised to `60`. | Integer | `60` |
+| `distinct-to` | When `true`, use a distinct To header on each REGISTER rather than the shared gateway To URI. | `true`, `false` | `false` |
+
+### Contact Header
+
+| Parameter | Purpose | Values | Default |
+|---|---|---|---|
+| `contact-host` | Override the host part of the SIP Contact header in REGISTER. The special value `sip-ip` forces use of the profile's internal SIP IP instead of the external IP. | Hostname, IP, or `sip-ip` | Profile's external SIP IP |
+| `contact-params` | Extra semicolon-delimited parameters appended to the Contact header URI in REGISTER requests. The transport and `gw` tag are appended automatically; do not duplicate them here. | Semicolon-delimited SIP URI params | Empty |
+| `extension-in-contact` | When `true`, place the `extension` value in the Contact header user part. When `false`, the gateway name (`gw+{name}`) is used. | `true`, `false` | `false` |
+
+### Inbound Call Handling
+
+| Parameter | Purpose | Values | Default |
+|---|---|---|---|
+| `extension` | Dialplan extension number that inbound calls arriving on this gateway target. Special values: `auto` and `auto_to_user` both map the destination to the SIP To header user part. When omitted, defaults to `username`. | String, `auto`, `auto_to_user` | Same as `username` |
+| `context` | Dialplan context inbound calls from this gateway enter. | String | Parent profile's `context` |
+| `caller-id-in-from` | When `true`, use the inbound caller ID as the `From` user when bridging that call out through this gateway. | `true`, `false` | `false` |
+| `gw-auth-acl` | ACL name used to authorize inbound SIP requests that arrive carrying this gateway's `gw+` Contact tag. | ACL name string | None |
+
+### OPTIONS Keepalive (Ping)
+
+| Parameter | Purpose | Values | Default |
+|---|---|---|---|
+| `ping` | Send SIP OPTIONS to the gateway every N seconds. Values below `5` are rejected and pinging is disabled. A failure sequence of `ping-min` consecutive failures marks the gateway DOWN and unregisters it. | Integer (seconds) | Disabled |
+| `ping-max` | Consecutive successful OPTIONS responses required to transition the gateway to UP. | Integer | `1` |
+| `ping-min` | Consecutive failed OPTIONS responses required to transition the gateway to DOWN. | Integer | `1` |
+| `ping-user-agent` | User-Agent string sent in OPTIONS ping requests. | String | None |
+| `ping-monitoring` | When `true`, fire a `sofia::gateway_state` custom event on every OPTIONS ping result, not only on state transitions. | `true`, `false` | `false` |
+| `contact-in-ping` | When `true`, direct OPTIONS pings to the registered Contact URI rather than the proxy URI. | `true`, `false` | `false` |
+
+### RFC 5626 (SIP Outbound)
+
+| Parameter | Purpose | Values | Default |
+|---|---|---|---|
+| `rfc-5626` | Enable RFC 5626 SIP Outbound for this gateway. The parent profile must also have `enable-rfc-5626` set. Causes a `+sip.instance` and `reg-id` to be appended to the Contact header. | `true`, `false` | `false` |
+| `reg-id` | The `reg-id` value placed in the Contact header when RFC 5626 is active. | Integer string | None |
+
+### Notes on Parameters Not Accepted at Gateway Level
+
+The vanilla `example.xml` file contains a commented-out `cid-type` param. That parameter is a **profile-level** setting (`caller-id-type` in the profile parser) and is not parsed in the gateway parameter loop. Setting it inside a `<gateway>` element has no effect.
+
+Similarly, `dtmf-type` and `sip-cid-type` are profile-level parameters. They are not accepted by the gateway parser.
+
+The `retry_seconds` spelling (underscore) is accepted as a back-compatibility alias for `retry-seconds`. Use the hyphenated form in new configurations.
+
+---
+
+## Gateway Channel Variables
+
+In addition to `<param>` elements, a gateway definition accepts a `<variables>` block (or individual `<variable>` elements) that attach channel variables to calls passing through the gateway.
+
+```xml
+<gateway name="my-provider">
+  <param name="username" value="15555550100"/>
+  <param name="password" value="s3cr3tpass"/>
+  <param name="proxy"    value="sip.myprovider.com"/>
+
+  <variables>
+    <variable name="sip_cid_type"          value="rpid" direction="outbound"/>
+    <variable name="accountcode"           value="provider-a" direction="inbound"/>
+    <variable name="absolute_codec_string" value="PCMU,PCMA" direction="outbound"/>
+  </variables>
+</gateway>
+```
+
+Each `<variable>` accepts an optional `direction` attribute:
+
+| `direction` value | Effect |
+|---|---|
+| `inbound` | Variable is set on calls arriving from this gateway. |
+| `outbound` | Variable is set on calls bridged out through this gateway. |
+| Omitted | Variable is set on both inbound and outbound calls. |
+
+Gateway variables are a common way to set `sip_cid_type` per trunk (since `cid-type` is not a gateway `<param>`), apply per-trunk codec strings, or tag calls with an accounting code.
+
+---
+
+## Registering vs. Non-Registering Trunks
+
+**Registering gateways** send SIP REGISTER to the provider and maintain a registration with refresh. `username` and `password` are required. FreeSWITCH will REGISTER immediately on profile load and re-register before the expiry declared in `expire-seconds`.
+
+**Non-registering gateways** set `register` to `false`. FreeSWITCH does not send REGISTER; the trunk is authenticated by IP address on both ends. `username` and `password` are not required (FreeSWITCH defaults `username` to `FreeSWITCH` and `password` to an empty string when `register` is `false`). The gateway is immediately marked UP when the profile loads.
+
+---
+
+## Complete Registering Gateway Example
+
+```xml
+<include>
+  <gateway name="my-provider">
+    <!-- Required credentials -->
+    <param name="username"           value="15555550100"/>
+    <param name="password"           value="s3cr3tpass"/>
+
+    <!-- Authentication realm; defaults to gateway name if omitted -->
+    <param name="realm"              value="sip.myprovider.com"/>
+
+    <!-- Outbound request target; defaults to realm if omitted -->
+    <param name="proxy"              value="sip.myprovider.com"/>
+
+    <!-- From header identity -->
+    <param name="from-user"          value="15555550100"/>
+    <param name="from-domain"        value="sip.myprovider.com"/>
+
+    <!-- Registration behavior -->
+    <param name="register"           value="true"/>
+    <param name="register-transport" value="udp"/>
+    <param name="expire-seconds"     value="3600"/>
+    <param name="retry-seconds"      value="30"/>
+
+    <!-- Inbound call handling -->
+    <param name="extension"          value="15555550100"/>
+    <param name="context"            value="public"/>
+
+    <!-- OPTIONS keepalive every 30 seconds -->
+    <param name="ping"               value="30"/>
+  </gateway>
+</include>
+```
+
+---
+
+## Non-Registering (IP-Authenticated) Gateway Example
+
+```xml
+<include>
+  <gateway name="peer-trunk">
+    <!-- proxy is the only required field for a non-registering gateway -->
+    <param name="proxy"    value="203.0.113.10"/>
+    <param name="register" value="false"/>
+
+    <!-- Calls from this peer enter the public context -->
+    <param name="context"  value="public"/>
+  </gateway>
+</include>
+```
+
+When `register` is `false`, the gateway is brought up immediately at profile load without sending REGISTER. The `username` and `password` parameters may be omitted.
+
+---
+
+## Routing Outbound Calls Through a Gateway
+
+Use the `bridge` application in the dialplan with the endpoint string `sofia/gateway/<name>/<number>`, where `<name>` is the gateway name and `<number>` is the destination number.
+
+```xml
+<action application="bridge" data="sofia/gateway/my-provider/12125550199"/>
+```
+
+The gateway name must exactly match the `name` attribute of the `<gateway>` element. If the gateway is down (status `DOWN`), the bridge fails with a `GATEWAY_DOWN` cause code.
+
+A variable substitution is common when the gateway name is stored in a channel variable:
+
+```xml
+<action application="bridge" data="sofia/gateway/${default_gateway}/$1"/>
+```
+
+---
+
+## Inbound Calls From a Trunk
+
+Inbound SIP INVITE requests arriving from a registered or IP-authenticated trunk enter the dialplan context configured on the parent Sofia profile (typically `public` for the `external` profile) unless the gateway definition overrides it with the `context` parameter. From that context, dialplan rules match on the destination number and route the call. The `public` context and inbound dialplan routing are covered in Chapter 5: Dialplan.

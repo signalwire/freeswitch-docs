@@ -1,0 +1,249 @@
+---
+sidebar_position: 1
+id: introduction
+slug: /foundations/introduction
+title: "Chapter 1: Introduction and Core Concepts"
+description: "What FreeSWITCH is and the core concepts the manual assumes: its role, the runtime objects it manipulates, and how its configuration is organized."
+sidebar_label: "1. Introduction and Core Concepts"
+---
+
+# Chapter 1: Introduction and Core Concepts
+
+FreeSWITCH is a software switching platform for voice, video, and text
+communication. This chapter defines the concepts the rest of the manual assumes:
+the role FreeSWITCH plays, the objects it manipulates at runtime, and the way its
+configuration is organized. It stops at the configuration model and does not
+describe internal implementation.
+
+:::tip FreeSWITCH Enterprise
+FreeSWITCH is open source and free to use. FreeSWITCH Enterprise is the
+commercially supported edition, offering professional support and services from
+SignalWire. For details, contact [sales@signalwire.com](mailto:sales@signalwire.com).
+:::
+
+## Table of Contents
+- [What FreeSWITCH Is](#what-freeswitch-is)
+- [Endpoints, Channels, and Calls](#endpoints-channels-and-calls)
+- [The Three Configuration Domains](#the-three-configuration-domains)
+- [Configuration Domain Diagram](#configuration-domain-diagram)
+- [Anatomy of a Call](#anatomy-of-a-call)
+- [Modules](#modules)
+- [The Single XML Document](#the-single-xml-document)
+- [What This Manual Covers](#what-this-manual-covers)
+
+## What FreeSWITCH Is
+
+FreeSWITCH connects communication endpoints to one another and applies logic to
+the calls between them. It registers and authenticates users, receives and places
+calls over SIP and other protocols, negotiates media, runs applications such as
+voicemail and conferencing, and routes calls according to rules you define.
+
+Behavior is determined almost entirely by configuration. A baseline install ships
+with a complete, working configuration (the "vanilla" configuration) that
+operates as a SIP PBX. You adapt FreeSWITCH by editing XML configuration files,
+not by changing code.
+
+## Endpoints, Channels, and Calls
+
+These terms appear throughout the manual.
+
+| Term | Meaning |
+| --- | --- |
+| Endpoint | A protocol interface that originates or receives calls. Each endpoint is a module, for example Sofia for SIP or Verto for WebRTC. |
+| Channel | One leg of communication between FreeSWITCH and a single endpoint. A channel carries call state, media, and a set of channel variables. |
+| Call | One or more channels associated together. A typical call between two parties is two channels joined by a bridge. |
+| Bridge | The association that joins two channels so their media flows between them. |
+| Session | The runtime container for a channel and the application state running on it. |
+
+Each channel carries channel variables: named values that hold call state and
+control behavior. Channel variables are set by the directory, the dialplan, and
+applications, and are referenced as `${variable_name}`. The full catalog is in
+[Chapter 32](../reference/channel-variables.mdx).
+
+## The Three Configuration Domains
+
+FreeSWITCH separates configuration into three domains. Keeping them distinct is
+the key to understanding the system.
+
+| Domain | Question it answers | Where it lives |
+| --- | --- | --- |
+| Directory | Who is allowed to connect, and what are their properties? | `directory/` |
+| Dialplan | When a call arrives, where does it go and what happens to it? | `dialplan/` |
+| Configuration | How does each module and the core behave? | `autoload_configs/` |
+
+A user defined in the directory authenticates to a SIP profile. Once
+authenticated, the user's `user_context` variable selects the dialplan context
+that routes their calls. The dialplan then runs applications, which behave
+according to their module configuration. These links are detailed in
+[Chapter 6](../users-endpoints/user-directory.mdx),
+[Chapter 7](../users-endpoints/sip-profiles-sofia.mdx), and
+[Chapter 12](../dialplan/xml-dialplan.mdx).
+
+## Configuration Domain Diagram
+
+The diagram below shows the three configuration domains and the path a call
+takes through them. Each arrow represents a handoff between domains.
+
+```text
+  Endpoint (phone)
+       |
+       | SIP REGISTER / SIP INVITE
+       v
+  Sofia Profile (mod_sofia, internal profile)
+  - Listens on the configured sip-port
+  - Authenticates REGISTER requests against the Directory
+  - Routes answered INVITEs into its context (or the user's user_context)
+       |
+       | context = "default"  (from user_context variable in Directory)
+       v
+  Directory (directory/default/1000.xml)
+  - Holds credentials, user_context, caller-ID variables
+  - Consulted on REGISTER for authentication
+  - Consulted on bridge for destination contact lookup
+       |
+       | user_context = "default"
+       v
+  Dialplan context "default" (dialplan/default.xml)
+  - Extensions evaluated in order against destination_number
+  - Local_Extension matches ^(10[01][0-9])$
+  - Executes bridge application: user/1001@domain
+       |
+       | bridge
+       v
+  Sofia Profile (outbound leg to registered contact of 1001)
+       |
+       v
+  Endpoint (phone registered as 1001)
+```
+
+## Anatomy of a Call
+
+This walkthrough traces a call from extension 1000 to extension 1001 using the
+vanilla configuration. Each step names the configuration file that drives it.
+See Chapter 6 (User Directory), Chapter 7 (SIP Profiles and Sofia), and
+Chapter 12 (XML Dialplan) for full parameter reference.
+
+**Step 1: Extension 1000 registers**
+
+Extension 1000 sends a SIP REGISTER to the `internal` profile
+(`sip_profiles/internal.xml`). The profile has `auth-calls` enabled and
+`force-register-domain` set, so it challenges the request. Sofia consults the
+Directory to verify credentials. The Directory entry
+(`directory/default/1000.xml`) supplies the password. On success, Sofia records
+the binding (the contact URI and its expiry) so outbound calls can reach the
+device. The Directory entry also loads user variables into the session,
+including:
+
+- `user_context = default` -- selects the dialplan context for calls from this user
+- `effective_caller_id_name = Extension 1000`
+- `effective_caller_id_number = 1000`
+
+**Step 2: Extension 1000 sends an INVITE for 1001**
+
+Extension 1000 sends a SIP INVITE with a Request-URI of `sip:1001@domain` to
+the `internal` profile. The profile authenticates the INVITE (because
+`auth-calls` is enabled) and again verifies credentials against the Directory.
+Once authenticated, the profile determines which dialplan context to use.
+Because the caller is an authenticated directory user, FreeSWITCH uses the
+`user_context` variable loaded from that user's Directory entry. For user 1000
+that value is `default`.
+
+The profile's own `context` parameter is `public`
+(`sip_profiles/internal.xml`, line `context value="public"`). That value
+applies to unauthenticated inbound calls only. An authenticated user's
+`user_context` takes precedence, so the call enters the `default` context.
+
+**Step 3: The dialplan matches the destination**
+
+The dialplan engine evaluates the `default` context
+(`dialplan/default.xml`) in order. The `Local_Extension` extension has the
+condition:
+
+```xml
+<condition field="destination_number" expression="^(10[01][0-9])$">
+```
+
+The destination `1001` matches. The regex capture `$1` is exported as
+`dialed_extension`. The extension then sets several channel variables before
+the bridge:
+
+- `call_timeout = 30` -- ring time in seconds before continuing
+- `hangup_after_bridge = true` -- hang up the a-leg when the bridge ends
+- `continue_on_fail = true` -- continue executing actions if the bridge fails
+  (allowing the voicemail fallback that follows)
+
+**Step 4: The bridge application connects the call**
+
+The `bridge` action is:
+
+```xml
+<action application="bridge" data="user/${dialed_extension}@${domain_name}"/>
+```
+
+The `user/` endpoint prefix tells FreeSWITCH to look up `1001` in the
+Directory for the domain, retrieve that user's registered contact URI, and
+place an outbound SIP INVITE to it. The Directory entry for 1001
+(`directory/default/1001.xml`) is structured identically to 1000's entry. If
+1001 is registered, Sofia sends the INVITE to the stored contact address.
+
+If the bridge fails or times out and `continue_on_fail` is true, execution
+falls through to the `answer` and voicemail `bridge` actions that follow in
+the same extension, routing the caller to 1001's voicemail.
+
+**Step 5: Media negotiation and flow**
+
+With `inbound-late-negotiation = true` set on the `internal` profile, codec
+negotiation for the a-leg is deferred until the b-leg SDP is available. The
+profile's `inbound-codec-prefs` and `outbound-codec-prefs` (both drawn from
+`$${global_codec_prefs}`) define the preferred codec order. FreeSWITCH
+negotiates compatible codecs on each leg independently; if the two legs agree
+on the same codec, FreeSWITCH can pass RTP directly between them. Once the
+b-leg answers (SIP 200 OK), the two channels are bridged and RTP flows between
+the two endpoints.
+
+## Modules
+
+Almost all functionality is provided by modules that load at startup. Modules are
+grouped by the kind of interface they provide.
+
+| Category | Provides | Examples |
+| --- | --- | --- |
+| Endpoints | Call protocols | `mod_sofia` (SIP), `mod_verto` (WebRTC) |
+| Applications | Dialplan applications and API commands | `mod_dptools`, `mod_conference`, `mod_voicemail` |
+| Codecs | Audio and video encoding | `mod_opus`, `mod_g729`, `mod_av` |
+| File formats | Reading and writing media files | `mod_sndfile`, `mod_local_stream` |
+| Dialplans | Dialplan interpreters | `mod_dialplan_xml` |
+| Event handlers | External event and CDR interfaces | `mod_event_socket`, `mod_cdr_csv` |
+| Loggers | Log output | `mod_console`, `mod_logfile` |
+| Languages | Embedded scripting | `mod_lua` |
+| Say and ASR/TTS | Phrase rendering and speech | `mod_say_en`, `mod_flite` |
+
+Which modules load is controlled by `modules.conf.xml`, documented in
+[Chapter 5](../configuration-system/module-loading.mdx).
+
+## The Single XML Document
+
+At runtime FreeSWITCH presents its entire configuration as one XML document with a
+fixed set of top-level sections. Many small files on disk are assembled into this
+single document by a preprocessor.
+
+| Section | Contents |
+| --- | --- |
+| `configuration` | Per-module and core configuration from `autoload_configs/` |
+| `dialplan` | Call routing contexts |
+| `chatplan` | Text-message routing contexts |
+| `directory` | Domains, users, and groups |
+| `languages` | Phrase and language definitions |
+
+The assembly mechanism, the preprocessor, and the variable system are the subject
+of [Chapter 3](../configuration-system/xml-configuration.mdx).
+
+## What This Manual Covers
+
+The manual follows the path an operator takes. Part 1 gets you to a running
+system. Part 2 explains the configuration system. Parts 3 and 4 define who can
+connect and how their calls are routed. Part 5 covers media and codecs. Part 6
+covers the bundled applications. Part 7 covers the integration interfaces. Part 8
+is reference material.
+
+Continue with [Chapter 2: Getting Started](./getting-started.mdx).

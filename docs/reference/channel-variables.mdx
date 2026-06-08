@@ -1,0 +1,414 @@
+---
+sidebar_position: 2
+id: channel-variables
+slug: /reference/channel-variables
+title: "Chapter 32: Channel Variables Catalog"
+description: "Catalog of per-channel variables: what sets them, what reads them, and how to reference them as ${variable} in the dialplan."
+sidebar_label: "32. Channel Variables"
+---
+
+# Chapter 32: Channel Variables Catalog
+
+Channel variables are per-channel named string values that FreeSWITCH maintains for the lifetime of a call leg. They are referenced in dialplan expressions and application arguments as `${variable_name}`. Variables are set by the user directory when a caller authenticates, by dialplan actions such as `set` and `export`, by endpoint modules such as `mod_sofia`, and by core applications at runtime. A variable set with `set` applies only to the current leg; `export` additionally propagates the variable to any B-leg created by a subsequent `bridge`.
+
+## Table of Contents
+
+- [Call Control and Routing](#call-control-and-routing)
+- [Bridge and Transfer](#bridge-and-transfer)
+- [Origination](#origination)
+- [Caller Identity](#caller-identity)
+- [SIP](#sip)
+  - [Inbound Fields](#sip-inbound)
+  - [Authentication Fields](#sip-auth)
+  - [Redirect Handling](#sip-redirect)
+  - [Custom Headers](#sip-custom-headers)
+  - [SIP Variable Conventions](#sip-variable-conventions)
+  - [Presence](#sip-presence)
+- [Media Endpoints and SDP](#media-endpoints-and-sdp)
+- [Media and RTP](#media-and-rtp)
+  - [RTP and Media Statistics](#rtp-and-media-statistics)
+- [Recording](#recording)
+- [Hangup and CDR](#hangup-and-cdr)
+- [Session UUIDs](#session-uuids)
+- [Application Execution and CDR](#application-execution-and-cdr)
+- [DTMF](#dtmf)
+- [Directory and Account](#directory-and-account)
+- [Execution Hooks](#execution-hooks)
+
+---
+
+## Call Control and Routing {#call-control-and-routing}
+
+These variables govern what FreeSWITCH does before, during, and after a bridge.
+
+| Variable | Purpose |
+|---|---|
+| `continue_on_fail` | Controls dialplan continuation when a bridge attempt fails. Set to `true` to continue processing regardless of failure cause. Set to a comma-separated list of Q.850 cause names (e.g., `USER_BUSY,NO_ANSWER`) or numeric codes (e.g., `17,18`) to continue only on those specific causes. Default: `false`. |
+| `hangup_after_bridge` | When `true`, the A-leg is terminated as soon as the B-leg hangs up. When `false` (default), dialplan execution continues after the bridge returns. Evaluated after `park_after_bridge` and `transfer_after_bridge`. |
+| `park_after_bridge` | When `true`, the call is parked after the bridge returns instead of continuing dialplan execution. Evaluated before `hangup_after_bridge`. |
+| `park_after_early_bridge` | When `true`, the call is parked after an early-media bridge terminates, before the B-leg answers. Corresponds to `SWITCH_PARK_AFTER_EARLY_BRIDGE_VARIABLE` in `switch_types.h`. |
+| `transfer_after_bridge` | Specifies a dialplan transfer destination (`extension [dialplan [context]]`) to execute after a bridge completes. |
+| `transfer_after_early_bridge` | Specifies a dialplan transfer destination to execute when an early-media bridge terminates before the B-leg answers. Corresponds to `SWITCH_TRANSFER_AFTER_EARLY_BRIDGE_VARIABLE`. |
+| `call_timeout` | Maximum number of seconds to wait for the B-leg to answer when using the `bridge` application. Applies to the A-leg and governs all bridges on that channel. Has no effect once early media is received unless `ignore_early_media=true` is also set. Default: 60. |
+| `park_timeout` | When set on a parked channel, the call is disconnected after this many seconds. Accepts an integer or the form `seconds:HANGUP_CAUSE_NAME`. If not set the parked call is held until explicitly transferred. Example: `park_timeout=30:MEDIA_TIMEOUT`. |
+| `fail_on_single_reject` | Applies when the `,` (AND) operator is used in a bridge dial string. When `true`, a single rejection from any listed destination terminates the entire bridge attempt immediately. Can be set to a specific cause name (`USER_BUSY`) to fail only on that cause, or a negated cause (`!NORMAL_CLEARING`) to fail on all other causes. Accepts a custom delimiter list: `^^:CAUSE1:CAUSE2`. Default: `false`. |
+| `failure_causes` | Comma-separated list of Q.850 cause names. When the bridge returns with one of these causes, the channel is considered failed and `transfer_on_fail` is invoked. Operates as the reverse of `continue_on_fail`. Defined in `switch_channel.c`. |
+| `transfer_on_fail` | Dialplan transfer destination to execute when a bridge fails. Used in conjunction with `failure_causes`. Format: `extension [dialplan [context]]`. Defined in `switch_channel.c`. |
+| `bridge_early_media` | When `true`, live audio received as early media from the B-leg is buffered and played back to the A-leg as ringback. Increases resource usage relative to the default (`false`). Useful with loopback channels or multi-destination originations where network-generated tones must be relayed accurately. |
+| `ignore_early_media` | Controls whether early media (SIP 183 with SDP) causes the bridge to "connect" immediately. `true` ignores early media and keeps ringing until the B-leg answers. `ring_ready` behaves like `true` but also sends a SIP 180 to the A-leg when the first 183 is received. Default: `false`. |
+| `ringback` | Audio to play to the A-leg while waiting for the B-leg to answer (early media phase). Accepts a full filesystem path to an audio file or a TGML tone string (e.g., `%(2000,4000,440,480)`). Takes effect only when there is no early media from the B-leg unless `ignore_early_media` is also set. |
+| `transfer_ringback` | Audio to play to the A-leg during a transfer when the channel is already answered. Accepts the same formats as `ringback`. |
+| `transfer_fallback_extension` | Dialplan extension to transfer a call to when a transfer attempt fails. Set this before executing the transfer. |
+| `hold_music` | Audio stream to play when a channel is placed on hold. Accepts a local stream reference (e.g., `local_stream://moh`) or a full audio file path. |
+| `temp_hold_music` | Overrides `hold_music` for a single hold operation. Cleared automatically after the hold ends. Corresponds to `SWITCH_TEMP_HOLD_MUSIC_VARIABLE` in `switch_types.h`. |
+| `instant_ringback` | When `true`, ringback defined by `ringback` is generated immediately without waiting for a ringing indication from the B-leg. Default: `false`. |
+| `max_forwards` | Sets the SIP Max-Forwards header value for outbound requests on this channel. Corresponds to `SWITCH_MAX_FORWARDS_VARIABLE`. |
+| `max_session_transfers` | Maximum number of times a channel may be transferred. When the count is exceeded, further transfer attempts are rejected. Corresponds to `SWITCH_MAX_SESSION_TRANSFERS_VARIABLE` in `switch_types.h`. |
+| `export_vars` | Comma-separated list of variable names to automatically export to any B-leg created by a bridge. Equivalent to calling `export` on each listed variable. Corresponds to `SWITCH_EXPORT_VARS_VARIABLE`. |
+| `bridge_export_vars` | Like `export_vars` but variables are exported only to the B-leg for the duration of the bridge, not permanently. Corresponds to `SWITCH_BRIDGE_EXPORT_VARS_VARIABLE`. |
+| `send_silence_when_idle` | Integer. When set to a negative value (typically `-1`), FreeSWITCH sends comfort-noise silence packets to the channel when there is no audio to send. Prevents RTP timeouts on devices that require a continuous media stream. Read by `switch_ivr.c` and `switch_rtp.c`. Corresponds to `SWITCH_SEND_SILENCE_WHEN_IDLE_VARIABLE`. |
+| `playback_terminators` | String of DTMF digits that cause a playing audio file to stop immediately. Example: `1234567890*#`. Set to `none` to disable termination. Applies to `playback`, `read`, `play_and_get_digits`, and similar applications. Corresponds to `SWITCH_PLAYBACK_TERMINATORS_VARIABLE`. |
+| `ignore_display_updates` | When `true`, incoming SIP UPDATE or re-INVITE requests that only modify display name are silently ignored and not relayed to the bridged party. Corresponds to `SWITCH_IGNORE_DISPLAY_UPDATES_VARIABLE`. |
+| `enable_heartbeat_events` | Integer seconds. When set, FreeSWITCH fires a `SESSION_HEARTBEAT` event on this channel at the specified interval. Useful for monitoring long-duration calls. Corresponds to `SWITCH_ENABLE_HEARTBEAT_EVENTS_VARIABLE`. |
+
+---
+
+## Bridge and Transfer {#bridge-and-transfer}
+
+These variables are set by the core when a bridge or transfer is active or has just completed. Most are read-only at runtime; a few are also operator-settable to influence behavior.
+
+| Variable | Purpose |
+|---|---|
+| `bridge_channel` | Set by the core on both legs when a bridge is established. Contains the channel name (e.g., `sofia/internal/1001@10.0.0.1`) of the remote leg. Read-only; set in `switch_ivr_bridge.c`. Corresponds to `SWITCH_BRIDGE_CHANNEL_VARIABLE`. |
+| `bridge_uuid` | Set by the core on both legs when a bridge is established. Contains the UUID of the remote leg. Cleared when the bridge ends. Read-only. Corresponds to `SWITCH_BRIDGE_UUID_VARIABLE`. |
+| `bridge_to` | Set to the channel name of the most recently bridged B-leg after the bridge completes. Read-only; corresponds to `SWITCH_BRIDGE_VARIABLE` (`bridge_to`) in `switch_types.h`. |
+| `last_bridge_to` | Set to the channel name of the previously bridged B-leg when a new bridge supersedes it. Useful for inspecting bridge history after multiple sequential bridges. Read-only; corresponds to `SWITCH_LAST_BRIDGE_VARIABLE`. |
+| `signal_bridge_to` | UUID of the channel for a signal-only bridge (used by `uuid_bridge`). The two legs pass signaling to each other but media is handled independently. Operator-settable before calling `signal_bridge`. Corresponds to `SWITCH_SIGNAL_BRIDGE_VARIABLE`. |
+| `signal_bond` | Set on a channel to the UUID of its signal-bonded peer after a signal bridge is established. Read-only; set by `switch_ivr_bridge.c`. Corresponds to `SWITCH_SIGNAL_BOND_VARIABLE`. |
+| `originate_signal_bond` | Set on the A-leg channel immediately after origination to the UUID of the newly created B-leg. Distinct from `signal_bond` in that it records the origination relationship rather than a subsequent signal bridge. Read-only. Corresponds to `SWITCH_ORIGINATE_SIGNAL_BOND_VARIABLE`. |
+| `originator` | UUID of the channel that originated this leg. Set on the B-leg by the originate engine. Read-only; corresponds to `SWITCH_ORIGINATOR_VARIABLE`. |
+| `originator_codec` | Codec string of the A-leg at the time of origination. Set on the B-leg by the core (`switch_core_session.c`) so the B-leg can offer a compatible codec list. Read-only; corresponds to `SWITCH_ORIGINATOR_CODEC_VARIABLE`. |
+| `originator_video_codec` | Video codec string of the A-leg at the time of origination. Set on the B-leg alongside `originator_codec`. Read-only; corresponds to `SWITCH_ORIGINATOR_VIDEO_CODEC_VARIABLE`. |
+| `exec_after_bridge_app` | Dialplan application name to execute on this channel immediately after the bridge returns. The application runs before dialplan processing resumes. Corresponds to `SWITCH_EXEC_AFTER_BRIDGE_APP_VARIABLE`. |
+| `exec_after_bridge_arg` | Argument string for the application named in `exec_after_bridge_app`. Corresponds to `SWITCH_EXEC_AFTER_BRIDGE_ARG_VARIABLE`. |
+| `att_xfer_result` | Set by the `att_xfer` (attended transfer) application to `success` or `failure` after the transfer completes. Read-only; set in `mod_dptools.c`. Corresponds to `SWITCH_ATT_XFER_RESULT_VARIABLE`. |
+| `transfer_history` | Multi-value variable. Each transfer appends a record in the format `epoch:uuid:type:destination`. Read by CDR modules to reconstruct the transfer chain. Read-only; set by `switch_ivr.c` and `mod_sofia`. Corresponds to `SWITCH_TRANSFER_HISTORY_VARIABLE`. |
+| `transfer_source` | Identifies the source of the most recent transfer on this channel. Format matches the entries in `transfer_history`. Read-only; set alongside `transfer_history`. Corresponds to `SWITCH_TRANSFER_SOURCE_VARIABLE`. |
+| `holding_uuid` | UUID of the channel currently on hold associated with this channel. Set by `mod_sofia` during attended transfer scenarios. The originate engine reads and clears this variable when bridging back. Corresponds to `SWITCH_HOLDING_UUID_VARIABLE`. |
+| `soft_holding_uuid` | UUID of a channel placed in a "soft" hold during a three-way call or similar scenario. Cleared when the three-way terminates and the held party is bridged back. Corresponds to `SWITCH_SOFT_HOLDING_UUID_VARIABLE`. |
+| `endpoint_disposition` | Describes the SIP negotiation outcome set by `mod_sofia` and the core state machine. Common values: `RECEIVED`, `EARLY MEDIA`, `ANSWER`, `PROXY MEDIA`, `DELAYED NEGOTIATION`, `CODEC NEGOTIATION ERROR`, `NO CODECS`, `REDIRECT_ERROR`, `ATTENDED_TRANSFER`. Read-only. Corresponds to `SWITCH_ENDPOINT_DISPOSITION_VARIABLE`. |
+| `channel_name` | The full channel name string (e.g., `sofia/internal/1001@example.com`). Set by the core when the channel is created. Read-only. Corresponds to `SWITCH_CHANNEL_NAME_VARIABLE`. |
+| `audio_spool_path` | Directory path where audio files are spooled before being written to their final location. When set, the core writes audio to this path first and then moves it. Corresponds to `SWITCH_AUDIO_SPOOL_PATH_VARIABLE`. |
+
+---
+
+## Origination {#origination}
+
+These variables are set inside the `{}` global block or `[]` per-leg block of an originate command or `bridge` dial string. They control how outbound legs are established.
+
+| Variable | Purpose |
+|---|---|
+| `originate_timeout` | Total wall-clock seconds to wait across all legs before the originate fails. When using the `\|` (OR) operator, applies to the entire sequence unless `originate_continue_on_timeout` is set. Default: 60. |
+| `originate_continue_on_timeout` | When `true` and the `\|` (OR) operator is used, the originate continues to the next destination after `originate_timeout` expires on the current destination instead of failing. Default: `false`. |
+| `originate_retries` | Number of times to retry the entire originate dial string on failure. Valid range: 1 to 100. Works only when `originate_retry_sleep_ms` is also set or the value is 100 or fewer. |
+| `originate_retry_sleep_ms` | Milliseconds to wait between originate retry attempts. Valid range: 500 to 60000. |
+| `leg_timeout` | Per-leg answer timeout in seconds. Set in the `[]` per-leg block. Overrides `call_timeout` for that leg. Cannot be used in the global `{}` block; use `originate_timeout` there instead. |
+| `leg_progress_timeout` | Per-leg timeout in seconds for receiving any early media or ring indication. If no media is received within this window the leg is abandoned. Set in the `[]` per-leg block. |
+| `leg_delay_start` | Seconds to delay before initiating this leg. Set in the `[]` per-leg block. The `leg_timeout` timer does not start until after the delay expires. |
+| `group_confirm_key` | DTMF digit the called party must press to accept the call. Used for answer confirmation in parallel or sequential ring scenarios. The call is not bridged until the key is received. |
+| `group_confirm_file` | Audio file to play to the B-leg while waiting for the confirmation key. Played in a loop until the key is pressed or a timeout occurs. |
+| `group_confirm_error_file` | Audio file to play to the B-leg when a wrong DTMF key is received. |
+| `group_confirm_timeout` | Seconds to wait for the confirmation key. When set, takes precedence over `group_confirm_cancel_timeout`. |
+| `group_confirm_cancel_timeout` | When `true`, cancels the confirmation timeout so the B-leg is held indefinitely until a key is received. Has no effect if `group_confirm_timeout` is also set. |
+| `group_confirm_read_timeout` | Milliseconds of silence after a key press before accepting the input. |
+| `fail_on_single_reject` | See Call Control and Routing section above. |
+| `originated_legs` | Set on the A-leg after origination completes. Contains a pipe-delimited list of `uuid:disposition:cause` for each B-leg that was attempted. Populated by the originate engine in `switch_ivr_originate.c`. Read-only after origination. |
+| `originate_disposition` | Set on the caller channel to indicate the outcome of an originate. Possible values include `success`, `failure`, `call accepted`, and Q.850 cause name strings. Read-only; set by originate engine. |
+| `originating_leg_uuid` | Set on a B-leg channel to record the UUID of the A-leg that originated it. Read-only; set by originate engine. |
+| `sip_invite_to_uri` | When set before a bridge, overrides the To URI placed in the outbound SIP INVITE. Read by `mod_sofia` in `sofia_glue.c`. |
+| `sip_invite_from_uri` | When set before a bridge, overrides the From URI placed in the outbound SIP INVITE. Read by `mod_sofia` in `sofia_glue.c`. |
+| `sip_invite_req_uri` | When set before a bridge, overrides the Request-URI of the outbound SIP INVITE. Read by `mod_sofia` in `sofia_glue.c`. |
+| `sip_invite_domain` | Overrides the domain portion of the INVITE. Set automatically from the gateway `from_domain` if not already set. Read by `mod_sofia` in `mod_sofia.c`. |
+
+---
+
+## Caller Identity {#caller-identity}
+
+FreeSWITCH maintains several caller-ID variables with distinct scopes and precedence.
+
+| Variable | Purpose |
+|---|---|
+| `caller_id_name` | The display name presented by the inbound call. Set by the endpoint module from the incoming SIP From header or equivalent. Effectively read-only in the dialplan; modify presentation using `effective_caller_id_name`. |
+| `caller_id_number` | The calling number presented by the inbound call. Set by the endpoint module from the incoming SIP From header or equivalent. Effectively read-only in the dialplan; modify presentation using `effective_caller_id_number`. |
+| `effective_caller_id_name` | Overrides the caller ID name presented to downstream parties. Automatically exported to the B-leg. Must be set before calling `bridge`; it is not valid in an origination string. To remove an override, set to `_undef_`. |
+| `effective_caller_id_number` | Overrides the caller ID number presented to downstream parties. Automatically exported to the B-leg. Must be set before calling `bridge`; it is not valid in an origination string. |
+| `outbound_caller_id_name` | Default caller ID name used for user-directory-driven outbound calls. Typically set in the directory entry and referenced in conference and gateway configurations. |
+| `outbound_caller_id_number` | Default caller ID number used for user-directory-driven outbound calls. Typically set in the directory entry. |
+| `origination_caller_id_name` | Caller ID name to use when originating a new call (A-leg). Specified inside the `{}` origination variable block in an originate command or `bridge` dial string. Takes precedence over `effective_caller_id_name` at origination time. |
+| `origination_caller_id_number` | Caller ID number to use when originating a new call (A-leg). Specified inside the `{}` origination variable block. |
+
+---
+
+## SIP {#sip}
+
+These variables expose SIP message fields and control SIP header injection. They are specific to channels handled by `mod_sofia`.
+
+### Inbound Fields (set by mod_sofia on call arrival) {#sip-inbound}
+
+| Variable | Purpose |
+|---|---|
+| `sip_from_user` | The user part of the SIP From URI of the incoming request. |
+| `sip_from_host` | The host part of the SIP From URI of the incoming request. |
+| `sip_from_uri` | The full From URI (user@host) of the incoming request. |
+| `sip_from_display` | The display name from the SIP From header (quoted string), if present. Set in `sofia.c`. |
+| `sip_to_user` | The user part of the SIP To URI of the incoming request. |
+| `sip_to_host` | The host part of the SIP To URI of the incoming request. |
+| `sip_to_uri` | The full To URI (user@host) of the incoming request. |
+| `sip_req_uri` | The full Request-URI of the incoming SIP INVITE. Set by `sofia_glue.c`. |
+| `sip_contact_user` | The user part of the SIP Contact URI from the incoming request. |
+| `sip_contact_host` | The host part of the SIP Contact URI from the incoming request. |
+| `sip_call_id` | The SIP Call-ID header value of the dialog. Set on arrival and updated on reINVITE. |
+| `sip_user_agent` | The User-Agent or Server header string from the remote SIP party. |
+| `sip_network_ip` | IP address of the network interface on which the SIP message arrived. Set by `mod_sofia`. |
+| `sip_received_ip` | Source IP address from which the SIP request was received. May differ from `sip_network_ip` when NAT is involved. |
+| `sip_via_host` | Host portion of the topmost Via header in the incoming SIP request. |
+| `sip_via_port` | Port from the topmost Via header in the incoming SIP request. |
+| `sip_via_rport` | rport parameter from the topmost Via header, if present. |
+| `sip_via_protocol` | Transport protocol from the topmost Via header (e.g., `UDP`, `TCP`, `TLS`). |
+
+### Authentication Fields {#sip-auth}
+
+| Variable | Purpose |
+|---|---|
+| `sip_auth_username` | The username credential presented during SIP digest authentication. Populated by `mod_sofia` and available in the directory auth event. |
+| `sip_auth_password` | The password used during SIP digest authentication. Available during directory lookup for authenticating registrations and calls. |
+| `sip_auth_realm` | The digest realm from the SIP authentication challenge. Populated by `mod_sofia`. |
+
+### Redirect Handling {#sip-redirect}
+
+| Variable | Purpose |
+|---|---|
+| `outbound_redirect_fatal` | When `true`, a SIP 3xx redirect response causes the bridge to fail immediately instead of following the redirect. Read by `mod_sofia` in `sofia.c`. |
+| `sip_redirect_profile` | Sofia profile name to use when following a 3xx redirect. Defaults to the current profile name. |
+| `sip_redirect_context` | Dialplan context to use when routing a redirected call. Defaults to `redirected`. |
+| `sip_redirect_dialplan` | Dialplan module to use when routing a redirected call. Defaults to `XML`. |
+| `sip_redirect_fork` | When `true`, a 3xx redirect with multiple Contact headers causes FreeSWITCH to originate all contacts simultaneously rather than sequentially. |
+| `sip_redirected_to` | Set by `mod_sofia` to the full Contact URI that was selected when following a 3xx redirect. Read-only; set after redirect processing. |
+
+### Custom Headers {#sip-custom-headers}
+
+| Variable | Purpose |
+|---|---|
+| `sip_h_X-Header-Name` | Prefix pattern for injecting or reading arbitrary SIP headers. Any channel variable whose name begins with `sip_h_` causes `mod_sofia` to include the corresponding header (with the `sip_h_` prefix stripped) in outbound SIP messages. Incoming custom headers are also stored using this prefix. Example: setting `sip_h_X-Account-Code=1234` adds `X-Account-Code: 1234` to the outbound INVITE. |
+
+### SIP Variable Conventions {#sip-variable-conventions}
+
+`mod_sofia` exposes all incoming SIP headers as channel variables using the prefix `sip_h_`. For standard headers this means `sip_h_Subject`, `sip_h_P-Asserted-Identity`, and so on. For outbound calls, setting a channel variable with the `sip_h_` prefix causes `mod_sofia` to inject the corresponding header into the outgoing INVITE or other SIP message (the prefix is stripped to form the header name). Custom extension headers follow the same convention: `sip_h_X-My-Header=value` produces `X-My-Header: value` in the INVITE.
+
+In addition to the raw `sip_h_` map, `mod_sofia` parses a number of frequently used headers into dedicated variables at call arrival:
+
+- `sip_from_user`, `sip_from_host`, `sip_from_uri`, `sip_from_display`
+- `sip_to_user`, `sip_to_host`, `sip_to_uri`, `sip_req_uri`
+- `sip_contact_user`, `sip_contact_host`
+- `sip_call_id`, `sip_user_agent`
+- `sip_via_host`, `sip_via_port`, `sip_via_rport`, `sip_via_protocol`
+- `sip_network_ip`, `sip_received_ip`
+
+These parsed variables are convenient aliases; the raw header is still accessible via the `sip_h_` prefix if needed.
+
+### Presence {#sip-presence}
+
+| Variable | Purpose |
+|---|---|
+| `presence_id` | SIP URI identifying this channel for presence subscription purposes. When set, `mod_sofia` uses this value to generate NOTIFY events for subscribed watchers. Example: `1000@example.com`. |
+| `presence_data` | Arbitrary string attached to presence state notifications. Passed through to NOTIFY event bodies. |
+
+---
+
+## Media Endpoints and SDP {#media-endpoints-and-sdp}
+
+These variables expose the negotiated media addresses and SDP bodies. They are set by the core media engine (`switch_core_media.c`) and are read-only during a live call.
+
+| Variable | Purpose |
+|---|---|
+| `local_media_ip` | IP address on which FreeSWITCH is listening for inbound RTP audio from the remote party. Set after SDP negotiation. Corresponds to `SWITCH_LOCAL_MEDIA_IP_VARIABLE`. |
+| `local_media_port` | UDP port on which FreeSWITCH is listening for inbound RTP audio. Set after SDP negotiation. Corresponds to `SWITCH_LOCAL_MEDIA_PORT_VARIABLE`. |
+| `advertised_media_ip` | IP address advertised in the local SDP for audio RTP. May differ from `local_media_ip` when NAT is in use or an `ext-rtp-ip` override is configured. Corresponds to `SWITCH_ADVERTISED_MEDIA_IP_VARIABLE`. |
+| `remote_media_ip` | IP address of the remote party's audio RTP endpoint, extracted from the received SDP. Read-only. Corresponds to `SWITCH_REMOTE_MEDIA_IP_VARIABLE`. |
+| `remote_media_port` | UDP port of the remote party's audio RTP endpoint. Read-only. Corresponds to `SWITCH_REMOTE_MEDIA_PORT_VARIABLE`. |
+| `local_video_ip` | IP address on which FreeSWITCH is listening for inbound video RTP. Corresponds to `SWITCH_LOCAL_VIDEO_IP_VARIABLE`. |
+| `local_video_port` | UDP port on which FreeSWITCH is listening for inbound video RTP. Corresponds to `SWITCH_LOCAL_VIDEO_PORT_VARIABLE`. |
+| `remote_video_ip` | IP address of the remote party's video RTP endpoint. Read-only. Corresponds to `SWITCH_REMOTE_VIDEO_IP_VARIABLE`. |
+| `remote_video_port` | UDP port of the remote party's video RTP endpoint. Read-only. Corresponds to `SWITCH_REMOTE_VIDEO_PORT_VARIABLE`. |
+| `local_text_ip` | IP address on which FreeSWITCH is listening for inbound text (T.140/RED) RTP. Set for calls involving real-time text. Corresponds to `SWITCH_LOCAL_TEXT_IP_VARIABLE`. |
+| `local_text_port` | UDP port on which FreeSWITCH is listening for inbound text RTP. Corresponds to `SWITCH_LOCAL_TEXT_PORT_VARIABLE`. |
+| `switch_r_sdp` | The raw SDP body received from the remote party (the offer or answer, depending on call direction). Set by the media engine. Read-only. Corresponds to `SWITCH_R_SDP_VARIABLE`. |
+| `switch_l_sdp` | The raw local SDP body that FreeSWITCH generated and sent to the remote party. Set by the media engine. Read-only. Corresponds to `SWITCH_L_SDP_VARIABLE`. |
+| `switch_m_sdp` | The SDP body from the B-leg, stored on the A-leg for reference during media negotiation. Also called the "media SDP" or "B SDP". Corresponds to `SWITCH_B_SDP_VARIABLE` (`switch_m_sdp`) in `switch_types.h`. |
+| `passthru_ptime_mismatch` | When `true`, allows a bridge to proceed even when the ptime (packetization interval) in the two SDPs does not match, rather than failing or renegotiating. Corresponds to `SWITCH_PASSTHRU_PTIME_MISMATCH_VARIABLE`. |
+
+---
+
+## Media and RTP {#media-and-rtp}
+
+These variables control codec selection, RTP security, and media path behavior.
+
+| Variable | Purpose |
+|---|---|
+| `codec_string` | Comma-separated list of codec names to offer or accept during negotiation. FreeSWITCH intersects this list with the endpoint's capabilities. Example: `PCMU,PCMA,G722`. If unset, the profile default applies. |
+| `absolute_codec_string` | Comma-separated list of codecs to use exactly as specified, with no intersection or modification by FreeSWITCH. Overrides `codec_string` when set. Useful to force a specific codec regardless of what the remote party offers. |
+| `bypass_media` | When `true`, RTP media flows directly between the two endpoints (peer-to-peer). FreeSWITCH continues to handle signaling but does not process media packets. Both endpoints must be reachable by each other. |
+| `bypass_media_after_bridge` | When `true`, FreeSWITCH switches to bypass media mode after the bridge is established. Corresponds to `SWITCH_BYPASS_MEDIA_AFTER_BRIDGE_VARIABLE` in `switch_types.h`. |
+| `proxy_media` | When `true`, RTP packets are forwarded through FreeSWITCH without parsing or processing. Lighter than full media handling but heavier than `bypass_media`. Requires late negotiation to be enabled in the SIP profile. |
+| `rtp_secure_media` | Controls SRTP negotiation. Accepted values: `mandatory` (SAVP only), `optional` (prefer SAVP, accept AVP), `forbidden` (deny SAVP), `default` (accept SAVP if offered inbound). Optionally followed by a colon-delimited list of cipher suites (e.g., `mandatory:AES_CM_256_HMAC_SHA1_80`). The deprecated values `true` (equivalent to `mandatory`) and `false` (equivalent to `forbidden`) are still accepted. |
+| `rtp_secure_media_inbound` | Applies `rtp_secure_media` semantics only to the inbound RTP direction. |
+| `rtp_secure_media_outbound` | Applies `rtp_secure_media` semantics only to the outbound RTP direction. |
+| `jitterbuffer_msec` | Activates the RTP jitter buffer. Format: `length:max_length:max_drift`, where each value is in milliseconds (numeric) or packet counts (numeric followed by `p`). Example: `60:200:20` or `2p:25p:4p`. Can be set on the B-leg only using `export nolocal:jitterbuffer_msec=60`. |
+| `media_bug_answer_req` | When `true`, media bugs (used by recording and other media-processing applications) are activated only after the channel is answered. |
+
+### RTP and Media Statistics {#rtp-and-media-statistics}
+
+FreeSWITCH populates a family of `rtp_*` channel variables with per-stream statistics during and after a call. These are read-only diagnostics; they cannot be set to influence behavior. Examples include:
+
+- `rtp_audio_in_raw_bytes`, `rtp_audio_in_media_bytes`, `rtp_audio_in_packet_count`, `rtp_audio_in_media_packet_count` - inbound audio stream counters.
+- `rtp_audio_out_raw_bytes`, `rtp_audio_out_media_bytes`, `rtp_audio_out_packet_count` - outbound audio stream counters.
+- `rtp_audio_in_skip_packet_count`, `rtp_audio_in_jitter_packet_count`, `rtp_audio_in_dtmf_packet_count` - quality indicators for the inbound stream.
+- `rtp_use_codec_string` - the codec string that was actually selected and in use for RTP, as opposed to what was offered.
+
+These variables are written by `switch_rtp.c` and `switch_core_media.c` and are available for CDR templates and post-call reporting via `api_hangup_hook` or `api_reporting_hook`.
+
+---
+
+## Recording {#recording}
+
+These variables control the behavior of the `record_session` application and the `record` application. Variable names that are uppercase by convention must be set with the exact case shown.
+
+| Variable | Purpose |
+|---|---|
+| `RECORD_STEREO` | When `true`, records the A-leg audio to the left channel and the B-leg audio to the right channel of a stereo file. Default: `false`. |
+| `RECORD_STEREO_SWAP` | When `true`, reverses the channel assignment of `RECORD_STEREO`: B-leg goes to the left channel and A-leg to the right. |
+| `RECORD_READ_ONLY` | When `true`, only the read (incoming) audio is written to the recording file. |
+| `RECORD_WRITE_ONLY` | When `true`, only the write (outgoing) audio is written to the recording file. |
+| `record_sample_rate` | Integer sample rate (Hz) to use for the recording file. Example: `8000`, `16000`, `48000`. |
+| `RECORD_MIN_SEC` | Minimum recording duration in seconds. Recordings shorter than this value are deleted after the session ends. Default: 3. |
+| `RECORD_HANGUP_ON_ERROR` | When `true`, the call is terminated if the recording file cannot be opened or written. |
+| `RECORD_APPEND` | When `true`, audio is appended to an existing recording file rather than overwriting it. |
+| `RECORD_BRIDGE_REQ` | When `true`, recording only begins when the channel enters a bridged state. |
+| `RECORD_TITLE` | ID3-style title tag written into the recording file header where the format supports it (e.g., WAV, OGG). |
+| `RECORD_COPYRIGHT` | ID3-style copyright tag written into the recording file header. |
+| `RECORD_SOFTWARE` | ID3-style software tag written into the recording file header. |
+| `RECORD_ARTIST` | ID3-style artist tag written into the recording file header. |
+| `RECORD_COMMENT` | ID3-style comment tag written into the recording file header. |
+| `RECORD_DATE` | ID3-style date tag written into the recording file header. |
+| `record_fill_cng` | When `true`, comfort noise is inserted into the recording during periods of silence to prevent the file from containing dead air. |
+| `recording_follow_transfer` | When `true`, an active `record_session` recording continues after the channel is transferred to a new leg, following the call rather than stopping at transfer. |
+| `record_post_process_exec_app` | Dialplan application to execute after a recording completes. Format: `app_name::app_args`. Defined in `switch_types.h` as `SWITCH_RECORD_POST_PROCESS_EXEC_APP_VARIABLE`. |
+| `record_post_process_exec_api` | API command to execute after a recording completes. Defined in `switch_types.h` as `SWITCH_RECORD_POST_PROCESS_EXEC_API_VARIABLE`. |
+
+---
+
+## Hangup and CDR {#hangup-and-cdr}
+
+These variables are populated at hangup time and are commonly read in CDR templates and post-call dialplan logic.
+
+| Variable | Purpose |
+|---|---|
+| `hangup_cause` | Q.850 cause name string for the hangup of this channel (e.g., `NORMAL_CLEARING`, `USER_BUSY`). Set by the core state machine at hangup time. Available for CDR processing and in `api_hangup_hook` logic. |
+| `hangup_cause_q850` | Numeric Q.850 cause code corresponding to `hangup_cause`. Set alongside `hangup_cause` in `switch_core_state_machine.c`. |
+| `bridge_hangup_cause` | Q.850 cause name for the last B-leg that was bridged on this channel. Set by the core when a bridge terminates. Useful when `continue_on_fail=true` and `hangup_after_bridge=false`: inspect this to determine what caused the B-leg to disconnect before deciding the next dialplan action. |
+| `last_bridge_hangup_cause` | Set on the A-leg by the core (`switch_channel.c`) to the cause of the most recently terminated B-leg. Useful after multiple sequential bridge attempts. |
+| `proto_specific_hangup_cause` | Forces FreeSWITCH to use a specific SIP response code when hanging up, regardless of the Q.850 cause. Format: `sip:NNN` (e.g., `sip:503`). Setting this before `hangup` causes `mod_sofia` to send the specified code. Can also be read after a failed bridge to inspect the exact SIP response code received from the remote party. |
+| `sip_hangup_disposition` | Set by `mod_sofia` to describe how the SIP session was terminated. Possible values: `send_bye` (FreeSWITCH sent BYE), `recv_bye` (remote party sent BYE), `send_cancel` (FreeSWITCH cancelled an unanswered outbound leg), `recv_cancel` (remote party cancelled), `send_refuse` (FreeSWITCH rejected with 4xx/5xx), `recv_refuse` (remote party rejected with 4xx/5xx). Read-only; set at hangup. |
+| `process_cdr` | Controls CDR generation for this channel. Values: `true` (default, process CDR), `false` (suppress CDR), `a_only` (only generate CDR for the A-leg), `b_only` (only generate CDR for the B-leg). Unconditionally exported. Corresponds to `SWITCH_PROCESS_CDR_VARIABLE`. |
+| `skip_cdr_causes` | Comma-separated list of Q.850 cause names. If the channel hangs up with one of these causes, CDR generation is suppressed. Corresponds to `SWITCH_SKIP_CDR_CAUSES_VARIABLE`. |
+| `force_process_cdr` | When `true`, forces CDR processing even for channels that would normally be excluded (e.g., loopback legs). Corresponds to `SWITCH_FORCE_PROCESS_CDR_VARIABLE`. |
+| `copy_xml_cdr` | When `true`, the A-leg XML CDR is copied to the B-leg at bridge time. Used to associate the CDR data of the originating leg with the bridged leg. Corresponds to `SWITCH_COPY_XML_CDR_VARIABLE`. |
+| `copy_json_cdr` | When `true`, the A-leg JSON CDR is copied to the B-leg at bridge time. Functions like `copy_xml_cdr` but for the JSON CDR format. Corresponds to `SWITCH_COPY_JSON_CDR_VARIABLE`. |
+| `accountcode` | Arbitrary account code attached to the channel. Used by CDR modules: if the value matches a template name in `cdr_csv.conf.xml`, that template is used for CSV CDR generation. |
+
+---
+
+## Session UUIDs {#session-uuids}
+
+These variables implement RFC 7989 (Session-ID) tracking and other UUID-based session identification. They are managed by the core and are typically read-only in the dialplan.
+
+| Variable | Purpose |
+|---|---|
+| `session_uuid` | The RFC 7989 Session-ID for this call leg. Generated by the core and exchanged with the remote party via the Session-ID SIP header. Persists across transfers and bridges to provide end-to-end call correlation. Corresponds to `SWITCH_RFC7989_SESSION_ID_VARIABLE`. |
+| `remote_session_uuid` | The RFC 7989 Session-ID received from the remote party. Populated by `mod_sofia` when the remote includes a Session-ID header. Corresponds to `SWITCH_RFC7989_REMOTE_SESSION_ID_VARIABLE`. |
+| `app_session_uuid` | Application-layer session UUID, distinct from the RFC 7989 signaling UUID. Used when an application creates its own session correlation context. Corresponds to `SWITCH_RFC7989_APP_SESSION_ID_VARIABLE`. |
+| `generic_param_session_uuid` | Carries a session UUID passed as a generic SIP parameter rather than as a dedicated Session-ID header. Used in interoperability scenarios where the Session-ID header is not supported. Corresponds to `SWITCH_RFC7989_GENERIC_PARAM_VARIABLE`. |
+
+---
+
+## Application Execution and CDR {#application-execution-and-cdr}
+
+These variables control per-channel application logging and speech handle caching.
+
+| Variable | Purpose |
+|---|---|
+| `disable_app_log` | When `true`, the core does not log application execution records for this channel (`switch_core_session.c`). Reduces log verbosity for high-volume automated channels. Corresponds to `SWITCH_DISABLE_APP_LOG_VARIABLE`. |
+| `current_application` | Set by the core to the name of the dialplan application currently executing on this channel. Read-only; updated in `switch_core_session.c` before each application runs. Corresponds to `SWITCH_CURRENT_APPLICATION_VARIABLE`. |
+| `current_application_data` | Set by the core to the argument string of the currently executing application. Read-only; updated alongside `current_application`. Corresponds to `SWITCH_CURRENT_APPLICATION_DATA_VARIABLE`. |
+| `current_application_response` | Set by some applications to a string describing the outcome of their execution (e.g., `SUCCESS`, `TIMEOUT`, `FAILURE`). Available after the application returns. Corresponds to `SWITCH_CURRENT_APPLICATION_RESPONSE_VARIABLE`. |
+| `read_result` | Set by the `read` application after it completes. Values: `success` (digits collected), `timeout` (no input within timeout), `failure` (channel error). Corresponds to `SWITCH_READ_RESULT_VARIABLE`. |
+| `read_terminator_used` | Set by the `read` application to the terminator digit that stopped collection, or empty if the digit count was reached without a terminator. Corresponds to `SWITCH_READ_TERMINATOR_USED_VARIABLE`. |
+| `cache_speech_handles` | When `true`, ASR/TTS engine handles opened during `detect_speech` or TTS playback are cached across multiple calls rather than torn down and reopened each time. Reduces latency for repeated speech operations. Corresponds to `SWITCH_CACHE_SPEECH_HANDLES_VARIABLE`. |
+
+---
+
+## DTMF {#dtmf}
+
+These variables control DTMF handling for a channel.
+
+| Variable | Purpose |
+|---|---|
+| `dtmf_type` | Sets the DTMF signaling method for outbound legs. Accepted values: `rfc2833` (in-band RTP telephone-event), `info` (SIP INFO messages), `none` (no DTMF). When not set, the negotiated method from the SDP is used. FreeSWITCH reads and writes this variable in `switch_core_media.c`. For inband detection, `start_dtmf` must also be applied in the dialplan. |
+| `drop_dtmf` | When `true`, DTMF events received on the channel are discarded and not forwarded to the bridged party. Set on an inbound channel before `answer`, or on an outbound channel before `bridge`. Verified against RFC 4733 (in-band). May also work with SIP INFO and inband. Defined in `switch_core_io.c`. |
+| `drop_dtmf_masking_digits` | When `drop_dtmf=true`, this string specifies a replacement digit sequence to write into the audio stream where DTMF tones would have been, masking the tones rather than leaving silence. |
+| `drop_dtmf_masking_file` | When `drop_dtmf=true`, path to an audio file to splice into the audio stream to mask dropped DTMF tones. |
+| `sensitive_dtmf` | When `true`, DTMF events are not logged in the application log. Useful for channels handling PIN entry. Corresponds to `SWITCH_SENSITIVE_DTMF_VARIABLE`. |
+
+---
+
+## Directory and Account {#directory-and-account}
+
+These variables are typically set in user directory XML entries and are loaded onto the channel when a user authenticates.
+
+| Variable | Purpose |
+|---|---|
+| `user_context` | The dialplan context to use when routing calls originating from this user. Set in the directory `<variable>` block. Example: `default`. |
+| `toll_allow` | Comma-separated list of calling class names (e.g., `local,domestic,international`) granted to this user. The dialplan tests this variable against condition expressions to implement class-of-service routing. |
+| `vm-password` | Voicemail PIN for this user. Set as a directory `<param>` (not a `<variable>`). Read by `mod_voicemail` during mailbox authentication. |
+
+---
+
+## Execution Hooks {#execution-hooks}
+
+These variables trigger dialplan applications or API commands automatically at defined call lifecycle points.
+
+| Variable | Purpose |
+|---|---|
+| `execute_on_answer` | Dialplan application to execute when the called party answers. Use `export nolocal:execute_on_answer=app args` to target the B-leg. The application runs only on channels not yet in the answered state. |
+| `execute_on_pre_answer` | Dialplan application to execute when the channel enters pre-answer (early media) state. |
+| `execute_on_media` | Dialplan application to execute when media is established on the channel. |
+| `execute_on_ring` | Dialplan application to execute when the channel begins ringing. |
+| `execute_on_originate` | Dialplan application to execute immediately after an originate succeeds (B-leg answered). Corresponds to `SWITCH_CHANNEL_EXECUTE_ON_ORIGINATE_VARIABLE`. |
+| `execute_on_pre_originate` | Dialplan application to execute before origination begins. Corresponds to `SWITCH_CHANNEL_EXECUTE_ON_PRE_ORIGINATE_VARIABLE`. |
+| `execute_on_post_originate` | Dialplan application to execute after origination is fully complete. Corresponds to `SWITCH_CHANNEL_EXECUTE_ON_POST_ORIGINATE_VARIABLE`. |
+| `execute_on_pre_bridge` | Dialplan application to execute immediately before a bridge is established. |
+| `execute_on_post_bridge` | Dialplan application to execute immediately after a bridge completes. |
+| `execute_on_tone_detect` | Dialplan application to execute when a tone is detected by the `tone_detect` application. Corresponds to `SWITCH_CHANNEL_EXECUTE_ON_TONE_DETECT_VARIABLE`. |
+| `api_on_answer` | API command to execute when the called party answers. Use `export nolocal:api_on_answer=command args` to target the B-leg. To execute a dialplan application instead, use `execute_on_answer`. |
+| `api_on_pre_answer` | API command to execute when the channel enters pre-answer state. |
+| `api_on_media` | API command to execute when media is established on the channel. |
+| `api_on_ring` | API command to execute when the channel begins ringing. |
+| `api_on_originate` | API command to execute after an originate succeeds. Corresponds to `SWITCH_CHANNEL_API_ON_ORIGINATE_VARIABLE`. |
+| `api_on_pre_originate` | API command to execute before origination begins. Corresponds to `SWITCH_CHANNEL_API_ON_PRE_ORIGINATE_VARIABLE`. |
+| `api_on_post_originate` | API command to execute after origination is fully complete. Corresponds to `SWITCH_CHANNEL_API_ON_POST_ORIGINATE_VARIABLE`. |
+| `api_on_tone_detect` | API command to execute when a tone is detected by the `tone_detect` application. Corresponds to `SWITCH_CHANNEL_API_ON_TONE_DETECT_VARIABLE`. |
+| `api_before_bridge` | API command to execute immediately before a bridge is established. Corresponds to `SWITCH_API_BRIDGE_START_VARIABLE`. |
+| `api_after_bridge` | API command to execute after a bridge completes. |
+| `api_hangup_hook` | API command to execute when the channel hangs up. |
+| `api_reporting_hook` | API command to execute when the channel reaches the reporting state (post-hangup CDR phase). Corresponds to `SWITCH_API_REPORTING_HOOK_VARIABLE`. |
+| `session_in_hangup_hook` | When `true`, the session remains available during `api_hangup_hook` execution, allowing the API command to access channel variables. Corresponds to `SWITCH_SESSION_IN_HANGUP_HOOK_VARIABLE`. |

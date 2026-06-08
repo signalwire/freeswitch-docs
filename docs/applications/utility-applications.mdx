@@ -1,0 +1,547 @@
+---
+sidebar_position: 5
+id: utility-applications
+slug: /applications/utilities
+title: "Chapter 23: Utility Applications"
+description: "Operator-facing utility modules that ship with FreeSWITCH: their configuration, the dialplan applications they register, and their API commands."
+sidebar_label: "23. Utility Applications"
+---
+
+# Chapter 23: Utility Applications
+
+This chapter documents the operator-facing utility modules that ship with FreeSWITCH. Each module is treated as a self-contained unit: its configuration file (where one exists), the dialplan applications it registers, the API commands it exposes, and the parameters or arguments those applications accept.
+
+## Table of Contents
+
+- [23.1 mod_db: Persistent Key-Value Store and Call Limiting](#231-mod_db-persistent-key-value-store-and-call-limiting)
+- [23.2 mod_hash: In-Memory Shared State and limit_hash Backend](#232-mod_hash-in-memory-shared-state-and-limit_hash-backend)
+- [23.3 mod_limit: Backward-Compatibility Shim](#233-mod_limit-backward-compatibility-shim)
+- [23.4 mod_valet_parking: Valet Call Parking](#234-mod_valet_parking-valet-call-parking)
+- [23.5 mod_esf: Multicast Paging](#235-mod_esf-multicast-paging)
+- [23.6 mod_fsv: Video File Recording and Playback](#236-mod_fsv-video-file-recording-and-playback)
+- [23.7 mod_spy: User Call Monitoring](#237-mod_spy-user-call-monitoring)
+
+---
+
+## 23.1 mod_db: Persistent Key-Value Store and Call Limiting
+
+`mod_db` provides two distinct services: a persistent SQL-backed key-value store accessible from the dialplan via the `db` application, and the `db` backend for the core `limit` subsystem. Data survives a module reload but is cleared on process restart (records belonging to the local hostname are deleted at startup).
+
+### Configuration: `db.conf.xml`
+
+| Parameter | Purpose | Accepted Values | Default |
+|-----------|---------|-----------------|---------|
+| `odbc-dsn` | ODBC or native DSN used by both `limit` and `db` storage. When absent, FreeSWITCH uses a local SQLite database named `call_limit`. | `dsn:username:password` or a `pgsql://` / `sqlite://` URI | none (SQLite `call_limit`) |
+
+**Example `db.conf.xml`:**
+
+```xml
+<configuration name="db.conf" description="LIMIT DB Configuration">
+  <settings>
+    <!--<param name="odbc-dsn" value="dsn:user:pass"/>-->
+  </settings>
+</configuration>
+```
+
+### Dialplan Applications
+
+| Application | Purpose | Arguments |
+|-------------|---------|-----------|
+| `db` | Insert or delete a key-value pair in the persistent `db_data` table. | `insert/<realm>/<key>/<value>` or `delete/<realm>/<key>` |
+| `group` | Insert or delete a URL entry in a named group stored in the persistent `group_data` table. | `insert:<groupname>:<url>` or `delete:<groupname>:<url>` |
+| `limit` | Enforce a concurrent-call limit using the `db` backend. Increments the count for the given realm and resource; if the count exceeds `max`, execution continues at the `limit_exceeded` extension. | `db <realm> <resource> <max> [<transfer_destination> [<transfer_dialplan> [<transfer_context>]]]` |
+
+#### `db` Application
+
+The `db` application manipulates the persistent `db_data` table. Only `insert` and `delete` operations are available from the dialplan. Read operations require the `db` ESL API command.
+
+```xml
+<!-- Store a value -->
+<action application="db" data="insert/myapp/caller_state/active"/>
+
+<!-- Remove a value -->
+<action application="db" data="delete/myapp/caller_state"/>
+```
+
+#### `group` Application
+
+The `group` application inserts or deletes a URL from a named group in the persistent `group_data` table. The `call` operation (which returns a dial string from the group) is available only via the `group` ESL API command.
+
+```xml
+<action application="group" data="insert:salesgroup:sofia/internal/1001@example.com"/>
+<action application="group" data="delete:salesgroup:sofia/internal/1001@example.com"/>
+```
+
+#### `limit` Application with `db` Backend
+
+The `limit` application is registered by the core and delegates its storage to whichever backend is named as the first argument. Using `db` selects `mod_db` as the backend.
+
+When the limit is reached, the call is transferred to the extension `limit_exceeded` in the current dialplan context (unless an explicit transfer destination is provided).
+
+```xml
+<!-- Allow at most 5 concurrent calls per SIP user within the domain realm -->
+<action application="limit" data="db ${domain} ${sip_auth_username} 5 limit_exceeded"/>
+```
+
+The example from `mod_limit`'s bundled dialplan:
+
+```xml
+<extension name="limit" continue="true">
+  <condition>
+    <action application="limit" data="db $${domain} ${sip_auth_username} ${max_calls}"/>
+  </condition>
+</extension>
+
+<extension name="limit_exceeded">
+  <condition field="destination_number" expression="^limit_exceeded$">
+    <action application="playback" data="/sounds/overthelimit.wav"/>
+    <action application="hangup"/>
+  </condition>
+</extension>
+```
+
+#### `limit` Argument Reference
+
+| Position | Name | Purpose |
+|----------|------|---------|
+| 1 | `backend` | Limit backend: `db` or `hash` |
+| 2 | `realm` | Grouping namespace for the counter |
+| 3 | `resource` | Specific resource identifier within the realm |
+| 4 | `max` | Maximum concurrent count. Use `-1` for tracking with no limit. |
+| 5 | `transfer_destination` | Extension to transfer to when limit is exceeded (optional; defaults to `limit_exceeded`) |
+| 6 | `transfer_dialplan` | Dialplan to use for the transfer (optional) |
+| 7 | `transfer_context` | Context to use for the transfer (optional) |
+
+#### Channel Variables Set by `limit` with `db` Backend
+
+| Variable | Value |
+|----------|-------|
+| `limit_realm` | The realm argument passed to `limit` |
+| `limit_id` | The resource argument passed to `limit` |
+| `limit_max` | The max argument passed to `limit` |
+| `limit_usage` | Current concurrent usage count for the realm and resource |
+| `limit_usage_<realm>_<resource>` | Same as `limit_usage`, keyed by realm and resource |
+
+### ESL API Commands
+
+`mod_db` registers two ESL API commands.
+
+#### `db` API
+
+```
+db [insert|delete|select|exists|count|list]/<realm>/<key>[/<value>]
+```
+
+| Operation | Arguments | Returns |
+|-----------|-----------|---------|
+| `insert` | `/<realm>/<key>/<value>` | `+OK` |
+| `delete` | `/<realm>/<key>` | `+OK` |
+| `select` | `/<realm>/<key>` | The stored value, or empty string |
+| `exists` | `/<realm>/<key>` | `true` or `false` |
+| `count` | (none) or `/<realm>` | Number of distinct realms, or number of keys in realm |
+| `list` | (none) or `/<realm>` | Comma-separated list of realms, or keys in realm |
+
+```
+db select/myapp/caller_state
+db exists/myapp/caller_state
+```
+
+#### `group` API
+
+```
+group [insert|delete|call]:<groupname>:<url>
+```
+
+| Operation | Behavior |
+|-----------|---------|
+| `insert` | Add `<url>` to `<groupname>` |
+| `delete` | Remove `<url>` from `<groupname>`. Use `*` as the URL to remove all entries. |
+| `call` | Return a dial string for all URLs in the group. Append `:order` for sequential (`\|` separated) or `:multi` for parallel (`:_:` separated). Default is simultaneous (`,` separated). |
+
+```
+group call:salesgroup
+group call:salesgroup:order
+```
+
+---
+
+## 23.2 mod_hash: In-Memory Shared State and limit_hash Backend
+
+`mod_hash` maintains two in-memory hash tables: one used as the `hash` backend for the core `limit` subsystem (tracking concurrent call counts and call rates), and one used as a general-purpose in-process key-value store accessed via the `hash` application. Because data lives in process memory, it is lost on process restart.
+
+`mod_hash` also supports synchronizing its limit counters with remote FreeSWITCH nodes over ESL. Each configured remote node is polled at the specified interval; the remote's limit data is merged into the local counters.
+
+### Configuration: `hash.conf.xml`
+
+The `remotes` section defines optional peer nodes from which limit usage data is fetched.
+
+| Attribute | Purpose | Accepted Values | Default |
+|-----------|---------|-----------------|---------|
+| `name` | Logical name for the remote node | Any string | required |
+| `host` | IP or hostname of the remote FreeSWITCH | IP address or hostname | required |
+| `port` | ESL port of the remote node | Port number | `8021` |
+| `username` | ESL username for the remote node | String | none |
+| `password` | ESL password for the remote node | String | required |
+| `interval` | Poll interval in milliseconds | Integer | required |
+
+**Example `hash.conf.xml`:**
+
+```xml
+<configuration name="hash.conf" description="Hash Configuration">
+  <remotes>
+    <!-- <remote name="node2" host="10.0.0.10" port="8021" password="ClueCon" interval="1000"/> -->
+  </remotes>
+</configuration>
+```
+
+### Dialplan Applications
+
+| Application | Purpose | Arguments |
+|-------------|---------|-----------|
+| `hash` | Insert, conditionally insert, or delete a key-value pair in the in-memory hash table. | `insert/<realm>/<key>/<value>`, `insert_ifempty/<realm>/<key>/<value>`, `delete/<realm>/<key>`, or `delete_ifmatch/<realm>/<key>/<value>` |
+| `limit` | Enforce a concurrent or rate limit using the `hash` backend. | `hash <realm> <resource> <max> [<interval>]` |
+
+#### `hash` Application
+
+The `hash` application manages an in-memory key-value store. Data is not persistent across process restarts.
+
+| Operation | Behavior |
+|-----------|---------|
+| `insert` | Unconditionally set `<realm>/<key>` to `<value>`, replacing any existing value. |
+| `insert_ifempty` | Set `<realm>/<key>` to `<value>` only if the key does not already exist. |
+| `delete` | Remove `<realm>/<key>` if it exists. |
+| `delete_ifmatch` | Remove `<realm>/<key>` only if its current value equals `<value>`. |
+
+```xml
+<!-- Set an in-memory flag for the current domain/user -->
+<action application="hash" data="insert/${domain}/${sip_auth_username}/active"/>
+
+<!-- Remove it on hangup via an anti-action or in a separate extension -->
+<action application="hash" data="delete/${domain}/${sip_auth_username}"/>
+```
+
+#### `limit` Application with `hash` Backend
+
+The `hash` backend supports both concurrent-call limits and rate limits. Rate limiting uses a sliding window of `<interval>` seconds.
+
+```xml
+<!-- Limit to 10 concurrent calls per user -->
+<action application="limit" data="hash ${domain} ${sip_auth_username} 10"/>
+
+<!-- Limit to 5 calls per user per 60-second window -->
+<action application="limit" data="hash ${domain} ${sip_auth_username} 5 60"/>
+```
+
+Channel variables set by the `hash` backend:
+
+| Variable | Value |
+|----------|-------|
+| `limit_usage` | Current total usage count for the resource |
+| `limit_usage_<realm>_<resource>` | Same, keyed by realm and resource |
+| `limit_rate` | Current rate usage within the interval |
+| `limit_rate_<realm>_<resource>` | Same, keyed by realm and resource |
+
+### ESL API Commands
+
+`mod_hash` registers three ESL API commands.
+
+#### `hash` API
+
+```
+hash [insert|insert_ifempty|select|delete|delete_ifmatch]/<realm>/<key>[/<value>]
+```
+
+| Operation | Behavior |
+|-----------|---------|
+| `insert` | Set `<realm>/<key>` to `<value>`, replacing any existing value. |
+| `insert_ifempty` | Set `<realm>/<key>` to `<value>` only if the key does not exist. Returns `-ERR key already exists` otherwise. |
+| `select` | Return the value stored at `<realm>/<key>`, or empty if not found. |
+| `delete` | Remove `<realm>/<key>`. Returns `-ERR Not found` if absent. |
+| `delete_ifmatch` | Remove `<realm>/<key>` only if its current value equals `<value>`. |
+
+#### `hash_dump` API
+
+Dumps the contents of the in-memory hash tables. Used by remote nodes during limit synchronization.
+
+```
+hash_dump all|limit|db [<realm>]
+```
+
+| Argument | Output |
+|----------|-------|
+| `all` | Both limit and db hash tables |
+| `limit` | Limit tracking counters only |
+| `db` | Key-value store entries only. Optionally filter by `<realm>`. |
+
+#### `hash_remote` API
+
+Manages remote ESL connections used for limit synchronization.
+
+```
+hash_remote list|kill [name]|rescan
+```
+
+| Subcommand | Behavior |
+|------------|---------|
+| `list` | List all configured remotes and their connection state (`Off`, `Down`, or `Up`) |
+| `kill <name>` | Disconnect and remove the named remote |
+| `rescan` | Re-read `hash.conf.xml` and connect any newly added remotes |
+
+---
+
+## 23.3 mod_limit: Backward-Compatibility Shim
+
+`mod_limit` is a deprecated compatibility module. It registers no applications of its own. When loaded, it attempts to load `mod_hash` and `mod_db` if they are not already present, and sets the internal variable `switch_limit_backwards_compat_flag` to `true` to allow legacy dialplan that referenced `mod_limit` directly to continue working.
+
+New installations should load `mod_hash` and `mod_db` directly and omit `mod_limit`. A warning is emitted to the log at startup when `mod_limit` is loaded.
+
+---
+
+## 23.4 mod_valet_parking: Valet Call Parking
+
+`mod_valet_parking` implements a named-lot call parking system. A call is parked in a named lot at a specific extension number, which is either specified explicitly, entered by the caller via DTMF, or assigned automatically from a numeric range. Any channel that dials the same lot and extension retrieves the parked call and bridges to it. Lot state is held in memory; it is lost on process restart.
+
+Presence events (`SWITCH_EVENT_PRESENCE_IN`) are fired on park and retrieval, allowing SIP phones to subscribe to lot status via the `park+<lot>` resource.
+
+`mod_valet_parking` has no configuration file.
+
+### Dialplan Applications
+
+| Application | Purpose | Arguments |
+|-------------|---------|-----------|
+| `valet_park` | Park or retrieve a call in a named lot. | `<lotname> <extension>` or `<lotname> ask [<min>] [<max>] [<timeout_ms>] [<prompt>]` or `<lotname> auto in\|out <min> <max>` |
+
+#### Extension Argument Modes
+
+| Mode | Syntax | Behavior |
+|------|--------|---------|
+| Explicit | `<lotname> <extension>` | Park at the specified extension; if a parked call already exists at that extension and is unbridged, retrieve and bridge to it. |
+| Ask | `<lotname> ask [<min>] [<max>] [<timeout_ms>] [<prompt>]` | Play a prompt and collect DTMF from the caller to determine the extension number. |
+| Auto-in | `<lotname> auto in <min> <max>` | Automatically assign the lowest available extension in the range `<min>` to `<max>` and park the call. Announces the assigned slot to the caller. |
+| Auto-out | `<lotname> auto out <min> <max>` | Retrieve the longest-waiting parked call in the range `<min>` to `<max>`. |
+
+#### `ask` Mode Fallback Channel Variables
+
+When arguments to `ask` mode are omitted, `valet_park` reads the following channel variables as defaults. Positional arguments take precedence over channel variables.
+
+| Variable | Purpose | Default if absent |
+|----------|---------|-------------------|
+| `valet_ext_min` | Minimum DTMF digit count for extension entry | `1` |
+| `valet_ext_max` | Maximum DTMF digit count for extension entry | `11` |
+| `valet_ext_to` | DTMF collection timeout in milliseconds | `10000` |
+| `valet_ext_prompt` | Sound file to play as the extension entry prompt | `ivr/ivr-enter_ext_pound.wav` |
+
+#### Channel Variables Honored by `valet_park`
+
+| Variable | Purpose |
+|----------|---------|
+| `valet_hold_music` | Hold music to play while parked. Falls back to the channel's configured hold music. |
+| `valet_announce_slot` | Set to `false` to suppress the slot announcement in `auto in` mode. Default: `true`. |
+| `valet_parking_timeout` | Seconds before the parked call is transferred to the orbit extension. |
+| `valet_parking_orbit_exten` | Extension to transfer to on parking timeout. |
+| `valet_parking_orbit_dialplan` | Dialplan to use for the orbit transfer. |
+| `valet_parking_orbit_context` | Context to use for the orbit transfer. |
+| `valet_parking_orbit_exit_key` | DTMF digit that immediately triggers the orbit transfer. |
+
+#### Channel Variable Set by `valet_park`
+
+| Variable | Value |
+|----------|-------|
+| `valet_lot_extension` | The extension number at which this channel is parked. |
+
+### ESL API Commands
+
+#### `valet_info` API
+
+Returns XML describing all active parking lots and the calls parked in each slot.
+
+```
+valet_info [<lot name>]
+```
+
+When called with no argument, all lots are returned. When a lot name is provided, only that lot is returned.
+
+```xml
+<lots>
+  <lot name="valet_parking_lot">
+    <extension uuid="...">6001</extension>
+  </lot>
+</lots>
+```
+
+#### Vanilla Dialplan Examples
+
+The bundled `valet_parking.xml` provides two ready-to-use extensions:
+
+```xml
+<!-- Retrieve a valet-parked call by dialing 6000 and entering the slot number -->
+<extension name="valet_park">
+  <condition field="destination_number" expression="^(6000)$">
+    <action application="answer"/>
+    <action application="valet_park" data="valet_parking_lot ask 1 11 10000 ivr/ivr-enter_ext_pound.wav"/>
+  </condition>
+</extension>
+
+<!-- Park or retrieve via extension 6001-6099 (blind transfer to park; dial to retrieve) -->
+<extension name="valet_park">
+  <condition field="destination_number" expression="^(60\d[1-9])$">
+    <action application="answer"/>
+    <action application="valet_park" data="valet_parking_lot $1"/>
+  </condition>
+</extension>
+```
+
+---
+
+## 23.5 mod_esf: Multicast Paging
+
+`mod_esf` (Extra SIP Functionality) implements RTP multicast paging. The `esf_page_group` application answers the inbound call, then simultaneously broadcasts the caller's audio to a multicast group. It also sends Polycom-compatible paging protocol packets so that Polycom IP phones in the multicast group can display the caller ID and alert the user. The application blocks until the caller hangs up.
+
+`mod_esf` has no configuration file. Runtime parameters are passed as application arguments or set as channel variables before the application is invoked.
+
+### Dialplan Applications
+
+| Application | Purpose | Arguments |
+|-------------|---------|-----------|
+| `esf_page_group` | Broadcast the session's audio to a multicast group using RTP. Optionally compatible with Polycom paging protocol. | `[<mcast_ip> [<mcast_port> [<control_port> [<ttl>]]]]` |
+
+#### Arguments
+
+Arguments are space-separated. Channel variable `esf_multicast_ip` is applied first; a positional `<mcast_ip>` argument overrides it.
+
+| Position | Name | Default | Purpose |
+|----------|------|---------|---------|
+| 1 | `mcast_ip` | `224.168.168.168` | Multicast group IP address |
+| 2 | `mcast_port` | `34567` | UDP port for RTP audio stream |
+| 3 | `control_port` | `6061` | UDP port for Linksys/SPA paging control packets |
+| 4 | `ttl` | `1` | Multicast IP TTL (1-255) |
+
+#### Channel Variables Honored by `esf_page_group`
+
+| Variable | Purpose |
+|----------|---------|
+| `esf_multicast_ip` | Multicast group IP address. Overridden by the positional argument if supplied. |
+| `esf_multicast_bind_ip` | Local IP to bind the multicast socket. Defaults to `local_ip_v4`. |
+| `esf_multicast_write_codec` | Audio codec for the multicast stream: `PCMU` (default) or `G722`. |
+| `esf_multicast_channel` | Polycom paging channel number (1-254). Default: `0x1a` (26). |
+| `esf_multicast_alert_sound` | Path to a sound file played as a paging alert tone before the live audio. |
+
+#### Channel Variable Set by `esf_page_group`
+
+| Variable | Value |
+|----------|-------|
+| `multicast_ttl` | The TTL value in use for this paging session. |
+
+#### Vanilla Dialplan Example
+
+From `conf/vanilla/dialplan/default.xml`:
+
+```xml
+<extension name="rtp_multicast_page">
+  <condition field="destination_number" expression="^pagegroup$|^7243$">
+    <action application="answer"/>
+    <action application="esf_page_group"/>
+  </condition>
+</extension>
+```
+
+---
+
+## 23.6 mod_fsv: Video File Recording and Playback
+
+`mod_fsv` implements the FreeSWITCH Video (`.fsv`) file format and provides applications to record and play back audio-video calls to and from `.fsv` files. The `.fsv` format is a proprietary container that stores raw RTP video packets and L16 audio interleaved with length-prefixed frames. It also registers a file interface so `.fsv` files can be used wherever FreeSWITCH accepts a file path (for example, as a `playback` argument).
+
+`mod_fsv` has no configuration file.
+
+### Dialplan Applications
+
+| Application | Purpose | Arguments |
+|-------------|---------|-----------|
+| `record_fsv` | Record both audio and video from the session to a `.fsv` file. Blocks until the channel hangs up or a DTMF terminator is received. | `<filepath>` |
+| `play_fsv` | Play a previously recorded `.fsv` file to the session, including both audio and video streams. Blocks until playback ends or a DTMF terminator is received. | `<filepath>` |
+| `play_yuv` | Play a raw YUV file in I420 format as video to the session while sending silence on the audio stream. | `<filepath> [<width> [<height> [<timeout_ms> [<suppress_timestamp>]]]]` |
+| `decode_video` | Read and decode incoming video frames from the session, logging resolution information. Sets `video_width` and `video_height` channel variables. | `[<max_pictures>]` |
+
+#### `record_fsv` Behavior
+
+The application answers the channel, waits up to 30 seconds for a video stream to be present, then begins recording. Audio is captured as L16 and stored in the file. Video RTP packets are stored verbatim. Playback terminators are honored (the `playback_terminators` channel variable).
+
+```xml
+<action application="record_fsv" data="/var/recordings/call_${uuid}.fsv"/>
+```
+
+#### `play_fsv` Behavior
+
+The application reads the file header to determine the video codec and audio sample rate, answers the channel, and plays back the synchronized audio and video. The file header version must match the version compiled into the module; mismatched files are rejected.
+
+```xml
+<action application="play_fsv" data="/var/recordings/call_abc123.fsv"/>
+```
+
+#### `play_yuv` Arguments
+
+| Position | Name | Default | Purpose |
+|----------|------|---------|---------|
+| 1 | `filepath` | required | Path to the raw I420 YUV file |
+| 2 | `width` | `352` | Frame width in pixels |
+| 3 | `height` | `288` | Frame height in pixels |
+| 4 | `timeout_ms` | `0` (no timeout) | Maximum playback duration in milliseconds |
+| 5 | `suppress_timestamp` | `0` | Set to `1` to suppress the timestamp overlay burned into each frame |
+
+#### Channel Variables Set by `decode_video`
+
+| Variable | Value |
+|----------|-------|
+| `video_width` | Width in pixels of the first decoded video frame |
+| `video_height` | Height in pixels of the first decoded video frame |
+
+---
+
+## 23.7 mod_spy: User Call Monitoring
+
+`mod_spy` provides persistent user-level call monitoring. The `userspy` application registers a watch on a `user@domain` target and parks the spy channel. When the watched user bridges a call, the spy channel is automatically connected via eavesdrop. Multiple spy channels can watch the same target simultaneously.
+
+Monitoring uses the core `switch_ivr_eavesdrop_session` function with the `ED_DTMF` flag, which means the spy can hear both legs of the bridged call. `mod_spy` has no configuration file.
+
+### Dialplan Applications
+
+| Application | Purpose | Arguments |
+|-------------|---------|-----------|
+| `userspy` | Register a persistent eavesdrop watch on a `user@domain` target. The channel parks and waits; when the target bridges a call, it is automatically connected to eavesdrop on that call. | `<user@domain> [<uuid>]` |
+
+#### Arguments
+
+| Position | Name | Purpose |
+|----------|------|---------|
+| 1 | `user@domain` | The SIP user and domain to watch. The module matches against multiple channel variable pairs on the target call: `Caller-Username`/`domain_name`, `dialed_user`/`dialed_domain`, `user_name`/`domain_name`, `sip_to_user`/`domain_name`, and `verto_user`/`verto_host`. |
+| 2 | `uuid` | Optional. If provided, the spy channel connects immediately to eavesdrop on the specified UUID rather than waiting for a bridge event. |
+
+#### Channel Variables Set by `userspy`
+
+| Variable | Value |
+|----------|-------|
+| `spy_uuid` | The UUID of the call being monitored, set immediately before eavesdrop is activated. Also set directly by the caller when the optional `uuid` argument is supplied. |
+
+#### Hold Music While Waiting
+
+While the spy channel waits for the target to bridge a call, it plays the channel's configured hold music (the `hold_music` variable or the profile's default). If no hold music is configured, the channel sleeps in 10-second intervals.
+
+```xml
+<extension name="userspy">
+  <condition field="destination_number" expression="^spy$">
+    <action application="answer"/>
+    <action application="set" data="hold_music=local_stream://moh"/>
+    <action application="userspy" data="1001@${domain_name}"/>
+  </condition>
+</extension>
+```
+
+### ESL API Commands
+
+#### `userspy_show` API
+
+Returns a list of all active spy registrations with the UUID of each spy channel.
+
+```
+userspy_show
+```

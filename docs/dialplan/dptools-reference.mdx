@@ -1,0 +1,661 @@
+---
+sidebar_position: 3
+id: dptools-reference
+slug: /dialplan/dptools
+title: "Chapter 14: Dialplan Application Reference"
+description: "Reference for every operator-facing dialplan application, from mod_dptools and companion modules, with their arguments and behavior."
+sidebar_label: "14. Dialplan Application Reference"
+---
+
+# Chapter 14: Dialplan Application Reference
+
+This chapter is a reference for every operator-facing dialplan application you invoke with `<action application="..." data="..."/>` inside an extension condition. The primary source is `mod_dptools`, which provides the core call-control, audio, DTMF, variable, and logging applications. Applications provided by companion modules (`mod_conference`, `mod_voicemail`, `mod_fifo`, `mod_valet_parking`, `mod_hash`, `mod_db`, `mod_lua`, `mod_spy`, `mod_esf`, `mod_fsv`) are covered in the Feature Applications section; those modules must be loaded before the applications become available.
+
+## Table of Contents
+
+1. [Call Control](#1-call-control)
+2. [Audio and Prompts](#2-audio-and-prompts)
+3. [DTMF and Signaling](#3-dtmf-and-signaling)
+4. [Feature Applications](#4-feature-applications)
+5. [Variables, Logging, and Meta-binding](#5-variables-logging-and-meta-binding)
+6. [Examples](#6-examples)
+7. [Dial Strings and Call Origination](#7-dial-strings-and-call-origination)
+8. [Call Transfers and Feature Codes](#8-call-transfers-and-feature-codes)
+
+---
+
+## 1. Call Control
+
+These applications establish, route, and tear down call legs. They operate directly on the signaling and media state of the channel.
+
+| Application | Purpose | Arguments |
+|---|---|---|
+| `answer` | Answer the channel, completing the SIP 200 OK handshake and allocating media. | None |
+| `pre_answer` | Send a 183 Session Progress with SDP, enabling early media before a full answer. | None |
+| `ring_ready` | Send a 180 Ringing response to the caller without opening an early media path. | None |
+| `hangup` | Terminate the channel with an optional Q.850 cause. | `[<cause>]` -- e.g., `NORMAL_CLEARING`, `USER_BUSY` |
+| `bridge` | Bridge the current channel to one or more outbound channel URLs. | `<channel_url>` -- full dial string, e.g., `sofia/internal/1001@example.com` |
+| `transfer` | Immediately transfer the calling channel to a new extension in the dialplan. | `<exten> [<dialplan> <context>]` |
+| `intercept` | Pull a ringing or parked channel identified by UUID into the current call. | `[-bleg] <uuid>` |
+| `hold` | Send a SIP re-INVITE or UPDATE placing the remote party on hold. | `[<display message>]` |
+| `unhold` | Release a previously placed hold. | None |
+| `park` | Park the channel, suspending bridging and allowing the call to wait. | None |
+| `respond` | Send a raw SIP response code to the session. | `<code> [<text>]` -- e.g., `407 Proxy Authentication Required` |
+| `deflect` | Send a SIP REFER to redirect the call to another URI. | `<sip-uri>` |
+| `redirect` | Send a SIP 3xx redirect response to the session. | `<redirect_data>` |
+| `sleep` | Pause channel execution for a specified duration, consuming audio during the pause. | `<milliseconds>` |
+| `wait_for_silence` | Block until audio drops below a threshold, used to detect end-of-speech. | `<silence_thresh> <silence_hits> <listen_hits> <timeout_ms> [<file>]` |
+| `execute_extension` | Jump to a named extension in a dialplan context and return when it completes. | `<extension> <dialplan> <context>` |
+| `att_xfer` | Initiate an attended transfer by calling a second party before handing off. | `<channel_url>` |
+| `soft_hold` | Place a bridged channel on hold without a full re-INVITE. | `<unhold_key> [<moh_a>] [<moh_b>]` |
+| `pickup` | Pick up a channel that is ringing on a named pickup group. | `<key>` |
+| `check_acl` | Evaluate an IP address against a named ACL; terminate or continue based on the result. | `<ip> <acl_name>` |
+| `set_name` | Assign a human-readable name to the channel, visible in logs and event data. | `<name>` |
+| `early_hangup` | Enable early hangup so the channel can be torn down before full media is established. | None |
+| `media_reset` | Reset all bypass and proxy media flags to their defaults. | None |
+| `wait_for_answer` | Block dialplan execution on the originating leg until the called party answers. | None |
+| `wait_for_video_ready` | Block until the video stream on the channel is ready. | `[<ms>]` -- timeout in milliseconds (1 to 10000) |
+| `blind_transfer_ack` | Acknowledge or reject a blind transfer request on the channel. | `[true\|false]` |
+| `page` | Page a list of channels simultaneously by dialing them and playing a file. The file path and optional variables are passed before the channel list. | `[<var1=val1,var2=val2>]<chan1>[:_:<chanN>]` |
+| `park_state` | Trigger the park state machine on the channel, used internally after the `park` application. | None |
+
+### Scheduling Applications
+
+These schedule deferred actions on the channel.
+
+| Application | Purpose | Arguments |
+|---|---|---|
+| `sched_hangup` | Schedule a hangup after a delay. | `[+]<time_sec> [<cause>]` |
+| `sched_transfer` | Schedule a transfer after a delay. | `[+]<time_sec> <exten> [<dialplan> <context>]` |
+| `sched_broadcast` | Schedule a file broadcast after a delay. | `[+]<time_sec> <path> [<leg>]` |
+| `sched_cancel` | Cancel a previously scheduled action by group name. | `[group]` |
+| `sched_heartbeat` | Enable a scheduled heartbeat event on the channel. | `[<seconds>]` |
+
+---
+
+## 2. Audio and Prompts
+
+These applications play, record, and generate audio on the channel. They require an answered (or at minimum early-media) channel unless stated otherwise.
+
+| Application | Purpose | Arguments |
+|---|---|---|
+| `playback` | Play an audio file or stream to the channel. Stops on DTMF by default unless `playback_terminators` is cleared. | `<path>` -- filesystem path, `tone_stream://...`, `silence_stream://...`, etc. |
+| `endless_playback` | Play a file in an infinite loop until the channel is terminated externally. | `<path>` |
+| `broadcast` | Play a file to a specific leg of a bridged call without interrupting the other leg. | `<path> <leg>` -- leg is `aleg`, `bleg`, or `both` |
+| `gentones` | Generate TGML tones to the channel. | `<tgml_script>[\|<loops>]` -- e.g., `%(1000,0,350,440)` |
+| `play_and_get_digits` | Play a prompt, collect DTMF digits, validate against a regex, and store in a variable. | `<min> <max> <tries> <timeout_ms> <terminators> <file> <invalid_file> <var_name> <regexp> [<digit_timeout>] ['<failure_ext> [failure_dp [failure_context]]']` |
+| `read` | Play a file and collect a fixed range of digits into a channel variable. | `<min> <max> <file> <var_name> <timeout_ms> <terminators> [<digit_timeout>]` |
+| `say` | Use the language module to speak values such as numbers, dates, and currency in the channel's language. | `<module_name>[:<lang>] <say_type> <say_method> [<say_gender>] <text>` |
+| `speak` | Synthesize text to speech via a TTS engine. | `<engine>\|<voice>\|<text>` |
+| `phrase` | Execute a named phrase macro defined in the phrases XML configuration. | `<macro_name>,<data>` |
+| `record` | Record audio from the channel input into a file. Stops on silence or a DTMF terminator. | `<path> [<time_limit_secs>] [<silence_thresh>] [<silence_hits>]` |
+| `record_session` | Start a background recording of the full bridged session (both legs) to a file. | `<path> [+<timeout_sec>]` |
+| `stop_record_session` | Stop a background session recording started by `record_session`. | `<path>` |
+| `record_session_mask` | Replace audio in an active recording with silence to mask a sensitive region. | `<path>` |
+| `record_session_unmask` | Resume normal audio capture in a recording after masking. | `<path>` |
+| `record_session_pause` | Temporarily pause writing audio to a session recording file. | `<path>` |
+| `record_session_resume` | Resume a paused session recording. | `<path>` |
+| `displace_session` | Replace the channel's audio input with audio from a file or stream. | `<path> [<flags>] [+<time_limit_ms>]` |
+| `stop_displace_session` | Stop a displace session started by `displace_session`. | `<path>` |
+| `detect_speech` | Start ASR speech detection on the channel using a grammar and ASR engine. | `<mod_name> <gram_name> <gram_path> [<addr>]` or control keywords: `grammar`, `nogrammar`, `pause`, `resume`, `stop`, `param` |
+| `play_and_detect_speech` | Play a prompt while simultaneously running ASR speech detection. | `<file> detect:<engine> {<params>}<grammar>` |
+| `echo` | Echo audio back to the caller; used for latency testing. | None |
+| `delay_echo` | Echo audio back to the caller with a configurable delay in milliseconds. | `<delay_ms>` |
+| `tone_detect` | Detect a named tone on the channel and execute an action when found. | `<key> <freqs> [<flags> [<timeout>] [<app>] [<data>] [<hits>]]` |
+| `fax_detect` | Detect an inbound fax CED tone and execute an action. | None (uses channel variables for action) |
+| `stop_tone_detect` | Stop active tone detection on the channel. | None |
+| `loop_playback` | Play a file a fixed number of times. A `+` prefix on the loop count is accepted. | `[+<loops>] <path>` |
+| `detect_audio` | Block until audio energy exceeds a threshold, used to detect the start of speech or a tone. | `<threshold> <audio_hits> <timeout_ms> [<file>]` |
+| `detect_silence` | Block until audio energy drops below a threshold for a number of consecutive frames. | `<threshold> <silence_hits> <timeout_ms> [<file>]` |
+| `preprocess` | Apply a DSP pre-processing filter to the channel's read audio. | `<filter_string>` |
+| `sound_test` | Run an audio analysis pass on the channel and log the results. | None |
+
+---
+
+## 3. DTMF and Signaling
+
+These applications control how DTMF is detected, generated, and transmitted. Inband detection (`start_dtmf`) is required when the endpoint does not send RFC 2833 telephone-event packets.
+
+| Application | Purpose | Arguments |
+|---|---|---|
+| `start_dtmf` | Enable inband DTMF detection on the session using DSP. | None |
+| `stop_dtmf` | Stop inband DTMF detection previously started with `start_dtmf`. | None |
+| `start_dtmf_generate` | Generate inband DTMF audio for outbound DTMF events on the session. | None |
+| `stop_dtmf_generate` | Stop inband DTMF generation. | None |
+| `send_dtmf` | Send DTMF digits on the channel immediately. | `<dtmf_digits>[@<duration_ms>]` -- e.g., `1234` or `1234@500` |
+| `queue_dtmf` | Queue DTMF digits to be sent after the current audio completes. | `<dtmf_digits>[@<duration_ms>]` |
+| `flush_dtmf` | Discard any DTMF digits buffered in the channel's input queue. | None |
+| `send_info` | Send a SIP INFO message on the session. | `<info_data>` |
+| `send_display` | Send an updated caller-ID name and number to the remote party via SIP INFO or re-INVITE. | `<name>\|<number>` |
+| `block_dtmf` | Block DTMF digits from being passed through the channel. | None |
+| `unblock_dtmf` | Re-enable DTMF passthrough after `block_dtmf`. | None |
+| `deduplicate_dtmf` | Suppress duplicate DTMF events when both inband and RFC 2833 are received. | `[only_rtp]` |
+| `privacy` | Set caller privacy flags on the outbound leg. | `off\|on\|name\|full\|number` |
+| `presence` | Send a SIP presence update for the channel. | `<rpid> <status> [<id>]` |
+| `bind_digit_action` | Bind a digit sequence or regex to a dialplan action string within a named realm. Unlike `bind_meta_app`, this does not require a `*` prefix and works outside of a bridge. | `<realm>,<digits\|~regex>,<string>[,<value>][,<dtmf_target_leg>][,<event_target_leg>]` |
+| `clear_digit_action` | Clear all digit action bindings in a realm, or all realms. | `<realm>\|all[,target]` |
+| `digit_action_set_realm` | Change the active digit action realm on the channel. | `<realm>[,<target>]` |
+
+---
+
+## 4. Feature Applications
+
+These applications are registered by companion modules. Each module must be loaded in `modules.conf.xml` for the application to be available.
+
+### Conferencing (`mod_conference`)
+
+| Application | Purpose | Arguments |
+|---|---|---|
+| `conference` | Place the channel into a named conference room. The room is created if it does not exist; it is destroyed when the last participant leaves. | `<room_name>[@<profile>][+flags{<flag1>\|<flag2>}]` |
+| `conference_set_auto_outcall` | Register an outbound call URL to be dialed automatically when the conference starts. | `<channel_url>` |
+
+### Voicemail (`mod_voicemail`)
+
+| Application | Purpose | Arguments |
+|---|---|---|
+| `voicemail` | Deliver a call to a voicemail box, or enter the mailbox check menu. | `[check] [auth] <profile_name> <domain_name> [<id>] [uuid]` |
+
+### FIFO Queuing (`mod_fifo`)
+
+| Application | Purpose | Arguments |
+|---|---|---|
+| `fifo` | Place an inbound call into a named FIFO queue (`in`) or connect an agent to the next waiting caller (`out`). | `<fifo_name>[!<importance>] [in [<announce>\|undef] [<music>\|undef] [early\|noans] \| out [wait\|nowait] [<announce>\|undef] [<music>\|undef]]` |
+
+### Valet Parking (`mod_valet_parking`)
+
+| Application | Purpose | Arguments |
+|---|---|---|
+| `valet_park` | Park a call in a named lot at a specific slot, or retrieve a parked call. Supports interactive slot selection with `ask` and automatic slot assignment with `auto`. | `<lot_name> <extension>\|[ask [<min>] [<max>] [<timeout>] [<prompt>]\|auto [in\|out] [min] [max]]` |
+
+### In-Memory Hash Table (`mod_hash`)
+
+| Application | Purpose | Arguments |
+|---|---|---|
+| `hash` | Insert, conditionally insert, delete, or conditionally delete a key-value pair in the shared in-memory hash table. Values survive across calls until the module is reloaded. | `[insert\|insert_ifempty\|delete\|delete_ifmatch]/<realm>/<key>/<val>` |
+
+### SQLite Key-Value Store (`mod_db`)
+
+| Application | Purpose | Arguments |
+|---|---|---|
+| `db` | Insert or delete a key-value pair in the persistent SQLite-backed key-value store. Values survive restarts. | `[insert\|delete]/<realm>/<key>/<val>` |
+
+### IVR Menu (`mod_dptools`)
+
+| Application | Purpose | Arguments |
+|---|---|---|
+| `ivr` | Run a named IVR menu defined in `ivr_menus.conf.xml`. | `<menu_name>` |
+
+### Lua Scripting (`mod_lua`)
+
+| Application | Purpose | Arguments |
+|---|---|---|
+| `lua` | Execute a Lua script in the context of the current call channel. | `<script_path> [<args>]` |
+
+### Call Limiting (`mod_dptools`)
+
+| Application | Purpose | Arguments |
+|---|---|---|
+| `limit` | Enforce a maximum concurrent call count for a realm/id pair using a pluggable backend (`db` or `hash`). Optionally transfer to a failure extension when the limit is exceeded. | `<backend> <realm> <id> [<max>[/<interval_sec>]] [<number> [<dialplan> [<context>]]]` |
+| `limit_hash` | Same as `limit` but uses the hash backend directly, omitting the backend argument. | `<realm> <id> [<max>[/<interval_sec>]] [<number> [<dialplan> [<context>]]]` |
+| `limit_execute` | Execute a dialplan application only when under the resource limit; does not transfer on failure. Uses a pluggable backend. | `<backend> <realm> <id> <max>[/<interval>] <application> [<app_args>]` |
+| `limit_hash_execute` | Deprecated alias for `limit_execute hash`. Uses the hash backend. | `<realm> <id> <max>[/<interval>] <application> [<app_args>]` |
+
+### Eavesdrop (`mod_dptools`)
+
+| Application | Purpose | Arguments |
+|---|---|---|
+| `eavesdrop` | Monitor an active channel by UUID. The operator hears both legs; DTMF `1/2/3` cycles which leg is heard, `0` listens to both simultaneously, `*` skips to next channel. Pass `all` to cycle through all active channels. | `[all\|<uuid>]` |
+| `native_eavesdrop` | Eavesdrop on a channel at the native (transport) layer, targeting a specific read or write stream. Lower overhead than `eavesdrop` when only one direction is needed. | `<uuid> [read\|write]` |
+| `intercept` | Redirect a ringing or held channel identified by UUID to the current call, completing the answer. | `[-bleg] <uuid>` |
+
+### User Spy (`mod_spy`)
+
+| Application | Purpose | Arguments |
+|---|---|---|
+| `userspy` | Continuously eavesdrop on all calls to a specific directory user. Cycles automatically as the user starts new calls. `mod_spy` must be loaded. | `<user@domain> [uuid]` |
+
+### Multicast Paging (`mod_esf`)
+
+| Application | Purpose | Arguments |
+|---|---|---|
+| `esf_page_group` | Send an RTP multicast page to all devices subscribed to the multicast group configured in `mod_esf`. `mod_esf` must be loaded. | None (uses channel variables for group config) |
+
+### FSV Video Recording (`mod_fsv`)
+
+| Application | Purpose | Arguments |
+|---|---|---|
+| `record_fsv` | Record both audio and video to an FSV container file. `mod_fsv` must be loaded. | `<path>` |
+| `play_fsv` | Play an FSV container file (audio and video) to the channel. `mod_fsv` must be loaded. | `<path>` |
+
+---
+
+## 5. Variables, Logging, and Meta-binding
+
+These applications read and write channel variables, write to the log, and bind DTMF keys to mid-call actions.
+
+### Channel Variables
+
+| Application | Purpose | Arguments |
+|---|---|---|
+| `set` | Set a channel variable. The variable is scoped to the current channel. | `<varname>=<value>` |
+| `multiset` | Set multiple channel variables in a single call. Uses space as the default delimiter; use `^^<char>` to specify an alternate delimiter. | `[^^<delim>]<var1>=<val1> <var2>=<val2> ...` |
+| `unset` | Delete a channel variable. | `<varname>` |
+| `multiunset` | Delete multiple channel variables in a single call. | `[^^<delim>]<var1> <var2> ...` |
+| `set_global` | Set a global variable visible to all channels and persisted for the life of the process. | `<varname>=<value>` |
+| `set_profile_var` | Set a field on the caller profile (e.g., `caller_id_name`, `caller_id_number`). | `<field>=<value>` |
+| `export` | Set a channel variable and propagate it to the B-leg when a bridge is established. | `<varname>=<value>` |
+| `bridge_export` | Same as `export`, but only copies the variable to bridged legs without setting it on the current channel. | `<varname>=<value>` |
+| `push` | Append a value to a channel variable that holds a colon-separated list. | `<varname>=<value>` |
+| `unshift` | Prepend a value to a channel variable that holds a colon-separated list. | `<varname>=<value>` |
+| `transfer_vars` | Copy a matching variable or prefix group from the current channel to its bridged partner. Prefix the name with `~` to match all variables starting with that string. | `<~variable_prefix\|variable>` |
+
+### Logging and Diagnostics
+
+| Application | Purpose | Arguments |
+|---|---|---|
+| `log` | Write a string to the FreeSWITCH log at the specified level. | `<log_level> <log_string>` -- levels: `DEBUG`, `INFO`, `NOTICE`, `WARNING`, `ERR`, `CRIT`, `ALERT` |
+| `info` | Dump all channel variables and call metadata to the log at INFO level. | None |
+| `event` | Fire a custom FreeSWITCH event on the event socket. | `<key>=<value> [<key>=<value> ...]` |
+| `verbose_events` | Make all subsequent events on this channel verbose (include all variables). | None |
+| `session_loglevel` | Override the per-session log verbosity. | `<log_level>` |
+
+### DTMF Meta-binding
+
+`bind_meta_app` lets the operator bind a DTMF digit (preceded by `*`) pressed during a bridged call to a dialplan application, without interrupting the media stream.
+
+| Application | Purpose | Arguments |
+|---|---|---|
+| `bind_meta_app` | Bind a digit key to an application. The key is triggered when `*<key>` is pressed during a bridge. | `<key> [a\|b\|ab] [a\|b\|o\|s\|i\|1] <app>[::args]` |
+| `unbind_meta_app` | Remove a meta-app binding by key. | `[<key>]` |
+
+The second argument selects which leg detects the keypress (`a`, `b`, or `ab`). The third argument selects the execution scope: `a` = a-leg, `b` = b-leg, `o` = opposite leg, `s` = self, `i` = inline, `1` = once.
+
+### Miscellaneous Utilities
+
+| Application | Purpose | Arguments |
+|---|---|---|
+| `eval` | Evaluate an expression and discard the result. Used as a no-op placeholder or to force variable expansion. | Any string |
+| `stop` | Alias for `eval`. Acts as a no-op that can be used to terminate an action list. | None |
+| `strftime` | Format a time value using `strftime(3)` and store or log the result. | `[<epoch>\|]<format_string>` |
+| `mkdir` | Create a directory on the filesystem. | `<path>` |
+| `rename` | Rename a file on the filesystem. | `<old_path> <new_path>` |
+| `mutex` | Block execution of this call flow until no other channel holds the same mutex key. Optionally pass `on` or `off` to explicitly acquire or release. | `<keyname> [on\|off]` |
+| `capture` | Capture data matched by a regex into a named channel variable. | `<varname>=<regex>` |
+| `set_user` | Apply directory user settings (variables, parameters) to the channel from the directory. | `<user>@<domain> [prefix]` |
+| `filter_codecs` | Remove codecs from the current SDP that do not match a filter pattern. | See source for full syntax. |
+| `jitterbuffer` | Enable or configure the RTP jitter buffer on the session. | `<msec>[:max_msec[:max_drift]]` or `off` |
+| `novideo` | Refuse or strip inbound video from the session. | None |
+| `set_audio_level` | Adjust the read or write audio level on the channel. | `[read\|write] <level>` |
+| `set_mute` | Mute or unmute the read or write leg of the channel. | `[read\|write] [true\|false\|toggle]` |
+| `remove_bugs` | Remove all or a named set of media bugs from the channel. | `[<function>]` |
+| `three_way` | Bridge a third party into a call by UUID, creating a three-way audio mix. | `<uuid>` |
+| `cng_plc` | Enable Packet Loss Concealment on Comfort Noise Generation frames received from the remote party. | None |
+| `enable_heartbeat` | Enable a periodic media heartbeat event on the channel, optionally setting the interval. Set to `0` to disable. | `[0\|<seconds>]` |
+| `enable_keepalive` | Enable RTP keepalive packets on the channel to maintain NAT bindings. Set to `0` to disable. | `[0\|<seconds>]` |
+| `set_zombie_exec` | Allow the channel to continue executing dialplan applications after the call has been answered and the originating state machine has exited. | None |
+| `debug_media` | Enable or disable media debugging output on the channel for a specific stream direction. | `<read\|write\|both\|vread\|vwrite\|vboth\|all> <on\|off>` |
+| `system` | Execute a system shell command synchronously. Only available when `disable_system_app_commands` is not set to `true`. | `<command>` |
+| `bgsystem` | Execute a system shell command asynchronously. Only available when `disable_system_app_commands` is not set to `true`. | `<command>` |
+
+---
+
+## 6. Examples
+
+The following examples are drawn from the vanilla FreeSWITCH dialplan (`default.xml` and `features.xml`).
+
+### Answer, bridge, and fall back to voicemail
+
+```xml
+<extension name="Local_Extension">
+  <condition field="destination_number" expression="^(10[01][0-9])$">
+    <action application="export" data="dialed_extension=$1"/>
+    <action application="set"    data="call_timeout=30"/>
+    <action application="set"    data="hangup_after_bridge=true"/>
+    <action application="set"    data="continue_on_fail=true"/>
+    <action application="bridge" data="user/${dialed_extension}@${domain_name}"/>
+    <action application="answer"/>
+    <action application="sleep"  data="1000"/>
+    <action application="bridge" data="loopback/app=voicemail:default ${domain_name} ${dialed_extension}"/>
+  </condition>
+</extension>
+```
+
+### Bind meta-app keys to mid-call features
+
+```xml
+<action application="bind_meta_app" data="1 b s execute_extension::dx XML features"/>
+<action application="bind_meta_app" data="2 b s record_session::${recordings_dir}/${caller_id_number}.wav"/>
+<action application="bind_meta_app" data="3 b s execute_extension::cf XML features"/>
+```
+
+### Intercept a ringing channel by UUID
+
+```xml
+<extension name="global-intercept">
+  <condition field="destination_number" expression="^886$">
+    <action application="answer"/>
+    <action application="intercept" data="${hash(select/${domain_name}-last_dial_ext/global)}"/>
+    <action application="sleep" data="2000"/>
+  </condition>
+</extension>
+```
+
+### Place a call into a conference room
+
+```xml
+<extension name="nb_conferences">
+  <condition field="destination_number" expression="^(30\d{2})$">
+    <action application="answer"/>
+    <action application="conference" data="$1-${domain_name}@default"/>
+  </condition>
+</extension>
+```
+
+### Park a call in a FIFO queue and retrieve it
+
+```xml
+<!-- Park -->
+<extension name="park">
+  <condition field="destination_number" expression="^5900$">
+    <action application="set"  data="fifo_music=${hold_music}"/>
+    <action application="fifo" data="5900@${domain_name} in"/>
+  </condition>
+</extension>
+
+<!-- Retrieve -->
+<extension name="unpark">
+  <condition field="destination_number" expression="^5901$">
+    <action application="answer"/>
+    <action application="fifo" data="5900@${domain_name} out nowait"/>
+  </condition>
+</extension>
+```
+
+### Read digits and transfer
+
+```xml
+<extension name="dx">
+  <condition field="destination_number" expression="^dx$">
+    <action application="answer"/>
+    <action application="read"              data="11 11 'tone_stream://%(10000,0,350,440)' digits 5000 #"/>
+    <action application="execute_extension" data="is_transfer XML features"/>
+  </condition>
+</extension>
+```
+
+### Valet parking
+
+```xml
+<!-- Park a call interactively -->
+<extension name="valet_park">
+  <condition field="destination_number" expression="^(6000)$">
+    <action application="answer"/>
+    <action application="valet_park" data="valet_parking_lot ask 1 11 10000 ivr/ivr-enter_ext_pound.wav"/>
+  </condition>
+</extension>
+
+<!-- Park or retrieve by slot number (6001-6099) -->
+<extension name="valet_park">
+  <condition field="destination_number" expression="^((?!6000)60\d{2})$">
+    <action application="answer"/>
+    <action application="valet_park" data="valet_parking_lot $1"/>
+  </condition>
+</extension>
+```
+
+### Log a warning and send a custom SIP response
+
+```xml
+<action application="log"     data="WARNING Call from ${caller_id_number} exceeded limit"/>
+<action application="respond" data="503 Service Unavailable"/>
+```
+
+### Eavesdrop on all active channels
+
+```xml
+<extension name="eavesdrop">
+  <condition field="destination_number" expression="^779$">
+    <action application="answer"/>
+    <action application="set" data="eavesdrop_indicate_failed=tone_stream://%(500,0,320)"/>
+    <action application="set" data="eavesdrop_indicate_new=tone_stream://%(500,0,620)"/>
+    <action application="set" data="eavesdrop_indicate_idle=tone_stream://%(250,0,920)"/>
+    <action application="eavesdrop" data="all"/>
+  </condition>
+</extension>
+```
+
+---
+
+## 7. Dial Strings and Call Origination
+
+A dial string is the argument passed to `bridge`, `originate`, and gateway destination fields. It describes one or more outbound legs to create, using endpoint prefixes, optional per-leg or global channel variables, and multi-leg separators. The parsing logic resides in `switch_ivr_originate.c`.
+
+### 7.1 Endpoint Prefixes
+
+Every leg in a dial string begins with an endpoint prefix that selects the channel driver. The prefix is separated from the address by a forward slash.
+
+| Prefix | Meaning | Example |
+|---|---|---|
+| `user/<u>@<d>` | Look up user `<u>` in domain `<d>` in the directory and dial the `dial-string` param from that user's profile. Domain is optional; defaults to the configured default domain. | `user/1001@example.com` |
+| `sofia/<profile>/<uri>` | Dial a SIP URI directly via the named sofia profile. | `sofia/internal/1001@192.168.1.10` |
+| `sofia/gateway/<gw>/<number>` | Dial `<number>` through the named gateway. The gateway must be registered under any loaded sofia profile. | `sofia/gateway/mycarrier/15551234567` |
+| `loopback/<exten>[/<context>[/<dialplan>]]` | Re-enter the dialplan at `<exten>` in `<context>` (default `default`) using `<dialplan>` (default `xml`). Also accepts `loopback/app=<app>[:<arg>]` to execute a specific application. | `loopback/1001/default` |
+| `group/<name>@<domain>` | Dial all members of a directory group simultaneously, using each member's `dial-string`. | `group/support@example.com` |
+| `error/<cause>` | Immediately return the named Q.850 hangup cause without placing any call. Useful as a fallback leg. | `error/USER_BUSY` |
+| `pickup/<key>` | Register the originating call into a named pickup group and wait. Any party that runs the `pickup` app with the same key will intercept the call. | `pickup/sales` |
+
+### 7.2 Multi-leg Separators
+
+A single dial string argument may describe multiple legs. Two separators control how those legs are dialed.
+
+| Separator | Behavior | Where parsed |
+|---|---|---|
+| `,` (comma) | Simultaneous (parallel) originate. All legs separated by commas within one group are dialed at the same time; the first to answer wins. | `switch_separate_string` with `','` inside each pipe-separated group |
+| `\|` (pipe character) | Sequential (failover) originate. Groups separated by the pipe character are tried in order; the next group is attempted only if every leg in the current group fails or times out. | `switch_separate_string` with `'\|'` at the top level |
+| `:_:` | Enterprise parallel originate (`SWITCH_ENT_ORIGINATE_DELIM`). Each leg separated by `:_:` is dispatched in its own thread concurrently, with independent ringback and timeout tracking. Use when the legs may have very different media behavior. | Detected by `strstr` before any other parsing; routes to `switch_ivr_enterprise_originate` |
+
+**Precedence.** The string is first tested for `:_:`. If found, the enterprise originate path handles it. Otherwise the string is split by the pipe character into sequential groups, and each group is split by commas into simultaneous legs.
+
+### 7.3 Channel Variable Syntax
+
+Variables can be injected into a dial string at two scopes.
+
+**Global variables** `{key=val,key2=val2}` -- prefixed before the first leg address, inside curly braces. These variables are applied to every leg in the entire dial string. Multiple sets of curly braces are allowed and merged in order. Parsed by `switch_event_create_brackets` with `{` and `}` as delimiters.
+
+```
+{ignore_early_media=true,origination_caller_id_number=5550000}sofia/internal/1001@pbx.example.com
+```
+
+**Per-leg variables** `[key=val,key2=val2]` -- prefixed immediately before the address of a single leg, inside square brackets. These variables apply only to the leg they precede and override any global variable with the same name for that leg only. Parsed by `switch_event_create_brackets` with `[` and `]` as delimiters.
+
+```
+[leg_timeout=10]sofia/internal/1001@pbx.example.com,[leg_timeout=20]sofia/internal/1002@pbx.example.com
+```
+
+Multiple `[...]` blocks may precede a single leg address; they are merged left to right.
+
+**Combined example.** Global variable sets call timeout for all legs; per-leg variables override the timeout for individual legs.
+
+```
+{call_timeout=30}[leg_timeout=10]sofia/internal/1001@pbx,[leg_timeout=20]sofia/internal/1002@pbx
+```
+
+### 7.4 Worked `bridge` Examples
+
+#### Failover: gateway first, then voicemail
+
+Try the PSTN gateway for 30 seconds. If it fails, loop back into the dialplan and drop the caller into voicemail. `continue_on_fail=true` is required for the dialplan to continue after a failed bridge.
+
+```xml
+<extension name="outbound_with_voicemail_fallback">
+  <condition field="destination_number" expression="^(15551234567)$">
+    <action application="set"    data="continue_on_fail=true"/>
+    <action application="set"    data="call_timeout=30"/>
+    <action application="bridge" data="sofia/gateway/mycarrier/$1"/>
+    <action application="answer"/>
+    <action application="sleep"  data="1000"/>
+    <action application="bridge" data="loopback/app=voicemail:default ${domain_name} 1000"/>
+  </condition>
+</extension>
+```
+
+#### Simultaneous ring of two users
+
+Ring `user/1001` and `user/1002` at the same time. The first to answer is bridged; the other leg is hung up automatically.
+
+```xml
+<action application="bridge" data="user/1001@${domain_name},user/1002@${domain_name}"/>
+```
+
+#### Sequential failover with simultaneous ring
+
+Ring 1001 and 1002 simultaneously. If both fail, try the gateway. The pipe character separates the two groups.
+
+```xml
+<action application="bridge"
+  data="user/1001@${domain_name},user/1002@${domain_name}|sofia/gateway/mycarrier/15559990000"/>
+```
+
+---
+
+## 8. Call Transfers and Feature Codes
+
+### 8.1 Blind Transfer: the `transfer` Application
+
+`transfer` immediately redirects the current channel to a new dialplan extension without consulting the destination first. The caller is transferred and the current dialplan execution ends.
+
+```
+<action application="transfer" data="<exten> [<dialplan> <context>]"/>
+```
+
+Optional flags modify which leg is transferred:
+
+- `-bleg <exten> [<dialplan> <context>]` -- transfer the B-leg (called party) instead of the A-leg.
+- `-both <exten> [<dialplan> <context>]` -- transfer both legs independently to the same extension.
+
+These flags are verified in `transfer_function` in `mod_dptools.c`.
+
+### 8.2 Attended Transfer: `att_xfer`
+
+`att_xfer` initiates an attended transfer. It puts the current B-leg on soft hold, dials the transfer target, bridges the operator to the target for consultation, and then completes the transfer when the operator hangs up.
+
+```
+<action application="att_xfer" data="<channel_url>"/>
+```
+
+The `<channel_url>` argument accepts any valid dial string (e.g., `user/1002@${domain_name}`).
+
+**DTMF keys during consultation.** Three channel variables control what DTMF digits the operator presses while bridged to the transfer target:
+
+| Variable | Default | Effect |
+|---|---|---|
+| `attxfer_cancel_key` | `#` | Abort the transfer; return to the original B-leg. |
+| `attxfer_hangup_key` | `*` | Hang up the transfer target and complete the transfer by bridging the original A-leg and B-leg directly. |
+| `attxfer_conf_key` | `0` | Convert to a three-way call by conferencing all three parties. |
+
+Set these on the channel before calling `att_xfer`, or set them on the transfer target leg using per-leg variable syntax.
+
+**Result variable.** After `att_xfer` completes, the channel variable `att_xfer_result` is set to `success` or `failure` (`SWITCH_ATT_XFER_RESULT_VARIABLE` in `switch_types.h`).
+
+**Vanilla dialplan binding.** In `features.xml`, the `att_xfer` extension collects a digit sequence with `read`, sets `origination_cancel_key` on the originate call (note: this is the variable checked by originate, not by `att_xfer` itself; the `att_xfer` cancel key is `attxfer_cancel_key`), then calls `att_xfer`:
+
+```xml
+<extension name="att_xfer">
+  <condition field="destination_number" expression="^att_xfer$">
+    <action application="read" data="3 4 'tone_stream://%(10000,0,350,440)' digits 30000 #"/>
+    <action application="set" data="origination_cancel_key=#"/>
+    <action application="att_xfer" data="user/${digits}@$${domain}"/>
+  </condition>
+</extension>
+```
+
+### 8.3 Three-way Calling: `three_way`
+
+`three_way` bridges a third party UUID into the current call, creating a three-way audio mix using the existing bridged legs plus the channel identified by UUID. All three parties hear each other.
+
+```
+<action application="three_way" data="<uuid>"/>
+```
+
+The UUID must be an active session. The application is registered in `mod_dptools.c`.
+
+### 8.4 Call Pickup
+
+**Pickup groups** allow a ringing call to be answered by any party in a group. The mechanism uses two sides:
+
+**Registering a call into a group.** Include `pickup/<key>` as one of the legs in a `bridge` dial string. When the bridge is established, the call is registered in the named pickup group using an in-memory hash. The pickup leg waits silently until claimed.
+
+```xml
+<action application="bridge"
+  data="user/${dialed_extension}@${domain_name},pickup/${called_party_callgroup}@${domain_name}"/>
+```
+
+**Claiming a ringing call.** The `pickup` application retrieves the first available call registered under the named key and bridges it to the current channel.
+
+```
+<action application="pickup" data="<key>"/>
+```
+
+**Intercepting by UUID.** The `intercept` application pulls any ringing or held channel into the current call by its UUID.
+
+```
+<action application="intercept" data="[-bleg] <uuid>"/>
+```
+
+The `-bleg` flag intercepts the B-leg of the identified session rather than the A-leg. The `intercept:` prefix is also used internally by `mod_sofia` when handling SIP REFER with `Replaces` headers, routing calls as `answer,intercept:<uuid>`.
+
+### 8.5 In-call Feature Codes via `bind_meta_app`
+
+`bind_meta_app` binds a single DTMF digit (pressed as `*<digit>` during a bridge) to a dialplan application without interrupting the media stream. Bindings are set before the `bridge` call and remain active for the duration of the bridge.
+
+Syntax recap (from Section 5):
+
+```
+bind_meta_app <key> [a|b|ab] [a|b|o|s|i|1] <app>[::args]
+```
+
+- Argument 2: which leg detects the keypress. `a` = A-leg only, `b` = B-leg only, `ab` = both.
+- Argument 3: which leg executes the app. `a` = A-leg, `b` = B-leg, `o` = opposite leg, `s` = same leg, `i` = inline (current thread), `1` = once (remove binding after first trigger).
+
+**Vanilla bindings from `default.xml`.** The `Local_Extension` extension sets these four bindings before every `bridge`:
+
+| Keypress | Binding | Effect |
+|---|---|---|
+| `*1` | `execute_extension::dx XML features` | Prompt the B-leg caller to enter a number for a blind transfer. |
+| `*2` | `record_session::<path>.wav` | Start recording the session to a timestamped file. |
+| `*3` | `execute_extension::cf XML features` | Transfer both legs to a conference room. |
+| `*4` | `execute_extension::att_xfer XML features` | Initiate an attended transfer from the B-leg. |
+
+All four use `b s` (B-leg detects, same-leg executes).
+
+### 8.6 Worked Example: Bridged Call with Feature Codes
+
+The following extension replicates the vanilla `Local_Extension` pattern. It binds four in-call feature codes, then bridges to the dialed user. On failure it falls through to voicemail.
+
+```xml
+<extension name="Local_Extension">
+  <condition field="destination_number" expression="^(10[01][0-9])$">
+    <action application="export"       data="dialed_extension=$1"/>
+
+    <!-- Feature code bindings active during the bridge -->
+    <action application="bind_meta_app" data="1 b s execute_extension::dx XML features"/>
+    <action application="bind_meta_app" data="2 b s record_session::${recordings_dir}/${caller_id_number}.wav"/>
+    <action application="bind_meta_app" data="3 b s execute_extension::cf XML features"/>
+    <action application="bind_meta_app" data="4 b s execute_extension::att_xfer XML features"/>
+
+    <action application="set"          data="call_timeout=30"/>
+    <action application="set"          data="hangup_after_bridge=true"/>
+    <action application="set"          data="continue_on_fail=true"/>
+
+    <!-- Primary bridge; includes a pickup group leg for call-pickup by colleagues -->
+    <action application="bridge"       data="user/${dialed_extension}@${domain_name}"/>
+
+    <!-- Fallback: voicemail -->
+    <action application="answer"/>
+    <action application="sleep"        data="1000"/>
+    <action application="bridge"       data="loopback/app=voicemail:default ${domain_name} ${dialed_extension}"/>
+  </condition>
+</extension>
+```
+
+When a bridged B-leg party presses `*4`, `execute_extension::att_xfer XML features` runs in the `features` context. That extension collects a destination number with `read`, then calls `att_xfer` to consult the transfer target. The operator presses `#` (default `attxfer_cancel_key`) to abort, `*` (default `attxfer_hangup_key`) to complete the transfer, or `0` (default `attxfer_conf_key`) to merge all three parties.

@@ -1,0 +1,533 @@
+---
+sidebar_position: 2
+id: conferencing
+slug: /applications/conferencing
+title: "Chapter 20: Conferencing"
+description: "Multi-party audio and video conferencing with mod_conference: named rooms, per-room profiles, codec settings, and video layouts."
+sidebar_label: "20. Conferencing"
+---
+
+# Chapter 20: Conferencing
+
+FreeSWITCH multi-party audio and video conferencing is provided by `mod_conference`. Callers are bridged into named rooms; each room is governed by a profile that sets codec parameters, audio behaviors, and video mixing options. All configuration lives in `autoload_configs/conference.conf.xml` and `autoload_configs/conference_layouts.conf.xml`.
+
+## Table of Contents
+
+- [20.1 Conference Model](#conference-model)
+- [20.2 conference.conf.xml](#conference-conf-xml)
+  - [20.2.1 Advertise Block](#advertise-block)
+  - [20.2.2 Caller Controls](#caller-controls)
+  - [20.2.3 Profile Parameters](#profile-parameters)
+  - [20.2.4 Conference Flags](#conference-flags)
+  - [20.2.5 Member Flags (Profile)](#member-flags-profile)
+- [20.3 Bundled Profiles](#bundled-profiles)
+- [20.4 Video Layouts](#video-layouts)
+  - [20.4.1 Layout Definitions](#layout-definitions)
+  - [20.4.2 Layout Groups](#layout-groups)
+- [20.5 The conference Dialplan Application](#the-conference-dialplan-application)
+  - [20.5.1 Argument Syntax](#argument-syntax)
+  - [20.5.2 Member Flags at Join Time](#member-flags-at-join-time)
+  - [20.5.3 Bridge Mode](#bridge-mode)
+- [20.6 Default Dialplan Conference Extensions](#default-dialplan-conference-extensions)
+
+---
+
+## 20.1 Conference Model {#conference-model}
+
+A conference room is identified by a name string. When the `conference` dialplan application is invoked with `roomname@profilename`, FreeSWITCH looks up `profilename` in `conference.conf.xml` and creates the room (if it does not already exist) using that profile's parameters. Subsequent callers who dial the same room name join the existing instance.
+
+Key points:
+
+- A profile is a named collection of parameters. It does not represent a room; it represents a configuration template.
+- Room names are arbitrary strings. They are typically constructed from the destination number and domain (for example, `3001-example.com`) to prevent collisions across domains.
+- If no profile is specified, the `default` profile is used.
+- A room is destroyed automatically when the last member leaves (or when an `endconf` member leaves and the grace timer expires).
+
+---
+
+## 20.2 conference.conf.xml {#conference-conf-xml}
+
+The file is loaded by `mod_conference` at startup. It contains three top-level sections: `<advertise>`, `<caller-controls>`, and `<profiles>`.
+
+### 20.2.1 Advertise Block {#advertise-block}
+
+The optional `<advertise>` section publishes SIP presence for listed rooms at startup.
+
+```xml
+<advertise>
+  <room name="3001@$${domain}" status="FreeSWITCH"/>
+</advertise>
+```
+
+| Attribute | Purpose |
+|-----------|---------|
+| `name` | SIP AOR to advertise. Variable expansion applies. |
+| `status` | Presence status string sent to subscribers. |
+
+### 20.2.2 Caller Controls {#caller-controls}
+
+Caller controls map DTMF digits to in-conference actions for members who are in an active room. Controls are organized into named groups. The group named `default` is used when no `caller-controls` profile parameter specifies otherwise.
+
+The reserved name `none` disables all DTMF controls for a profile (used by the `sla` profile, for example).
+
+Controls are disabled per-member when the `dist-dtmf` member flag is set; DTMF is then passed through to other members instead.
+
+```xml
+<caller-controls>
+  <group name="default">
+    <control action="mute"           digits="0"/>
+    <control action="deaf mute"      digits="*"/>
+    <control action="energy up"      digits="9"/>
+    <control action="energy equ"     digits="8"/>
+    <control action="energy dn"      digits="7"/>
+    <control action="vol talk up"    digits="3"/>
+    <control action="vol talk zero"  digits="2"/>
+    <control action="vol talk dn"    digits="1"/>
+    <control action="vol listen up"  digits="6"/>
+    <control action="vol listen zero" digits="5"/>
+    <control action="vol listen dn"  digits="4"/>
+    <control action="hangup"         digits="#"/>
+  </group>
+</caller-controls>
+```
+
+**Available control actions:**
+
+| Action | Effect |
+|--------|--------|
+| `mute` | Toggle mute for the caller. |
+| `mute on` | Unconditionally mute the caller. |
+| `mute off` | Unconditionally unmute the caller. |
+| `vmute` | Toggle video mute for the caller. |
+| `vmute on` | Unconditionally video-mute the caller. |
+| `vmute off` | Unconditionally remove video mute. |
+| `vmute snap` | Capture a still image to use as the video-mute placeholder. |
+| `vmute snapoff` | Remove the captured still-image placeholder. |
+| `deaf mute` | Toggle both deaf and mute simultaneously. |
+| `deaf` | Toggle deaf state only (audio receive). |
+| `deaf on` | Unconditionally make the caller deaf. |
+| `deaf off` | Unconditionally restore audio receive. |
+| `energy up` | Increase the energy threshold (talk detection sensitivity). |
+| `energy equ` | Reset the energy threshold to the profile default. |
+| `energy dn` | Decrease the energy threshold. |
+| `vol talk up` | Increase the caller's transmit volume. |
+| `vol talk zero` | Reset the caller's transmit volume. |
+| `vol talk dn` | Decrease the caller's transmit volume. |
+| `vol listen up` | Increase the caller's receive volume. |
+| `vol listen zero` | Reset the caller's receive volume. |
+| `vol listen dn` | Decrease the caller's receive volume. |
+| `hangup` | Disconnect the caller from the conference. |
+| `lock` | Toggle the conference lock state (moderator action). |
+| `transfer` | Transfer the caller to a dialplan destination (requires `data` attribute on the `<control>` element). |
+| `execute_application` | Execute a dialplan application for the caller (requires `data` attribute). |
+| `floor` | Toggle audio floor hold for the caller. |
+| `vid-floor` | Toggle video floor hold for the caller. |
+| `vid-floor-force` | Force video floor to the caller without toggling. |
+| `moh toggle` | Toggle music-on-hold for the caller. |
+| `border` | Cycle the video border style for the caller (requires `data` attribute). |
+| `event` | Fire a custom event (requires `data` attribute on the `<control>` element). |
+
+A profile can assign a separate control group to moderators via `moderator-controls`.
+
+### 20.2.3 Profile Parameters {#profile-parameters}
+
+A `<profile>` element contains `<param name="..." value="..."/>` child elements. Underscores in parameter names are interchangeable with hyphens during parsing.
+
+**Audio parameters:**
+
+| Parameter | Purpose | Accepted Values | Default |
+|-----------|---------|-----------------|---------|
+| `rate` | Audio sample rate for the conference mixer. | `8000`, `12000`, `16000`, `24000`, `32000`, `44100`, `48000`; or `auto` to inherit from the first caller's codec. | `8000` |
+| `channels` | Audio channel count. | `1` (mono), `2` (stereo); or `auto`. | `1` |
+| `interval` | Frame duration in milliseconds. Must be a multiple of 10 and within the platform maximum. | Integer ms, or `auto`. | `20` |
+| `energy-level` | Voice activity detection threshold. Audio below this level is treated as silence and not mixed. | Integer `0`-`1800` (arbitrary linear units). | `100` |
+| `comfort-noise` | Enable comfort noise generation during silence. `true` sets an internal level of `1400`; a numeric value `2`-`9999` sets the level explicitly. `false` or `0` disables. | `true`, `false`, or integer `2`-`9999`. | `false` |
+| `auto-gain-level` | Automatic gain control target level. When non-zero, AGC adjusts member transmit volume to reach this energy level. | Integer, or `false`/`0` to disable. | `0` (disabled) |
+| `auto-gain-low-energy-level` | AGC lower energy bound; member volumes are not reduced below this level. | Integer. | None |
+| `auto-gain-margin` | AGC adjustment margin (dead band). | Integer. | None |
+| `auto-gain-change-factor` | AGC step size per adjustment period. | Integer. | None |
+| `auto-gain-period-len` | Number of frames per AGC adjustment period. | Integer. | None |
+| `timer-name` | Internal timer module to use for mixing. | Module name string (for example, `soft`). | `soft` |
+
+**Sound file parameters:**
+
+| Parameter | Purpose | Accepted Values | Default |
+|-----------|---------|-----------------|---------|
+| `sound-prefix` | Directory prefix for relative sound file paths used in other sound parameters. | Directory path. | First caller's `sound_prefix` channel variable. |
+| `tts-engine` | TTS engine module name. When set, sound parameters prefixed with `say:` are spoken rather than played from file. | Engine name string (for example, `flite`, `cepstral`). | None |
+| `tts-voice` | TTS voice name to use with the configured TTS engine. | Voice name string (for example, `kal16`, `david`). | None |
+| `moh-sound` | Music on hold file or stream, played when a member is alone in the room. | File path or stream URI. | None |
+| `perpetual-sound` | File or stream played in a continuous loop regardless of member count; no member can speak while it plays. | File path or stream URI. | None |
+| `alone-sound` | File played to a member when they are the only participant. | File path or stream URI. | None |
+| `member-enter-sound` | File played privately to the joining member immediately after they enter. | File path or stream URI. | None |
+| `enter-sound` | File or tone played to all members when someone joins. | File path or stream URI. | None |
+| `exit-sound` | File or tone played to all members when someone leaves. | File path or stream URI. | None |
+| `muted-sound` | File played to a member to confirm they have been muted. | File path. | None |
+| `unmuted-sound` | File played to a member to confirm they have been unmuted. | File path. | None |
+| `mute-detect-sound` | File played to a muted member when they speak (requires `mute-detect` flag). | File path. | None |
+| `deaf-sound` | File played to a member to confirm they have been made deaf. | File path. | None |
+| `undeaf-sound` | File played to a member to confirm deaf state was removed. | File path. | None |
+| `blind-sound` | File played to a member to confirm they have been made video-blind. | File path. | None |
+| `unblind-sound` | File played to a member to confirm video-blind state was removed. | File path. | None |
+| `kicked-sound` | File played to a member being ejected. | File path. | None |
+| `locked-sound` | File played to a caller attempting to join a locked conference. | File path. | None |
+| `is-locked-sound` | File played to all members when the conference is locked during a call. | File path. | None |
+| `is-unlocked-sound` | File played to all members when the conference is unlocked during a call. | File path. | None |
+| `pin-sound` | Prompt file played to collect a conference PIN. | File path. | None |
+| `bad-pin-sound` | File played when an entered PIN is incorrect. | File path. | None |
+
+**Access control parameters:**
+
+| Parameter | Purpose | Accepted Values | Default |
+|-----------|---------|-----------------|---------|
+| `pin` | Conference entry PIN. Members must match this value to join. | Digit string. | None |
+| `moderator-pin` | PIN that grants moderator status on entry. | Digit string. | None |
+| `pin-retries` | Maximum number of PIN attempts before the caller is rejected. | Integer `>= 0`. | `3` |
+| `max-members` | Maximum simultaneous members. `0` disables the limit. A value of `1` is invalid and treated as `0`. | Integer. | `0` |
+| `max-members-sound` | File played to a caller who is rejected because the room is full. | File path. | None |
+
+**Behavior parameters:**
+
+| Parameter | Purpose | Accepted Values | Default |
+|-----------|---------|-----------------|---------|
+| `domain` | SIP domain for presence. | Domain string. Variable expansion applies. | None |
+| `caller-controls` | Name of the `<caller-controls>` group to apply to regular members. | Group name string; `none` to disable. | `default` |
+| `moderator-controls` | Name of the `<caller-controls>` group to apply to moderator members. | Group name string. | None (uses `caller-controls`) |
+| `member-flags` | Pipe-delimited set of flags applied to every member that joins via this profile. | See [Member Flags](#member-flags-profile). | None |
+| `conference-flags` | Pipe-delimited set of flags that control conference-wide behavior. | See [Conference Flags](#conference-flags). | None |
+| `caller-id-name` | Caller ID name used for outbound calls originated by the conference. | String. | `conference` (module app name) |
+| `caller-id-number` | Caller ID number used for outbound calls originated by the conference. | String. | `0000000000` |
+| `announce-count` | Play a member count announcement when membership reaches this threshold. `0` disables. | Integer. | `0` |
+| `suppress-events` | Comma-delimited list of event subtypes to suppress. Valid values: `del-member`, `energy-level`, `volume-level`, `gain-level`, `dtmf`, `stop-talking`, `start-talking`, `mute-detect`, `mute-member`, `hold-member`, `kick-member`, `dtmf-member`, `energy-level-member`, `volume-in-member`, `volume-out-member`, `play-file`, `play-file-done`, `play-file-member`, `speak-text`, `speak-text-member`, `lock`, `unlock`, `transfer`, `bgdial-result`, `floor-change`, `record`. | Comma-delimited string. | None |
+| `verbose-events` | When set to `true`, fire additional detail in conference events. | `true`, `false`. | None |
+| `ivr-dtmf-timeout` | Milliseconds to wait between DTMF digits when matching a caller-control sequence. Values below `500` are raised to `500`. | Integer ms. | `500` |
+| `ivr-input-timeout` | Milliseconds to wait for the first DTMF digit. `0` means wait indefinitely. Non-zero values below `500` are raised to `5000`. | Integer ms. | `0` |
+| `endconf-grace-time` | Seconds to delay conference termination after the last `endconf` member leaves. | Integer seconds. | None |
+| `terminate-on-silence` | Seconds of conference-wide silence after which the conference is terminated. `0` or unset disables. | Integer seconds. | None |
+| `min-required-recording-participants` | Minimum member count required for auto-recording to begin. | `1` or `2`. | `1` |
+| `broadcast-chat-messages` | Relay SIP MESSAGE chat messages from members to all other members. | `true`, `false`. | `true` |
+| `heartbeat-period-sec` | Interval in seconds at which a `conference-heartbeat` event is fired. `0` disables. | Integer seconds. | `0` |
+| `description` | Human-readable description string for the conference (included in CDR and events). | String. | None |
+
+**Recording parameters:**
+
+| Parameter | Purpose | Accepted Values | Default |
+|-----------|---------|-----------------|---------|
+| `auto-record` | Path template for automatic recording of every conference. Supports channel variables and `strftime` tokens. Special value `shout://...` records to an Icecast/Shoutcast stream. | Path string. | None |
+| `recording-metadata` | Arbitrary metadata string attached to auto-recording events. | String. | None |
+| `cdr-log-dir` | Directory for CDR XML files. `auto` writes to `$PREFIX/logs/conference_cdr/`. A relative path is anchored under `$PREFIX/logs/`. | Path string or `auto`. | None |
+| `cdr-event-mode` | Controls whether CDR is written to file, fired as an event, or both. | `content`, `file`, `both`. | None |
+
+**Video parameters:**
+
+| Parameter | Purpose | Accepted Values | Default |
+|-----------|---------|-----------------|---------|
+| `video-mode` | Video mixing strategy. | `passthrough`, `transcode`, `mux`. | `passthrough` |
+| `video-layout-name` | Layout name or `group:groupname` for MCU video mixing. May appear multiple times in one profile; the first becomes the initial layout and subsequent values extend an auto-selection list. | Layout name string or `group:name`. | None |
+| `video-canvas-size` | Resolution of the MCU mixing canvas. | `WIDTHxHEIGHT` string (for example, `1920x1080`). | None |
+| `video-canvas-bgcolor` | Background color for the MCU canvas in hex RGB. | `#RRGGBB` string. | None |
+| `video-border-color` | Color of the border drawn around each member slot on the canvas. | `#RRGGBB` string. | None |
+| `video-border-size` | Width in pixels of the border drawn around each member slot. `0` disables. | Integer. | `0` |
+| `video-letterbox-bgcolor` | Fill color for letterbox bars when a source video does not match the slot aspect ratio. | `#RRGGBB` string. | None |
+| `video-fps` | Frames per second for MCU output. | Numeric. | `30` |
+| `video-codec-bandwidth` | Target output bandwidth for the MCU video encoder. | Value with unit suffix, for example, `3mb`. | None |
+| `video-auto-floor-msec` | Milliseconds a member must hold the audio floor before automatically receiving the video floor. `0` disables automatic promotion. | Integer ms. | `0` |
+| `video-canvas-count` | Number of simultaneous MCU canvases (for super-canvas / multi-canvas deployments). | Integer. | `1` |
+| `video-quality` | Encoder quality preset for MCU output. | Integer `0`-`4`. | `1` |
+| `video-kps-debounce` | Milliseconds to wait before adjusting the MCU encoder bitrate in response to bandwidth changes. | Integer ms. | `5000` |
+| `video-no-video-avatar` | Image file used as a placeholder for members without a camera. | File path. | None |
+| `video-mute-banner` | Text or image overlay displayed on a video-muted member's slot. | String or file path. | None |
+| `scale-h264-canvas-size` | Downscaled canvas resolution used for H.264 encoding when the primary canvas is larger. | `WIDTHxHEIGHT` string. | None |
+| `scale-h264-canvas-fps-divisor` | Divide the canvas FPS by this value for the scaled H.264 output. `0` uses the full rate. | Integer. | `0` |
+| `scale-h264-canvas-bandwidth` | Bandwidth target for the scaled H.264 output. | Value with unit suffix. | None |
+| `video-codec-config-profile-name` | Named codec configuration profile to apply to MCU video encoding. | String. | None |
+
+### 20.2.4 Conference Flags {#conference-flags}
+
+Conference flags are set in the profile via `conference-flags` (pipe-delimited) or via the `conference_flags` channel variable. They govern room-level behavior.
+
+| Flag | Effect |
+|------|--------|
+| `wait-mod` | Hold all members in a waiting state until a moderator joins. |
+| `audio-always` | Mix audio from all members at all times, regardless of voice activity detection. |
+| `video-floor-only` | Video floor is granted only explicitly, not automatically on audio floor. |
+| `rfc-4579` | Enable RFC 4579 conference event package signaling. |
+| `livearray-sync` | Synchronize member state to the Verto live array. |
+| `livearray-json-status` | Include JSON status in live array events. |
+| `json-events` | Fire conference member events as JSON. |
+| `minimize-video-encoding` | Encode outbound video once and share the stream where possible. |
+| `manage-inbound-video-bitrate` | Actively manage the bitrate requested from video senders. |
+| `video-required-for-canvas` | Members without video are excluded from the MCU canvas. |
+| `video-mute-exit-canvas` | A video-muted member is removed from the canvas. |
+| `video-bridge-first-two` | When exactly two video members are present, bridge video directly. |
+| `video-muxing-personal-canvas` | Each member receives a personal canvas (point-to-point view). |
+| `mute-detect` | Fire events when a muted member attempts to speak. |
+| `restart-auto-record` | Restart the auto-recording when the conference is restarted. |
+| `auto-3d-position` | Enable automatic 3D positional audio assignment based on canvas layout positions. |
+| `ded-vid-layer-audio-floor` | Dedicate a video canvas layer to whichever member holds the audio floor. |
+| `breakable` | Allow the conference to be interrupted by a transfer or other channel application. |
+
+### 20.2.5 Member Flags (Profile) {#member-flags-profile}
+
+The `member-flags` profile parameter sets default per-member flags for all members joining via that profile. The same flags can be set per-call at join time (see [Member Flags at Join Time](#member-flags-at-join-time)).
+
+| Flag | Effect |
+|------|--------|
+| `mute` | Member joins muted (cannot speak). |
+| `vmute` | Member joins with video muted (camera not transmitted). |
+| `deaf` | Member joins deaf (cannot hear the conference). |
+| `blind` | Member joins video-blind (does not receive any video). |
+| `mute-detect` | Fire an event when this muted member speaks. |
+| `dist-dtmf` | Pass DTMF digits through to other members instead of processing them as controls. |
+| `skip-dtmf` | Ignore all DTMF input entirely for this member (neither controls nor passthrough). |
+| `moderator` | Grant moderator status. Moderators receive the `moderator-controls` key map. |
+| `nomoh` | Suppress music-on-hold for this member when they are alone. |
+| `endconf` | Terminate the conference when this member leaves. |
+| `mandatory_member_endconf` | Same as `endconf` but the conference terminates only if this member was the one who left (not if they were kicked). |
+| `mintwo` | Keep the conference alive until at least two members have joined (prevents immediate teardown). |
+| `ghost` | Member is invisible to the conference participant count and to other members. |
+| `join-only` | Reject this member if no conference already exists; do not create a new room. |
+| `positional` | Enable 3D positional audio for this member (requires `auto-3d-position` support in the layout). |
+| `no-positional` | Explicitly disable 3D positional audio for this member even if the conference enables it. |
+| `join-vid-floor` | Grant the video floor to this member immediately on join. |
+| `no-video-blanks` | Do not send blank video frames to this member when no floor holder is active. |
+| `no-minimize-encoding` | Force a separate encode for this member even when `minimize-video-encoding` is set on the conference. |
+| `second-screen` | Member receives video but does not contribute audio or appear on the canvas. Also sets deaf and muted implicitly. |
+| `flip-video` | Flip the member's inbound video vertically before mixing. |
+| `talk-data-events` | Fire detailed talking data events for this member. |
+| `video-bridge` | Bridge video directly to this member when only two video participants are present. |
+| `waste` | Always transmit audio data to each channel even during silence. |
+
+---
+
+## 20.3 Bundled Profiles {#bundled-profiles}
+
+The vanilla configuration ships the following profiles in `conference.conf.xml`:
+
+| Profile | `rate` | `channels` | Notes |
+|---------|--------|------------|-------|
+| `default` | `8000` | `1` | Narrowband audio. Used by the `nb_conferences` dialplan range (`30xx`). |
+| `wideband` | `16000` | `1` | Wideband audio. Used by the `wb_conferences` dialplan range (`31xx`). |
+| `ultrawideband` | `32000` | `1` | Ultra-wideband audio. Used by the `uwb_conferences` dialplan range (`32xx`). Includes commented-out video MCU parameters for reference. |
+| `cdquality` | `48000` | `1` | CD-quality mono audio. Used by the `cdquality_conferences` dialplan range (`33xx`). Includes commented-out video MCU parameters for reference. |
+| `video-mcu-stereo` | `48000` | `2` | CD-quality stereo audio with full MCU video mixing at `1920x1080`, 30 fps, 3 Mbps. Default layout `3x3` with auto-selection from the `grid` group. `energy-level` is `200`. |
+| `video-mcu-stereo-720` | `48000` | `2` | Same as `video-mcu-stereo` with canvas `1280x720`. |
+| `video-mcu-stereo-480` | `48000` | `2` | Same as `video-mcu-stereo` with canvas `640x480`. |
+| `video-mcu-stereo-320` | `48000` | `2` | Same as `video-mcu-stereo` with canvas `480x320`. |
+| `sla` | `16000` | `1` | Shared Line Appearance helper profile. Caller controls are disabled (`none`), MOH is silence, `energy-level` is `200`. |
+
+All bundled profiles set `comfort-noise` to `true` except the `video-mcu-*` profiles, which set it to `false`.
+
+The four `video-mcu-stereo*` profiles share the same `conference-flags` value:
+
+```
+livearray-json-status|json-events|video-floor-only|rfc-4579|livearray-sync|
+minimize-video-encoding|manage-inbound-video-bitrate|video-required-for-canvas|
+video-mute-exit-canvas|mute-detect
+```
+
+They also set `video-auto-floor-msec` to `1000`.
+
+**Minimal profile example** (narrowband, no video):
+
+```xml
+<profile name="default">
+  <param name="domain"        value="$${domain}"/>
+  <param name="rate"          value="8000"/>
+  <param name="interval"      value="20"/>
+  <param name="energy-level"  value="100"/>
+  <param name="muted-sound"   value="conference/conf-muted.wav"/>
+  <param name="unmuted-sound" value="conference/conf-unmuted.wav"/>
+  <param name="alone-sound"   value="conference/conf-alone.wav"/>
+  <param name="moh-sound"     value="$${hold_music}"/>
+  <param name="enter-sound"   value="tone_stream://%(200,0,500,600,700)"/>
+  <param name="exit-sound"    value="tone_stream://%(500,0,300,200,100,50,25)"/>
+  <param name="kicked-sound"  value="conference/conf-kicked.wav"/>
+  <param name="comfort-noise" value="true"/>
+</profile>
+```
+
+---
+
+## 20.4 Video Layouts {#video-layouts}
+
+Video layout configuration is in `autoload_configs/conference_layouts.conf.xml`. Layouts define how member video streams are positioned on the MCU canvas. The MCU canvas coordinate system is a normalized 360x360 unit grid, scaled to the actual canvas resolution at render time.
+
+### 20.4.1 Layout Definitions {#layout-definitions}
+
+Each `<layout>` element contains one or more `<image>` child elements. Image placement attributes:
+
+| Attribute | Purpose |
+|-----------|---------|
+| `x` | Horizontal offset of the top-left corner in canvas units. |
+| `y` | Vertical offset of the top-left corner in canvas units. |
+| `scale` | Width of the slot in canvas units. Height is derived from the aspect ratio. |
+| `hscale` | Explicit height override in canvas units (for non-square slots). |
+| `floor` | `true` marks this slot as reserved for the audio floor holder. |
+| `floor-only` | Slot is filled only when there is a floor holder and a floor holder is present. |
+| `overlap` | `true` renders this slot on top of the primary layer (picture-in-picture). |
+| `zoom` | `true` crops and zooms the source video to fill the slot without letterboxing. |
+| `reservation_id` | Named reservation (for example, `presenter`, `secondary`, `third`) used for explicit member placement. |
+| `auto-3d-position` | Layout attribute (on the `<layout>` element, not `<image>`) that enables automatic 3D positioning for members with `positional` flag. |
+
+**Bundled layout names:**
+
+`1x1`, `2x1`, `1x2`, `2x1-zoom`, `3x1-zoom`, `2x2`, `3x3`, `4x4`, `5x5`, `6x6`, `8x8`, `5-grid-zoom`, `3x2-zoom`, `7-grid-zoom`, `4x2-zoom`, `1x1+2x1`, `1up_top_left+5`, `1up_top_left+7`, `1up_top_left+9`, `2up_top+8`, `2up_middle+8`, `2up_bottom+8`, `3up+4`, `3up+9`, `2x1-presenter-zoom`, `presenter-dual-vertical`, `presenter-dual-horizontal`, `presenter-overlap-small-top-right`, `presenter-overlap-small-bot-right`, `presenter-overlap-large-top-right`, `presenter-overlap-large-bot-right`, `overlaps`.
+
+**Example: `3x3` layout definition:**
+
+```xml
+<layout name="3x3" auto-3d-position="true">
+  <image x="0"   y="0"   scale="120"/>
+  <image x="120" y="0"   scale="120"/>
+  <image x="240" y="0"   scale="120"/>
+  <image x="0"   y="120" scale="120"/>
+  <image x="120" y="120" scale="120"/>
+  <image x="240" y="120" scale="120"/>
+  <image x="0"   y="240" scale="120"/>
+  <image x="120" y="240" scale="120"/>
+  <image x="240" y="240" scale="120"/>
+</layout>
+```
+
+### 20.4.2 Layout Groups {#layout-groups}
+
+Groups allow the MCU to automatically promote to a larger layout as membership grows. When a profile sets `video-layout-name` to `group:groupname`, the MCU selects the smallest layout in the group that accommodates the current member count.
+
+```xml
+<groups>
+  <group name="grid">
+    <layout>1x1</layout>
+    <layout>2x1</layout>
+    <layout>1x1+2x1</layout>
+    <layout>2x2</layout>
+    <layout>3x3</layout>
+    <layout>4x4</layout>
+    <layout>5x5</layout>
+    <layout>6x6</layout>
+    <layout>8x8</layout>
+  </group>
+</groups>
+```
+
+**Bundled groups:**
+
+| Group | Layouts included |
+|-------|-----------------|
+| `grid` | `1x1`, `2x1`, `1x1+2x1`, `2x2`, `3x3`, `4x4`, `5x5`, `6x6`, `8x8` |
+| `grid-zoom` | `1x1`, `2x1-zoom`, `3x1-zoom`, `2x2`, `5-grid-zoom`, `3x2-zoom`, `7-grid-zoom`, `4x2-zoom`, `3x3` |
+| `1up_top_left_plus` | `1up_top_left+5`, `1up_top_left+7`, `1up_top_left+9` |
+| `3up_plus` | `3up+4`, `3up+9` |
+
+Referencing a group in a profile:
+
+```xml
+<param name="video-layout-name" value="group:grid"/>
+```
+
+---
+
+## 20.5 The conference Dialplan Application {#the-conference-dialplan-application}
+
+The `conference` application places a channel into a conference room.
+
+### 20.5.1 Argument Syntax {#argument-syntax}
+
+```
+conference <roomname>[@<profile>][+<pin>][+flags{<flag>|<flag>...}]
+```
+
+| Component | Required | Description |
+|-----------|----------|-------------|
+| `roomname` | Yes | Arbitrary string identifying the room. Rooms with identical names share the same conference instance. |
+| `@profile` | No | Profile name from `conference.conf.xml`. Defaults to `default` if omitted. |
+| `+pin` | No | PIN submitted by this caller for entry verification. |
+| `+flags{...}` | No | Per-call member flags (pipe-delimited). Merged with `conference_member_flags` channel variable and profile `member-flags`. |
+
+**Example dialplan action:**
+
+```xml
+<action application="conference" data="3001-${domain_name}@default"/>
+```
+
+Joining with a PIN and a moderator flag:
+
+```xml
+<action application="conference" data="3001-${domain_name}@default+54321+flags{moderator}"/>
+```
+
+### 20.5.2 Member Flags at Join Time {#member-flags-at-join-time}
+
+Member flags can be set in three ways; they are merged at join time:
+
+1. Profile `member-flags` parameter (applies to all members using that profile).
+2. `conference_member_flags` channel variable (set in the dialplan before calling `conference`).
+3. `+flags{...}` suffix in the `conference` application argument.
+
+Setting flags via channel variable:
+
+```xml
+<action application="set"        data="conference_member_flags=moderator|mute"/>
+<action application="conference" data="3001-${domain_name}@default"/>
+```
+
+### 20.5.3 Bridge Mode {#bridge-mode}
+
+The `bridge:` prefix creates a two-party conference that immediately bridges to a remote endpoint:
+
+```
+conference bridge:<roomname>:<dial-string>
+```
+
+The room is created using the `default` profile unless the bridge variant specifies otherwise. When the bridged party answers, both legs are placed in the named room.
+
+**Example from the default dialplan:**
+
+```xml
+<action application="conference"
+        data="bridge:mydynaconf:sofia/${use_profile}/1234@conference.freeswitch.org"/>
+```
+
+---
+
+## 20.6 Default Dialplan Conference Extensions {#default-dialplan-conference-extensions}
+
+The vanilla `default` dialplan context (`dialplan/default.xml`) provides pre-built conference extensions. All audio-only extensions answer the call before entering the conference.
+
+| Extension name | Destination pattern | Profile | Description |
+|---------------|---------------------|---------|-------------|
+| `nb_conferences` | `30xx` (3000-3099) | `default` | Narrowband 8 kHz conferences. Room name: `DDDD-${domain_name}`. |
+| `wb_conferences` | `31xx` (3100-3199) | `wideband` | Wideband 16 kHz conferences. Room name: `DDDD-${domain_name}`. |
+| `uwb_conferences` | `32xx` (3200-3299) | `ultrawideband` | Ultra-wideband 32 kHz conferences. Room name: `DDDD-${domain_name}`. |
+| `cdquality_conferences` | `33xx` (3300-3399) | `cdquality` | CD-quality mono 48 kHz conferences. Room name: `DDDD-${domain_name}`. |
+| `cdquality_stereo_conferences` | `35xx` with `-screen` suffix | `video-mcu-stereo` | Video MCU 1080p. Sets `join-vid-floor` member flag. Room name is the bare extension number. |
+| `conference-canvases` | `35xx-canvas-N` | `video-mcu-stereo` | Sets `second-screen` flag and `video_initial_watching_canvas`, then transfers to `35xx`. |
+| `cdquality_conferences` | `35xx` (3500-3599) | `video-mcu-stereo` | Video MCU 1080p stereo. Room name is the bare extension number. |
+| `cdquality_conferences_720` | `36xx` (3600-3699) | `video-mcu-stereo-720` | Video MCU 720p stereo. Room name is the bare extension number. |
+| `cdquality_conferences_480` | `37xx` (3700-3799) | `video-mcu-stereo-480` | Video MCU 480p stereo. Room name is the bare extension number. |
+| `cdquality_conferences_320` | `38xx` (3800-3899) | `video-mcu-stereo-320` | Video MCU 320p stereo. Room name is the bare extension number. |
+| `dynamic_conference` | `5001` | N/A | Bridge mode: creates `mydynaconf` and immediately bridges to `1234@conference.freeswitch.org`. |
+
+**Narrowband conference dialplan extension (verified):**
+
+```xml
+<extension name="nb_conferences">
+  <condition field="destination_number" expression="^(30\d{2})$">
+    <action application="answer"/>
+    <action application="conference" data="$1-${domain_name}@default"/>
+  </condition>
+</extension>
+```
+
+**Video MCU 1080p stereo extension (verified):**
+
+```xml
+<extension name="cdquality_conferences">
+  <condition field="destination_number" expression="^(35\d{2})$">
+    <action application="answer"/>
+    <action application="conference" data="$1@video-mcu-stereo"/>
+  </condition>
+</extension>
+```
+
+Note that the video MCU extensions (`35xx`-`38xx`) do not append `${domain_name}` to the room name, so the room name is the bare extension number. The audio-only extensions (`30xx`-`33xx`) append `-${domain_name}` to namespace rooms per domain.

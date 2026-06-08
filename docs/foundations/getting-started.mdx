@@ -1,0 +1,330 @@
+---
+sidebar_position: 2
+id: getting-started
+slug: /foundations/getting-started
+title: "Chapter 2: Getting Started"
+description: "Go from a fresh install to a working PBX: start FreeSWITCH, connect to the console, register a SIP client, and place your first calls."
+sidebar_label: "2. Getting Started"
+---
+
+# Chapter 2: Getting Started
+
+This chapter takes you from a baseline FreeSWITCH install to a working PBX. It
+describes what the default configuration provides, how to start FreeSWITCH and
+connect to its console, how to register the bundled test extensions with a SIP
+client, and how to place your first calls. Every destination number used here is
+defined in the default dialplan.
+
+## Table of Contents
+- [Prerequisites](#prerequisites)
+- [Installing from Packages](#installing-from-packages)
+  - [Obtaining a SignalWire Personal Access Token](#obtaining-a-signalwire-personal-access-token)
+- [Building from Source](#building-from-source)
+- [The Configuration Root](#the-configuration-root)
+- [What the Default Configuration Provides](#what-the-default-configuration-provides)
+- [Starting FreeSWITCH](#starting-freeswitch)
+- [Connecting with fs_cli](#connecting-with-fs_cli)
+- [Registering a Softphone](#registering-a-softphone)
+- [Placing Your First Calls](#placing-your-first-calls)
+- [Demo Destinations](#demo-destinations)
+- [Reloading Configuration](#reloading-configuration)
+- [Securing the Default Password](#securing-the-default-password)
+- [Next Steps](#next-steps)
+
+## Prerequisites
+
+You need a host running a supported Linux distribution (Debian and Ubuntu are
+documented here) with root or `sudo` access. Install FreeSWITCH using either the
+SignalWire package repository or a source build, both described below. Either
+path produces the binaries, the default configuration, and the sound files this
+manual assumes.
+
+## Installing from Packages
+
+On Debian and Ubuntu, the SignalWire package repository is the fastest path. The
+repository is authenticated and requires a SignalWire Personal Access Token.
+
+### Obtaining a SignalWire Personal Access Token
+
+A SignalWire account is required to download the pre-built FreeSWITCH binaries.
+This requirement applies only to the packaged binaries. The open-source code on
+GitHub remains freely available, and a source build (the next section) does not
+require a token.
+
+1. Create a SignalWire Space at [signalwire.com](https://signalwire.com) and sign in.
+2. In the dashboard, open the `Personal Access Tokens` section in the left navigation.
+3. Create a new Personal Access Token and copy its value.
+
+Supply the token as `TOKEN` in the commands below. To revoke a token later,
+return to the `Personal Access Tokens` section, where each existing token is
+listed with a revoke option.
+
+```bash
+TOKEN=YOUR_SIGNALWIRE_TOKEN
+
+apt-get update && apt-get install -y gnupg2 wget lsb-release
+
+# Add the repository signing key, authenticated with your token
+wget --http-user=signalwire --http-password="$TOKEN" \
+  -O /usr/share/keyrings/signalwire-freeswitch-repo.gpg \
+  https://freeswitch.signalwire.com/repo/deb/debian-release/signalwire-freeswitch-repo.gpg
+
+# Store the repository credentials for apt
+echo "machine freeswitch.signalwire.com login signalwire password $TOKEN" \
+  > /etc/apt/auth.conf.d/freeswitch.conf
+chmod 600 /etc/apt/auth.conf.d/freeswitch.conf
+
+# Register the package source for this distribution release
+echo "deb [signed-by=/usr/share/keyrings/signalwire-freeswitch-repo.gpg] https://freeswitch.signalwire.com/repo/deb/debian-release/ $(lsb_release -sc) main" \
+  > /etc/apt/sources.list.d/freeswitch.list
+
+apt-get update
+```
+
+FreeSWITCH packaging splits every module into its own package and provides meta
+packages that pull a curated set. Choose one.
+
+| Meta package | Installs |
+| --- | --- |
+| `freeswitch-meta-all` | Every module and dependency |
+| `freeswitch-meta-vanilla` | The modules used by the default (vanilla) configuration |
+| `freeswitch-meta-default` | A general-purpose default module set |
+| `freeswitch-meta-bare` | The core with a minimal module set |
+| `freeswitch-meta-codecs` | The bundled codec modules |
+| `freeswitch-meta-lang` | Language and phrase packages |
+
+For a system that matches this manual, install the vanilla set and the sound
+packages the default configuration references:
+
+```bash
+apt-get install -y freeswitch-meta-vanilla \
+  freeswitch-sounds-en-us-callie freeswitch-sounds-music
+```
+
+The production packages install the default configuration to `/etc/freeswitch`
+and register a systemd service. Enable and start it:
+
+```bash
+systemctl enable --now freeswitch
+```
+
+If your packaging installs only the sample configuration under
+`/usr/share/freeswitch/conf`, copy the vanilla profile into place before
+starting:
+
+```bash
+cp -a /usr/share/freeswitch/conf/vanilla/. /etc/freeswitch/
+```
+
+## Building from Source
+
+Build from the Git repository when you need modules that are not packaged or a
+specific build configuration. The build entry points are `bootstrap.sh` and
+`configure`.
+
+```bash
+git clone https://github.com/signalwire/freeswitch.git
+cd freeswitch
+
+# Generate the configure script and the module build list
+./bootstrap.sh -j
+
+# Optionally edit modules.conf to select which modules compile, then configure
+./configure
+
+# Compile and install the binaries
+make
+make install
+
+# Install the sound files: prompts and music on hold
+make cd-sounds-install cd-moh-install
+```
+
+Key points:
+
+- `bootstrap.sh` generates the `configure` script and `modules.conf`. The `-j`
+  option runs generation jobs in parallel.
+- `modules.conf` selects which modules are compiled. Comment a line out to skip a
+  module. This is the build-time counterpart to the runtime `modules.conf.xml`
+  documented in the Module Loading chapter.
+- A source build requires a C toolchain and the FreeSWITCH build dependencies.
+  Install those with your distribution's package manager before running
+  `./configure`.
+- The default install prefix is `/usr/local/freeswitch`, so the configuration
+  root is `/usr/local/freeswitch/conf`.
+
+## The Configuration Root
+
+The configuration root is the directory that contains `freeswitch.xml` and the
+subdirectories `autoload_configs/`, `dialplan/`, `directory/`, and
+`sip_profiles/`. Its location depends on how FreeSWITCH was installed.
+
+| Install type | Typical configuration root |
+| --- | --- |
+| Distribution package | `/etc/freeswitch` |
+| Build from source (default prefix) | `/usr/local/freeswitch/conf` |
+
+All configuration paths in this manual are relative to this root.
+
+## What the Default Configuration Provides
+
+The default configuration is a complete SIP PBX. Out of the box it defines:
+
+- Twenty test users, extensions `1000` through `1019`, in the `default` domain.
+- A single shared password for those users, set by the `default_password`
+  preprocessor variable to `1234`.
+- Two SIP profiles: `internal` on UDP/TCP port `5060` for registered users, and
+  `external` on port `5080` for unauthenticated inbound calls from gateways.
+- A `default` dialplan context that routes calls between the test extensions and
+  to a set of demonstration destinations.
+- Voicemail, conferencing, and an IVR demo, all reachable from the dialplan.
+
+The domain defaults to the machine's primary IPv4 address unless you set it
+otherwise. This is controlled by the `domain` variable in `vars.xml`, covered in
+[Chapter 4](../configuration-system/variables-and-core-settings.mdx).
+
+## Starting FreeSWITCH
+
+Start FreeSWITCH using the service manager provided by your install, or run the
+binary directly. Two common foreground invocations:
+
+```bash
+# Run in the foreground, attached to the console
+freeswitch
+
+# Run in the background as a daemon
+freeswitch -nc
+```
+
+On startup FreeSWITCH loads the modules listed in `modules.conf.xml`, brings up
+the SIP profiles, and begins accepting registrations and calls.
+
+## Connecting with fs_cli
+
+`fs_cli` is the command line client. It connects to the running FreeSWITCH
+process over the Event Socket, configured in `event_socket.conf.xml` and loaded by
+default.
+
+```bash
+fs_cli
+```
+
+At the prompt you can issue API commands. A few to start with:
+
+```
+status
+sofia status
+show registrations
+reloadxml
+```
+
+The default console also binds number keys to common commands. These bindings are
+defined in `switch.conf.xml`:
+
+| Key | Command |
+| --- | --- |
+| F1 | `help` |
+| F2 | `status` |
+| F5 | `sofia status` |
+| F6 | `reloadxml` |
+| F9 | `sofia status profile internal` |
+
+The full command set is covered in
+[Chapter 31](../reference/cli-and-api.mdx).
+
+## Registering a Softphone
+
+Configure a SIP softphone with one of the test accounts.
+
+| Setting | Value |
+| --- | --- |
+| Username / Auth user | `1000` (through `1019`) |
+| Password | `1234` (the `default_password`) |
+| Domain / SIP server | The IP address of the FreeSWITCH host |
+| Port | `5060` |
+| Transport | UDP or TCP |
+
+Register a second client as `1001` so you have two endpoints to call between.
+Confirm both are registered:
+
+```
+show registrations
+sofia status profile internal reg
+```
+
+## Placing Your First Calls
+
+From the client registered as `1000`, dial `1001`. The call routes through the
+`Local_Extension` entry in the `default` context, which rings the registered
+device for extension `1001` and falls through to voicemail on no answer.
+
+To verify audio without a second device, dial the echo test.
+
+```
+9196   Echo test: your audio is played back to you
+```
+
+## Demo Destinations
+
+The default dialplan defines these demonstration destinations. Dial them from a
+registered client.
+
+| Number | Destination |
+| --- | --- |
+| `9196` | Echo test |
+| `9195` | Delayed echo (250 ms) |
+| `9197` | Milliwatt tone (1004 Hz reference tone) |
+| `9198` | Tone stream demonstration |
+| `9664` | Music on hold |
+| `5000` | IVR demo menu |
+| `5001` | Dynamic conference |
+| `3000`-`3099` | Named conference rooms |
+| `4000` or `*98` | Voicemail main menu |
+| `9191` | ClueCon information playback |
+| `0` or `operator` | Operator |
+| `1000`-`1019` | The registered test extensions |
+
+## Reloading Configuration
+
+After editing configuration files, reload without restarting:
+
+```
+reloadxml
+```
+
+`reloadxml` re-reads the XML document so the directory and dialplan changes take
+effect on the next call. Some modules require a targeted reload to pick up
+changes to their own configuration, for example:
+
+```
+sofia profile internal rescan
+reload mod_voicemail
+```
+
+The reload behavior for each subsystem is noted in the chapter that documents it.
+
+## Securing the Default Password
+
+The default configuration uses a single shared password, `1234`, for every test
+extension. Change it before exposing FreeSWITCH to any untrusted network. The
+value is set in `vars.xml`:
+
+```xml
+<X-PRE-PROCESS cmd="set" data="default_password=1234"/>
+```
+
+Edit the value, then run `reloadxml`. Per-user passwords are covered in
+[Chapter 6](../users-endpoints/user-directory.mdx).
+
+## Next Steps
+
+You now have a running PBX with registered endpoints. To adapt it:
+
+- Understand the configuration files and the preprocessor in
+  [Chapter 3](../configuration-system/xml-configuration.mdx).
+- Add and edit users in
+  [Chapter 6](../users-endpoints/user-directory.mdx).
+- Connect to an upstream SIP provider in
+  [Chapter 8](../users-endpoints/gateways.mdx).
+- Write call routing rules in
+  [Chapter 12](../dialplan/xml-dialplan.mdx).

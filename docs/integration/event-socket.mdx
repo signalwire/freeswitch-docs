@@ -1,0 +1,484 @@
+---
+sidebar_position: 1
+id: event-socket
+slug: /integration/event-socket
+title: "Chapter 25: The Event Socket"
+description: "Control FreeSWITCH and consume its event system over TCP through the inbound and outbound Event Socket modes (the interface fs_cli uses)."
+sidebar_label: "25. The Event Socket"
+---
+
+# Chapter 25: The Event Socket
+
+The Event Socket is a TCP-based interface that exposes FreeSWITCH call control, channel management, and the internal event system to external processes. It operates in two modes: inbound, where an external client connects to FreeSWITCH, and outbound, where FreeSWITCH connects to an external process for a specific call leg. `fs_cli`, the standard FreeSWITCH command-line tool, uses the inbound mode exclusively.
+
+## Table of Contents
+
+- [25.1 What the Event Socket Provides](#251-what-the-event-socket-provides)
+- [25.2 Module and Configuration File](#252-module-and-configuration-file)
+- [25.3 Parameter Reference](#253-parameter-reference)
+- [25.4 Inbound Mode](#254-inbound-mode)
+  - [25.4.1 Connection Lifecycle](#2541-connection-lifecycle)
+  - [25.4.2 Worked Session Example](#2542-worked-session-example)
+- [25.5 Outbound Mode](#255-outbound-mode)
+  - [25.5.1 Connection Handshake](#2551-connection-handshake)
+  - [25.5.2 async vs Blocking](#2552-async-vs-blocking)
+  - [25.5.3 Worked Outbound Session Example](#2553-worked-outbound-session-example)
+- [25.6 Command Reference](#256-command-reference)
+- [25.7 Event Subscription and Formats](#257-event-subscription-and-formats)
+  - [25.7.1 Selecting a Format](#2571-selecting-a-format)
+  - [25.7.2 Subscribing to Events](#2572-subscribing-to-events)
+  - [25.7.3 Event Delivery on the Wire](#2573-event-delivery-on-the-wire)
+- [25.8 Restricting Access with ACLs](#258-restricting-access-with-acls)
+- [25.9 Relationship to fs_cli](#259-relationship-to-fs_cli)
+
+---
+
+## 25.1 What the Event Socket Provides
+
+The Event Socket listens on a TCP port and accepts connections from clients that speak the ESL (Event Socket Library) protocol. Once authenticated, a client can:
+
+- Execute FreeSWITCH API commands and receive their output.
+- Subscribe to and receive real-time event notifications from the FreeSWITCH event system.
+- Originate calls, bridge channels, and manipulate call legs programmatically.
+- Send DTMF, play audio, and control media on active sessions.
+
+In outbound mode, the socket interface is invoked mid-call from the dialplan. FreeSWITCH establishes a TCP connection to an external server and hands control of the call leg to that server for the duration of the connection.
+
+---
+
+## 25.2 Module and Configuration File
+
+The Event Socket is provided by `mod_event_socket`. It must be loaded at startup, typically via `modules.conf.xml`.
+
+The configuration file is `autoload_configs/event_socket.conf.xml`. A minimal default configuration:
+
+```xml
+<configuration name="event_socket.conf" description="Socket Client">
+  <settings>
+    <param name="nat-map" value="false"/>
+    <param name="listen-ip" value="::"/>
+    <param name="listen-port" value="8021"/>
+    <param name="password" value="ClueCon"/>
+    <!--<param name="apply-inbound-acl" value="loopback.auto"/>-->
+    <!--<param name="stop-on-bind-error" value="true"/>-->
+  </settings>
+</configuration>
+```
+
+Note: The vanilla configuration sets `listen-ip` to `::` (all interfaces, dual-stack). When no `listen-ip` value is present in the configuration file at all, the module falls back to `127.0.0.1`.
+
+---
+
+## 25.3 Parameter Reference
+
+| Parameter | Purpose | Values | Default |
+|---|---|---|---|
+| `listen-ip` | IP address the socket binds to | Any valid IP address or `::` for all interfaces | `127.0.0.1` (code default when omitted) |
+| `listen-port` | TCP port the socket listens on | Any valid port number | `8021` |
+| `password` | Password clients must supply to authenticate | Any string | `ClueCon` |
+| `apply-inbound-acl` | Name of an ACL list to apply to incoming connections | Any ACL name defined in `acl.conf.xml` | `loopback.auto` (applied when parameter is absent) |
+| `nat-map` | Attempt NAT port mapping for the socket port via the FreeSWITCH NAT subsystem | `true`, `false` | `false` |
+| `stop-on-bind-error` | Halt FreeSWITCH startup if the socket cannot bind | `true`, `false` | `false` |
+| `debug` | Enable verbose diagnostic logging for the module | Integer; `0` disables, any positive value enables | `0` |
+
+**`apply-inbound-acl`** accepts up to 100 entries; repeat the parameter to add multiple ACL names. The source IP must be permitted by every listed ACL, not just one.
+
+**`nat-map`**: The parameter is recognized and parsed. It is only acted upon when a compatible NAT type is detected by the FreeSWITCH NAT subsystem (`switch_nat_get_type()`). Effective NAT mapping depends on system-level NAT configuration; in practice this parameter has no effect on most deployments.
+
+**TCP keepalive** is not a configurable parameter. The module unconditionally sets `SO_KEEPALIVE`, `TCP_KEEPIDLE` (30 s), and `TCP_KEEPINTVL` (30 s) on the outbound TCP socket created by the `socket` dialplan application. Inbound accepted connections do not have keepalive enabled by the module.
+
+---
+
+## 25.4 Inbound Mode
+
+In inbound mode, `mod_event_socket` binds to `listen-ip`:`listen-port` at module load time and accepts incoming TCP connections.
+
+### 25.4.1 Connection Lifecycle
+
+1. The client opens a TCP connection to `listen-ip`:`listen-port`.
+2. If `apply-inbound-acl` is configured and the source IP is not permitted, FreeSWITCH sends `Content-Type: text/rude-rejection` and closes the socket.
+3. FreeSWITCH sends the authentication challenge:
+
+```text
+Content-Type: auth/request
+
+```
+
+4. The client sends the `auth` command followed by a blank line:
+
+```text
+auth ClueCon
+
+```
+
+5. FreeSWITCH replies with a `command/reply` block:
+   - On success: `Reply-Text: +OK accepted`
+   - On failure: `Reply-Text: -ERR invalid` and closes the connection.
+6. After a successful auth, the client may issue any command. Each command reply arrives as a `Content-Type: command/reply` block containing a `Reply-Text` header. API responses arrive as `Content-Type: api/response` with a `Content-Length` header and the output as the body.
+7. Either side may close the connection. FreeSWITCH sends `Content-Type: text/disconnect-notice` before closing on its side.
+
+To change the listening address or port, edit `event_socket.conf.xml` and reload or restart the module. Setting `listen-ip` to `127.0.0.1` restricts connections to the local host. Setting it to `0.0.0.0` or `::` accepts connections on all interfaces; in that case, use `apply-inbound-acl` to control which source addresses are permitted.
+
+### 25.4.2 Worked Session Example
+
+The following shows the raw byte exchange for a session that authenticates, runs one API command in the foreground, one in the background, subscribes to heartbeat events, and then disconnects. Lines sent by the client are prefixed with `>`. Lines received from FreeSWITCH are prefixed with `<`. Blank lines that terminate each block are shown explicitly.
+
+```text
+< Content-Type: auth/request
+<
+
+> auth ClueCon
+>
+
+< Content-Type: command/reply
+< Reply-Text: +OK accepted
+<
+
+> api status
+>
+
+< Content-Type: api/response
+< Content-Length: 1234
+<
+< UP 0 years, 0 days, 2 hours, 14 minutes, 22 seconds, 647 milliseconds, 552 microseconds
+< ...
+
+> bgapi originate sofia/gateway/mygw/15551234567 &echo
+>
+
+< Content-Type: command/reply
+< Reply-Text: +OK Job-UUID: a1b2c3d4-e5f6-7890-abcd-ef1234567890
+< Job-UUID: a1b2c3d4-e5f6-7890-abcd-ef1234567890
+<
+
+< Content-Type: text/event-plain
+< Content-Length: 502
+<
+< Event-Name: BACKGROUND_JOB
+< Job-UUID: a1b2c3d4-e5f6-7890-abcd-ef1234567890
+< Job-Command: originate
+< Job-Command-Arg: sofia/gateway/mygw/15551234567 &echo
+<
+< +OK b7f1e2a0-1234-5678-abcd-000000000001
+
+> event plain HEARTBEAT
+>
+
+< Content-Type: command/reply
+< Reply-Text: +OK event listener enabled plain
+<
+
+< Content-Type: text/event-plain
+< Content-Length: 432
+<
+< Event-Name: HEARTBEAT
+< Core-UUID: ...
+< Event-Date-Timestamp: ...
+< ...
+
+> exit
+>
+
+< Content-Type: command/reply
+< Reply-Text: +OK bye
+<
+< Content-Type: text/disconnect-notice
+< Content-Length: 14
+<
+< Disconnected.
+```
+
+---
+
+## 25.5 Outbound Mode
+
+In outbound mode, the dialplan routes a call to the `socket` application. FreeSWITCH initiates a TCP connection to the specified host and port, then hands control of the call leg to the remote process.
+
+**Dialplan application syntax:**
+
+```text
+socket <host>[:<port>][/<path>] [full] [async]
+```
+
+- `host` is an IP address or hostname. Multiple targets can be specified separated by `\|`; FreeSWITCH tries each in order until one accepts the connection.
+- `port` is optional. The default outbound port is `8084`.
+- `path` is optional. When present (appended after a `/` following the port), it is stored in the channel variable `socket_path` and is available in the connect event for the remote process to read.
+- The optional `full` argument causes the connect reply to include the full channel variable set. Without `full`, only the caller profile and channel state headers are included.
+- The optional `async` argument runs the ESL listener in a separate thread and parks the call, allowing the dialplan to continue if the socket session sets `socket_resume` or issues a `resume` command. Without `async`, the dialplan blocks in the `socket` application until the remote process closes the connection.
+
+**Example dialplan extension:**
+
+```xml
+<extension name="outbound-esl">
+  <condition field="destination_number" expression="^5000$">
+    <action application="socket" data="192.168.1.50:8084 full"/>
+  </condition>
+</extension>
+```
+
+No `event_socket.conf.xml` parameters govern outbound mode. The listen address and port in that file apply only to inbound connections.
+
+### 25.5.1 Connection Handshake
+
+The outbound connection handshake differs from the inbound lifecycle. FreeSWITCH is the TCP client; the remote process is the TCP server.
+
+1. FreeSWITCH connects to the remote process.
+2. The remote process waits to receive the first data.
+3. FreeSWITCH waits for the remote process to send the `connect` command. Authentication is not required -- the outbound listener is automatically considered authenticated (`LFLAG_AUTHED` is set before the connection is established).
+4. The remote process sends:
+
+```text
+connect
+
+```
+
+5. FreeSWITCH replies with a `command/reply` block that contains the channel data as event headers. The block includes `Reply-Text: +OK`, `Socket-Mode` (`async` or `static`), and `Control` (`full` or `single-channel`), followed by all channel and caller profile variables. The `Content-Type` header in this reply is `command/reply`.
+6. After receiving the connect reply, the remote process typically sends `myevents` to subscribe to events for this channel, then issues `sendmsg` commands to execute dialplan applications on the channel.
+7. When the remote process closes the TCP connection, control returns to the dialplan at the action after the `socket` application.
+
+### 25.5.2 async vs Blocking
+
+Without `async`, the `socket` application occupies the dialplan thread for the duration of the TCP connection. The channel is fully under remote control and the dialplan does not advance.
+
+With `async`, FreeSWITCH parks the channel and spins up a separate thread for the ESL listener. The dialplan thread is released immediately after the park. When the remote process issues `resume` (or the channel variable `socket_resume` is set to `true`), FreeSWITCH transitions the channel to the execute state and continues the dialplan from the next action after the `socket` application. If the remote process closes the socket without sending `resume`, the channel remains parked until it is hungup or otherwise disposed of.
+
+### 25.5.3 Worked Outbound Session Example
+
+The following shows the exchange for an outbound connection. The remote server is listening on port 8084. Lines sent by FreeSWITCH are prefixed with `<`. Lines sent by the remote process are prefixed with `>`.
+
+```text
+(TCP connection established by FreeSWITCH to 192.168.1.50:8084)
+
+> connect
+>
+
+< Content-Type: command/reply
+< Reply-Text: +OK
+< Socket-Mode: static
+< Control: full
+< Channel-Name: sofia/internal/1001@192.168.1.1
+< Channel-State: CS_EXECUTE
+< Channel-Call-State: ACTIVE
+< Unique-ID: b7f1e2a0-1234-5678-abcd-000000000001
+< Caller-Caller-ID-Number: 1001
+< Caller-Destination-Number: 5000
+< ... (all channel and caller profile headers)
+<
+
+> myevents
+>
+
+< Content-Type: command/reply
+< Reply-Text: +OK Events Enabled
+<
+
+> sendmsg
+> call-command: execute
+> execute-app-name: playback
+> execute-app-arg: /usr/share/freeswitch/sounds/en/us/callie/ivr/ivr-welcome.wav
+>
+
+< Content-Type: command/reply
+< Reply-Text: +OK
+<
+
+< Content-Type: text/event-plain
+< Content-Length: 580
+<
+< Event-Name: CHANNEL_EXECUTE
+< Unique-ID: b7f1e2a0-1234-5678-abcd-000000000001
+< Application: playback
+< Application-Data: /usr/share/freeswitch/sounds/en/us/callie/ivr/ivr-welcome.wav
+< ...
+
+< Content-Type: text/event-plain
+< Content-Length: 610
+<
+< Event-Name: CHANNEL_EXECUTE_COMPLETE
+< Unique-ID: b7f1e2a0-1234-5678-abcd-000000000001
+< Application: playback
+< Application-Response: FILE PLAYED
+< ...
+
+(remote process closes the TCP connection)
+(dialplan continues at the next action after the socket application)
+```
+
+---
+
+## 25.6 Command Reference
+
+All commands are sent as plain text terminated by a blank line (two consecutive newlines). The parser reads until it sees `\r\n\r\n` or `\n\n`. Multi-line commands (such as `sendmsg`) include additional headers between the command line and the final blank line.
+
+Replies are delivered as framed blocks with `Content-Type` and, where applicable, `Content-Length` headers followed by a blank line and then the body.
+
+| Command | Purpose | Example |
+|---|---|---|
+| `auth <password>` | Authenticate the connection. Must be the first command on inbound connections. Replies `+OK accepted` or `-ERR invalid`. | `auth ClueCon` |
+| `api <cmd> [<arg>]` | Execute an API command synchronously. The result is returned as `Content-Type: api/response` with the output as the body. | `api status` |
+| `bgapi <cmd> [<arg>]` | Execute an API command in a background thread. FreeSWITCH immediately replies with a `Job-UUID`. When the command completes, a `BACKGROUND_JOB` event is fired carrying the `Job-UUID` and the output as the event body. | `bgapi originate sofia/gateway/gw/15551234567 &echo` |
+| `event <format> <TYPE> [<TYPE> ...]` | Subscribe to one or more event types in the specified format (`plain`, `json`, or `xml`). Repeat to add more types. | `event plain HEARTBEAT CHANNEL_HANGUP` |
+| `nixevent <TYPE> [<TYPE> ...]` | Remove one or more event types from the subscription without clearing the others. | `nixevent HEARTBEAT` |
+| `noevents` | Cancel all event subscriptions and flush the event queue. | `noevents` |
+| `myevents [<uuid>]` | Subscribe to all channel events for the associated session (outbound mode) or for a specific UUID (inbound mode). Sets the format to the one already selected or `plain` if none was set. | `myevents` |
+| `filter <header-name> <value>` | Add a header-based filter. Only events whose `<header-name>` exactly matches `<value>` are delivered. Multiple filters are additive (all must match). Values may also be prefixed with `+` (include) or `-` (exclude). A value beginning with `/` is treated as a regex. | `filter Unique-ID b7f1e2a0-1234-5678-abcd-000000000001` |
+| `filter delete <header-name> [<value>]` | Remove a specific filter entry, or `filter delete all` to clear all filters. | `filter delete Unique-ID` |
+| `sendevent <TYPE>` | Fire an event into the FreeSWITCH event system. Additional headers and a body are supplied before the terminating blank line. | `sendevent CUSTOM` with `Event-Subclass: myapp::notify` |
+| `sendmsg [<uuid>]` | Send a message to a session to execute a dialplan application or issue another call-level command. Headers follow the command line. If `<uuid>` is omitted in outbound mode, the command targets the controlled session. | See sendmsg detail below. |
+| `log <level>` | Begin streaming FreeSWITCH log output to this connection at the given level (`debug`, `info`, `notice`, `warning`, `err`, `crit`, `alert`). Log lines arrive as `Content-Type: log/data` blocks. | `log info` |
+| `nolog` | Stop streaming log output and flush the log queue. | `nolog` |
+| `linger [<seconds>]` | In outbound mode, instruct FreeSWITCH to keep the ESL connection open for `<seconds>` after the channel hangs up, so the remote process can continue to receive hangup-related events. With no argument, linger indefinitely until the remote process closes the socket. | `linger 30` |
+| `nolinger` | Cancel a previously issued `linger`. | `nolinger` |
+| `divert_events on\|off` | In outbound mode, route session-internal events (such as DTMF) to the ESL event queue rather than processing them natively. | `divert_events on` |
+| `resume` | In outbound async mode, resume the dialplan from the action following the `socket` application. | `resume` |
+| `exit` | Close the ESL connection gracefully. FreeSWITCH replies `+OK bye` and closes the socket. The `...` alias is also accepted. | `exit` |
+
+**`sendmsg` detail**
+
+`sendmsg` delivers a private event to a session. The `call-command` header selects the operation:
+
+- `execute` -- run a dialplan application on the channel. Required headers: `execute-app-name`. Optional: `execute-app-arg` (or supply the argument as the body with `Content-Type: text/plain`), `loops`, `event-lock`.
+- `hangup` -- hang up the channel. Optional header: `hangup-cause` (default `NORMAL_CLEARING`).
+- `nomedia` -- switch the channel to no-media mode.
+- `unicast` -- activate unicast audio streaming. Headers: `local-ip`, `local-port`, `remote-ip`, `remote-port`, `transport` (`tcp` or `udp`), `flags`.
+
+Example `sendmsg` to execute `playback`:
+
+```text
+sendmsg b7f1e2a0-1234-5678-abcd-000000000001
+call-command: execute
+execute-app-name: playback
+execute-app-arg: /usr/share/freeswitch/sounds/en/us/callie/ivr/ivr-welcome.wav
+
+```
+
+Example `sendmsg` to hang up:
+
+```text
+sendmsg b7f1e2a0-1234-5678-abcd-000000000001
+call-command: hangup
+hangup-cause: NORMAL_CLEARING
+
+```
+
+---
+
+## 25.7 Event Subscription and Formats
+
+### 25.7.1 Selecting a Format
+
+The `event` command takes a format as its first argument. The format applies to all events delivered on the connection for the duration of the session (or until a new `event` command changes it).
+
+| Format | Description |
+|---|---|
+| `plain` | Key-value pairs, one per line, as `Header-Name: value`. The event body, if any, follows after the headers and a blank line. |
+| `json` | The event serialized as a JSON object. |
+| `xml` | The event serialized as an XML document. |
+
+### 25.7.2 Subscribing to Events
+
+```text
+event plain HEARTBEAT CHANNEL_HANGUP_COMPLETE BACKGROUND_JOB
+```
+
+The first token after `event` is the format; the remaining tokens are event type names. The names are case-insensitive and correspond to the `SWITCH_EVENT_*` enumeration (e.g., `HEARTBEAT`, `CHANNEL_ANSWER`, `DTMF`, `ALL`).
+
+To subscribe to all events in one call:
+
+```text
+event plain ALL
+```
+
+To subscribe to `CUSTOM` events, list `CUSTOM` as one of the types, then add the subclass names as additional tokens immediately following `CUSTOM`:
+
+```text
+event plain CUSTOM sofia::register sofia::unregister
+```
+
+After `CUSTOM` is named, the parser treats all subsequent tokens on that command as subclass names. Issue a separate `event` call to also subscribe to non-custom events.
+
+`nixevent` removes specific types from an existing subscription without clearing others:
+
+```text
+nixevent HEARTBEAT
+```
+
+`noevents` cancels all subscriptions and flushes any queued events.
+
+`myevents` is a shortcut that subscribes to the complete set of channel-level events for a single session UUID. In outbound mode, called without an argument, it targets the session that invoked the `socket` application. In inbound mode, a UUID must be supplied:
+
+```text
+myevents b7f1e2a0-1234-5678-abcd-000000000001
+```
+
+After `myevents`, only events whose `Unique-ID` matches the targeted session are delivered (plus `BACKGROUND_JOB` events owned by the session's listener).
+
+**Filter**
+
+Filters provide a second layer of selection on top of the event type subscription. A filter matches on any event header name and value:
+
+```text
+filter Unique-ID b7f1e2a0-1234-5678-abcd-000000000001
+```
+
+Multiple filters may be active simultaneously. For an event to be delivered, all active filters must match (logical AND). Values prefixed with `-` exclude matching events; values beginning with `/` are treated as regular expressions matched against the header value.
+
+### 25.7.3 Event Delivery on the Wire
+
+Each event is delivered as a framed block:
+
+```text
+Content-Length: <byte-count>
+Content-Type: text/event-plain
+
+<event headers>
+
+<event body, if any>
+```
+
+For JSON format the `Content-Type` is `text/event-json`; for XML it is `text/event-xml`.
+
+The `Content-Length` value is the exact byte count of the event payload (headers plus any body) that follows the blank line after `Content-Type`. Clients must read exactly that many bytes to obtain the complete event before parsing the next block.
+
+Log lines streamed via `log` arrive in a similar frame:
+
+```text
+Content-Type: log/data
+Content-Length: <byte-count>
+Log-Level: <integer>
+Text-Channel: <integer>
+Log-File: <filename>
+Log-Func: <function>
+Log-Line: <line-number>
+User-Data: <string>
+
+<log message text>
+```
+
+---
+
+## 25.8 Restricting Access with ACLs
+
+The `apply-inbound-acl` parameter names an ACL defined in `acl.conf.xml`. When set, FreeSWITCH evaluates the connecting client's source IP against the named list before sending the authentication challenge. Connections from addresses not permitted by the ACL receive a `Content-Type: text/rude-rejection` response and the socket is closed.
+
+When `apply-inbound-acl` is absent from `event_socket.conf.xml`, the module applies `loopback.auto` by default, which permits only connections from `127.0.0.1` and `::1`. To accept connections from remote hosts, define an appropriate ACL in `acl.conf.xml`, then reference it with `apply-inbound-acl`. ACL configuration is covered in the ACL chapter of this manual.
+
+Multiple `apply-inbound-acl` entries can be added; up to 100 ACL names are accepted. A connection is permitted only if the source IP is permitted by every listed ACL. If the IP fails the check for any single ACL entry, the connection is rejected.
+
+For deployments where the Event Socket must be reachable from non-loopback addresses, the recommended approach is to set `listen-ip` to a specific interface address, set `apply-inbound-acl` to a narrowly scoped ACL, and use a strong `password`.
+
+---
+
+## 25.9 Relationship to fs_cli
+
+`fs_cli` is the standard FreeSWITCH interactive console. It connects to the Event Socket in inbound mode using the same ESL protocol as any other client. By default it connects to `127.0.0.1:8021` with the password `ClueCon`.
+
+These defaults can be overridden with command-line flags or an `~/.fs_cli_conf` file:
+
+| Flag | Purpose |
+|---|---|
+| `-H` | Host to connect to |
+| `-P` | Port to connect to |
+| `-p` | Password |
+
+When `listen-ip` or `listen-port` in `event_socket.conf.xml` are changed, the corresponding `fs_cli` flags must be updated to match. There is no other configuration relationship between `fs_cli` and the module.

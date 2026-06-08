@@ -1,0 +1,118 @@
+---
+sidebar_position: 4
+id: appendix-codec-table
+slug: /reference/codec-table
+title: "Appendix B: Codec Reference Table"
+description: "Reference table of every bundled codec module: the codecs it provides, sample rates, configuration file, and whether it loads by default."
+sidebar_label: "Appendix B: Codec Reference"
+---
+
+# Appendix B: Codec Reference Table
+
+FreeSWITCH bundles a set of codec modules that cover the most common audio and video formats used in SIP, WebRTC, and media bridging scenarios. This appendix lists every bundled codec module, the codec or codecs it provides, confirmed sample rates, the configuration file (if any), and whether the module loads by default in the vanilla `modules.conf.xml`. Licensing and external-library requirements are noted where they affect whether a module can encode and decode or must fall back to passthrough-only operation.
+
+## Table of Contents
+
+- [Audio Codec Reference](#audio-codec-reference)
+- [Video Codec Reference](#video-codec-reference)
+- [Default Module Loading](#default-module-loading)
+- [Configuration File Parameters](#configuration-file-parameters)
+
+---
+
+## Audio Codec Reference
+
+The table below covers all audio codecs available in FreeSWITCH. Codecs marked "Built-in" are registered by the FreeSWITCH core at startup from `src/switch_pcm.c` or `src/switch_speex.c` without loading a separate module. `mod_spandsp` (in `src/mod/applications/mod_spandsp/`) registers G.722, G.726, DVI4, GSM, and LPC; it is a loadable module but ships in `applications/`, not `codecs/`. All other modules listed are in `src/mod/codecs/`. Modules that require an external library fall back to passthrough-only mode when that library is absent at build time.
+
+| Codec | IANA Name | Module | Sample Rate(s) (Hz) | Config File | Loaded by Default | Notes |
+|---|---|---|---|---|---|---|
+| G.711 mu-law | `PCMU` | Built-in (`switch_pcm.c`) | 8000, 48000 | None | Yes (core) | No external library required. |
+| G.711 A-law | `PCMA` | Built-in (`switch_pcm.c`) | 8000 | None | Yes (core) | No external library required. |
+| Linear PCM 16-bit | `L16` | Built-in (`switch_pcm.c`) | 8000, 12000, 16000, 24000, 48000 | None | Yes (core) | Can exceed the RTP MTU at higher sample rates; use with caution. |
+| Speex | `speex` | Built-in (`switch_speex.c`, `CORE_SPEEX_MODULE`) | 8000, 16000, 32000 | None | Yes (core) | Narrowband, wideband, and ultra-wideband modes. Requires libspeex at build time. |
+| G.722 | `G722` | `mod_spandsp` | 16000 | None | Yes | Requires libspandsp. Codec parameters are not separately configurable; `spandsp.conf.xml` controls fax and modem settings only. |
+| G.726 16 kbit/s | `G726-16` | `mod_spandsp` | 8000 | None | Yes | G.726 ADPCM right-packed. |
+| G.726 24 kbit/s | `G726-24` | `mod_spandsp` | 8000 | None | Yes | G.726 ADPCM right-packed. |
+| G.726 32 kbit/s | `G726-32` | `mod_spandsp` | 8000 | None | Yes | G.726 ADPCM right-packed. |
+| G.726 40 kbit/s | `G726-40` | `mod_spandsp` | 8000 | None | Yes | G.726 ADPCM right-packed. |
+| G.726 16 kbit/s (AAL2) | `AAL2-G726-16` | `mod_spandsp` | 8000 | None | Yes | G.726 ADPCM left-packed (AAL2 packing). |
+| G.726 24 kbit/s (AAL2) | `AAL2-G726-24` | `mod_spandsp` | 8000 | None | Yes | G.726 ADPCM left-packed (AAL2 packing). |
+| G.726 32 kbit/s (AAL2) | `AAL2-G726-32` | `mod_spandsp` | 8000 | None | Yes | G.726 ADPCM left-packed (AAL2 packing). |
+| G.726 40 kbit/s (AAL2) | `AAL2-G726-40` | `mod_spandsp` | 8000 | None | Yes | G.726 ADPCM left-packed (AAL2 packing). |
+| IMA ADPCM | `DVI4` | `mod_spandsp` | 8000, 16000 | None | Yes | Frame sizes are multiples of 10 ms. |
+| GSM 06.10 | `GSM` | `mod_spandsp` | 8000 | None | Yes | Frame size is multiples of 20 ms only. |
+| LPC-10 | `LPC` | `mod_spandsp` | 8000 | None | Yes | Only 90 ms ptime is supported. |
+| Opus | `OPUS` | `mod_opus` | 8000, 12000, 16000, 24000, 48000 | `opus.conf.xml` | Yes | Wideband/fullband; preferred codec for WebRTC. Bundled `libopus`. FEC and DTX configurable. |
+| G.729 | `G729` | `mod_g729` | 8000 | None | Yes | Requires `libg729` (external, not bundled). Without it, builds in passthrough mode only. Patent-encumbered; commercial use requires a license. See also `mod_com_g729`. |
+| G.729 (commercial) | `G729` | `mod_com_g729` | 8000 | None | No | Binary-only commercial module. Requires a per-channel license from the FreeSWITCH commercial license server. Provides full encode/decode without external build dependency. |
+| G.723.1 | `G723` | `mod_g723_1` | 8000 | None | Yes | Requires `libg723_1` (external). Without it, builds in passthrough mode only. Patent-encumbered. |
+| AMR Narrowband | `AMR` | `mod_amr` | 8000 | `amr.conf.xml` | Yes | Requires `opencore-amrnb` library (`HAVE_AMR`). Without it, builds in passthrough mode only. Patent-encumbered; commonly used in VoLTE. |
+| AMR Wideband | `AMR-WB` | `mod_amrwb` | 16000 | `amrwb.conf.xml` | No | Requires `opencore-amrwb` (decoder) and `vo-amrwbenc` (encoder). Without them, builds in passthrough mode only. Patent-encumbered; commonly used in VoLTE. |
+| iLBC | `iLBC` | `mod_ilbc` | 8000 | None | No | Bundled; no external library required. Two frame modes: 20 ms and 30 ms. |
+| SILK | `SILK` | `mod_silk` | 8000, 12000, 16000, 24000 | None | No | Requires `libSKP_SILK_SDK` (external). Skype-developed codec; superseded by Opus in most deployments. |
+| G.722.1 / G.722.1C (Siren7/Siren14) | `G7221` | `mod_siren` | 16000 (G.722.1), 32000 (G.722.1C Annex C) | None | No | Requires `libg7221-dev` (external). Commercial use requires a patent license from Polycom. |
+| BroadVoice 16 | `BV16` | `mod_bv` | 8000 | None | No | Requires `libbroadvoice-dev` (external). |
+| BroadVoice 32 | `BV32` | `mod_bv` | 16000 | None | No | Requires `libbroadvoice-dev` (external). Both `BV16` and `BV32` are registered by the same `mod_bv` module. |
+| Codec 2 | `CODEC2` | `mod_codec2` | 8000 | None | No | Requires `libcodec2-dev` (external). Open-source low-bitrate speech codec; bitrate selected by configuration (3200, 2400, 1400, or 1200 bps). |
+| B64 (Base64 audio transport) | `b64` | `mod_b64` | 8000, 16000, 32000 | None | Yes | Bundled. Encodes raw audio as Base64 for transport in environments that require it; not a perceptual codec. |
+
+---
+
+## Video Codec Reference
+
+Video codec support is provided by `mod_av` (via libavcodec/FFmpeg), `mod_openh264` (via Cisco OpenH264), `mod_yuv` (raw I420 pass-through), and the FreeSWITCH core VPX subsystem (`CORE_VPX_MODULE`, implemented in `src/switch_vpx.c`). The core VPX subsystem is loaded automatically and is configured through `vpx.conf.xml`. `mod_av` provides H.264, H.263, and H.263-1998 and is configured through `av.conf.xml`. H.261 is not provided by any bundled codec module.
+
+| Codec | IANA Name | Module | Config File | Loaded by Default | Notes |
+|---|---|---|---|---|---|
+| H.264 | `H264` | `mod_av` | `av.conf.xml` | Yes (`mod_av`) | Requires FFmpeg libraries (`libavcodec`, `libavformat`, `libswscale`, `libavutil`). Baseline profile by default. |
+| H.263 | `H263` | `mod_av` | `av.conf.xml` | Yes (`mod_av`) | Provided alongside H.264 by the same module. Valid frame dimensions are constrained (128x96, 176x144, 352x288, 704x576, 1408x1152). |
+| H.263+ (H.263-1998) | `H263-1998` | `mod_av` | `av.conf.xml` | Yes (`mod_av`) | Removes the strict dimension constraints of H.263. |
+| H.264 (OpenH264) | `H264` | `mod_openh264` | None | No | Requires `libopenh264` (Cisco OpenH264). An alternative H.264 implementation; typically used when FFmpeg is unavailable or undesirable. |
+| VP8 | `VP8` | Core VPX (`CORE_VPX_MODULE`) | `vpx.conf.xml` | Yes (core) | Bundled `libvpx`. Registered by the FreeSWITCH core; always available when FreeSWITCH is built with VPX support. |
+| VP9 | `VP9` | Core VPX (`CORE_VPX_MODULE`) | `vpx.conf.xml` | Yes (core) | Bundled `libvpx`. Registered by the FreeSWITCH core alongside VP8. |
+| YUV I420 (raw) | `I420` | `mod_yuv` | None | No | Raw uncompressed YUV 4:2:0 video; used internally for pass-through and testing. No external library required. |
+
+---
+
+## Default Module Loading
+
+The vanilla `modules.conf.xml` determines which codec modules FreeSWITCH loads at startup. Modules not listed there must be added explicitly before FreeSWITCH will load them. Built-in codecs (PCMU, PCMA, L16, Speex) and the core VPX subsystem (VP8, VP9) are always available when FreeSWITCH starts, independent of `modules.conf.xml`.
+
+**Loaded by default** in the vanilla configuration:
+
+- `mod_spandsp` (provides G.722, G.726 variants, AAL2-G.726 variants, DVI4, GSM, LPC)
+- `mod_opus`
+- `mod_g729`
+- `mod_g723_1`
+- `mod_amr`
+- `mod_b64`
+- `mod_av` (provides H.264, H.263, H.263+)
+
+**Not loaded by default** (commented out or absent from `modules.conf.xml`):
+
+- `mod_ilbc`
+- `mod_siren`
+- `mod_amrwb`
+- `mod_silk`
+- `mod_bv`
+- `mod_codec2`
+- `mod_openh264`
+- `mod_com_g729`
+- `mod_yuv`
+
+The VP8 and VP9 codecs via the core VPX subsystem are loaded as part of the FreeSWITCH core, independent of `modules.conf.xml`, provided FreeSWITCH was compiled with VPX support (bundled `libvpx` is included in the source tree).
+
+---
+
+## Configuration File Parameters
+
+The following modules ship with configuration files in `conf/vanilla/autoload_configs/`. Refer to the respective chapter covering each module for full parameter definitions. The table below maps modules to their config files for quick reference.
+
+| Module | Config File | Key Configurable Behaviors |
+|---|---|---|
+| `mod_opus` | `opus.conf.xml` | VBR, DTX, FEC, complexity, `maxaveragebitrate`, `maxplaybackrate`, `sprop-maxcapturerate`, stereo/mono, bitrate negotiation, adaptive bitrate via RTCP |
+| `mod_amr` | `amr.conf.xml` | Default bitrate mode (0-7), VoLTE FMTP, adaptive bitrate via RTCP, octet-aligned framing |
+| `mod_amrwb` | `amrwb.conf.xml` | Default bitrate mode (1-8), VoLTE FMTP, adaptive bitrate via RTCP, `mode-set-overwrite` |
+| `mod_av` | `av.conf.xml` | Per-codec profiles (H.263, H.264), encoder/decoder thread counts, bitrate cap, RTP slice size, keyframe frequency, x264 preset/tune/CRF options |
+| `mod_spandsp` | `spandsp.conf.xml` | T.38 fax parameters, modem detection, DSP settings. The G.722, G.726, DVI4, GSM, and LPC codec registrations provided by this module have no separate per-codec configuration options. |
+| Core VPX | `vpx.conf.xml` | Per-profile settings for VP8 and VP9: thread counts, rate control mode, quantizer range, keyframe mode/distance, error resilience, CPU usage |

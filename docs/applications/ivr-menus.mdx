@@ -1,0 +1,350 @@
+---
+sidebar_position: 3
+id: ivr-menus
+slug: /applications/ivr-menus
+title: "Chapter 21: IVR Menus"
+description: "Build prompt-driven, nestable IVR digit-collection menus in XML and invoke them from the dialplan with the ivr application."
+sidebar_label: "21. IVR Menus"
+---
+
+# Chapter 21: IVR Menus
+
+The IVR menu system lets you define prompt-driven digit-collection menus in XML, load them through `mod_dptools`, and invoke them from the dialplan with the `ivr` application. Each menu plays a greeting, collects one or more digits, and dispatches the caller to an action based on what was pressed. Menus can be nested arbitrarily: a digit can launch a submenu, return the caller to the top of the current menu, or back up one level in the stack.
+
+## Table of Contents
+
+- [1. IVR Menu Model](#1-ivr-menu-model)
+- [2. Configuration File](#2-configuration-file)
+- [3. Menu Definition: the `<menu>` Element](#3-menu-definition-the-menu-element)
+  - [3.1 `<menu>` Attribute Reference](#31-menu-attribute-reference)
+  - [3.2 Sound and TTS Prefixes](#32-sound-and-tts-prefixes)
+  - [3.3 PIN Protection](#33-pin-protection)
+  - [3.4 Callbacks on Failure and Timeout](#34-callbacks-on-failure-and-timeout)
+- [4. Entries: the `<entry>` Element](#4-entries-the-entry-element)
+  - [4.1 `<entry>` Action Reference](#41-entry-action-reference)
+  - [4.2 Digit Patterns and Regular Expressions](#42-digit-patterns-and-regular-expressions)
+- [5. Nesting Submenus](#5-nesting-submenus)
+- [6. Invoking a Menu from the Dialplan](#6-invoking-a-menu-from-the-dialplan)
+- [7. The Bundled Demo IVR](#7-the-bundled-demo-ivr)
+
+---
+
+## 1. IVR Menu Model
+
+An IVR menu is a named XML element that specifies:
+
+- One or two greeting audio files or TTS phrases to play to the caller.
+- Timing parameters that control how long to wait for input and how many failures or timeouts to tolerate.
+- A set of `<entry>` elements that map a digit string (or a regular expression) to a named action.
+
+All menus in a FreeSWITCH installation live in a shared namespace. A menu references a submenu by name; the engine resolves the name at run time from the same loaded stack. The first menu defined in a file is treated as the top of the stack for that group.
+
+The engine collects digits until `digit-len` digits have been received or no digit arrives within `inter-digit-timeout` milliseconds after the first digit. It then walks the `<entry>` list for a match. If no match is found, `invalid-sound` plays and the failure counter increments. If no digit arrives at all within `timeout` milliseconds, the timeout counter increments. When either counter reaches its maximum, the menu exits.
+
+---
+
+## 2. Configuration File
+
+`ivr.conf.xml` is the module configuration file loaded by `mod_dptools`. Its only job is to aggregate menu files via an `X-PRE-PROCESS` include directive.
+
+```xml
+<!-- conf/autoload_configs/ivr.conf.xml -->
+<configuration name="ivr.conf" description="IVR menus">
+  <menus>
+    <X-PRE-PROCESS cmd="include" data="../ivr_menus/*.xml"/>
+  </menus>
+</configuration>
+```
+
+Every `*.xml` file under `conf/ivr_menus/` is loaded at startup. Each of those files contains one or more `<menu>` elements wrapped in an `<include>` root element.
+
+---
+
+## 3. Menu Definition: the `<menu>` Element
+
+A menu file holds one `<include>` wrapper containing one or more `<menu>` elements. The `name` attribute on each `<menu>` is the identifier used both by the `ivr` dialplan application and by `menu-sub` entries.
+
+```xml
+<include>
+  <menu name="main_menu"
+      greet-long="phrase:main_menu_greeting"
+      greet-short="phrase:main_menu_greeting_short"
+      invalid-sound="ivr/ivr-that_was_an_invalid_entry.wav"
+      exit-sound="voicemail/vm-goodbye.wav"
+      timeout="10000"
+      inter-digit-timeout="2000"
+      max-failures="3"
+      max-timeouts="3"
+      digit-len="1">
+
+    <entry action="menu-exec-app" digits="1" param="transfer 1000 XML default"/>
+    <entry action="menu-sub"      digits="2" param="billing_menu"/>
+    <entry action="menu-top"      digits="9"/>
+    <entry action="menu-exit"     digits="*"/>
+  </menu>
+</include>
+```
+
+### 3.1 `<menu>` Attribute Reference
+
+| Attribute | Purpose | Accepted Values | Default |
+|---|---|---|---|
+| `name` | Unique identifier for this menu. Required. | Any string | (none) |
+| `greet-long` | Audio or TTS played on the first entry into the menu. | File path or `phrase:` / `say:` prefix | (none) |
+| `greet-short` | Audio or TTS played on re-entry (after returning from a submenu or looping). | File path or `phrase:` / `say:` prefix | (none) |
+| `invalid-sound` | Audio or TTS played when the caller presses digits that do not match any entry. | File path or `phrase:` / `say:` prefix | (none) |
+| `exit-sound` | Audio or TTS played when the menu exits normally (max failures, max timeouts, or `menu-exit`). | File path or `phrase:` / `say:` prefix | (none) |
+| `transfer-sound` | Audio or TTS played before transferring the caller. | File path or `phrase:` / `say:` prefix | (none) |
+| `timeout` | Milliseconds to wait for the first digit before incrementing the timeout counter. | Integer (ms) | `10000` |
+| `inter-digit-timeout` | Milliseconds to wait between digits after the first digit has been received. | Integer (ms) | Half of `timeout` when `timeout` is explicitly set; `0` (no inter-digit timeout) when both are omitted |
+| `max-failures` | Number of invalid-digit events tolerated before the menu exits. | Integer | `3` |
+| `max-timeouts` | Number of timeout events tolerated before the menu exits. If omitted, inherits the value of `max-failures`. | Integer | Value of `max-failures` |
+| `digit-len` | Maximum number of digits to collect before matching. When set to `0`, the engine automatically grows `digit-len` to the length of the longest literal `digits` value bound in the menu's entries. | Integer | `0` |
+| `confirm-macro` | Phrase macro name to play back the collected digits for confirmation before executing the matched action. | Phrase macro name | (none) |
+| `confirm-key` | Digit the caller presses to confirm. Used with `confirm-macro`. | Single digit string | (none) |
+| `confirm-attempts` | Number of confirmation attempts allowed. | Integer | `3` |
+| `tts-engine` | TTS engine to use when sound values begin with `say:`. | Engine name (for example `flite`) | (none) |
+| `tts-voice` | TTS voice to use with `tts-engine`. | Voice name (for example `rms`) | (none) |
+| `pin` | If set, the caller must enter this PIN before the menu greeting plays. | Digit string | (none) |
+| `pin-file` | Audio prompt played before PIN entry. | File path | `ivr/ivr-please_enter_pin_followed_by_pound.wav` |
+| `bad-pin-file` | Audio played when the caller enters a wrong PIN. | File path | `conference/conf-bad-pin.wav` |
+| `exec-on-max-failures` | Dialplan application string executed when `max-failures` is reached. | `app arg` string | (none) |
+| `exec-on-max-timeouts` | Dialplan application string executed when `max-timeouts` is reached. | `app arg` string | (none) |
+
+### 3.2 Sound and TTS Prefixes
+
+All sound attributes (`greet-long`, `greet-short`, `invalid-sound`, `exit-sound`, `transfer-sound`) accept three forms:
+
+| Form | Example | Behavior |
+|---|---|---|
+| File path | `ivr/ivr-that_was_an_invalid_entry.wav` | Plays the audio file relative to the sounds base directory. |
+| `phrase:` prefix | `phrase:main_menu_greeting` | Executes the named phrase macro. |
+| `say:` prefix | `say:Press 1 for sales` | Synthesizes speech using `tts-engine` and `tts-voice`. |
+
+### 3.3 PIN Protection
+
+When `pin` is set on a menu, the engine prompts the caller with `pin-file` before playing the greeting. If the caller enters the correct PIN, the menu proceeds normally. If the PIN does not match, `bad-pin-file` plays. The engine allows exactly 3 PIN attempts; this value is hardcoded and is not controlled by any `<menu>` attribute.
+
+```xml
+<menu name="secure_menu"
+    greet-long="phrase:secure_menu_greeting"
+    greet-short="phrase:secure_menu_greeting_short"
+    invalid-sound="ivr/ivr-that_was_an_invalid_entry.wav"
+    exit-sound="voicemail/vm-goodbye.wav"
+    timeout="10000"
+    max-failures="3"
+    max-timeouts="3"
+    digit-len="1"
+    pin="1234"
+    pin-file="ivr/ivr-please_enter_pin_followed_by_pound.wav"
+    bad-pin-file="conference/conf-bad-pin.wav">
+
+  <entry action="menu-exec-app" digits="1" param="transfer 2000 XML default"/>
+  <entry action="menu-exit"     digits="*"/>
+</menu>
+```
+
+### 3.4 Callbacks on Failure and Timeout
+
+`exec-on-max-failures` and `exec-on-max-timeouts` each accept a dialplan application invocation in the form `application argument`. When the respective counter is reached the engine executes the application before exiting the menu. This is the correct hook for sending the caller to a voicemail extension or a live-agent queue when they fail to interact with the menu.
+
+```xml
+<menu name="main_menu"
+    greet-long="phrase:main_menu_greeting"
+    greet-short="phrase:main_menu_greeting_short"
+    invalid-sound="ivr/ivr-that_was_an_invalid_entry.wav"
+    exit-sound="voicemail/vm-goodbye.wav"
+    timeout="10000"
+    max-failures="3"
+    max-timeouts="3"
+    digit-len="1"
+    exec-on-max-failures="transfer 0 XML default"
+    exec-on-max-timeouts="transfer 0 XML default">
+
+  <entry action="menu-exec-app" digits="1" param="transfer 1000 XML default"/>
+</menu>
+```
+
+---
+
+## 4. Entries: the `<entry>` Element
+
+Each `<entry>` element inside a `<menu>` maps one digit string or regular expression to one action. Attributes:
+
+- `action` - the action name (required)
+- `digits` - the digit string or regex to match (required)
+- `param` - additional argument to the action (required for actions that take one, not used by `menu-top` or `menu-back`)
+
+### 4.1 `<entry>` Action Reference
+
+| Action | Effect |
+|---|---|
+| `menu-exec-app` | Executes a dialplan application with the value of `param` as its argument. The call leaves the menu. Example: `param="transfer 1000 XML default"`. |
+| `menu-sub` | Enters the named submenu specified by `param`. The current menu is pushed onto the stack. |
+| `menu-top` | Returns to the top of the menu stack (the first menu defined in the current group), replaying `greet-short`. |
+| `menu-back` | Returns to the previous menu in the stack (one level up), replaying that menu's `greet-short`. |
+| `menu-play-sound` | Plays the audio or TTS value in `param` without leaving the menu. |
+| `menu-exit` | Exits the menu immediately, playing `exit-sound`. |
+
+### 4.2 Digit Patterns and Regular Expressions
+
+The `digits` attribute accepts either a literal string or a PCRE regular expression enclosed in `/` delimiters. When a regex is used, any capture groups are exposed as `$1`, `$2`, and so on, within the `param` value of a `menu-exec-app` entry. This enables variable-length extension dialing directly from an IVR menu.
+
+```xml
+<!-- Literal: caller presses exactly "1" -->
+<entry action="menu-exec-app" digits="1" param="transfer 1000 XML default"/>
+
+<!-- Regex: matches any 4-digit extension in the 1000-1099 range -->
+<entry action="menu-exec-app" digits="/^(10[0-9][0-9])$/" param="transfer $1 XML default"/>
+```
+
+Multiple `<entry>` elements may use different regex patterns. Entries are evaluated in document order; the first match wins.
+
+---
+
+## 5. Nesting Submenus
+
+A submenu is an ordinary `<menu>` element referenced by name from a `menu-sub` entry. All menus referenced within a single file (or across files loaded into the same `<menus>` block) share the same namespace. The engine resolves submenu names at runtime from the loaded stack.
+
+Best practice is to define the top-level menu first in a file and all submenus below it. The `menu-back` action navigates up one level; `menu-top` returns to the first menu defined for the current call invocation.
+
+```xml
+<include>
+  <!-- Top-level menu -->
+  <menu name="company_ivr"
+      greet-long="phrase:company_ivr_main"
+      greet-short="phrase:company_ivr_main_short"
+      invalid-sound="ivr/ivr-that_was_an_invalid_entry.wav"
+      exit-sound="voicemail/vm-goodbye.wav"
+      timeout="10000"
+      inter-digit-timeout="2000"
+      max-failures="3"
+      max-timeouts="3"
+      digit-len="1">
+
+    <entry action="menu-sub"  digits="1" param="sales_menu"/>
+    <entry action="menu-sub"  digits="2" param="support_menu"/>
+    <entry action="menu-top"  digits="9"/>
+    <entry action="menu-exit" digits="*"/>
+  </menu>
+
+  <!-- Submenu -->
+  <menu name="sales_menu"
+      greet-long="phrase:sales_menu_greeting"
+      greet-short="phrase:sales_menu_greeting_short"
+      invalid-sound="ivr/ivr-that_was_an_invalid_entry.wav"
+      exit-sound="voicemail/vm-goodbye.wav"
+      timeout="15000"
+      max-failures="3"
+      max-timeouts="3"
+      digit-len="1">
+
+    <entry action="menu-exec-app" digits="1" param="transfer 2001 XML default"/>
+    <entry action="menu-exec-app" digits="2" param="transfer 2002 XML default"/>
+    <entry action="menu-back"     digits="*"/>
+  </menu>
+</include>
+```
+
+In this example, pressing `*` in `sales_menu` invokes `menu-back`, returning the caller to `company_ivr` and replaying its short greeting. Pressing `9` from `company_ivr` invokes `menu-top`, which restarts `company_ivr` from the top.
+
+---
+
+## 6. Invoking a Menu from the Dialplan
+
+The `ivr` dialplan application takes a single argument: the `name` of the top-level menu to enter. The call must already be answered before `ivr` is invoked.
+
+```xml
+<extension name="main_ivr">
+  <condition field="destination_number" expression="^1000$">
+    <action application="answer"/>
+    <action application="sleep"  data="1000"/>
+    <action application="ivr"   data="company_ivr"/>
+  </condition>
+</extension>
+```
+
+The `sleep` before `ivr` gives the far end time to complete answer signaling before audio begins. The value in milliseconds depends on the carrier or endpoint; `1000` to `2000` is common.
+
+When `ivr` returns, control passes to the next action in the dialplan extension. If the menu dispatched the call internally (via `menu-exec-app` with `transfer`), the transfer takes the call out of the current extension and into the target extension in the named context.
+
+---
+
+## 7. The Bundled Demo IVR
+
+The vanilla FreeSWITCH configuration ships a working demo IVR reachable at extension `5000` in the `default` dialplan context. The dialplan extension in `conf/dialplan/default.xml` is:
+
+```xml
+<extension name="ivr_demo">
+  <condition field="destination_number" expression="^5000$">
+    <action application="answer"/>
+    <action application="sleep" data="2000"/>
+    <action application="ivr"   data="demo_ivr"/>
+  </condition>
+</extension>
+```
+
+The `demo_ivr` menu is defined in `conf/ivr_menus/demo_ivr.xml`. Its full definition:
+
+```xml
+<include>
+  <!-- demo IVR, Main Menu -->
+  <menu name="demo_ivr"
+      greet-long="phrase:demo_ivr_main_menu"
+      greet-short="phrase:demo_ivr_main_menu_short"
+      invalid-sound="ivr/ivr-that_was_an_invalid_entry.wav"
+      exit-sound="voicemail/vm-goodbye.wav"
+      confirm-macro=""
+      confirm-key=""
+      tts-engine="flite"
+      tts-voice="rms"
+      confirm-attempts="3"
+      timeout="10000"
+      inter-digit-timeout="2000"
+      max-failures="3"
+      max-timeouts="3"
+      digit-len="4">
+
+    <entry action="menu-exec-app" digits="1" param="bridge sofia/$${domain}/888@conference.freeswitch.org"/>
+    <entry action="menu-exec-app" digits="2" param="transfer 9196 XML default"/>
+    <entry action="menu-exec-app" digits="3" param="transfer 9664 XML default"/>
+    <entry action="menu-exec-app" digits="4" param="transfer 9191 XML default"/>
+    <entry action="menu-exec-app" digits="5" param="transfer 1234*256 enum"/>
+    <entry action="menu-sub"      digits="6" param="demo_ivr_submenu"/>
+    <entry action="menu-exec-app" digits="/^(10[01][0-9])$/" param="transfer $1 XML features"/>
+    <entry action="menu-top"      digits="9"/>
+  </menu>
+
+  <!-- Demo IVR, Sub Menu -->
+  <menu name="demo_ivr_submenu"
+      greet-long="phrase:demo_ivr_sub_menu"
+      greet-short="phrase:demo_ivr_sub_menu_short"
+      invalid-sound="ivr/ivr-that_was_an_invalid_entry.wav"
+      exit-sound="voicemail/vm-goodbye.wav"
+      timeout="15000"
+      max-failures="3"
+      max-timeouts="3">
+
+    <entry action="menu-top" digits="*"/>
+  </menu>
+</include>
+```
+
+The digit map for `demo_ivr`:
+
+| Digit | Action |
+|---|---|
+| `1` | Bridges the caller to the public FreeSWITCH conference at `888@conference.freeswitch.org`. |
+| `2` | Transfers to extension `9196` (echo test). |
+| `3` | Transfers to extension `9664` (music on hold). |
+| `4` | Transfers to extension `9191`. |
+| `5` | Transfers to extension `1234*256` in the `enum` context. |
+| `6` | Enters `demo_ivr_submenu`. |
+| `9` | Returns to the top of `demo_ivr`. |
+| `1000`-`1019` | Transfers any 4-digit match of `/^(10[01][0-9])$/` to that extension in the `features` context. |
+
+The `digit-len` of `4` means the engine waits for up to 4 digits before matching, which is why single-digit entries like `1` through `9` still work: after the caller presses one digit, `inter-digit-timeout` (2000 ms) elapses with no further input, and the engine matches on the 1-digit buffer.
+
+`demo_ivr_submenu` plays its greeting and waits. Pressing `*` fires `menu-top`, returning the caller to the top of `demo_ivr`.
+
+The vanilla configuration also ships `conf/ivr_menus/new_demo_ivr.xml`, which defines `new_demo_ivr` and several additional submenus following the same structural pattern. No default dialplan extension invokes `new_demo_ivr`; it serves as a reference example for multi-submenu layout.
