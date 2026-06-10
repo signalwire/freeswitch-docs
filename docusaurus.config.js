@@ -130,7 +130,15 @@ const config = {
       },
     }),
 
-  plugins: ["docusaurus-plugin-sass"],
+  plugins: [
+    "docusaurus-plugin-sass",
+    [
+      "@docusaurus/plugin-google-tag-manager",
+      {
+        containerId: "GTM-MSSDFRQM",
+      },
+    ],
+  ],
 
   scripts: [
     {
