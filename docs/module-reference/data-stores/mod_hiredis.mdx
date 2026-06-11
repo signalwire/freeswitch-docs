@@ -1,0 +1,130 @@
+---
+sidebar_position: 1
+id: mod_hiredis
+slug: /module-reference/data-stores/mod_hiredis
+title: "mod_hiredis — Redis Client and Limit Backend"
+description: "Redis client module for FreeSWITCH providing raw command execution and a hiredis limit backend via the hiredis C library."
+sidebar_label: "mod_hiredis"
+---
+
+# mod_hiredis — Redis Client and Limit Backend
+
+`mod_hiredis` connects FreeSWITCH to a Redis server using the [hiredis](https://github.com/redis/hiredis) C client library. It lives in `src/mod/applications/mod_hiredis`. The module registers a `hiredis` limit backend that operators can use with the `limit` dialplan application for distributed call counting and rate limiting across a cluster of FreeSWITCH nodes.
+
+Reach for this module when you need per-resource call counts or rate-limited bridges that survive across multiple FreeSWITCH instances — Redis provides the shared, atomic counter store. It also exposes a general-purpose raw Redis command interface usable from both the dialplan and the FreeSWITCH API.
+
+## Loading the Module
+
+The module name to load is `mod_hiredis`. It is **not** present in the default vanilla `modules.conf.xml` and must be added manually:
+
+```xml
+<load module="mod_hiredis"/>
+```
+
+The module requires `libhiredis` (`libhiredis-dev` on Debian/Ubuntu) to be installed at build time. The `Makefile.am` guards compilation behind `HAVE_HIREDIS`; building without the library produces a hard error.
+
+## Configuration: `hiredis.conf.xml`
+
+The configuration file is `autoload_configs/hiredis.conf.xml`. It defines one or more named **profiles**. Each profile holds one or more **connections** (Redis endpoints tried in order on failure) and a set of optional **params**.
+
+### Profile params
+
+| Parameter | Purpose | Accepted Values | Default |
+|-----------|---------|-----------------|---------|
+| `ignore-connect-fail` | Allow calls to continue when no Redis connection can be established | `true` / `false` | `false` |
+| `ignore-error` | Allow calls to continue on any Redis error response | `true` / `false` | `false` |
+| `max-pipelined-requests` | Maximum number of commands batched per pipeline flush | positive integer | `20` |
+| `delete-when-zero` | Run a Lua `decr`-then-`del` script when a limit counter reaches zero instead of leaving the key at `0` | `true` / `false` | `false` |
+
+### Connection params
+
+| Parameter | Purpose | Accepted Values | Default |
+|-----------|---------|-----------------|---------|
+| `hostname` | Redis server hostname or IP | string | `localhost` |
+| `port` | Redis server TCP port | integer | `6379` |
+| `password` | Redis `AUTH` password (optional) | string | *(none)* |
+| `timeout_ms` | Connect and command timeout in milliseconds | integer | `500` |
+| `max-connections` | Connection pool size per connection entry | positive integer | `3` |
+
+Multiple `<connection>` elements may be listed under a single profile. If the primary connection fails, the module tries each subsequent connection in order.
+
+### Example
+
+```xml
+<configuration name="hiredis.conf" description="mod_hiredis">
+  <profiles>
+    <profile name="default">
+      <connections>
+        <connection name="primary">
+          <param name="hostname" value="172.18.101.101"/>
+          <param name="password" value="redis"/>
+          <param name="port" value="6379"/>
+          <param name="timeout_ms" value="500"/>
+        </connection>
+        <connection name="secondary">
+          <param name="hostname" value="localhost"/>
+          <param name="password" value="redis"/>
+          <param name="port" value="6380"/>
+          <param name="timeout_ms" value="500"/>
+        </connection>
+      </connections>
+      <params>
+        <param name="ignore-connect-fail" value="true"/>
+      </params>
+    </profile>
+  </profiles>
+</configuration>
+```
+
+## Dialplan Applications
+
+| Application | Purpose | Arguments |
+|-------------|---------|-----------|
+| `hiredis_raw` | Execute an arbitrary Redis command synchronously; stores the response in `hiredis_raw_response` | `<profile_name> <redis command>` |
+
+The `hiredis_raw` application accepts the profile name followed by any single Redis command string. Channel variable expansion happens before the command is sent.
+
+```xml
+<action application="hiredis_raw" data="default set mykey myvalue"/>
+<action application="hiredis_raw" data="default get mykey"/>
+<action application="log" data="INFO Redis response: ${hiredis_raw_response}"/>
+```
+
+The `limit` dialplan application uses `mod_hiredis` as its backend when `hiredis` is specified as the realm. The realm value is matched to a profile name by the module.
+
+```xml
+<!-- Limit to 5 concurrent calls on resource "sales" using the "default" profile -->
+<action application="limit" data="hiredis default sales 5"/>
+
+<!-- Rate-limit to 10 calls per 60-second window -->
+<action application="limit" data="hiredis default sales 10 60"/>
+```
+
+When the limit is exceeded, `hiredis_limit_exceeded` is set to `true` on the channel.
+
+## API Commands
+
+| Command | Purpose | Syntax |
+|---------|---------|--------|
+| `hiredis_raw` | Execute a Redis command from the FreeSWITCH CLI or ESL | `hiredis_raw <profile_name> <redis command>` |
+
+```
+freeswitch> hiredis_raw default get mykey
+myvalue
+
+freeswitch> hiredis_raw default set counter 0
+OK
+```
+
+## Channel Variables
+
+| Variable | Set / Read | Purpose |
+|----------|-----------|---------|
+| `hiredis_raw_response` | Set | Populated with the Redis server's response string after `hiredis_raw` app or limit operations |
+| `hiredis_limit_exceeded` | Set | Set to `true` when a `limit` call is rejected because the counter exceeds the configured maximum |
+
+## Dependencies
+
+`mod_hiredis` requires **libhiredis** (the official C client for Redis) which is not included in the FreeSWITCH source tree and is not built by default. Install `libhiredis-dev` (Debian/Ubuntu) or `hiredis-devel` (RHEL/CentOS) before compiling the module.
+
+**Source:** `src/mod/applications/mod_hiredis`, `conf/vanilla/autoload_configs/hiredis.conf.xml`

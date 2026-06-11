@@ -1,0 +1,102 @@
+---
+sidebar_position: 15
+id: mod_prefix
+slug: /module-reference/applications/mod_prefix
+title: "mod_prefix — Number Prefix Database Lookup"
+description: "Loads JSON prefix tables into an in-memory bit-trie and exposes a longest-prefix-match lookup via the prefix API command."
+sidebar_label: "mod_prefix"
+---
+
+# mod_prefix — Number Prefix Database Lookup
+
+`mod_prefix` is an applications module that loads one or more JSON key/value files into named in-memory bit-trie structures and performs longest-prefix-match lookups against them at call time. It is designed for use cases such as rate-deck routing, number classification, and country-code identification where you need to match a dialed number against a large set of prefix entries quickly without hitting an external database.
+
+Use this module when you need sub-millisecond, read-heavy prefix lookups on datasets that fit comfortably in memory and can be atomically reloaded at runtime without dropping active calls.
+
+## Loading the Module
+
+The module name for `modules.conf.xml` and the `load` command is `mod_prefix`. It is **not** included in the default vanilla `autoload_configs/modules.conf.xml` and must be added manually:
+
+```xml
+<load module="mod_prefix"/>
+```
+
+No special build flag is required; the module builds with the standard FreeSWITCH build system.
+
+## Configuration: `prefix.conf.xml`
+
+At startup and on `prefix reload`, the module reads `prefix.conf` from the FreeSWITCH configuration directory. Each `<table>` element names a trie and points to a JSON file that is loaded into memory.
+
+| Parameter | Purpose | Accepted Values | Default |
+|-----------|---------|-----------------|---------|
+| `name` (attribute on `<table>`) | Logical name used when calling `prefix get` | Any string identifier | — |
+| `file` (attribute on `<table>`) | Absolute path to the JSON data file | Valid filesystem path to a JSON object | — |
+
+The JSON data file must be a flat JSON object whose keys are prefix strings and whose values are the associated payload strings, for example:
+
+```json
+{
+  "1212": "0.012",
+  "1800": "0.000",
+  "44":   "0.045"
+}
+```
+
+Example `prefix.conf.xml`:
+
+```xml
+<configuration name="prefix.conf">
+  <tables>
+    <table name="rates" file="/var/lib/freeswitch/prefix/rates.json"/>
+  </tables>
+</configuration>
+```
+
+Multiple `<table>` elements may be listed to maintain independent named tries.
+
+## API Commands
+
+`mod_prefix` registers one API/CLI command: `prefix`.
+
+| Command | Purpose | Syntax |
+|---------|---------|--------|
+| `prefix get` | Longest-prefix-match lookup against a named table | `prefix get <table> <key>` |
+| `prefix load` | Load or hot-reload a named table from a JSON file | `prefix load <table> <file>` |
+| `prefix drop` | Remove a named table from memory | `prefix drop <table>` |
+| `prefix reload` | Re-read `prefix.conf.xml` and reload all configured tables | `prefix reload` |
+
+### `prefix get`
+
+Returns the value whose key is the longest prefix of `<key>`, or an empty string if no prefix matches.
+
+```
+prefix get rates 12125551234
+```
+
+### `prefix load`
+
+Loads a JSON file into the named table, creating the table if it does not exist or atomically replacing it if it does. Returns `+OK` on success or `-ERR` on failure.
+
+```
+prefix load rates /var/lib/freeswitch/prefix/rates.json
+```
+
+### `prefix drop`
+
+Removes the named table from memory and frees its resources. Returns `+OK`.
+
+```
+prefix drop rates
+```
+
+### `prefix reload`
+
+Re-reads `prefix.conf.xml` and reloads every table declared in it. Returns `+OK`.
+
+```
+prefix reload
+```
+
+The `prefix get` command is typically called from the dialplan via `${prefix(get rates ${destination_number})}` using the API inline expansion syntax.
+
+**Source:** `src/mod/applications/mod_prefix`, `src/mod/applications/mod_prefix/conf/prefix.conf.xml`

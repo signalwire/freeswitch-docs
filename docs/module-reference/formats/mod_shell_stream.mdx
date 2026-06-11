@@ -1,0 +1,68 @@
+---
+sidebar_position: 4
+id: mod_shell_stream
+slug: /module-reference/formats/mod_shell_stream
+title: "mod_shell_stream — Audio Streaming from a Shell Command"
+description: "Registers the shell_stream file interface so any shell command's stdout can be used as a read-only audio source in playback."
+sidebar_label: "mod_shell_stream"
+---
+
+# mod_shell_stream — Audio Streaming from a Shell Command
+
+`mod_shell_stream` is a file-format module (`src/mod/formats`) that registers the `shell_stream` file interface. It forks a shell command, pipes the child process's standard output into FreeSWITCH's audio engine, and presents that byte stream as a playable audio source.
+
+Reach for this module when you need to synthesize or transform audio on the fly using an external program — for example, calling a TTS binary, running an audio encoder pipeline, or fetching audio from a networked source via a shell one-liner — without writing a dedicated FreeSWITCH module.
+
+## Loading the Module
+
+The module name is `mod_shell_stream`. It is **not** loaded by default; the vanilla `autoload_configs/modules.conf.xml` ships with the entry commented out.
+
+To enable it, uncomment or add the following line in `autoload_configs/modules.conf.xml`:
+
+```xml
+<load module="mod_shell_stream"/>
+```
+
+No special compile-time flags are required beyond a standard FreeSWITCH build.
+
+## File Interface
+
+`mod_shell_stream` registers one file extension:
+
+| Extension | Mode | Description |
+|---|---|---|
+| `shell_stream` | Read-only | Executes a shell command and streams its stdout as raw audio |
+
+Write mode is explicitly rejected by the module. The `shell_stream` interface is used wherever FreeSWITCH accepts a file path, such as the `playback` dialplan application.
+
+### How FreeSWITCH invokes the command
+
+When FreeSWITCH opens a `shell_stream` path, it appends the sample rate and channel count to the path before executing it. The module always forces the channel count to 1 regardless of the call's negotiated value:
+
+```
+<your-command> -r <samplerate> -c <channels>
+```
+
+The child process must write raw audio data to stdout at the specified sample rate and channel count. When the child exits (or writes fewer than 4 bytes), the stream ends.
+
+### Usage in the Dialplan
+
+Pass the shell command as the file path with the `shell_stream://` prefix:
+
+```xml
+<action application="playback" data="shell_stream:///usr/local/bin/my-tts-script.sh hello world"/>
+```
+
+The module forks `/usr/local/bin/my-tts-script.sh hello world -r 8000 -c 1` (sample rate and channels are appended by FreeSWITCH). The script writes raw audio bytes to stdout; FreeSWITCH reads them into the call's audio path.
+
+Multiple files may be chained using FreeSWITCH's `file_string://` file format if needed:
+
+```xml
+<action application="playback" data="file_string://shell_stream:///path/to/intro.sh!shell_stream:///path/to/main.sh"/>
+```
+
+## Dependencies
+
+No external libraries beyond standard POSIX pipe and fork APIs are required.
+
+**Source:** `src/mod/formats/mod_shell_stream`

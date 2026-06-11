@@ -1,0 +1,131 @@
+---
+sidebar_position: 9
+id: mod_easyroute
+slug: /module-reference/applications/mod_easyroute
+title: "mod_easyroute — Database DID Routing"
+description: "Routes inbound DIDs by looking up gateway, limit, group, and account code in an ODBC database and setting channel variables."
+sidebar_label: "mod_easyroute"
+---
+
+# mod_easyroute — Database DID Routing
+
+`mod_easyroute` is an application module in `src/mod/applications` that performs DID (Direct Inward Dial) routing lookups against a relational database via ODBC. Given an inbound number, it queries a `numbers`/`gateways` schema (or a custom SQL query) and writes the resulting dial-string, call limit, group, and account code into channel variables for use by subsequent dialplan actions.
+
+Operators reach for this module when they need carrier-grade DID routing driven by a central database — for example, to enforce per-DID channel limits, populate billing account codes, or fan calls out to different SIP gateways without hard-coding routes in the dialplan.
+
+## Loading the Module
+
+The module name for `load` and `modules.conf.xml` is `mod_easyroute`. In the vanilla configuration it is **not** loaded by default — its entry is commented out:
+
+```xml
+<!--<load module="mod_easyroute"/>-->
+```
+
+To activate it, uncomment that line in `conf/vanilla/autoload_configs/modules.conf.xml` (or add an equivalent entry) and restart FreeSWITCH. No special build flag is required; the module compiles whenever ODBC support is available in the build environment.
+
+## Configuration: `easyroute.conf.xml`
+
+The module reads `conf/autoload_configs/easyroute.conf.xml` on load. All parameters live inside a `<settings>` block.
+
+| Parameter | Purpose | Accepted Values | Default |
+|---|---|---|---|
+| `db-username` | ODBC database user | String | `root` |
+| `db-password` | ODBC database password | String | `password` |
+| `db-dsn` | ODBC DSN name | String (DSN from `odbc.ini`) | `easyroute` |
+| `default-techprofile` | Tech prefix used to build the dial-string when the DB returns no `techprofile` | String (e.g. `sofia/default`) | `sofia/default` |
+| `default-gateway` | Gateway host used when the DB returns no gateway or the query fails | IP or hostname | `192.168.1.1` |
+| `odbc-retries` | Number of times to retry the ODBC connection on failure | Integer | `120` |
+| `custom-query` | Replacement SQL query; `%q` is substituted with the dialed number. Must return columns in the order: `gateway`, `group`, `call_limit`, `tech_prefix`, `acctcode`, `destination_number` | SQL string | *(unset — uses built-in join query)* |
+
+Example excerpt from the shipped conf:
+
+```xml
+<configuration name="easyroute.conf" description="EasyRoute Module">
+  <settings>
+    <param name="db-username" value="root"/>
+    <param name="db-password" value="password"/>
+    <param name="db-dsn" value="easyroute"/>
+    <param name="default-techprofile" value="sofia/default"/>
+    <param name="default-gateway" value="192.168.66.6"/>
+    <param name="odbc-retries" value="120"/>
+    <!-- <param name="custom-query" value="call  FS_GET_SIP_LOCATION(%s);"/> -->
+  </settings>
+</configuration>
+```
+
+When `custom-query` is not set, the module executes a built-in JOIN across the `numbers` and `gateways` tables:
+
+```sql
+SELECT gateways.gateway_ip, gateways.group, gateways.limit,
+       gateways.techprofile, numbers.acctcode, numbers.translated
+FROM   gateways, numbers
+WHERE  numbers.number = '%q'
+  AND  numbers.gateway_id = gateways.gateway_id
+LIMIT  1;
+```
+
+## Dialplan Applications
+
+| Application | Purpose | Arguments |
+|---|---|---|
+| `easyroute` | Looks up the dialed number in the database and sets result channel variables | `<number> [noat \| separator <sep>]` |
+
+**Argument details**
+
+- `<number>` — the DID to look up (required).
+- `noat` — builds the dial-string as `<techprofile>/<translated><gateway>` instead of `<techprofile>/<translated>@<gateway>`.
+- `separator <sep>` — uses `<sep>` as the separator character between the translated number and gateway (instead of `@`).
+
+**Example — standard lookup with limit enforcement:**
+
+```xml
+<extension name="easyroute">
+  <condition field="destination_number" expression="^1?(\d{10})$" break="on-true">
+    <action application="easyroute" data="$1"/>
+    <action application="limit" data="db easyroute ${easy_group} ${easy_limit} LE-$1"/>
+    <action application="bridge" data="${easy_dialstring}"/>
+  </condition>
+</extension>
+```
+
+## API Commands
+
+| Command | Purpose | Syntax |
+|---|---|---|
+| `easyroute` | Queries the database for a number and prints routing results; can return a single field | `easyroute <number> [dialstring\|translated\|limit\|group\|acctcode\|noat\|separator <sep>]` |
+
+When called with only `<number>`, the command prints a formatted table of all fields. When called with a single field keyword as the second argument, it returns only that value.
+
+**fs_cli examples:**
+
+```
+freeswitch@> easyroute 18005551212
+Number      Limit     Group     AcctCode  Dialstring
+18005551212 9999                          sofia/default/18005551212@192.168.66.6
+
+freeswitch@> easyroute 18005551212 dialstring
+sofia/default/18005551212@192.168.66.6
+
+freeswitch@> easyroute 18005551212 limit
+9999
+```
+
+Note: this API command cannot be called from within a dialplan context (it must be run from `fs_cli` or the ESL).
+
+## Channel Variables
+
+The `easyroute` dialplan application sets the following channel variables after a successful lookup:
+
+| Variable | Set / Read | Purpose |
+|---|---|---|
+| `easy_destnum` | Set | The dialed number passed to the application |
+| `easy_dialstring` | Set | Fully constructed dial-string ready for `bridge` |
+| `easy_group` | Set | Group name from the `gateways` table (may be empty) |
+| `easy_limit` | Set | Maximum concurrent calls allowed for this DID; defaults to `9999` when the DB returns no value |
+| `easy_acctcode` | Set | Account code from the `numbers` table, used for CDR billing |
+
+## Dependencies
+
+`mod_easyroute` requires ODBC support at compile time. The FreeSWITCH build system enables this when `unixODBC` (or an equivalent ODBC driver manager) and its development headers are present on the build host. No other non-standard external library is required.
+
+**Source:** `src/mod/applications/mod_easyroute`, `conf/vanilla/autoload_configs/easyroute.conf.xml`

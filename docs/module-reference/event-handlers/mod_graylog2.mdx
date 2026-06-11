@@ -1,0 +1,97 @@
+---
+sidebar_position: 11
+id: mod_graylog2
+slug: /module-reference/event-handlers/mod_graylog2
+title: "mod_graylog2 — GELF Logging to Graylog"
+description: "Sends FreeSWITCH log output to a Graylog2 server via UDP using the GELF JSON format."
+sidebar_label: "mod_graylog2"
+---
+
+# mod_graylog2 — GELF Logging to Graylog
+
+`mod_graylog2` is a logger module (`src/mod/loggers`) that forwards FreeSWITCH log messages to a Graylog2 server over UDP using the Graylog Extended Log Format (GELF 1.1). Each log entry is serialised as a compact JSON object and dispatched asynchronously from a dedicated delivery thread, keeping the impact on the FreeSWITCH media path minimal.
+
+Operators reach for this module when they need centralised, structured log aggregation from one or more FreeSWITCH nodes into Graylog2 (or a compatible receiver such as Logstash with the `gelf.rb` input). Session-specific channel variables can be automatically promoted to top-level GELF fields, which makes per-call filtering and alerting straightforward inside Graylog.
+
+## Loading the Module
+
+The module name for `load` / `unload` is `mod_graylog2`. It is **not** enabled in the default vanilla load set — the entry in `autoload_configs/modules.conf.xml` is commented out:
+
+```xml
+<!-- <load module="mod_graylog2"/> -->
+```
+
+To activate it, uncomment that line (or add it) and restart FreeSWITCH, or load it at runtime:
+
+```
+freeswitch@> load mod_graylog2
+```
+
+No special build flags are required; the module compiles with the standard FreeSWITCH build system.
+
+## Configuration: `graylog2.conf.xml`
+
+The module reads `autoload_configs/graylog2.conf.xml` at load time. All parameters live inside a `<settings>` element. An optional `<fields>` child element maps channel variables to additional GELF fields that are appended to every log message associated with a session.
+
+| Parameter | Purpose | Accepted Values | Default |
+|---|---|---|---|
+| `server-host` | IP address or hostname of the Graylog2 UDP listener | Any resolvable hostname or IP | `127.0.0.1` |
+| `server-port` | UDP port of the Graylog2 GELF input | `1`–`65535` | `12201` |
+| `loglevel` | Minimum FreeSWITCH log level forwarded to Graylog | `debug`, `info`, `notice`, `warning`, `err`, `crit`, `alert`, `emerg` | `warning` |
+| `send-uncompressed-header` | Prepend the two-byte uncompressed GELF magic (`\037\074`) required by some Logstash GELF inputs | `true` / `false` | `false` |
+
+Within `<fields>`, each `<field>` element maps a GELF field name (the `name` attribute) to a FreeSWITCH channel variable (the `variable` attribute). The variable value is read from the active session at log time and added to the GELF object with a `_` prefix, per the GELF custom-field convention.
+
+```xml
+<configuration name="graylog2.conf" description="Graylog2 Logger">
+  <settings>
+    <param name="server-host" value="192.168.0.69"/>
+    <param name="server-port" value="12201"/>
+    <param name="loglevel" value="warning"/>
+    <!-- Uncomment if using logstash w/ gelf.rb -->
+    <!--param name="send-uncompressed-header" value="true"/-->
+
+    <!-- fields to add to every log associated w/ a session -->
+    <fields>
+      <!-- channel variable "customer_account_number" becomes the "_customer" field -->
+      <!--field name="customer" variable="customer_account_number"/-->
+    </fields>
+  </settings>
+</configuration>
+```
+
+### GELF field mapping
+
+The module emits GELF 1.1 objects. The fixed field names are:
+
+| GELF field | Content |
+|---|---|
+| `version` | `"1.1"` |
+| `host` | FreeSWITCH hostname |
+| `timestamp` | Log timestamp in Unix epoch seconds (converted from microseconds) |
+| `level` | Syslog severity integer (1 alert → 7 debug; unmapped levels → 8) |
+| `short_message` | First line of the log message |
+| `full_message` | Full log message content |
+| `_ident` | `"freeswitch"` |
+| `_pid` | FreeSWITCH process ID |
+| `_uuid` | Call UUID (when log is associated with a session) |
+| `_file` | Source file that generated the log |
+| `_line` | Source line number |
+| `_function` | Source function name |
+| `_sequence` | Log sequence number |
+| `_microtimestamp` | Original log timestamp in microseconds |
+| `_<name>` | Per-session fields declared in `<fields>` |
+
+Log messages exceeding 8192 bytes are silently dropped. The internal delivery queue holds up to 25 000 pending messages; entries that cannot be enqueued are discarded without blocking the caller.
+
+## Channel Variables
+
+The module **reads** channel variables that are declared under `<fields>` in the configuration. There are no fixed, hard-coded variable names — the operator defines each mapping. For example, with:
+
+```xml
+<field name="customer" variable="customer_account_number"/>
+```
+
+the module reads `customer_account_number` from the active channel and adds `_customer` to the GELF object for every log line produced during that session.
+
+**Source:** `src/mod/loggers/mod_graylog2`, `conf/vanilla/autoload_configs/graylog2.conf.xml`

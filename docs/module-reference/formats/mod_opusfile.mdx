@@ -1,0 +1,102 @@
+---
+sidebar_position: 2
+id: mod_opusfile
+slug: /module-reference/formats/mod_opusfile
+title: "mod_opusfile — Opus File Playback and Recording"
+description: "Registers an OGG/Opus file interface and an OPUSSTREAM codec interface for reading and writing .opus files and live OGG/Opus streams."
+sidebar_label: "mod_opusfile"
+---
+
+# mod_opusfile — Opus File Playback and Recording
+
+`mod_opusfile` is a format module (`src/mod/formats`) that registers an OGG/Opus file interface so FreeSWITCH can open, seek, read, and write `.opus` files using the `libopusfile` library. It also registers an `OPUSSTREAM` codec interface that lets the core pass raw OGG/Opus page data through encode/decode callbacks — useful for streaming OGG/Opus audio over RTP or similar transports without a filesystem intermediary.
+
+Reach for this module when you need to play back recorded `.opus` audio files in the dialplan, record calls directly to `.opus` format (requires `libopusenc` at build time), or bridge a live OGG/Opus byte stream through the FreeSWITCH codec layer.
+
+## Loading the Module
+
+The module name for `load` and `modules.conf.xml` is `mod_opusfile`. In the default vanilla configuration it is present but **commented out**:
+
+```xml
+<!--<load module="mod_opusfile"/>-->
+```
+
+To enable it, uncomment that line in `autoload_configs/modules.conf.xml`, or load it at runtime from `fs_cli`:
+
+```
+load mod_opusfile
+```
+
+## Dependencies
+
+`mod_opusfile` requires two external libraries that are not part of the default FreeSWITCH build:
+
+| Library | Purpose | Required for |
+|---|---|---|
+| `libopusfile >= 0.5` | OGG/Opus demuxing and decoding | Read (playback) |
+| `libopusenc >= 0.1` | OGG/Opus encoding | Write (record) — optional |
+
+The build system detects both libraries via `pkg-config`. `libopusfile` is required unconditionally — the `#include <opusfile.h>` is not guarded and the module will not compile without it. Encoding support (`HAVE_OPUSFILE_ENCODE`) is conditional; if `libopusenc` is absent, write calls log a warning and return success without encoding.
+
+## File Interface
+
+The module registers the file extension `opus` with the FreeSWITCH file interface. This means any core API that accepts a file path (such as `playback`, `record`, `uuid_play`, `say`, and file-string references) will route `.opus` paths through this module automatically.
+
+Files are always opened and decoded at **48000 Hz** (Opus fullband), regardless of the original sample rate embedded in the file header. The channel count is taken from the OGG/Opus header. Seekable playback is supported; seek-during-write is not.
+
+### Codec Interface: OPUSSTREAM
+
+In addition to the file interface, the module registers a codec named `OPUSSTREAM` at sample rates 8000, 16000, 24000, and 48000 Hz in both mono (1 channel) and stereo (2 channels). This codec wraps a streaming OGG/Opus page buffer — it is not a standard RTP payload type but provides a path to encode or decode OGG/Opus page data inside the codec pipeline.
+
+## Using the Module in the Dialplan
+
+Because `mod_opusfile` hooks into the file interface, no special application syntax is required. Standard dialplan applications work directly with `.opus` paths.
+
+### Playback
+
+```xml
+<action application="playback" data="/sounds/greeting.opus"/>
+```
+
+### Record
+
+Recording to `.opus` requires that the module was compiled with `libopusenc`:
+
+```xml
+<action application="record" data="/recordings/${uuid}.opus"/>
+```
+
+### File String
+
+Multiple files including `.opus` can be combined with the file-string syntax:
+
+```xml
+<action application="playback" data="file_string:///sounds/intro.opus!/sounds/menu.wav"/>
+```
+
+## API Commands
+
+| Command | Purpose | Syntax |
+|---|---|---|
+| `opusfile_debug` | Enable or disable verbose debug logging for the module | `opusfile_debug <on\|off>` |
+
+When debug is **on**, the module logs decoded sample counts, buffer usage, and seek operations at `DEBUG` level. If encoding support is built in (`HAVE_OPUSFILE_ENCODE`), enabling debug also prints the `libopusenc` library version and ABI version to the API response stream.
+
+**fs_cli examples:**
+
+```
+opusfile_debug on
+opusfile_debug off
+```
+
+## Channel Variables
+
+`mod_opusfile` does not read or set any channel variables.
+
+## Events
+
+`mod_opusfile` does not fire any custom event subclasses.
+
+---
+
+**Source:** `src/mod/formats/mod_opusfile`

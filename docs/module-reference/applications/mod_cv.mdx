@@ -1,0 +1,162 @@
+---
+sidebar_position: 6
+id: mod_cv
+slug: /module-reference/applications/mod_cv
+title: "mod_cv — OpenCV Video Analysis and Overlay"
+description: "Performs real-time Haar cascade object detection on video frames and composites PNG or text overlays onto the detected region."
+sidebar_label: "mod_cv"
+---
+
+# mod_cv — OpenCV Video Analysis and Overlay
+
+`mod_cv` integrates the OpenCV computer-vision library into FreeSWITCH to perform real-time Haar cascade classifier detection on incoming video frames. When an object is detected (typically a face), the module fires custom events and can automatically overlay PNG images or text labels onto the video stream at the location of the detected object.
+
+Reach for this module when you need automated detection of objects in a video call — for example, to apply a logo overlay over a speaker's face, to trigger dialplan actions on presence/absence events, or to add a scrolling ticker band to a video stream. It is categorized under `src/mod/applications`.
+
+## Loading the Module
+
+The module is **not** included in the vanilla `autoload_configs/modules.conf.xml` and must be added manually. To enable it, add the following line to `modules.conf.xml` under the Applications section:
+
+```xml
+<load module="mod_cv"/>
+```
+
+Then load it at runtime with:
+
+```
+load mod_cv
+```
+
+The module requires OpenCV at build time. The build system checks for `HAVE_OPENCV` and links against `OPENCV_CFLAGS` / `OPENCV_LIBS`. Install the development package (commonly `libopencv-dev`) before compiling.
+
+## Configuration
+
+`mod_cv` has no shipped `.conf.xml` file and reads no XML configuration at load time. All parameters are passed as arguments to the dialplan applications or the API command. Two optional global FreeSWITCH variables influence the module at context initialization:
+
+| Variable | Purpose |
+|---|---|
+| `cv_png_prefix` | Directory path prepended to relative PNG filenames |
+| `cv_default_cascade` | Default Haar cascade XML path loaded when none is specified |
+| `cv_default_nested_cascade` | Default nested cascade XML path (used for sub-region detection) |
+
+Set these with `global_setvar` in `vars.xml` or inline in the dialplan.
+
+## Dialplan Applications
+
+| Application | Purpose | Arguments |
+|---|---|---|
+| `cv` | Blocking video-analysis loop with cascade detection and overlay | `[cascade_path [nested_cascade_path]] [param=value ...]` |
+| `cv_bug` | Non-blocking media bug that attaches detection and overlay to an existing call | `[stop \| [patch] [param=value ...]]` |
+
+### `cv`
+
+Answers the call, enables decoded video read, and enters a blocking loop. Video frames are processed through the cascade classifier; custom events and optional overlays are applied per frame. The call returns to the dialplan when the channel ends.
+
+```xml
+<action application="cv" data="/usr/share/opencv/haarcascades/haarcascade_frontalface_alt.xml png=/opt/logo.png abs=center-mid scale=1.2 skip=2"/>
+```
+
+### `cv_bug`
+
+Attaches a media bug to the channel so detection runs alongside normal call processing. Pass `stop` to remove the bug. Pass `patch` (as the first word or separately) to use `SMBF_VIDEO_PATCH` mode exclusively instead of the default combined `SMBF_READ_VIDEO_PING | SMBF_READ_VIDEO_PATCH` mode.
+
+```xml
+<action application="cv_bug" data="cascade=/usr/share/opencv/haarcascades/haarcascade_frontalface_alt.xml png=/opt/overlay.png abs=top-right"/>
+```
+
+To stop the bug mid-call:
+
+```xml
+<action application="cv_bug" data="stop"/>
+```
+
+### Parameter reference for `cv` and `cv_bug`
+
+| Parameter | Purpose | Accepted Values | Default |
+|---|---|---|---|
+| `cascade` | Path to primary Haar cascade XML file | Filesystem path | Value of `cv_default_cascade` global var |
+| `nested_cascade` | Path to nested (sub-region) cascade XML file | Filesystem path | Value of `cv_default_nested_cascade` global var |
+| `confidence` | Simultaneous-detection count required before firing a detect event | Integer | `20` |
+| `skip` | Number of frames to skip between detection passes (higher = less CPU) | Integer ≥ 1 | `1` |
+| `neighbors` | Minimum neighbor count passed to `detectMultiScale` | Integer | `2` |
+| `max_search_w` | Minimum object width for cascade search (pixels) | Integer | `20` |
+| `max_search_h` | Minimum object height for cascade search (pixels) | Integer | `20` |
+| `search_scale` | Scale factor per pyramid level in `detectMultiScale` (must be > 1) | Float | `1.1` |
+| `debug` | Draws detection shapes onto the raw frame for visual debugging | `0` or `1` | `0` |
+| `png` | PNG file to overlay (path relative to `cv_png_prefix` if set) | Filesystem path | — |
+| `nick` | Logical name for the next overlay, used for later reference | String | — |
+| `abs` | Absolute screen position for the overlay (ignores detected region) | Position keyword (e.g., `center-mid`, `top-right`, `left-bot`) | — |
+| `scale` | Scale multiplier of overlay relative to the detected shape width | Float | `1.0` |
+| `scaleto` | Stretch overlay to frame width (`W`), height (`H`), both, or neither | String containing `W`/`H` flags | — |
+| `xo` | Horizontal offset as a fraction of detected shape width | Float | `0` |
+| `yo` | Vertical offset as a fraction of detected shape height | Float | `0` |
+| `zidx` | Z-order index; overlays are sorted ascending before rendering | Integer | `0` |
+| `txt` | Render a text label as an overlay; value is `fg:bg:font_face:fontsz:text` | Colon-delimited string | — |
+| `ticker` | Scrolling ticker band; value is `fg:bg:font_face:fontsz:speed:pos:text` | Colon-delimited string (7 fields) | — |
+| `clear` | Remove the current overlay slot | Flag (no value) | — |
+| `allclear` | Remove all overlay slots | Flag (no value) | — |
+| `home` | Reset position/scale of the current overlay to defaults | Flag (no value) | — |
+| `allhome` | Reset position/scale of all overlays to defaults | Flag (no value) | — |
+
+## API Commands
+
+| Command | Purpose | Syntax |
+|---|---|---|
+| `cv_bug` | Start, modify, or stop a cv media bug on a channel by UUID | `cv_bug <uuid> <start\|stop\|mod\|patch> [param=value ...]` |
+
+### Examples
+
+Start detection on an active call:
+
+```
+cv_bug <uuid> start cascade=/usr/share/opencv/haarcascades/haarcascade_frontalface_alt.xml
+```
+
+Add a PNG overlay to an already-running bug:
+
+```
+cv_bug <uuid> mod png=/opt/logo.png abs=top-right scale=0.5
+```
+
+Stop detection and remove the overlay:
+
+```
+cv_bug <uuid> stop
+```
+
+## Channel Variables
+
+`mod_cv` does not call `switch_channel_set_variable` directly, but it does invoke `switch_channel_execute_on` to trigger dialplan variable-driven actions when detection state changes:
+
+| Variable | Set / Read | Purpose |
+|---|---|---|
+| `execute_on_cv_detect_primary` | Read | Dialplan application+args to execute when primary object detection starts |
+| `execute_on_cv_detect_off_primary` | Read | Dialplan application+args to execute when primary detection stops |
+| `execute_on_cv_detect_nested` | Read | Dialplan application+args to execute when nested detection starts |
+| `execute_on_cv_detect_off_nested` | Read | Dialplan application+args to execute when nested detection stops |
+
+Set these on the channel before invoking `cv` or `cv_bug`:
+
+```xml
+<action application="set" data="execute_on_cv_detect_primary=log INFO Face detected"/>
+<action application="set" data="execute_on_cv_detect_off_primary=log INFO Face gone"/>
+```
+
+## Events
+
+`mod_cv` fires the custom event subclass `cv::video_detect` (type `SWITCH_EVENT_CUSTOM`). The event is fired on both detection start and stop for both the primary and nested cascade.
+
+| Header | Values | Meaning |
+|---|---|---|
+| `Detect-Type` | `primary`, `nested` | Which cascade triggered the event |
+| `Detect-Disposition` | `start`, `stop` | Whether the object appeared or disappeared |
+| `Detect-Simo-Count` | Integer | Simultaneous detection frame count at event time |
+| `Detect-Average` | Float | Running average detection score |
+| `Detect-Last-Score` | Integer | Most recent raw detection score |
+| `Unique-ID` | UUID | Channel UUID |
+
+## Dependencies
+
+`mod_cv` requires **OpenCV** (`libopencv-dev` or equivalent) at compile time. The build aborts with an error if the library is not found. OpenCV is not bundled with FreeSWITCH and must be installed separately from the system package manager or built from source. Haar cascade XML data files (such as `haarcascade_frontalface_alt.xml`) must be obtained from the OpenCV data distribution and supplied at runtime.
+
+**Source:** `src/mod/applications/mod_cv`

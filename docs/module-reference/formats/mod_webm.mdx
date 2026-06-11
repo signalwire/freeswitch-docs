@@ -1,0 +1,85 @@
+---
+sidebar_position: 6
+id: mod_webm
+slug: /module-reference/formats/mod_webm
+title: "mod_webm — WebM File Format"
+description: "Registers a WebM file interface for recording audio and video calls to .webm files using VP8 video and Vorbis audio."
+sidebar_label: "mod_webm"
+---
+
+# mod_webm — WebM File Format
+
+`mod_webm` is a format module (`src/mod/formats`) that registers a `.webm` file interface with FreeSWITCH. It allows the core to write audio and video call media into WebM container files. Audio is encoded with the Vorbis codec and video is encoded with VP8. The module bundles its own Vorbis codec implementation (`mod_vorbis.c`) and uses the `libwebm` mkvmuxer library to produce valid Matroska-based WebM output.
+
+Reach for this module when you need to record video calls — for example, browser-originated WebRTC sessions via `mod_verto` or `mod_rtc` — directly to a self-contained `.webm` file that can be played back in any modern browser or media player without transcoding.
+
+## Loading the Module
+
+The module name is `mod_webm`. It is **not present** in the default vanilla `autoload_configs/modules.conf.xml` and must be added manually. Add the following line to the `<modules>` block in that file:
+
+```xml
+<load module="mod_webm"/>
+```
+
+To load it at runtime without restarting FreeSWITCH:
+
+```
+load mod_webm
+```
+
+## File Interface
+
+`mod_webm` registers the file extension `webm` with the FreeSWITCH file interface. Any core API that accepts a file path (`record`, `record_session`, `uuid_record`, video recording bridges) will route `.webm` paths through this module automatically.
+
+The module supports **write-only** operation. The read path (`webm_file_read`) and seek (`webm_file_seek`) are not implemented and return `SWITCH_STATUS_FALSE`. Recording is the only supported use case.
+
+When a file is opened for writing:
+
+- An audio track is added using the session sample rate and channel count. Audio is encoded with Vorbis at 20 ms packetization.
+- A video track using VP8 is added automatically on the first video frame received. The track dimensions are taken from the first video image.
+- The muxer operates in `kFile` mode, writing a seekable WebM file with a cue index.
+- The muxing app metadata is set to `FreeSWITCH` and the writing app is set to the full FreeSWITCH version string.
+
+Audio frames are buffered with a 1200 ms lead-in before writing begins, to compensate for video synchronization.
+
+## Using the Module in the Dialplan
+
+Because `mod_webm` hooks into the file interface, standard dialplan applications work directly with `.webm` paths. The module is designed for recording; playback is not supported.
+
+### Recording a Video Call
+
+```xml
+<action application="record_session" data="/recordings/${uuid}.webm"/>
+```
+
+### Video Bridge Recording
+
+```xml
+<action application="set" data="RECORD_STEREO=true"/>
+<action application="set" data="recording_follow_transfer=true"/>
+<action application="record_session" data="/recordings/${uuid}.webm"/>
+<action application="bridge" data="sofia/gateway/mygw/15551234567"/>
+```
+
+## Channel Variables
+
+| Variable | Set / Read | Purpose |
+|---|---|---|
+| `webmv2_video_offset` | Read | Integer offset (in milliseconds) applied to video frame timestamps at file open time. Read from the file-open parameter set (`handle->params`), not from the channel directly. |
+
+The `webmv2_video_offset` value is passed as a file-open parameter rather than a standard channel variable. The default value used internally is `-100`.
+
+## Dependencies
+
+`mod_webm` requires two external libraries that are not part of the default FreeSWITCH build:
+
+| Library | Purpose |
+|---|---|
+| `libwebm` (mkvmuxer) | WebM/Matroska container muxing |
+| `libvorbis` / `libogg` | Vorbis audio encoding and Ogg packetization |
+
+Both libraries must be present at compile time. `libwebm` provides the `mkvwriter.hpp` muxer header included directly by the module.
+
+---
+
+**Source:** `src/mod/formats/mod_webm`

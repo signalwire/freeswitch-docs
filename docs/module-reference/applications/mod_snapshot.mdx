@@ -1,0 +1,107 @@
+---
+sidebar_position: 17
+id: mod_snapshot
+slug: /module-reference/applications/mod_snapshot
+title: "mod_snapshot — Live Audio Snapshot Recording"
+description: "Records a rolling audio buffer on a live channel and writes WAV snapshots to disk on demand."
+sidebar_label: "mod_snapshot"
+---
+
+# mod_snapshot — Live Audio Snapshot Recording
+
+`mod_snapshot` attaches a sliding audio buffer to a live channel and lets an operator flush that buffer to a WAV file at any moment — a "snapshot" of the most recent N seconds of audio. It lives in `src/mod/applications/mod_snapshot` (the applications category).
+
+Use this module when you need to capture audio that already happened — for example, capturing the few seconds before a caller pressed a key — without recording the entire call from the beginning. Once started, the buffer rolls continuously; a snap action writes whatever is currently in it to a timestamped WAV file in the FreeSWITCH sounds directory.
+
+## Loading the Module
+
+The module name is `mod_snapshot`. It is **not** present in the default vanilla `autoload_configs/modules.conf.xml` and must be added manually:
+
+```xml
+<load module="mod_snapshot"/>
+```
+
+No special build flags are required; the module depends only on the FreeSWITCH core and is compiled with the standard build.
+
+## Dialplan Applications
+
+| Application | Purpose | Arguments |
+|---|---|---|
+| `snapshot` | Start a rolling capture or trigger a snap | `start <sec> [read\|write] [<base>]` or `snap` |
+
+### `snapshot`
+
+Attaches a media bug to the channel that continuously feeds audio into a fixed-size circular buffer. When `snap` is invoked the current buffer contents are written to a WAV file.
+
+**Syntax:**
+
+```
+snapshot start <sec> [read|write] [<base>]
+snapshot snap
+```
+
+| Argument | Description | Default |
+|---|---|---|
+| `sec` | Window size in seconds (minimum 5) | `5` |
+| `read\|write` | Which audio leg to capture — `read` (inbound), `write` (outbound), or omit for both | both legs |
+| `base` | Filename prefix for output files | `mod_snapshot` |
+
+The output file is written to `$${sounds_dir}/<base>_YYYY_MM_DD_HH_MM_SS.wav`.
+
+When the capture is started, DTMF digit **7** is bound (A-leg) as a shortcut that fires `snapshot snap` automatically.
+
+**Dialplan examples:**
+
+Start a 30-second rolling capture of both legs:
+
+```xml
+<action application="snapshot" data="start 30"/>
+```
+
+Start a 60-second read-only capture with a custom prefix:
+
+```xml
+<action application="snapshot" data="start 60 read mycall"/>
+```
+
+Trigger an immediate snapshot (e.g., from a second `<extension>` or DTMF handler):
+
+```xml
+<action application="snapshot" data="snap"/>
+```
+
+## API Commands
+
+| Command | Purpose | Syntax |
+|---|---|---|
+| `uuid_snapshot` | Start a capture or take a snap on an existing channel by UUID | `uuid_snapshot <uuid> snap\|start [<sec> read\|write <base>]` |
+
+### `uuid_snapshot`
+
+Controls the snapshot buffer on a running channel from `fs_cli` or the ESL API without modifying the dialplan.
+
+**fs_cli examples:**
+
+Start a 30-second rolling capture on a specific channel:
+
+```
+uuid_snapshot 1234abcd-... start 30 read mycall
+```
+
+Flush the current buffer to disk:
+
+```
+uuid_snapshot 1234abcd-... snap
+```
+
+On success the command returns `+OK Success`; on failure `-ERR Operation Failed`.
+
+## Channel Variables
+
+| Variable | Set / Read | Purpose |
+|---|---|---|
+| `file` | Set (global) | Set to the full path of the most recently written snapshot WAV file via `switch_core_set_variable` |
+
+**Note:** `file` is set as a global FreeSWITCH variable (not a per-channel variable) each time a snapshot is written.
+
+**Source:** `src/mod/applications/mod_snapshot`

@@ -1,0 +1,95 @@
+---
+sidebar_position: 3
+id: mod_blacklist
+slug: /module-reference/applications/mod_blacklist
+title: "mod_blacklist — List-Based Call Blocking"
+description: "Loads plain-text lists of strings into memory and provides an API to check, add, remove, and persist entries at runtime."
+sidebar_label: "mod_blacklist"
+---
+
+# mod_blacklist — List-Based Call Blocking
+
+`mod_blacklist` is an application module (`src/mod/applications/mod_blacklist`) that loads one or more plain-text files of arbitrary strings into in-memory hash tables. Each file is referred to as a named list. The module exposes a single `blacklist` API command that dialplan logic and external scripts can call to check whether a value (such as a caller ID number) appears in a given list, and to add or remove entries at runtime without restarting FreeSWITCH.
+
+Reach for this module when you need simple, fast membership tests against a set of strings — for example, blocking spam callers, allowing only known numbers, or flagging specific destination prefixes — and you want to manage that set through `fs_cli` or ESL without editing dialplan XML.
+
+## Loading the Module
+
+The module name for `load` and `modules.conf.xml` is `mod_blacklist`. It is **not** present in the default vanilla `autoload_configs/modules.conf.xml` and must be added manually:
+
+```xml
+<load module="mod_blacklist"/>
+```
+
+No special build flag is required; the module compiles with the standard FreeSWITCH build system.
+
+## Configuration: `blacklist.conf.xml`
+
+`mod_blacklist` reads `mod_blacklist.conf` (located in FreeSWITCH's `autoload_configs/` directory). The configuration declares one or more `<list>` elements inside a `<lists>` block. Each list element maps a name to a plain-text file on disk. The text file contains one entry per line; lines are read into a hash table keyed on the trimmed string value.
+
+| Parameter | Purpose | Accepted Values | Default |
+|-----------|---------|-----------------|---------|
+| `name` | Identifier used in API calls and dialplan to reference this list | Any non-empty string | _(required)_ |
+| `filename` | Absolute path to the plain-text file containing list entries | Valid filesystem path readable by the FreeSWITCH process | _(required)_ |
+
+The shipped configuration ships with all lists commented out. A minimal real example:
+
+```xml
+<configuration name="mod_blacklist.conf" description="Blacklist module">
+  <lists>
+    <!-- One entry per line in the referenced file. -->
+    <list name="blocked_callers" filename="$${conf_dir}/blacklists/blocked_callers.list"/>
+  </lists>
+</configuration>
+```
+
+The list file referenced by `filename` is a plain text file with one value per line, for example:
+
+```
+15551234567
+15559876543
+```
+
+## API Commands
+
+`mod_blacklist` registers one API command: `blacklist`. All list management is performed through sub-commands passed as arguments.
+
+| Command | Purpose | Syntax |
+|---------|---------|--------|
+| `blacklist check` | Returns `true` if `item` is in `listname`, otherwise `false` | `blacklist check <listname> <item>` |
+| `blacklist add` | Adds `item` to the in-memory list (not persisted until `save`) | `blacklist add <listname> <item>` |
+| `blacklist del` | Removes `item` from the in-memory list | `blacklist del <listname> <item>` |
+| `blacklist save` | Writes the current in-memory list back to its configured file, overwriting it | `blacklist save <listname>` |
+| `blacklist reload` | Re-reads `blacklist.conf.xml` and reloads all lists from disk | `blacklist reload` |
+| `blacklist help` | Prints the command syntax summary | `blacklist help` |
+
+`fs_cli` examples:
+
+```
+freeswitch@internal> blacklist check blocked_callers 15551234567
+true
+
+freeswitch@internal> blacklist add blocked_callers 15550000001
++OK
+
+freeswitch@internal> blacklist del blocked_callers 15550000001
++OK
+
+freeswitch@internal> blacklist save blocked_callers
++OK
+
+freeswitch@internal> blacklist reload
++OK
+```
+
+A typical dialplan usage checks the caller ID against a named list and rejects the call if found:
+
+```xml
+<extension name="blacklist_check">
+  <condition field="${blacklist(check blocked_callers ${caller_id_number})}" expression="^true$">
+    <action application="reject" data="call_rejected"/>
+  </condition>
+</extension>
+```
+
+**Source:** `src/mod/applications/mod_blacklist`, `conf/vanilla/autoload_configs/blacklist.conf.xml`

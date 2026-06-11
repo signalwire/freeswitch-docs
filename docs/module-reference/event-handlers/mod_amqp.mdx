@@ -1,0 +1,200 @@
+---
+sidebar_position: 1
+id: mod_amqp
+slug: /module-reference/event-handlers/mod_amqp
+title: "mod_amqp — AMQP Event and Command Bus"
+description: "Publishes FreeSWITCH events to an AMQP broker, receives API commands from it, and forwards log output over AMQP."
+sidebar_label: "mod_amqp"
+---
+
+# mod_amqp — AMQP Event and Command Bus
+
+`mod_amqp` bridges FreeSWITCH to an AMQP 0-9-1 broker (such as RabbitMQ). It lives in `src/mod/event_handlers/mod_amqp` and provides three independent profile types: **producers** that serialize FreeSWITCH events to JSON and publish them to a configurable exchange, **commands** that consume plaintext FreeSWITCH API commands from a queue and execute them, and **logging** profiles that forward FreeSWITCH log output to an exchange.
+
+Each profile type connects over a prioritized list of connections and reconnects automatically on failure. Messages are queued internally so that a broker outage or back-pressure event does not block the FreeSWITCH core. A circuit-breaker drops new events for a configurable window when the internal queue fills.
+
+## Loading the Module
+
+The module is **not** loaded by default. In the vanilla `modules.conf.xml` the entry is commented out:
+
+```xml
+<!-- <load module="mod_amqp"/> -->
+```
+
+Uncomment that line, or load it at runtime from `fs_cli`:
+
+```
+load mod_amqp
+```
+
+The module requires `librabbitmq` (also known as `rabbitmq-c`) at build time. See [Dependencies](#dependencies) below.
+
+## Configuration: `amqp.conf.xml`
+
+The configuration file is `autoload_configs/amqp.conf.xml`. It contains three top-level sections — `<producers>`, `<commands>`, and `<logging>` — each holding one or more named `<profile>` elements. Every profile contains a `<connections>` block and a `<params>` block.
+
+### Connection parameters (shared by all profile types)
+
+| Parameter | Purpose | Accepted Values | Default |
+|-----------|---------|-----------------|---------|
+| `hostname` | AMQP broker hostname or IP | String | `localhost` |
+| `port` | AMQP broker TCP port | Integer | `5672` |
+| `virtualhost` | AMQP virtual host | String | `/` |
+| `username` | AMQP login username | String | `guest` |
+| `password` | AMQP login password | String | `guest` |
+| `heartbeat` | AMQP heartbeat interval in seconds; `0` disables | Integer | `0` |
+| `ssl_on` | Enable TLS for this connection | `true` / `false` | `false` |
+| `ssl_verify_peer` | Verify the broker's TLS certificate | `true` / `false` | `true` |
+
+Up to four connections may be listed per profile. The module tries each in order and uses the first that succeeds.
+
+### Producer profile parameters
+
+| Parameter | Purpose | Accepted Values | Default |
+|-----------|---------|-----------------|---------|
+| `exchange-name` | Exchange to publish events to | String | `TAP.Events` |
+| `exchange-type` | AMQP exchange type | `topic`, `direct`, `fanout` | `topic` |
+| `exchange-durable` | Declare the exchange as durable | `true` / `false` | `true` |
+| `delivery-mode` | AMQP delivery mode; omit to use broker default | `1` (non-persistent), `2` (persistent) | unset |
+| `delivery-timestamp` | Attach an AMQP timestamp and the custom headers `x_Liquid_MessageSentTimeStamp` (epoch seconds) and `x_Liquid_MessageSentTimeStampMicro` (epoch microseconds) | `true` / `false` | `true` |
+| `content-type` | AMQP content-type header on each message | String | `text/json` |
+| `format_fields` | Comma-separated list of event header names used to build the routing key. Prefix a field with `#` to treat it as a literal string. When `enable_fallback_format_fields` is on, `\|`-separate alternatives within a field | Comma-separated header names | (none — required) |
+| `enable_fallback_format_fields` | Allow `\|`-delimited fallback alternatives in `format_fields` | `0` / `1` | `0` |
+| `event_filter` | Comma-separated list of `SWITCH_EVENT_*` names to subscribe to. Use `SWITCH_EVENT_ALL` for every event. Append `^subclass` to filter a custom subclass | Comma-separated event type names | `SWITCH_EVENT_ALL` |
+| `send_queue_size` | Maximum number of messages to buffer before the circuit breaker trips | Integer | `5000` |
+| `circuit_breaker_ms` | Duration in milliseconds to drop new events after the queue fills | Integer | `10000` |
+| `reconnect_interval_ms` | Milliseconds to wait between reconnection attempts | Integer | `1000` |
+
+### Command profile parameters
+
+| Parameter | Purpose | Accepted Values | Default |
+|-----------|---------|-----------------|---------|
+| `exchange-name` | Exchange the command queue binds to | String | `TAP.Commands` |
+| `binding_key` | Routing key used when binding the queue to the exchange | String | `commandBindingKey` |
+| `queue-name` | Name of the queue to declare; if omitted, the broker assigns a name | String | (broker-assigned) |
+| `queue-passive` | Declare queue passively (assume it already exists) | `true` / `false` | `false` |
+| `queue-durable` | Declare queue as durable | `true` / `false` | `false` |
+| `queue-exclusive` | Declare queue as exclusive | `true` / `false` | `false` |
+| `queue-auto-delete` | Delete queue when the consumer disconnects | `true` / `false` | `true` |
+| `reconnect_interval_ms` | Milliseconds to wait between reconnection attempts | Integer | `1000` |
+
+### Logging profile parameters
+
+| Parameter | Purpose | Accepted Values | Default |
+|-----------|---------|-----------------|---------|
+| `exchange-name` | Exchange to publish log messages to | String | `TAP.Events` |
+| `exchange-type` | AMQP exchange type | `topic`, `direct`, `fanout` | `topic` |
+| `exchange-durable` | Declare the exchange as durable | `true` / `false` | `true` |
+| `log-levels` | Comma-separated list of log levels to capture | `debug`, `info`, `notice`, `warning`, `err`, `crit`, `alert` | (none) |
+| `send_queue_size` | Maximum number of log messages to buffer | Integer | `5000` |
+| `reconnect_interval_ms` | Milliseconds to wait between reconnection attempts | Integer | `1000` |
+
+### Example configuration (trimmed from shipped file)
+
+```xml
+<configuration name="amqp.conf" description="mod_amqp">
+  <producers>
+    <profile name="default">
+      <connections>
+        <connection name="primary">
+          <param name="hostname" value="localhost"/>
+          <param name="virtualhost" value="/"/>
+          <param name="username" value="guest"/>
+          <param name="password" value="guest"/>
+          <param name="port" value="5673"/>
+          <param name="heartbeat" value="0"/>
+        </connection>
+        <connection name="secondary">
+          <param name="hostname" value="localhost"/>
+          <param name="virtualhost" value="/"/>
+          <param name="username" value="guest"/>
+          <param name="password" value="guest"/>
+          <param name="port" value="5672"/>
+          <param name="heartbeat" value="0"/>
+        </connection>
+      </connections>
+      <params>
+        <param name="exchange-name" value="TAP.Events"/>
+        <param name="exchange-type" value="topic"/>
+        <param name="circuit_breaker_ms" value="10000"/>
+        <param name="reconnect_interval_ms" value="1000"/>
+        <param name="send_queue_size" value="5000"/>
+        <param name="enable_fallback_format_fields" value="1"/>
+        <param name="format_fields" value="#FreeSWITCH,FreeSWITCH-Hostname,Event-Name,Event-Subclass,Unique-ID"/>
+        <param name="event_filter" value="SWITCH_EVENT_CHANNEL_CREATE,SWITCH_EVENT_CHANNEL_DESTROY,SWITCH_EVENT_HEARTBEAT,SWITCH_EVENT_DTMF"/>
+      </params>
+    </profile>
+  </producers>
+  <commands>
+    <profile name="default">
+      <connections>
+        <connection name="primary">
+          <param name="hostname" value="localhost"/>
+          <param name="virtualhost" value="/"/>
+          <param name="username" value="guest"/>
+          <param name="password" value="guest"/>
+          <param name="port" value="5672"/>
+          <param name="heartbeat" value="0"/>
+        </connection>
+      </connections>
+      <params>
+        <param name="exchange-name" value="TAP.Commands"/>
+        <param name="binding_key" value="commandBindingKey"/>
+        <param name="reconnect_interval_ms" value="1000"/>
+        <param name="queue-passive" value="false"/>
+        <param name="queue-durable" value="false"/>
+        <param name="queue-exclusive" value="false"/>
+        <param name="queue-auto-delete" value="true"/>
+      </params>
+    </profile>
+  </commands>
+  <logging>
+    <profile name="default">
+      <connections>
+        <connection name="primary">
+          <param name="hostname" value="localhost"/>
+          <param name="virtualhost" value="/"/>
+          <param name="username" value="guest"/>
+          <param name="password" value="guest"/>
+          <param name="port" value="5672"/>
+          <param name="heartbeat" value="0"/>
+        </connection>
+      </connections>
+      <params>
+        <param name="exchange-name" value="TAP.Logging"/>
+        <param name="send_queue_size" value="5000"/>
+        <param name="reconnect_interval_ms" value="1000"/>
+        <param name="log-levels" value="debug,info,notice,warning,err,crit,alert"/>
+      </params>
+    </profile>
+  </logging>
+</configuration>
+```
+
+## API Commands
+
+| Command | Purpose | Syntax |
+|---------|---------|--------|
+| `amqp` | Reload `amqp.conf.xml` without restarting FreeSWITCH | `amqp` |
+
+The `amqp` API command tears down all existing producer, command, and logging profiles and recreates them from the current configuration file.
+
+```
+freeswitch> amqp
+```
+
+## How the Command Consumer Works
+
+When a command profile is running, the module declares a queue on the configured exchange and binds it with `binding_key`. It then consumes messages from the queue. Each message body is interpreted as a plaintext FreeSWITCH API command (content-type `text/plain`) and executed via `switch_console_execute`.
+
+If the incoming AMQP message includes the custom headers `x-fs-api-resp-exchange` and `x-fs-api-resp-key`, the module publishes a JSON response back to the specified exchange and routing key with fields `output`, `command`, and `status`.
+
+## How the Logging Profile Works
+
+Log records are captured from the FreeSWITCH logging subsystem and serialized to JSON with the fields `file`, `function`, `line`, `level`, `timestamp`, `timestamp_epoch`, and `content`. The routing key is constructed as `<hostname>.<userdata>.<level>.<file>` (with `.` in the filename replaced by `_`).
+
+## Dependencies
+
+`mod_amqp` requires `librabbitmq` (the `rabbitmq-c` C client library) to compile and run. On Debian/Ubuntu this is typically available as the `librabbitmq-dev` package. The module includes header guards for both the legacy `amqp.h` layout and the newer `rabbitmq-c/amqp.h` layout (version 0.12 and above).
+
+**Source:** `src/mod/event_handlers/mod_amqp`, `conf/vanilla/autoload_configs/amqp.conf.xml`

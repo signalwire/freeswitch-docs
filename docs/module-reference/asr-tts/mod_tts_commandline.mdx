@@ -1,0 +1,95 @@
+---
+sidebar_position: 2
+id: mod_tts_commandline
+slug: /module-reference/asr-tts/mod_tts_commandline
+title: "mod_tts_commandline — Text-to-Speech via External Command"
+description: "Delegates TTS synthesis to any command-line program by substituting text, voice, rate, and output file into a configurable shell command."
+sidebar_label: "mod_tts_commandline"
+---
+
+# mod_tts_commandline — Text-to-Speech via External Command
+
+`mod_tts_commandline` provides a TTS (Text-to-Speech) interface that delegates synthesis to an arbitrary external command-line program. It lives in the `src/mod/asr_tts` category. When FreeSWITCH needs to speak text, the module builds a shell command by substituting the text, voice name, sample rate, and a temporary output WAV file path into a configurable template string, executes that command synchronously, and then streams the resulting WAV back to the channel.
+
+Reach for this module when you want to integrate a TTS engine that ships its own CLI tool (for example `text2wave` from Festival, `espeak`, `flite`, or any custom synthesizer) without writing a native FreeSWITCH module. It imposes no library dependency beyond the external program itself.
+
+## Loading the Module
+
+The module name is `mod_tts_commandline`. In the vanilla distribution it is present but **commented out** — it is not loaded by default:
+
+```xml
+<!-- <load module="mod_tts_commandline"/> -->
+```
+
+To activate it, uncomment that line in `conf/vanilla/autoload_configs/modules.conf.xml` and restart FreeSWITCH, or load it at runtime with:
+
+```
+load mod_tts_commandline
+```
+
+No special build flags are required; the module is compiled as part of the standard FreeSWITCH build tree.
+
+## Configuration: `tts_commandline.conf.xml`
+
+The module reads `tts_commandline.conf` (resolved from the FreeSWITCH config search path) on load and whenever a `reloadxml` event fires.
+
+### Parameters
+
+| Parameter | Purpose | Accepted Values | Default |
+|-----------|---------|-----------------|---------|
+| `command` | Shell command template executed for each TTS request. Placeholder tokens are substituted before execution (see below). | Any valid shell command string containing one or more of the placeholders `${text}`, `${voice}`, `${rate}`, `${file}` | _(none — must be set; module logs an error and refuses to synthesize if absent)_ |
+
+#### Placeholder tokens substituted at runtime
+
+| Token | Value injected |
+|-------|---------------|
+| `${text}` | The text to synthesize, shell-quoted |
+| `${voice}` | The voice name passed to the TTS interface, shell-quoted |
+| `${rate}` | Sample rate in Hz (e.g. `8000`) |
+| `${file}` | Absolute path to a UUID-named temporary `.tmp.wav` file in the FreeSWITCH temp directory, shell-quoted |
+
+All four tokens are available but none are mandatory in the template — include only those your external command needs.
+
+### Example configuration
+
+```xml
+<configuration name="tts_commandline.conf" description="TextToSpeech Commandline configuration">
+  <settings>
+    <param name="command" value="echo ${text} | text2wave -f ${rate} > ${file}"/>
+  </settings>
+</configuration>
+```
+
+This example pipes the text through Festival's `text2wave` tool at the requested sample rate and writes the WAV to the temporary output path.
+
+## Dialplan Applications
+
+`mod_tts_commandline` does not register any dialplan applications directly. TTS playback is invoked through the standard FreeSWITCH `speak` mechanism using the `tts_commandline` speech interface name.
+
+### Using `speak` in the dialplan
+
+```xml
+<action application="speak" data="tts_commandline|default|Hello, welcome to FreeSWITCH."/>
+```
+
+The `data` argument format is `engine|voice|text`:
+
+| Field | Value |
+|-------|-------|
+| `engine` | Must be `tts_commandline` to select this module |
+| `voice` | Arbitrary voice name string passed as `${voice}` to the command template |
+| `text` | Text to synthesize, passed as `${text}` to the command template |
+
+## API Commands
+
+This module registers no ESL API or CLI commands.
+
+## Channel Variables
+
+This module does not read or set any channel variables directly.
+
+## Events
+
+This module does not fire any custom event subclasses. It subscribes to the standard `SWITCH_EVENT_RELOADXML` event solely to reload its configuration.
+
+**Source:** `src/mod/asr_tts/mod_tts_commandline`, `conf/vanilla/autoload_configs/tts_commandline.conf.xml`

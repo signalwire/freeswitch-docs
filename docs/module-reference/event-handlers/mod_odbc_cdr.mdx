@@ -1,0 +1,130 @@
+---
+sidebar_position: 10
+id: mod_odbc_cdr
+slug: /module-reference/event-handlers/mod_odbc_cdr
+title: "mod_odbc_cdr — CDR to ODBC Tables"
+description: "Writes per-leg call detail records directly into ODBC-accessible database tables using channel variable mappings defined in odbc_cdr.conf.xml."
+sidebar_label: "mod_odbc_cdr"
+---
+
+# mod_odbc_cdr — CDR to ODBC Tables
+
+`mod_odbc_cdr` is a state-handler module in the `src/mod/event_handlers` category that fires on the `on_reporting` leg-termination hook and inserts call detail records directly into one or more database tables reachable via ODBC (or FreeSWITCH's native DSN format). Each table and its column-to-channel-variable mapping is declared in the configuration file, so no schema changes require a code rebuild.
+
+Operators reach for this module when they need CDR data in a relational database without the intermediate step of parsing flat CSV files. It supports separate tables for A-legs and B-legs, an optional CSV fallback for failed inserts, and any ODBC-compatible database — including PostgreSQL, MySQL, and SQLite — through FreeSWITCH's unified DSN layer.
+
+## Loading the Module
+
+The module name is `mod_odbc_cdr`. It is **not** present in the vanilla `modules.conf.xml` load list and must be added manually:
+
+```xml
+<load module="mod_odbc_cdr"/>
+```
+
+No special build flag is required beyond having FreeSWITCH's ODBC support compiled in (the `switch_odbc` layer is part of the core build when ODBC headers are available at configure time).
+
+## Configuration: `odbc_cdr.conf.xml`
+
+`mod_odbc_cdr` reads `autoload_configs/odbc_cdr.conf.xml` at load time. The file contains two sections: `<settings>` for global parameters and `<tables>` for the table-to-channel-variable mappings.
+
+### Global Settings
+
+| Parameter | Purpose | Accepted Values | Default |
+|---|---|---|---|
+| `odbc-dsn` | ODBC or native DSN connection string used to reach the database | Any DSN string (ODBC `db:user:pass`, or native `pgsql://...`, `sqlite://...`, etc.) | None (falls back to `dbname`) |
+| `dbname` | SQLite database name used when `odbc-dsn` is not set | String | `odbc_cdr` |
+| `log-leg` | Which call legs to record globally | `a-leg`, `b-leg`, `both` | `both` |
+| `write-csv` | Whether to write a CSV copy of the VALUES string | `always`, `never`, `on-db-fail` | `never` |
+| `csv-path` | Directory for CSV files written on successful inserts when `write-csv` is `always` | Absolute filesystem path | `$${log_dir}/odbc-cdr` |
+| `csv-path-on-fail` | Directory for CSV files written when a database INSERT fails | Absolute filesystem path | `$${log_dir}/odbc-cdr-failed` |
+| `debug-sql` | Log the full INSERT statement to the FreeSWITCH log after each leg ends | `true`, `false` | `false` |
+
+### Table Definitions
+
+Each `<table>` element inside `<tables>` names a database table and optionally restricts which leg populates it via the `log-leg` attribute (`a-leg`, `b-leg`, or omitted for both). Each child `<field>` element maps one database column to one channel variable.
+
+**Field attributes:**
+
+| Attribute | Purpose | Accepted Values | Default |
+|---|---|---|---|
+| `name` | Database column name | String matching the target column | Required |
+| `chan-var-name` | Channel variable whose value is read at hangup | Any channel variable name | Required |
+| `quote` | Whether to wrap the value in single quotes in the SQL statement | `true`, `false` | `true` |
+| `default-value` | Value to insert when the channel variable is not set | Any string | None (field is omitted from the INSERT) |
+
+### Configuration Example
+
+```xml
+<configuration name="odbc_cdr.conf" description="ODBC CDR Configuration">
+  <settings>
+    <!-- <param name="odbc-dsn" value="database:username:password"/> -->
+    <param name="odbc-dsn" value="pgsql://hostaddr=192.168.0.100 dbname=freeswitch user=freeswitch password='freeswitch' options='-c client_min_messages=NOTICE'"/>
+    <!-- global value can be "a-leg", "b-leg", "both" (default is "both") -->
+    <param name="log-leg" value="both"/>
+    <!-- value can be "always", "never", "on-db-fail" -->
+    <param name="write-csv" value="on-db-fail"/>
+    <!-- location to store csv copy of CDR -->
+    <param name="csv-path" value="/usr/local/freeswitch/log/odbc_cdr"/>
+    <!-- if "csv-path-on-fail" is set, failed INSERTs will be placed here as CSV files otherwise they will be placed in "csv-path" -->
+    <param name="csv-path-on-fail" value="/usr/local/freeswitch/log/odbc_cdr/failed"/>
+    <!-- dump SQL statement after leg ends -->
+    <param name="debug-sql" value="true"/>
+  </settings>
+  <tables>
+    <!-- only a-legs will be inserted into this table -->
+    <table name="cdr_table_a_leg" log-leg="a-leg">
+      <field name="CallId"                    chan-var-name="call_uuid"/>
+      <field name="orig_id"                   chan-var-name="uuid"/>
+      <field name="term_id"                   chan-var-name="sip_call_id"/>
+      <field name="ClientId"                  chan-var-name="uuid"/>
+      <field name="IP"                        chan-var-name="sip_network_ip"/>
+      <field name="IPInternal"                chan-var-name="sip_via_host"/>
+      <field name="CODEC"                     chan-var-name="read_codec"/>
+      <field name="directGateway"             chan-var-name="sip_req_host"/>
+      <field name="redirectGateway"           chan-var-name="sip_redirect_contact_host_0"/>
+      <field name="CallerID"                  chan-var-name="sip_from_user"/>
+      <field name="TelNumber"                 chan-var-name="sip_req_user"/>
+      <field name="TelNumberFull"             chan-var-name="sip_to_user"/>
+      <field name="sip_endpoint_disposition"  chan-var-name="endpoint_disposition"/>
+      <field name="sip_current_application"   chan-var-name="current_application"/>
+    </table>
+    <!-- only b-legs will be inserted into this table -->
+    <table name="cdr_table_b_leg" log-leg="b-leg">
+      <field name="CallId"                    chan-var-name="call_uuid"/>
+      <field name="orig_id"                   chan-var-name="uuid"/>
+      <field name="term_id"                   chan-var-name="sip_call_id"/>
+      <field name="ClientId"                  chan-var-name="uuid"/>
+      <field name="IP"                        chan-var-name="sip_network_ip"/>
+      <field name="IPInternal"                chan-var-name="sip_via_host"/>
+      <field name="CODEC"                     chan-var-name="read_codec"/>
+      <field name="directGateway"             chan-var-name="sip_req_host"/>
+      <field name="redirectGateway"           chan-var-name="sip_redirect_contact_host_0"/>
+      <field name="CallerID"                  chan-var-name="sip_from_user"/>
+      <field name="TelNumber"                 chan-var-name="sip_req_user"/>
+      <field name="TelNumberFull"             chan-var-name="sip_to_user"/>
+      <field name="sip_endpoint_disposition"  chan-var-name="endpoint_disposition"/>
+      <field name="sip_current_application"   chan-var-name="current_application"/>
+    </table>
+    <!-- both legs will be inserted into this table -->
+    <table name="cdr_table_both">
+      <field name="CallId"  chan-var-name="uuid"/>
+      <field name="orig_id" chan-var-name="Caller-Unique-ID"/>
+      <field name="TEST_id" chan-var-name="sip_from_uri"/>
+    </table>
+  </tables>
+</configuration>
+```
+
+## Channel Variables
+
+| Variable | Set / Read | Purpose |
+|---|---|---|
+| `odbc-cdr-ignore-leg` | Read | When set to `true` on a channel, the module skips that leg entirely and writes no record for it, regardless of the global or per-table `log-leg` setting. |
+
+Any channel variable listed as `chan-var-name` in a `<field>` element is read (not set) by the module at leg teardown. The operator controls which variables are captured by editing the table field list in `odbc_cdr.conf.xml`.
+
+## Dependencies
+
+`mod_odbc_cdr` relies on FreeSWITCH's `switch_cache_db` layer for database access. That layer requires unixODBC (or iODBC) headers and libraries to be present at FreeSWITCH build time when targeting non-SQLite databases. The appropriate ODBC driver for the target database (e.g., `psqlodbc` for PostgreSQL, `libmyodbc` for MySQL) must be installed and registered in `/etc/odbc.ini` or the native DSN must be used instead.
+
+**Source:** `src/mod/event_handlers/mod_odbc_cdr`, `src/mod/event_handlers/mod_odbc_cdr/conf/autoload_configs/odbc_cdr.conf.xml`

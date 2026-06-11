@@ -1,0 +1,64 @@
+---
+sidebar_position: 4
+id: mod_ldap
+slug: /module-reference/xml-interfaces/mod_ldap
+title: "mod_ldap — LDAP Directory Lookups"
+description: "Implements the FreeSWITCH directory interface backed by an LDAP server using LDAPv3 simple-bind."
+sidebar_label: "mod_ldap"
+---
+
+# mod_ldap — LDAP Directory Lookups
+
+`mod_ldap` lives in `src/mod/directories/` and implements FreeSWITCH's loadable directory interface backed by an LDAP server. It allows other modules — most notably `mod_dialplan_directory` — to query an LDAP tree for call-routing data (extensions, contexts, callflow actions) instead of reading static XML files.
+
+Reach for `mod_ldap` when your organization already maintains user or extension records in an LDAP-compatible directory (OpenLDAP, Active Directory, 389 DS) and you want FreeSWITCH to pull routing data from that single source of truth rather than duplicating it in flat configuration files.
+
+## Loading the Module
+
+The module name for `fs_cli` and `modules.conf.xml` is `mod_ldap`. It is **not** enabled in the default vanilla load set — the entry in `conf/vanilla/autoload_configs/modules.conf.xml` is commented out:
+
+```xml
+<!-- <load module="mod_ldap"/> -->
+```
+
+Uncomment that line (or add it) to load `mod_ldap` at startup.
+
+## Configuration: `dialplan_directory.conf.xml`
+
+`mod_ldap` itself contains no configuration parser; it exposes only the low-level directory interface (`directory_open`, `directory_query`, `directory_next`, `directory_next_pair`, `directory_close`). The configuration for connecting to LDAP lives in `dialplan_directory.conf.xml`, which is read by `mod_dialplan_directory` — the dialplan module that acts as the bridge between an incoming call and the directory backend.
+
+| Parameter | Purpose | Accepted Values | Default |
+|---|---|---|---|
+| `directory-name` | Selects which directory driver to use | String; must be `ldap` to use this module | _(none)_ |
+| `host` | Hostname or IP address of the LDAP server | Hostname or IP string | _(none)_ |
+| `dn` | Bind DN used to authenticate to the LDAP server | Full distinguished name string | _(none)_ |
+| `pass` | Password for the bind DN | String | _(none)_ |
+| `base` | Base DN from which subtree searches start | Distinguished name string | _(none)_ |
+
+`mod_ldap` always connects on the default LDAP port (389) and negotiates LDAPv3 with simple-bind authentication. There is no TLS/LDAPS option in the current source.
+
+Example from the shipped vanilla configuration (`conf/vanilla/autoload_configs/dialplan_directory.conf.xml`):
+
+```xml
+<configuration name="dialplan_directory.conf" description="Dialplan Directory">
+  <settings>
+    <param name="directory-name" value="ldap"/>
+    <param name="host" value="ldap.freeswitch.org"/>
+    <param name="dn" value="cn=Manager,dc=freeswitch,dc=org"/>
+    <param name="pass" value="test"/>
+    <param name="base" value="dc=freeswitch,dc=org"/>
+  </settings>
+</configuration>
+```
+
+## Dependencies
+
+`mod_ldap` requires **OpenLDAP client libraries** (`libldap` and `liblber`) at compile time. On Debian/Ubuntu, install the development package before building:
+
+```
+apt-get install libldap2-dev
+```
+
+The `Makefile.am` guards compilation with an `HAVE_LDAP` autoconf check and will abort with an explicit error if the library is missing. On Windows, `mod_ldap` uses the platform-native `winldap.h` / `winber.h` headers instead of OpenLDAP.
+
+**Source:** `src/mod/directories/mod_ldap`

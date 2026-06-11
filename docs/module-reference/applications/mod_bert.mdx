@@ -1,0 +1,86 @@
+---
+sidebar_position: 2
+id: mod_bert
+slug: /module-reference/applications/mod_bert
+title: "mod_bert — Bit Error Rate Test"
+description: "Runs a G.711 µ-law BERT test on a call leg by sending a digital milliwatt pattern and measuring received error rate."
+sidebar_label: "mod_bert"
+---
+
+# mod_bert — Bit Error Rate Test
+
+`mod_bert` is a dialplan application module (`src/mod/applications/mod_bert`) that performs a naive Bit Error Rate Test (BERT) over a live call leg. It works exclusively with G.711 µ-law (PCMU) audio: the module continuously transmits the ITU-T digital milliwatt pattern and compares each received frame against that same pattern, accumulating error samples within a configurable sliding window to derive an error percentage.
+
+Operators reach for `mod_bert` when qualifying interconnects, verifying codec pass-through, or stress-testing media paths. It fires custom events on sync acquisition, sync loss, and timeout so external tooling can record pass/fail state without inspecting logs.
+
+## Loading the Module
+
+The module name for `load` and `modules.conf.xml` is `mod_bert`. It is **not** present in the default vanilla `autoload_configs/modules.conf.xml` and must be added manually:
+
+```xml
+<load module="mod_bert"/>
+```
+
+No special build flags or external libraries are required; the module compiles as part of the standard FreeSWITCH build tree.
+
+## Configuration: `bert.conf.xml`
+
+`mod_bert` has no shipped configuration file and registers no configuration parameters through `switch_xml_config`. All tuning is done entirely through channel variables set before the application is executed.
+
+## Dialplan Applications
+
+| Application | Purpose | Arguments |
+|---|---|---|
+| `bert_test` | Runs a BERT test on the current call leg until the channel hangs up or an error threshold triggers a hangup | _(none)_ |
+
+### `bert_test`
+
+Answers the channel, then enters a read/write loop that:
+
+1. Sends the 8-byte G.711 µ-law digital milliwatt pattern repeatedly.
+2. Reads each incoming frame and counts samples that do not match the expected pattern.
+3. At the end of each window period, computes the error percentage and fires the appropriate event.
+
+The application takes no inline arguments; all behaviour is controlled by channel variables (see [Channel Variables](#channel-variables) below).
+
+```xml
+<action application="bert_test"/>
+```
+
+A typical dialplan context for a loopback BERT test:
+
+```xml
+<extension name="bert">
+  <condition field="destination_number" expression="^bert$">
+    <action application="set" data="bert_timeout_ms=15000"/>
+    <action application="set" data="bert_max_err=5.0"/>
+    <action application="set" data="bert_hangup_on_error=true"/>
+    <action application="bert_test"/>
+  </condition>
+</extension>
+```
+
+## Channel Variables
+
+| Variable | Set / Read | Purpose |
+|---|---|---|
+| `bert_window_ms` | Read | Duration of each error-rate measurement window in milliseconds. Default: `1000`. |
+| `bert_timeout_ms` | Read | How long to wait for initial sync before firing a timeout event, in milliseconds. Default: `10000`. |
+| `bert_max_err` | Read | Maximum tolerated error percentage per window before declaring sync loss. Default: `10.0`. |
+| `bert_hangup_on_error` | Read | If `true`, hangs up the channel when sync is lost or a timeout fires. Default: unset (no hangup). |
+| `bert_debug_io_file` | Read | Base path for raw µ-law debug files. When set, the module writes `<path>.in` (received audio) and `<path>.out` (sent audio). |
+| `bert_timer_name` | Read | Name of a FreeSWITCH timer (e.g., `soft`) to pace write frames independently of read blocking. When unset, no separate timer is used. |
+| `bert_stats_sync_lost` | Set | Set to `true` when sync is lost within a window, `false` at start. |
+| `bert_stats_sync_lost_count` | Set | Running count of sync-loss events on this channel. |
+
+## Events
+
+`mod_bert` fires three custom `SWITCH_EVENT_CUSTOM` subclasses. All events include the standard channel headers populated by `switch_channel_event_set_basic_data`.
+
+| Event Subclass | Fired When | Extra Headers |
+|---|---|---|
+| `mod_bert::timeout` | The channel did not reach sync within `bert_timeout_ms`. | _(none beyond channel headers)_ |
+| `mod_bert::lost_sync` | Error rate exceeded `bert_max_err` after a previously synced window. | `sync_lost_percent`, `sync_lost_count`, `cng_count`, `err_samples` |
+| `mod_bert::in_sync` | Error rate fell at or below `bert_max_err` for the first time (sync acquired). | _(none beyond channel headers)_ |
+
+**Source:** `src/mod/applications/mod_bert`

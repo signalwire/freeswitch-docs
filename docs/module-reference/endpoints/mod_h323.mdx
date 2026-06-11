@@ -1,0 +1,132 @@
+---
+sidebar_position: 1
+id: mod_h323
+slug: /module-reference/endpoints/mod_h323
+title: "mod_h323 — H.323 Endpoint (ooH323c)"
+description: "H.323 endpoint for FreeSWITCH using the ooH323c/PTLib stack, enabling H.323 signaling, gatekeeper registration, and T.38 fax."
+sidebar_label: "mod_h323"
+---
+
+# mod_h323 — H.323 Endpoint (ooH323c)
+
+`mod_h323` is a FreeSWITCH endpoint module (located under `src/mod/endpoints`) that implements H.323 signaling using the ooH323c library layered on PTLib. It registers FreeSWITCH as an H.323 terminal or gateway, listens on TCP port 1720 (Q.931), and handles H.245 capability negotiation and RTP media setup.
+
+Reach for this module when you need to interoperate with legacy H.323 equipment — PBXs, gatekeepers, video-conferencing endpoints, or H.323 trunks — and need gatekeeper registration, FastStart, H.245 tunneling, or T.38 fax relay over an H.323 leg.
+
+## Loading the Module
+
+The module name to load is `mod_h323`. It is **not** present in the vanilla `autoload_configs/modules.conf.xml` and must be added manually before it will load at startup.
+
+Add to `autoload_configs/modules.conf.xml`:
+
+```xml
+<load module="mod_h323"/>
+```
+
+Building the module also requires PTLib and ooH323c (see [Dependencies](#dependencies)).
+
+## Configuration: `h323.conf.xml`
+
+The module reads `h323.conf` at load time (and on reload). The file contains a `<settings>` block with global parameters and a `<listeners>` block with one or more TCP listener definitions.
+
+### Settings parameters
+
+| Parameter | Purpose | Accepted Values | Default |
+|-----------|---------|-----------------|---------|
+| `trace-level` | PTLib/ooH323c trace verbosity sent to the FreeSWITCH log | Integer (0 = off, higher = more verbose) | `0` |
+| `context` | Dialplan context for inbound calls | Any valid context string | `default` |
+| `dialplan` | Dialplan engine for inbound calls | `XML`, `Asterisk`, etc. | `XML` |
+| `codec-prefs` | Comma-separated list of codecs to advertise | FreeSWITCH codec names: `PCMA`, `PCMU`, `GSM`, `G729`, `G723`, `G729b`, `G729a`, `G729ab`, `G723.1`, `G723.1-5k3`, `G723.1a-5k3`, `G723.1a-6k3` | _(none; all supported codecs)_ |
+| `use-rtp-timer` | Enable the FreeSWITCH RTP timer | `true` / `false` | `false` |
+| `rtp-timer-name` | Timer name used when `use-rtp-timer` is true | `soft` or any installed timer | `soft` |
+| `ptime-override-value` | Override the negotiated packetization time (ms) | Integer ms; omit or set to `-1` to disable | `-1` (disabled) |
+| `jitter-size` | Audio jitter buffer size in ms; supply `min,max` for a range | Integer or `min,max` e.g. `60` or `20,100`; value `< 10` sets 0 (no jitter buffer) | _(library default)_ |
+| `faststart` | Enable H.323 FastStart | `true` / `false` | `true` |
+| `h245tunneling` | Enable H.245 tunneling inside H.225 | `true` / `false` | `true` |
+| `h245insetup` | Include H.245 address in the Setup PDU | `true` / `false` | `true` |
+| `dtmfinband` | Detect in-band DTMF | `true` / `false` | `false` |
+| `endpoint-name` | H.323 local user name / alias advertised to the gatekeeper | Any string | `FreeSwitch` |
+| `progress-indication` | Progress Indicator value sent in Progress/Connect PDUs (Q.931 PI field) | Integer 1–8 (7 is reserved; coerced to 8) | `8` |
+| `alerting-indication` | Progress Indicator value sent in Alerting PDUs | Integer 0–8 (0 = omit; 7 coerced to 8) | `0` |
+| `fax-old-asn` | Use the pre-standard T.38-IFP ASN encoding variant | `true` / `false` | `false` |
+| `gk-address` | Gatekeeper IP or hostname; empty to disable, `*` to auto-discover on the LAN | IP, hostname, `*`, or empty | _(disabled)_ |
+| `gk-identifer` | Optional gatekeeper identifier (GK name) | String | _(none)_ |
+| `gk-interface` | Local UDP interface (IP:port) for gatekeeper RAS | `IP:port` or empty | _(none)_ |
+| `gk-retry` | Gatekeeper registration retry interval in seconds | Integer | `30` |
+| `gk-prefix` | E.164 prefix to advertise to the gatekeeper (repeatable) | Digit string | _(none)_ |
+
+### Listener parameters
+
+Each `<listener>` element inside `<listeners>` defines one TCP listening socket.
+
+| Parameter | Purpose | Accepted Values | Default |
+|-----------|---------|-----------------|---------|
+| `h323-ip` | Local IP address to listen on | IP address or FreeSWITCH global variable | `$${local_ip_v4}` |
+| `h323-port` | TCP port for Q.931 signaling | Integer | `1720` |
+
+### Configuration example
+
+```xml
+<configuration name="h323.conf" description="H323 Endpoints">
+  <settings>
+    <param name="trace-level" value="10"/>
+    <param name="context" value="default"/>
+    <param name="dialplan" value="XML"/>
+    <param name="codec-prefs" value="PCMA,PCMU,GSM,G729"/>
+    <param name="use-rtp-timer" value="true"/>
+    <param name="rtp-timer-name" value="soft"/>
+    <!-- <param name="ptime-override-value" value="20"/> -->
+    <param name="gk-address" value=""/>
+    <param name="gk-identifer" value=""/>
+    <param name="gk-interface" value=""/>
+    <param name="gk-retry" value="30"/>
+    <param name="faststart" value="true"/>
+    <param name="h245tunneling" value="true"/>
+    <param name="h245insetup" value="true"/>
+    <param name="jitter-size" value="60"/>
+    <param name="progress-indication" value="8"/>
+    <param name="alerting-indication" value="8"/>
+    <param name="endpoint-name" value="fs"/>
+    <param name="fax-old-asn" value="true"/>
+  </settings>
+  <listeners>
+    <listener name="default">
+      <param name="h323-ip" value="$${local_ip_v4}"/>
+      <param name="h323-port" value="1720"/>
+    </listener>
+  </listeners>
+</configuration>
+```
+
+## Originating and Receiving Calls
+
+### Receiving calls
+
+Inbound H.323 calls arrive on the configured listener (TCP 1720 by default). The module creates a session and places it into the dialplan context specified by the `context` parameter. The destination number is taken from the H.225 `destinationAddress` alias list, or from the Q.931 Called-Party-Number if no alias is present. The channel is named `h323/<destination>`.
+
+### Originating calls
+
+Use the `h323` endpoint prefix in the dialplan or with `originate`:
+
+```
+originate h323/12125551212@192.0.2.10 &echo
+```
+
+The destination string is passed directly to the ooH323c `MakeCall` function. If a gatekeeper is configured, the number may be resolved by the gatekeeper rather than dialed directly.
+
+## Channel Variables
+
+The following channel variables are read by the module at runtime:
+
+| Variable | Set / Read | Purpose |
+|----------|-----------|---------|
+| `progress-indication` | Read | Overrides the global `progress-indication` setting for the Progress PDU PI value on a per-call basis. |
+| `alerting-indication` | Read | Overrides the global `alerting-indication` setting for the Alerting PDU PI value on a per-call basis. |
+| `fax_enable_t38_insist` | Read | When set to `true`, the T.38 re-INVITE sent to the peer includes the insist flag (`numeric_arg = 1`). |
+| `timer_name` | Read | If `use-rtp-timer` is disabled, this variable can supply the timer name to use for the RTP session (e.g., `soft`). |
+
+## Dependencies
+
+`mod_h323` requires **PTLib** and **ooH323c** (the Open H.323 C library) to be installed and discoverable by the build system before compilation. These libraries are not included with FreeSWITCH and are not built by default. Install them from your distribution's package manager or build from source before running `./configure` and `make mod_h323`.
+
+**Source:** `src/mod/endpoints/mod_h323`, `src/mod/endpoints/mod_h323/h323.conf.xml`

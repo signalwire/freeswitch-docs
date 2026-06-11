@@ -1,0 +1,83 @@
+---
+sidebar_position: 1
+id: mod_imagick
+slug: /module-reference/formats/mod_imagick
+title: "mod_imagick — Document-to-TIFF Conversion for Fax"
+description: "Registers a file interface for PDF and GIF files, rendering pages as video frames using the ImageMagick MagickCore library."
+sidebar_label: "mod_imagick"
+---
+
+# mod_imagick — Document-to-TIFF Conversion for Fax
+
+`mod_imagick` lives under `src/mod/formats/` and registers a FreeSWITCH file interface that can open PDF and GIF files and stream their pages as video frames. It uses the ImageMagick MagickCore C API to decode each page into raw RGB pixel data, which FreeSWITCH then converts to I420 and delivers as a video stream.
+
+The primary use case is playing multi-page PDF documents or animated GIFs as a video source — for example, presenting fax content as a video call or driving a conference slide show via the `conference_play` API. Each page of the document becomes one video frame; playback timing is controlled by per-handle parameters rather than a configuration file.
+
+## Loading the Module
+
+The module name for `load` and `modules.conf.xml` is `mod_imagick`.
+
+`mod_imagick` does **not** appear in the vanilla `autoload_configs/modules.conf.xml`; it must be added manually. It also does not appear in any other shipped configuration profile (sbc, minimal, insideout, testing). Add the following line to enable autoloading:
+
+```xml
+<load module="mod_imagick"/>
+```
+
+The module requires the ImageMagick development headers and library (`libmagickcore-dev`) at compile time. If the library is not found, the build system aborts with an error. ImageMagick 7 is supported via the compile-time flag `-DHAVE_MAGIC7`; earlier versions use the legacy header path `magick/MagickCore.h`.
+
+## File Interface
+
+`mod_imagick` registers the following file extensions with FreeSWITCH's file-interface layer.
+
+| Extension | Description |
+|-----------|-------------|
+| `imgk` | Generic ImageMagick format alias; passes the path directly to `ReadImages` |
+| `pdf` | Multi-page PDF; each page is rendered as a separate video frame |
+| `gif` | Animated GIF; pages are cycled using the embedded per-frame delay metadata |
+
+Files with these extensions can be used wherever FreeSWITCH accepts a file path: the `playback` application, the `uuid_broadcast` API, `conference_play`, and `${file_string}` composite paths.
+
+Example dialplan usage:
+
+```xml
+<action application="playback" data="/tmp/slides.pdf{img_ms=5000}"/>
+```
+
+Example `conference_play` API call from `fs_cli`:
+
+```
+conference myconf play /tmp/presentation.pdf{img_ms=3000}
+```
+
+### Per-handle URL Parameters
+
+These parameters are appended to the file path inside curly braces (`{key=value,key=value}`) and are read by `imagick_file_open` via `switch_event_get_header` on `handle->params`.
+
+| Parameter | Purpose | Accepted Values | Default |
+|-----------|---------|-----------------|---------|
+| `img_ms` | Maximum total display time in milliseconds | Positive integer | `86400000` (24 hours) |
+| `autoplay` | Auto-advance pages; for GIFs uses embedded frame delay when non-zero; for PDFs set to a millisecond dwell time | Integer (ms); `0` disables | `1` for GIF, `0` for PDF/imgk |
+| `density` | ImageMagick render density (DPI string) passed to `ImageInfo->density` | String, e.g. `"150"` or `"150x150"` | ImageMagick default |
+| `quality` | JPEG/PNG compression quality hint | Integer `1`–`100` | ImageMagick default |
+| `lazy` | Load only the first N pages synchronously; remaining pages are loaded in a background thread | Non-negative integer; use `1` for single-page eager load | `0` (load all pages before opening) |
+| `cookie` | Arbitrary string attached to the `imagick::info` event fired when lazy loading finishes | Any string | _(none)_ |
+
+## Events
+
+When `lazy` loading is enabled, `mod_imagick` fires a custom event once the background page-loading thread completes.
+
+| Event Class | Subclass | Headers |
+|-------------|----------|---------|
+| `SWITCH_EVENT_CUSTOM` | `imagick::info` | `type=loaded`, `filename`, `pagecount`, `cookie` (if set) |
+
+This event can be caught with `event_bind` in a script or ESL consumer to know when all pages of a large PDF have been decoded and are available for seeking.
+
+## Dependencies
+
+`mod_imagick` requires **ImageMagick** (MagickCore) at build time and at runtime:
+
+- Debian/Ubuntu: `libmagickcore-dev` (build), `libmagickcore-*` (runtime)
+- The `Makefile.am` guard `if HAVE_MAGICK` prevents building without it
+- ImageMagick 6 and 7 are both supported; the build system sets `-DHAVE_MAGIC7` when version 7 headers are detected
+
+**Source:** `src/mod/formats/mod_imagick`

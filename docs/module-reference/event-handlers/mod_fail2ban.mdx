@@ -1,0 +1,60 @@
+---
+sidebar_position: 6
+id: mod_fail2ban
+slug: /module-reference/event-handlers/mod_fail2ban
+title: "mod_fail2ban — Authentication Failure Events for Fail2Ban"
+description: "Writes SIP registration attempts, failures, and abandoned calls to a dedicated log file for Fail2Ban to parse and block abusive IPs."
+sidebar_label: "mod_fail2ban"
+---
+
+# mod_fail2ban — Authentication Failure Events for Fail2Ban
+
+`mod_fail2ban` is an event-handler module (`src/mod/event_handlers`) that listens for Sofia SIP custom events and writes structured log lines to a dedicated log file. Fail2Ban (or any log-monitoring tool) can then parse those lines and automatically block source IP addresses that repeatedly fail authentication.
+
+Use this module when you want to integrate FreeSWITCH SIP registration security with system-level IP blocking without modifying dialplan or writing custom scripts.
+
+## Loading the Module
+
+The module is **not** included in the default vanilla `autoload_configs/modules.conf.xml` and must be added manually. Add the following line to your `modules.conf.xml` under the `event_handlers` group, then reload or restart FreeSWITCH:
+
+```xml
+<load module="mod_fail2ban"/>
+```
+
+No special build flags are required; the module builds with the standard FreeSWITCH build system.
+
+## Configuration: `fail2ban.conf.xml`
+
+`mod_fail2ban` reads `fail2ban.conf` from the FreeSWITCH configuration directory at load time. The file contains a single `<bindings>` / `<config>` block with one supported parameter.
+
+| Parameter | Purpose | Accepted Values | Default |
+|-----------|---------|-----------------|---------|
+| `logfile` | Absolute path to the log file written by the module | Any writable file path | `$${log_dir}/fail2ban.log` |
+
+If `logfile` is absent or empty, the module falls back to `$${log_dir}/fail2ban.log` (the FreeSWITCH log directory resolved at runtime).
+
+```xml
+<configuration name="fail2ban.conf" description="fail2ban log configs">
+  <bindings>
+    <config name="settings" desription="configs">
+      <param name="logfile" value="$${log_dir}/fail2ban.log"/>
+    </config>
+  </bindings>
+</configuration>
+```
+
+## Events
+
+`mod_fail2ban` subscribes to `SWITCH_EVENT_CUSTOM` with `SWITCH_EVENT_SUBCLASS_ANY` and reacts to the following Sofia SIP custom subclass strings:
+
+| Event Subclass | Trigger | Log Message Written |
+|----------------|---------|---------------------|
+| `sofia::register_attempt` | Any SIP REGISTER attempt | `A registration was attempted user[<to-user>] ip[<network-ip>]` |
+| `sofia::register_failure` | SIP REGISTER that fails authentication | `A registration failed user[<to-user>] ip[<network-ip>]` |
+| `sofia::wrong_call_state` | Call abandoned due to wrong state | `Abandoned call from  user[<from_user>] ip[<network_ip>]` |
+
+Each log line also includes a local timestamp in the format `at[YYYY-MM-DDTHH:MM:SS.uuuuuu+HHMM]` (timezone offset has no colon separator, e.g. `+0200`).
+
+The module writes a startup marker (`Fail2ban was started`) and a shutdown marker (`Fail2ban stoping`) to the log file when the module loads and unloads respectively.
+
+**Source:** `src/mod/event_handlers/mod_fail2ban`, `src/mod/event_handlers/mod_fail2ban/fail2ban.conf.xml`

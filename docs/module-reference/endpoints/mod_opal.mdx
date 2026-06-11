@@ -1,0 +1,129 @@
+---
+sidebar_position: 2
+id: mod_opal
+slug: /module-reference/endpoints/mod_opal
+title: "mod_opal — H.323, SIP, and IAX2 via OPAL"
+description: "Endpoint module that connects FreeSWITCH to the OPAL library, enabling H.323 and IAX2 call signaling alongside existing SIP infrastructure."
+sidebar_label: "mod_opal"
+---
+
+# mod_opal — H.323, SIP, and IAX2 via OPAL
+
+`mod_opal` is an endpoint module in `src/mod/endpoints/mod_opal` that integrates FreeSWITCH with the [OPAL](https://www.opalvoip.org/) multimedia telephony library (version 3.12.8 or later). OPAL provides H.323 and IAX2 protocol stacks; the module exposes those as a standard FreeSWITCH endpoint so inbound and outbound calls on those protocols pass through the normal dialplan, codec negotiation, and bridging infrastructure.
+
+Reach for `mod_opal` when you need to interoperate with H.323 endpoints (hardware video-conferencing units, legacy PBXes, or gatekeepers) or IAX2 peers, without deploying a separate gateway. The module also supports T.38 fax relay on H.323 calls when built against a capable OPAL version.
+
+## Loading the Module
+
+The module name for `load` and `modules.conf.xml` is **`mod_opal`**. It is **not** present in the default vanilla `modules.conf.xml` and must be added manually:
+
+```xml
+<load module="mod_opal"/>
+```
+
+Building `mod_opal` requires the OPAL and PTLib libraries (version ≥ 3.12.8). These are not bundled with FreeSWITCH and must be installed separately before compilation. See the Dependencies section below.
+
+## Configuration: `opal.conf.xml`
+
+The configuration file is `autoload_configs/opal.conf.xml`. It contains a single `<settings>` block and a `<listeners>` block with one or more `<listener>` entries.
+
+### Global Settings
+
+| Parameter | Purpose | Accepted Values | Default |
+|---|---|---|---|
+| `trace-level` | PTLib/OPAL internal trace verbosity (routes to FreeSWITCH log) | Integer ≥ 0; 0 disables tracing | `3` |
+| `context` | FreeSWITCH dialplan context for inbound calls | Any defined context name | `default` |
+| `dialplan` | Dialplan module used to route inbound calls | `XML`, `asterisk`, etc. | `XML` |
+| `dtmf-type` | How DTMF digits are sent on H.323 connections | `string`, `signal`, `rfc2833`, `in-band` | `signal` |
+| `jitter-size` | Audio jitter buffer size as `min,max` in milliseconds | Two comma-separated integers, e.g. `40,100` | _(none)_ |
+| `codec-prefs` | Ordered comma-separated list of preferred codec names | IANA codec names, e.g. `PCMU,PCMA` | All loaded codecs |
+| `disable-transcoding` | When `true`, force the originator codec; no transcoding | `true` / `false` | `false` |
+| `gk-address` | H.323 gatekeeper address to register with; empty disables GK | IP address, hostname, or `*` to search the LAN | _(empty — disabled)_ |
+| `gk-identifer` | Optional gatekeeper identifier (name) | String | _(empty)_ |
+| `gk-interface` | Network interface address used when contacting the gatekeeper | IP address or FreeSWITCH variable | `$${local_ip_v4}` |
+
+### Listener Parameters
+
+Each `<listener>` element inside `<listeners>` binds an H.323 TCP signaling port. The name attribute is informational.
+
+| Parameter | Purpose | Accepted Values | Default |
+|---|---|---|---|
+| `h323-ip` | IP address to bind the H.323 listener | IP address or FreeSWITCH variable | _(required)_ |
+| `h323-port` | TCP port for H.323 Q.931 signaling | Integer | `1720` |
+
+### Example `opal.conf.xml`
+
+```xml
+<configuration name="opal.conf" description="Opal Endpoints">
+  <settings>
+    <param name="trace-level" value="3"/>
+    <param name="context"     value="default"/>
+    <param name="dialplan"    value="XML"/>
+    <param name="dtmf-type"   value="signal"/>
+    <param name="jitter-size" value="40,100"/>
+    <!-- <param name="codec-prefs"          value="PCMU,PCMA"/> -->
+    <!-- <param name="disable-transcoding"  value="true"/> -->
+    <param name="gk-address"   value=""/>
+    <param name="gk-identifer" value=""/>
+    <param name="gk-interface" value="$${local_ip_v4}"/>
+  </settings>
+  <listeners>
+    <listener name="default">
+      <param name="h323-ip"   value="$${local_ip_v4}"/>
+      <param name="h323-port" value="1720"/>
+    </listener>
+  </listeners>
+</configuration>
+```
+
+## Originating Calls
+
+Outbound calls use the `opal` endpoint prefix. The destination is passed as an H.323 or IAX2 URL understood by OPAL.
+
+```
+originate opal/h323:10.0.0.5 &echo
+originate opal/iax2:10.0.0.5/1001 &bridge(sofia/internal/1001@example.com)
+```
+
+The module internally maps `fs:` URIs to `h323:` via a hard-coded OPAL route entry (`fs:.* = h323:<da>`), so the dialplan destination number is forwarded as-is to the remote H.323 endpoint. Inbound calls on H.323 and IAX2 are both mapped into the `fs:` endpoint by the corresponding reverse routes.
+
+## Receiving Calls
+
+Inbound H.323 calls arrive on the TCP listener defined in `opal.conf.xml` (default port 1720). OPAL routes them into FreeSWITCH using the `context` and `dialplan` settings. The channel name takes the form `opal/h323:<destination>` or `opal/iax2:<destination>`.
+
+## Gatekeeper Registration
+
+Set `gk-address` to the gatekeeper's address (or `*` to auto-discover on the LAN). The optional `gk-identifer` restricts which gatekeeper is accepted. `gk-interface` selects the local IP that H.323 registration messages originate from. Leave `gk-address` empty to operate without a gatekeeper.
+
+## Dialplan Applications
+
+`mod_opal` does not register any `SWITCH_ADD_APP` dialplan applications.
+
+## API Commands
+
+`mod_opal` does not register any `SWITCH_ADD_API` commands.
+
+## Channel Variables
+
+| Variable | Set / Read | Purpose |
+|---|---|---|
+| `absolute_codec_string` | Read | If set, overrides all other codec selection logic for the call |
+| `codec_string` | Read | Codec preference list for this channel; falls back to `codec-prefs` setting if unset |
+| `has_t38` | Set | Set to `true` by the module when T.38 fax mode has been successfully negotiated on the H.323 connection |
+
+`mod_opal` also reads `SWITCH_ORIGINATOR_CODEC_VARIABLE` to prefer the originating leg's codec when `disable-transcoding` is `false`.
+
+When T.38 is negotiated, the module fires `switch_channel_execute_on` for the channel variable `opal_execute_on_t38` and `switch_channel_api_on` for `opal_api_on_t38`, allowing dialplan hooks on fax media switches.
+
+## Dependencies
+
+`mod_opal` requires two external libraries that are **not** included with FreeSWITCH and must be built and installed before compiling the module:
+
+- **PTLib** — Portable Tools Library (base threading/I/O layer for OPAL)
+- **OPAL** — Open Phone Abstraction Library, version **≥ 3.12.8**
+
+Both are available from the [OPAL project](https://www.opalvoip.org/). The module will fail to compile against older releases (`OPAL_CHECK_VERSION(3,12,8)` guard is enforced in the header).
+
+---
+
+**Source:** `src/mod/endpoints/mod_opal`, `conf/vanilla/autoload_configs/opal.conf.xml`

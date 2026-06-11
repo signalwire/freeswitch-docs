@@ -1,0 +1,160 @@
+---
+sidebar_position: 9
+id: mod_json_cdr
+slug: /module-reference/event-handlers/mod_json_cdr
+title: "mod_json_cdr — JSON CDR over HTTP"
+description: "Writes one JSON Call Detail Record per call leg to disk and/or HTTP-POSTs it to up to 20 configurable URLs."
+sidebar_label: "mod_json_cdr"
+---
+
+# mod_json_cdr — JSON CDR over HTTP
+
+`mod_json_cdr` generates one JSON Call Detail Record per call leg at hangup and delivers it via HTTP POST to one or more remote URLs, writes it to disk, or both. It lives in `src/mod/event_handlers/mod_json_cdr` and hooks into the FreeSWITCH `on_reporting` state handler — the same mechanism used by `mod_cdr_csv` and `mod_xml_cdr`.
+
+Reach for `mod_json_cdr` when your billing platform, data warehouse, or analytics pipeline consumes JSON rather than CSV or XML. It supports up to 20 HTTP endpoints with per-attempt retry, configurable payload encoding (raw JSON, URL-encoded form data, or Base64), mutual TLS, and per-channel log-directory overrides.
+
+## Loading the Module
+
+The module is **not** loaded by default. The vanilla `modules.conf.xml` does not include an entry for it. Add it manually:
+
+```xml
+<load module="mod_json_cdr"/>
+```
+
+Or load it at runtime from `fs_cli`:
+
+```
+load mod_json_cdr
+```
+
+No special build flag is required; the module is compiled against the standard FreeSWITCH libcurl wrapper (`switch_curl`) that ships with the core.
+
+## Configuration: `json_cdr.conf.xml`
+
+FreeSWITCH opens `json_cdr.conf` on load. Place your configuration at `conf/autoload_configs/json_cdr.conf.xml`.
+
+All parameters live inside a `<settings>` block. No parameter is strictly required — omitting `url` disables HTTP delivery; omitting `log-dir` disables disk logging. At least one of the two must be configured for the module to produce any output.
+
+### Parameters
+
+| Parameter | Purpose | Accepted Values | Default |
+|---|---|---|---|
+| `log-b-leg` | Record B-legs (originated channels). When `false`, B-leg CDRs are suppressed unless the channel variable `force_process_cdr` is `true`. | `true`, `false` | `true` |
+| `prefix-a-leg` | Prepend `a_` to the on-disk filename for A-legs (e.g. `a_<uuid>.cdr.json`). | `true`, `false` | `false` |
+| `encode-values` | URL-encode individual JSON string values before serializing. When `true` the resulting JSON is valid but string values are percent-encoded. Set `false` for standard unencoded JSON. | `true`, `false` | `true` |
+| `log-dir` | Directory for on-disk CDR files. An empty value resolves to `${prefix}/logs/json_cdr`. A relative value is interpreted relative to `${prefix}/logs`. An absolute path is used as-is. Omit entirely to disable disk logging when a `url` is set. | Path or empty | Not set |
+| `rotate` | On SIGHUP, rotate the log directories into timestamped subdirectories (`YYYY-MM-DD-HH-MM-SS`). | `true`, `false` | `false` |
+| `log-http-and-disk` | Write every record to disk even when HTTP POST succeeds. Normally disk writing is skipped when a `url` is configured and the POST returns 2xx. | `true`, `false` | `false` |
+| `url` | HTTP or HTTPS endpoint to POST records to. Repeat the parameter up to 20 times to specify additional failover URLs. The session UUID is appended as `?uuid=<uuid>`. | URL string | None |
+| `timeout` | Total HTTP transaction timeout in seconds. `0` disables the timeout. | Integer ≥ 0 | `5` |
+| `cred` | HTTP credentials in `username:password` form. When set, HTTP authentication is enabled using the `auth-scheme` (default `basic`). | String | None |
+| `auth-scheme` | HTTP authentication scheme. Prefix the value with `=` to use that scheme exclusively (e.g. `=digest`); without the prefix, schemes are ORed (libcurl picks). | `basic`, `digest`, `NTLM`, `GSS-NEGOTIATE`, `any` | `basic` |
+| `encode` | Encoding applied to the JSON payload before POST. `true` sends URL-encoded form data (`Content-Type: application/x-www-form-urlencoded`); `base64` sends Base64-encoded data (`Content-Type: application/x-www-form-base64-encoded`); `false` sends the raw JSON document (`Content-Type: application/json`). | `true`, `false`, `base64` | `false` |
+| `retries` | Number of additional POST attempts after the first failure. Each configured URL is tried in sequence. Setting `retries` without setting `delay` forces `delay` to 5. | Integer | `0` |
+| `delay` | Seconds to wait between retry attempts. | Integer | `5` (when `retries` > 0) |
+| `disable-100-continue` | Suppress the `Expect: 100-continue` header. Required for some older web servers that do not handle `100 Continue`. | `true`, `false` | `false` |
+| `err-log-dir` | Directory for CDRs that could not be delivered via HTTP. Repeat up to 20 times for redundant error destinations. Defaults to `log-dir` when unset. Requires `log-errors-to-disk` to be `true`. | Path or empty | Same as `log-dir` |
+| `log-errors-to-disk` | When `false`, failed HTTP deliveries are silently discarded instead of written to `err-log-dir`. | `true`, `false` | `true` |
+| `queue-capacity` | Enable an asynchronous delivery queue of this size. When set to a positive integer the module spawns a background thread and enqueues CDRs instead of processing them inline at hangup. | Integer > 0 | Not set (synchronous) |
+| `ssl-cert-path` | Path to the PEM-encoded client certificate for mutual TLS. | Absolute path | None |
+| `ssl-key-path` | Path to the PEM-encoded client private key. | Absolute path | None |
+| `ssl-key-password` | Passphrase for an encrypted private key. | String | None |
+| `ssl-version` | Force a specific SSL/TLS version. | `SSLv3`, `TLSv1` | libcurl auto-negotiates |
+| `enable-cacert-check` | Verify the server certificate against the CA bundle. | `true`, `false` | `false` |
+| `ssl-cacert-file` | Path to a custom PEM CA certificate for peer verification. Meaningful only when `enable-cacert-check` is `true`. | Absolute path | None |
+| `enable-ssl-verifyhost` | Verify that the server hostname matches the certificate CN. | `true`, `false` | `false` |
+
+### Configuration File Example
+
+The following is a trimmed version of the shipped `conf/autoload_configs/json_cdr.conf.xml`:
+
+```xml
+<include>
+  <configuration name="json_cdr.conf" description="JSON CDR">
+    <settings>
+      <!-- Leg selection -->
+      <param name="log-b-leg" value="true"/>
+      <param name="prefix-a-leg" value="false"/>
+
+      <!-- JSON encoding: false = raw JSON, true = URL-encode values -->
+      <param name="encode-values" value="true"/>
+
+      <!-- Write to both HTTP and disk simultaneously -->
+      <param name="log-http-and-disk" value="false"/>
+
+      <!-- File logging: leave value empty to use ${prefix}/logs/json_cdr -->
+      <param name="log-dir" value=""/>
+      <param name="rotate" value="false"/>
+
+      <!-- HTTP delivery -->
+      <param name="url" value="https://billing.example.com/cdr"/>
+      <param name="timeout" value="5"/>
+      <param name="auth-scheme" value="basic"/>
+      <param name="cred" value="fsuser:secret"/>
+      <param name="encode" value="false"/>
+      <param name="retries" value="2"/>
+      <param name="delay" value="5"/>
+      <param name="disable-100-continue" value="false"/>
+
+      <!-- Error fallback -->
+      <param name="err-log-dir" value="/var/log/freeswitch/json_cdr_err"/>
+
+      <!-- SSL -->
+      <param name="enable-cacert-check" value="true"/>
+      <param name="ssl-cacert-file" value="/etc/ssl/certs/ca-certificates.crt"/>
+    </settings>
+  </configuration>
+</include>
+```
+
+## Dialplan Applications
+
+`mod_json_cdr` registers no dialplan applications.
+
+## API Commands
+
+`mod_json_cdr` registers no API commands.
+
+## Channel Variables
+
+| Variable | Set / Read | Purpose |
+|---|---|---|
+| `json_cdr_base` | Read | Overrides the global `log-dir` for on-disk writes on a per-session basis. Set this in the dialplan before hangup to redirect CDR files for a specific call. |
+| `force_process_cdr` | Read | When `log-b-leg` is `false`, setting this variable to `true` on a B-leg session forces CDR generation for that leg. Defined in the core as `SWITCH_FORCE_PROCESS_CDR_VARIABLE`. |
+
+## JSON Document Schema
+
+Each CDR is a single-line JSON object serialized by `cJSON_PrintUnformatted`. The document structure is generated by `switch_ivr_generate_json_cdr` in the FreeSWITCH core and contains the following top-level keys:
+
+| Key | Type | Content |
+|---|---|---|
+| `core-uuid` | string | UUID of the FreeSWITCH instance |
+| `switchname` | string | Configured switch name |
+| `channel_data` | object | Channel state, direction (`inbound`/`outbound`), numeric state code, flags, and capability strings |
+| `callStats` | object | Per-media-type (audio and video) RTP statistics |
+| `variables` | object | All channel variables present at hangup. When `encode-values` is `true`, string values are URL-encoded |
+| `app_log` | object | Ordered list of dialplan applications executed on the session, each with `app_name`, `app_data`, and `app_stamp` |
+| `callflow` | array | One entry per caller profile in the call chain; each entry contains `dialplan`, `profile_index`, an `extension` sub-object with the matched extension name, number, and application list, and a `caller_profile` sub-object with caller/callee identity fields |
+
+On-disk files are named `<uuid>.cdr.json`. When `prefix-a-leg` is `true`, A-leg files are named `a_<uuid>.cdr.json`. Each file contains a single JSON document followed by a newline.
+
+## File Delivery
+
+When `log-dir` is configured (or when HTTP delivery fails and `log-errors-to-disk` is `true`), the module writes one file per CDR:
+
+- Normal CDRs go to `log-dir` (or `json_cdr_base` if set on the channel).
+- CDRs that could not be delivered via HTTP go to `err-log-dir`. If `err-log-dir` is not configured, it falls back to `log-dir`.
+
+When `rotate` is `true`, a SIGHUP signal causes the module to create a new timestamped subdirectory under the base log path and redirect all subsequent writes there. The directory name format is `YYYY-MM-DD-HH-MM-SS`.
+
+## HTTP Delivery
+
+When one or more `url` parameters are present, the module opens a libcurl handle and HTTP-POSTs each CDR after call teardown. The behavior is:
+
+1. The session UUID is appended to the URL as `?uuid=<uuid>`.
+2. The payload encoding is controlled by `encode`: `false` sends raw JSON with `Content-Type: application/json`; `true` sends `cdr=<url-encoded-json>` with `Content-Type: application/x-www-form-urlencoded`; `base64` sends `cdr=<base64-json>` with `Content-Type: application/x-www-form-base64-encoded`.
+3. On any non-2xx response, the module advances to the next configured URL and retries up to `retries` times, waiting `delay` seconds between attempts.
+4. If all retry attempts fail, the CDR is written to `err-log-dir` (when `log-errors-to-disk` is `true`).
+5. When `queue-capacity` is set, CDRs are pushed to an in-process queue and processed by a background thread, preventing delivery latency from blocking the call-teardown path.
+
+**Source:** `src/mod/event_handlers/mod_json_cdr`, `src/mod/event_handlers/mod_json_cdr/conf/autoload_configs/json_cdr.conf.xml`

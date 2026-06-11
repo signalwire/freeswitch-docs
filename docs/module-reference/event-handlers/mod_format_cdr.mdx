@@ -1,0 +1,92 @@
+---
+sidebar_position: 8
+id: mod_format_cdr
+slug: /module-reference/event-handlers/mod_format_cdr
+title: "mod_format_cdr — JSON/XML CDR to Disk or HTTP"
+description: "Writes one CDR per call leg in JSON or XML format, delivering records to disk, an HTTP endpoint, or both."
+sidebar_label: "mod_format_cdr"
+---
+
+# mod_format_cdr — JSON/XML CDR to Disk or HTTP
+
+`mod_format_cdr` captures one Call Detail Record per call leg at hangup and delivers it as either a JSON or XML document. Records can be written to local disk, HTTP-POSTed to one or more web endpoints, or both simultaneously. Multiple named profiles may be active at once, enabling independent delivery pipelines — for example, writing XML to disk while posting JSON to a remote billing server.
+
+The module lives in `src/mod/event_handlers` and registers an `on_reporting` state-handler callback. On SIGHUP (`SWITCH_EVENT_TRAP` with `Trapped-Signal: HUP`) the module rotates its log directories if `rotate` is enabled.
+
+## Loading the Module
+
+The module name is `mod_format_cdr`. It is **not** included in the vanilla `modules.conf.xml` default load set and must be added manually:
+
+```xml
+<load module="mod_format_cdr"/>
+```
+
+No special build flag is required; the module is built as part of the standard FreeSWITCH source tree.
+
+## Configuration: `format_cdr.conf.xml`
+
+The configuration file is `conf/autoload_configs/format_cdr.conf.xml`. It contains one or more `<profile>` elements inside a `<profiles>` block. Each profile is independent and runs for every call.
+
+### Parameters
+
+| Parameter | Purpose | Accepted Values | Default |
+|---|---|---|---|
+| `format` | Output format for CDR data. | `xml`, `json` | `xml` |
+| `url` | HTTP endpoint to POST the CDR to. May be repeated up to 20 times for failover. Omit or leave blank to disable HTTP delivery. | HTTP/HTTPS URL | _(none — disk only)_ |
+| `cred` | HTTP Basic or other credentials passed to libcurl. | `user:pass` string | _(none)_ |
+| `log-dir` | Directory for disk output. Blank value defaults to `${prefix}/logs/format_cdr`. Relative values are interpreted under `${prefix}/logs/`. Omit the parameter entirely to disable disk writes when a `url` is set. | Absolute or relative path, or blank | _(none)_ |
+| `log-file` | Filename template for each CDR file. Channel variables are expanded. When omitted, the filename is `<uuid>.cdr.<format>` (or `a_<uuid>.cdr.<format>` when `prefix-a-leg` is enabled). | Filename string with optional `${variable}` expansions | `<uuid>.cdr.<format>` |
+| `err-log-dir` | Directory where CDR files are written when HTTP POST fails. May be repeated up to 20 times. Defaults to `log-dir` when omitted. | Absolute or relative path, or blank | same as `log-dir` |
+| `log-b-leg` | Whether to generate a CDR for B-leg (originated) channels. When `false`, B-legs are skipped unless `force_process_cdr` is set on the channel. | `true`, `false` | `true` (code default; vanilla conf sets `false`) |
+| `prefix-a-leg` | When `true`, prepend `a_` to the CDR filename for A-leg calls. Has no effect on B-legs. | `true`, `false` | `false` (code default; vanilla conf sets `true`) |
+| `log-http-and-disk` | When `true`, write to disk even when HTTP delivery succeeds. | `true`, `false` | `false` |
+| `encode` | HTTP POST body encoding. `true` = URL-encoded (`application/x-www-form-urlencoded`), `false` = plaintext, `base64` = base64-encoded, `textxml` = raw body with `Content-Type: text/xml`, `appljson` = raw body with `Content-Type: application/json`. | `true`, `false`, `base64`, `textxml`, `appljson` | _(none set; conf example uses `true`)_ |
+| `encode-values` | When `true`, URL-encode individual JSON field values when generating JSON CDRs. Set to `false` for standard unescaped JSON. | `true`, `false` | `true` |
+| `retries` | Number of additional POST attempts after the first failure (so `retries=2` means up to 3 total attempts). | Non-negative integer | `0` |
+| `delay` | Seconds to wait between retry attempts. Automatically set to `5` if `retries` is non-zero and `delay` is `0`. | Non-negative integer | `0` (→ `5` when retries set) |
+| `timeout` | libcurl transfer timeout in seconds. `0` means no timeout. | Non-negative integer | `0` |
+| `rotate` | When `true`, create a new subdirectory under `log-dir` on SIGHUP, named with the current timestamp (`YYYY-MM-DD-HH-MM-SS`). | `true`, `false` | `false` |
+| `auth-scheme` | libcurl HTTP authentication scheme. Prefix with `=` to use only that scheme (no bitmask). | `basic`, `digest`, `NTLM`, `GSS-NEGOTIATE`, `any` | `basic` |
+| `disable-100-continue` | When `true`, suppress the `Expect: 100-continue` header. Required by some HTTP servers such as lighttpd. | `true`, `false` | `false` |
+| `enable-cacert-check` | When `true`, have libcurl verify the server certificate against the system CA bundle. | `true`, `false` | `false` |
+| `enable-ssl-verifyhost` | When `true`, verify that the TLS certificate hostname matches the target host. | `true`, `false` | `false` |
+| `ssl-cert-path` | Path to the PEM-format client public certificate for mutual TLS. | Absolute file path | _(none)_ |
+| `ssl-key-path` | Path to the PEM-format client private key for mutual TLS. | Absolute file path | _(none)_ |
+| `ssl-key-password` | Passphrase for the private key specified in `ssl-key-path`. | String | _(none)_ |
+| `ssl-cacert-file` | Path to a custom CA certificate in PEM format for peer verification. | Absolute file path | _(none)_ |
+| `ssl-version` | Force a specific TLS version. | `SSLv3`, `TLSv1` | _(libcurl auto-negotiates)_ |
+
+### Example Configuration
+
+```xml
+<configuration name="format_cdr.conf" description="Multi Format CDR CURL logger">
+  <profiles>
+    <profile name="default">
+      <settings>
+        <param name="format" value="xml"/>
+        <!-- <param name="url" value="http://localhost/cdr_curl/post.php"/> -->
+        <param name="log-dir" value=""/>
+        <param name="log-b-leg" value="false"/>
+        <param name="prefix-a-leg" value="true"/>
+        <param name="encode" value="true"/>
+        <param name="encode-values" value="true"/>
+      </settings>
+    </profile>
+  </profiles>
+</configuration>
+```
+
+Multiple profiles may coexist. Assign each a unique `name` attribute to run parallel delivery pipelines (for example, one profile in JSON to an HTTP endpoint and another in XML to a local directory).
+
+## Channel Variables
+
+| Variable | Set / Read | Purpose |
+|---|---|---|
+| `format_cdr_base` | Read | Override the `log-dir` for an individual call. When set on the channel at hangup, the module writes the CDR to this directory instead of the profile's configured `log-dir`. |
+| `force_process_cdr` | Read | When set to a true value on a B-leg channel and `log-b-leg` is `false`, forces the module to generate and deliver a CDR for that B-leg anyway. |
+
+## Events
+
+`mod_format_cdr` does not register any custom `SWITCH_EVENT_CUSTOM` subclasses. It consumes `SWITCH_EVENT_TRAP` internally to detect SIGHUP for log rotation.
+
+**Source:** `src/mod/event_handlers/mod_format_cdr`, `conf/vanilla/autoload_configs/format_cdr.conf.xml`

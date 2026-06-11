@@ -1,0 +1,132 @@
+---
+sidebar_position: 13
+id: mod_nibblebill
+slug: /module-reference/applications/mod_nibblebill
+title: "mod_nibblebill — Real-Time Prepaid Billing"
+description: "Debits call charges from a database balance in real time, with configurable billing rates, low-balance warnings, and automatic call termination."
+sidebar_label: "mod_nibblebill"
+---
+
+# mod_nibblebill — Real-Time Prepaid Billing
+
+`mod_nibblebill` is an applications module that performs real-time, per-second billing against an ODBC-connected database while a call is in progress. It reads a billing rate and account identifier from channel variables, then periodically debits the running balance and takes a configured action — such as playing a warning tone or hanging up — when the balance falls below defined thresholds.
+
+Reach for this module when you need prepaid calling card or wholesale VoIP billing where you must cap expenditure per call, warn callers at a low-balance threshold, and guarantee that a zero-balance account cannot run indefinitely.
+
+## Loading the Module
+
+The module name is `mod_nibblebill`. In the vanilla FreeSWITCH installation it is **commented out** in `conf/vanilla/autoload_configs/modules.conf.xml` and is not loaded by default. To enable it, uncomment the entry:
+
+```xml
+<load module="mod_nibblebill"/>
+```
+
+No special compile-time flag is required; the module is included in the standard FreeSWITCH source tree under `src/mod/applications/mod_nibblebill`.
+
+## Configuration: `nibblebill.conf.xml`
+
+Place the configuration file at `conf/autoload_configs/nibblebill.conf.xml`. The module requires an ODBC DSN; without one no billing transactions are written.
+
+| Parameter | Purpose | Accepted Values | Default |
+|---|---|---|---|
+| `odbc-dsn` | ODBC data source name (or `database:user:password` form) for the billing database | String | _(none — must be set)_ |
+| `db_table` | Table that holds account balances | String | _(none)_ |
+| `db_column_cash` | Column storing the monetary balance | String | _(none)_ |
+| `db_column_account` | Column storing the account identifier | String | _(none)_ |
+| `custom_sql_lookup` | Custom SELECT that returns `nibble_balance`; channel variables are expanded. Overrides column-name params. | SQL string | _(none — uses column params)_ |
+| `custom_sql_save` | Custom UPDATE for deducting a charge; channel variable `nibble_bill` holds the debit amount. Overrides column-name params. | SQL string | _(none — uses column params)_ |
+| `global_heartbeat` | How often (seconds) to bill mid-call via session heartbeat. `0` disables mid-call billing (bill only at hangup). | Integer ≥ 0 | `60` |
+| `lowbal_amt` | Balance at or below which the low-balance action fires (once per call). Can be negative. | Float | `5` |
+| `lowbal_action` | Dialplan application string executed when balance hits `lowbal_amt` | Application string | `play ding` |
+| `nobal_amt` | Balance at or below which the call is terminated/transferred. Can be negative. | Float | `0` |
+| `nobal_action` | Dialplan application string or transfer destination executed when balance hits `nobal_amt` | Application string | `hangup` |
+| `percall_max_amt` | Maximum total charge allowed per call (fraud guard). Parsed and stored but **not enforced** in the current source — the enforcement logic is not implemented. | Float | `100` |
+| `percall_action` | Action taken when per-call maximum is reached. Parsed and stored but **not enforced** in the current source. | Application string | `hangup` |
+| `var_name_rate` | Channel variable name used to read the billing rate (overrides default `nibble_rate`) | String | `nibble_rate` |
+| `var_name_account` | Channel variable name used to read the account ID (overrides default `nibble_account`) | String | `nibble_account` |
+
+Trimmed example from the shipped conf:
+
+```xml
+<configuration name="nibblebill.conf" description="Nibble Billing">
+  <settings>
+    <param name="odbc-dsn" value="bandwidth.com"/>
+    <param name="db_table" value="accounts"/>
+    <param name="db_column_cash" value="cash"/>
+    <param name="db_column_account" value="id"/>
+    <param name="global_heartbeat" value="60"/>
+    <param name="lowbal_amt" value="5"/>
+    <param name="lowbal_action" value="play ding"/>
+    <param name="nobal_amt" value="0"/>
+    <param name="nobal_action" value="hangup"/>
+    <param name="percall_max_amt" value="100"/>
+    <param name="percall_action" value="hangup"/>
+  </settings>
+</configuration>
+```
+
+## Dialplan Applications
+
+| Application | Purpose | Arguments |
+|---|---|---|
+| `nibblebill` | Control billing state or schedule for the current channel | `pause \| resume \| reset \| adjust <amount> \| heartbeat <seconds> \| check \| flush` |
+
+**Argument details:**
+
+- `pause` — Suspends billing; time elapsed while paused is not charged.
+- `resume` — Resumes billing; the paused interval is subtracted from the next billing cycle.
+- `reset` — Moves the billing start timestamp to right now, discarding elapsed unbilled time.
+- `adjust <amount>` — Immediately credits or debits `<amount>` from the account in the database (positive value credits the account, negative value debits it).
+- `heartbeat <seconds>` — Enables session heartbeat billing at the given interval for this channel.
+- `check` — Logs the total amount billed so far on this channel (INFO level).
+- `flush` — Triggers an immediate billing cycle for elapsed time.
+
+The channel must have `nibble_rate` (or the configured `var_name_rate` equivalent) and `nibble_account` (or `var_name_account`) set before billing will occur.
+
+```xml
+<!-- Set billing parameters and start billing -->
+<action application="set" data="nibble_account=${accountcode}"/>
+<action application="set" data="nibble_rate=0.05"/>
+<action application="bridge" data="sofia/gateway/carrier/$1"/>
+
+<!-- Mid-call: pause billing while playing a menu -->
+<action application="nibblebill" data="pause"/>
+
+<!-- Resume billing after the menu -->
+<action application="nibblebill" data="resume"/>
+
+<!-- Enable per-channel heartbeat billing every 30 seconds -->
+<action application="nibblebill" data="heartbeat 30"/>
+```
+
+## API Commands
+
+| Command | Purpose | Syntax |
+|---|---|---|
+| `nibblebill` | Control billing state for any active channel by UUID | `nibblebill <uuid> [pause \| resume \| reset \| adjust <amount> \| heartbeat <seconds> \| check \| flush]` |
+
+`fs_cli` examples:
+
+```
+nibblebill 1234-abcd-5678-efgh pause
+nibblebill 1234-abcd-5678-efgh adjust -2.50
+nibblebill 1234-abcd-5678-efgh check
+nibblebill 1234-abcd-5678-efgh heartbeat 60
+```
+
+## Channel Variables
+
+| Variable | Set / Read | Purpose |
+|---|---|---|
+| `nibble_rate` | Read | Billing rate in dollars per minute. Default variable name; overridden by `var_name_rate` in config. |
+| `nibble_account` | Read | Account identifier used to look up and debit the balance. Default variable name; overridden by `var_name_account` in config. |
+| `nibble_increment` | Read | Billing increment in seconds. When set, charges are rounded up to the next full increment instead of billed by exact elapsed time. |
+| `nibble_rounding` | Read | Rounding precision exponent. The total billed amount is rounded up to `nibble_rounding` decimal places at hangup (internally uses `10^nibble_rounding` as the rounding factor). |
+| `nibble_minimum` | Read | Minimum charge in dollars applied at hangup if total billed falls below this value. |
+| `nobal_amt` | Read | Per-channel override of the global `nobal_amt` threshold. |
+| `lowbal_amt` | Read | Per-channel override of the global `lowbal_amt` threshold. |
+| `nibble_bill` | Set | Set to the current debit amount immediately before executing `custom_sql_save`, allowing the SQL to reference `${nibble_bill}`. |
+| `nibble_total_billed` | Set | Updated after every successful billing cycle with the cumulative amount charged on this call. |
+| `nibble_current_balance` | Set | Set to the account's remaining balance at call hangup. |
+
+**Source:** `src/mod/applications/mod_nibblebill`, `conf/vanilla/autoload_configs/nibblebill.conf.xml`

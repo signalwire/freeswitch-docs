@@ -1,0 +1,139 @@
+---
+sidebar_position: 5
+id: mod_curl
+slug: /module-reference/applications/mod_curl
+title: "mod_curl — HTTP Requests from the Dialplan"
+description: "mod_curl lets dialplan applications and API commands issue HTTP GET, POST, PUT, PATCH, DELETE, and HEAD requests and capture responses as channel variables."
+sidebar_label: "mod_curl"
+---
+
+# mod_curl — HTTP Requests from the Dialplan
+
+`mod_curl` is an application module in `src/mod/applications/mod_curl` that exposes HTTP client functionality directly to the FreeSWITCH dialplan and API layer. It wraps libcurl to perform GET, HEAD, POST, PUT, PATCH, and DELETE requests and stores the HTTP response body and status code in channel variables.
+
+Operators reach for `mod_curl` when a dialplan needs to query a REST API mid-call—for example, to look up caller data, post call-detail to a webhook, or drive call routing from an external service—without leaving the dialplan context.
+
+## Loading the Module
+
+The module is **not loaded by default**. In `conf/vanilla/autoload_configs/modules.conf.xml` the entry is commented out:
+
+```xml
+<!-- <load module="mod_curl"/> -->
+```
+
+To enable it, uncomment that line (or add it) and restart FreeSWITCH, or load it at runtime with:
+
+```
+freeswitch@> load mod_curl
+```
+
+No special build flag is required; the module is compiled as part of the standard FreeSWITCH build when libcurl is present.
+
+## Configuration: `curl.conf.xml`
+
+`mod_curl` reads `conf/autoload_configs/curl.conf.xml` on load and whenever a `reloadxml` event fires.
+
+| Parameter | Purpose | Accepted Values | Default |
+|---|---|---|---|
+| `max-bytes` | Maximum response body size the module will buffer | Integer (bytes) | `64000` |
+| `validate-certs` | Whether to verify TLS peer certificates for HTTPS URLs when no `cacert.pem` is present | `true` / `false` | `false` |
+
+The module always attempts to use `{certs_dir}/cacert.pem` for HTTPS connections first; `validate-certs` controls the fallback behavior when that file is absent.
+
+```xml
+<configuration name="curl.conf" description="cURL module">
+  <settings>
+    <param name="max-bytes" value="64000"/>
+  </settings>
+</configuration>
+```
+
+## Dialplan Applications
+
+| Application | Purpose | Arguments |
+|---|---|---|
+| `curl` | Make an HTTP request and store the response in channel variables | See syntax below |
+| `curl_sendfile` | Upload a file to a URL via multipart POST | See syntax below |
+
+### `curl`
+
+```
+curl <url> [headers|json|content-type <mime-type>|connect-timeout <seconds>|timeout <seconds>|append_headers <header-name:header-value>|insecure|secure|proxy <http://proxy:port>] [get|head|post|delete|put [data]]
+```
+
+Makes an HTTP request to `<url>`. The default method is `GET`. Response body is stored in `curl_response_data`; the HTTP status code in `curl_response_code`.
+
+- `headers` — prepend response headers to `curl_response_data`
+- `json` — return a JSON object containing `exit_code`, `status_code`, `body`, and `headers` array
+- `content-type <mime-type>` — set `Content-Type` request header (used with `post`, `put`, `patch`, `delete`)
+- `append_headers <name:value>` — add an arbitrary request header (may be repeated up to 10 times)
+- `insecure` — disable TLS certificate verification
+- `secure` — enable TLS certificate verification (overrides the `validate-certs` default)
+- `proxy <url>` — route the request through an HTTP proxy
+
+The `curl_connect_timeout` and `curl_timeout` channel variables are also read at call time (see Channel Variables section).
+
+```xml
+<action application="curl" data="https://api.example.com/lookup?ani=${caller_id_number} json"/>
+<action application="set" data="lookup_result=${curl_response_data}"/>
+```
+
+### `curl_sendfile`
+
+```
+curl_sendfile <url> <filenameParamName=filepath> [nopost|postparam1=val&postparam2=val [event|none [identifier]]]
+```
+
+Uploads a local file to `<url>` as a multipart/form-data POST. The second argument is a `name=path` pair that sets the form field name and the local file path. Optional extra POST fields are specified as URL-encoded `key=value` pairs joined by `&`. The fourth argument controls where the result is reported: `event` fires a `curl_sendfile::ack` custom event; `none` (default) logs to the FreeSWITCH log.
+
+When called with no inline arguments the application reads its parameters from channel variables (see Channel Variables section).
+
+```xml
+<action application="curl_sendfile" data="https://upload.example.com/recording recording=/tmp/call.wav extra=foo%3Dbar event"/>
+```
+
+## API Commands
+
+| Command | Purpose | Syntax |
+|---|---|---|
+| `curl` | HTTP request from `fs_cli` or ESL | `curl <url> [options] [method [data]]` |
+| `curl_sendfile` | Upload a file from `fs_cli` or ESL | `curl_sendfile <url> <name=path> [postdata [event\|stream\|both\|none [identifier]]]` |
+
+The `curl` API command accepts the same options as the dialplan application except that `connect-timeout` and `timeout` are inline arguments (not channel variables), and the result is written directly to the stream rather than to channel variables.
+
+The `curl_sendfile` API command adds two output modes not available in the app: `stream` (write result to the API stream) and `both` (event and stream simultaneously).
+
+```
+freeswitch@> curl https://api.example.com/status get
+freeswitch@> curl https://api.example.com/event post field=value content-type application/x-www-form-urlencoded
+freeswitch@> curl_sendfile https://upload.example.com/files recording=/tmp/call.wav nopost stream
+```
+
+## Channel Variables
+
+| Variable | Set / Read | Purpose |
+|---|---|---|
+| `curl_response_data` | Set | HTTP response body (or JSON object when `json` flag used) written by the `curl` app |
+| `curl_response_code` | Set | HTTP status code as a string, written by the `curl` app |
+| `curl_method` | Set | HTTP method used for the request, written by the `curl` app |
+| `curl_connect_timeout` | Read | TCP connect timeout in seconds; read by the `curl` app at execution time |
+| `curl_timeout` | Read | Total request timeout in seconds; read by the `curl` app at execution time |
+| `curl_sendfile_url` | Read | Target URL for `curl_sendfile` app when no inline args are provided |
+| `curl_sendfile_filename_element` | Read | Multipart form field name for the file upload in `curl_sendfile` app (chanvar mode) |
+| `curl_sendfile_filename` | Read | Local file path to upload in `curl_sendfile` app (chanvar mode) |
+| `curl_sendfile_extrapost` | Read | URL-encoded extra POST fields for `curl_sendfile` app (chanvar mode) |
+| `curl_sendfile_report` | Read | Output mode for `curl_sendfile` app in chanvar mode: `event` or `none` |
+| `curl_sendfile_identifier` | Read | Identifier string attached to `curl_sendfile::ack` events (chanvar mode) |
+
+## Events
+
+`mod_curl` registers and fires the custom event subclass `curl_sendfile::ack` (`SWITCH_EVENT_CUSTOM`) when `curl_sendfile` completes and the `event` output mode is selected. The event carries these headers:
+
+- `Command-Execution-Identifier` — the identifier string (session UUID or explicit value)
+- `Filename` — the local file path that was uploaded
+- `File-Access` — `Success` or `Failure`
+- `REST-HTTP-Code` — the HTTP response code (on success)
+
+The event body contains the HTTP response body returned by the server.
+
+**Source:** `src/mod/applications/mod_curl`, `conf/vanilla/autoload_configs/curl.conf.xml`

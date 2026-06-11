@@ -1,0 +1,82 @@
+---
+sidebar_position: 4
+id: mod_redis
+slug: /module-reference/data-stores/mod_redis
+title: "mod_redis — Legacy Redis Limit Backend"
+description: "Provides a Redis-backed limit backend for FreeSWITCH call concurrency control using the bundled credis library."
+sidebar_label: "mod_redis"
+---
+
+# mod_redis — Legacy Redis Limit Backend
+
+`mod_redis` is a limit backend in the `src/mod/applications` category that stores call concurrency counters in a Redis key-value store. It registers the `redis` backend name with FreeSWITCH's limit subsystem, allowing the built-in `limit` dialplan application to use Redis for shared, cross-server counter state.
+
+**This module is deprecated.** The source emits a `SWITCH_LOG_CRIT` warning on every call: "mod_redis is deprecated and will be removed in FS 1.8. Check out mod_hiredis." For new deployments use `mod_hiredis` instead.
+
+## Loading the Module
+
+The module name is `mod_redis`. It does **not** appear in the vanilla `autoload_configs/modules.conf.xml` and is not loaded by default. To enable it, add the following line to the `<modules>` section of `autoload_configs/modules.conf.xml`:
+
+```xml
+<load module="mod_redis"/>
+```
+
+No special build flags are required. The module bundles its own Redis client (`credis`) as `credis.c` / `credis.h` and links against it at compile time, so no external Redis client library needs to be installed.
+
+## Configuration: `redis.conf.xml`
+
+FreeSWITCH reads `autoload_configs/redis.conf.xml` on load and on `reload mod_redis`. All four parameters are reloadable at runtime.
+
+| Parameter | Purpose | Accepted Values | Default |
+|---|---|---|---|
+| `host` | Hostname or IP address of the Redis server | Any resolvable hostname or IP | `localhost` |
+| `port` | TCP port of the Redis server | Integer | `6379` |
+| `timeout` | Connection timeout in milliseconds | Integer (ms) | `10000` |
+| `ignore_connect_fail` | When `true`, allow calls through even if Redis is unreachable | `true` \| `false` | `false` |
+
+Shipped example (`conf/vanilla/autoload_configs/redis.conf.xml`):
+
+```xml
+<configuration name="redis.conf" description="mod_redis Configuration">
+  <settings>
+    <param name="host" value="localhost"/>
+    <param name="port" value="6379"/>
+    <param name="timeout" value="10000"/>
+  </settings>
+</configuration>
+```
+
+Note that `ignore_connect_fail` is not included in the shipped file; its default is `false`.
+
+## Dialplan Applications
+
+`mod_redis` registers no dialplan applications of its own. It exposes its functionality through the standard `limit` dialplan application (provided by `mod_dptools`) by registering `redis` as a named backend. Use the `limit` application with `redis` as the first argument:
+
+```xml
+<action application="limit" data="redis realm resource 5"/>
+```
+
+The fields in the `data` attribute are:
+
+| Field | Purpose |
+|---|---|
+| `redis` | Selects this module's backend |
+| `realm` | Logical grouping name for the counter (e.g. `outbound`) |
+| `resource` | Specific resource identifier within the realm (e.g. `NANPA`) |
+| `5` | Maximum concurrent calls allowed; `0` means unlimited |
+
+The module increments a Redis key named `realm_resource` on call start and decrements it on hangup. A per-switch UUID counter is also maintained using a key named `switchname_realm_resource`.
+
+## API Commands
+
+`mod_redis` registers no API commands.
+
+## Channel Variables
+
+`mod_redis` reads and sets no channel variables directly. Internal per-channel state is stored in a private hash attached to the channel under the key `limit_redis`, which is an implementation detail and not accessible from the dialplan.
+
+## Dependencies
+
+`mod_redis` bundles the `credis` C client library (files `credis.c` and `credis.h` in the module source directory). No external Redis client library such as `hiredis` is required. A running Redis server reachable at the configured `host` and `port` is required at runtime.
+
+**Source:** `src/mod/applications/mod_redis`, `conf/vanilla/autoload_configs/redis.conf.xml`

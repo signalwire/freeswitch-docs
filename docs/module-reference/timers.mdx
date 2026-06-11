@@ -1,0 +1,109 @@
+---
+sidebar_position: 10
+id: timers
+slug: /module-reference/timers
+title: "Timers: mod_timerfd and mod_posix_timer"
+description: "Loadable timer modules providing kernel-backed high-precision media scheduling as an alternative to the built-in soft timer."
+sidebar_label: "Timers"
+---
+
+# Timers: mod_timerfd and mod_posix_timer
+
+FreeSWITCH uses a **timing source** to schedule media frames — RTP packets, music-on-hold chunks, conference audio mixing, and file streaming all depend on a timer firing at a precise interval (typically every 20 ms). The core ships a built-in software timer called `soft` that is always available. `mod_timerfd` and `mod_posix_timer` are optional loadable modules that register additional timer names backed by kernel timer facilities; they can deliver lower latency and tighter jitter than the `soft` timer on systems where the kernel timer API is available.
+
+Neither module has a configuration file. Both register a named timer interface that other FreeSWITCH subsystems request by name. Supported intervals are 1–2000 ms.
+
+## mod_timerfd
+
+`mod_timerfd` implements a timer using the Linux `timerfd_create(2)` / `epoll(7)` API. A single `epoll` file descriptor monitors all active interval timers. When a `timerfd` fires, the runtime thread reads the expiration count and broadcasts to all sessions waiting on that interval.
+
+| Attribute | Value |
+|---|---|
+| Module name | `mod_timerfd` |
+| Timer interface name | `timerfd` |
+| Kernel API | `timerfd_create(CLOCK_MONOTONIC)` + `epoll_wait` |
+| Platform | Linux only (`sys/timerfd.h`, `sys/epoll.h`) |
+| Shared timers per interval | Yes — one `timerfd` per interval value, shared across all users of that interval |
+| Max concurrent intervals | 1–2000 ms |
+
+**Not loaded by default.** To enable, uncomment the entry in `autoload_configs/modules.conf.xml`:
+
+```xml
+<!-- Timers -->
+<load module="mod_timerfd"/>
+```
+
+`mod_timerfd` is Linux-specific. It will not compile or load on macOS, FreeBSD, or other platforms that do not provide `sys/timerfd.h`.
+
+## mod_posix_timer
+
+`mod_posix_timer` implements a timer using the POSIX `timer_create(2)` / `timer_settime(2)` API with `CLOCK_MONOTONIC` and `SIGEV_SIGNAL` delivery. Each armed timer sends a real-time signal (`SIGRTMAX - 1`) to a dedicated runtime thread, which reads timer IDs from a self-pipe and broadcasts to waiting sessions. Up to 4 POSIX timers can be active per interval value (`TIMERS_PER_INTERVAL = 4`), and up to 256 timers can be active across all intervals at once (`MAX_ACTIVE_TIMERS = 256`).
+
+| Attribute | Value |
+|---|---|
+| Module name | `mod_posix_timer` |
+| Timer interface name | `posix` |
+| Kernel API | `timer_create(CLOCK_MONOTONIC, SIGEV_SIGNAL)` + `select` on self-pipe |
+| Platform | Any POSIX system with `timer_create` (Linux, Solaris, etc.) |
+| Timers per interval | Up to 4 (round-robin assigned) |
+| Max active timers | 256 |
+| Max concurrent intervals | 1–2000 ms |
+
+**Not loaded by default.** To enable, uncomment the entry in `autoload_configs/modules.conf.xml`:
+
+```xml
+<!-- Timers -->
+<load module="mod_posix_timer"/>
+```
+
+`mod_posix_timer` is the portable alternative to `mod_timerfd` for non-Linux systems that provide `timer_create` but not `timerfd`.
+
+## Selecting a Timer
+
+FreeSWITCH subsystems that need a timing source request one by name. The built-in name is `soft`. When `mod_timerfd` is loaded, the name `timerfd` becomes available. When `mod_posix_timer` is loaded, the name `posix` becomes available.
+
+The timer name is specified at the point of use, not globally:
+
+**Sofia SIP profile — RTP timer (`rtp-timer-name`)**
+
+Each Sofia SIP profile specifies its RTP timer with the `rtp-timer-name` parameter. The vanilla profiles default to `soft`:
+
+```xml
+<param name="rtp-timer-name" value="soft"/>
+```
+
+Change `soft` to `timerfd` or `posix` to use one of the loadable modules for RTP pacing on that profile.
+
+**mod_local_stream — file streaming (`timer-name`)**
+
+Each `<directory>` block in `local_stream.conf.xml` specifies its timer with the `timer-name` parameter. The vanilla configuration defaults to `soft`:
+
+```xml
+<directory name="default" path="$${sounds_dir}/music/8000">
+  <param name="rate"       value="8000"/>
+  <param name="shuffle"    value="true"/>
+  <param name="channels"   value="1"/>
+  <param name="interval"   value="20"/>
+  <param name="timer-name" value="soft"/>
+</directory>
+```
+
+**mod_verto — WebRTC timer (`timer-name`)**
+
+Each Verto profile uses `timer-name` inside its `<settings>` block (default `soft`):
+
+```xml
+<param name="timer-name" value="soft"/>
+```
+
+**Summary of timer names by subsystem**
+
+| Subsystem | Parameter | Built-in value | Loadable alternatives |
+|---|---|---|---|
+| Sofia SIP profile (RTP) | `rtp-timer-name` | `soft` | `timerfd`, `posix` |
+| `mod_local_stream` directory | `timer-name` | `soft` | `timerfd`, `posix` |
+| `mod_verto` profile | `timer-name` | `soft` | `timerfd`, `posix` |
+
+A loadable timer module must be present in `modules.conf.xml` before its name can be referenced by any subsystem. Referencing an unknown timer name will cause the requesting subsystem to fall back to `soft` or log an error depending on the calling module.
+
+**Source:** `src/mod/timers/mod_timerfd`, `src/mod/timers/mod_posix_timer`

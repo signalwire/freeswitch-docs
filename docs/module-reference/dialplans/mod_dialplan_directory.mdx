@@ -1,0 +1,78 @@
+---
+sidebar_position: 2
+id: mod_dialplan_directory
+slug: /module-reference/dialplans/mod_dialplan_directory
+title: "mod_dialplan_directory — Directory-Driven Dialplan"
+description: "Routes calls by querying a directory service (e.g. LDAP) for callflow instructions keyed on the dialed extension and context."
+sidebar_label: "mod_dialplan_directory"
+---
+
+# mod_dialplan_directory — Directory-Driven Dialplan
+
+`mod_dialplan_directory` is a dialplan parser in the `src/mod/dialplans` category. Instead of reading routing rules from XML files on disk, it connects to a directory service (such as LDAP) at call time and retrieves routing instructions stored as `callflow` attributes on directory entries.
+
+Use this module when call-routing data already lives in a directory service or when you need dial-plan changes to take effect instantly across a cluster without reloading XML on each node. Each inbound call triggers a directory query filtered by the dialed extension and, optionally, the context; the module then executes each returned `callflow` value as a FreeSWITCH application invocation.
+
+## Loading the Module
+
+The module name for `load` / `modules.conf.xml` is `mod_dialplan_directory`. It is **not** loaded by default in the vanilla configuration — the entry in `conf/vanilla/autoload_configs/modules.conf.xml` is commented out:
+
+```xml
+<!-- <load module="mod_dialplan_directory"/> -->
+```
+
+To activate it, uncomment that line (or add it) and restart FreeSWITCH, or issue `load mod_dialplan_directory` at the `fs_cli` prompt. No special build flags are required; the module is compiled as part of the standard FreeSWITCH build.
+
+## Configuration: `dialplan_directory.conf.xml`
+
+The module reads `dialplan_directory.conf` (resolved through the normal `autoload_configs` search path) on startup. All five parameters must be present for the module to attempt any directory lookups; if any are missing, the hunt function returns immediately with no extension.
+
+| Parameter | Purpose | Accepted Values | Default |
+|---|---|---|---|
+| `directory-name` | Name of the loaded directory interface module to use as the backend | Any loaded directory module name (e.g. `ldap`) | _(none)_ |
+| `host` | Hostname or IP of the directory server | String | _(none)_ |
+| `dn` | Distinguished name (bind DN) used to authenticate to the directory | String | _(none)_ |
+| `pass` | Password for the bind DN | String | _(none)_ |
+| `base` | LDAP search base (passed to `switch_core_directory_query`) | String | _(none)_ |
+
+Example from the shipped `dialplan_directory.conf.xml`:
+
+```xml
+<configuration name="dialplan_directory.conf" description="Dialplan Directory">
+  <settings>
+    <param name="directory-name" value="ldap"/>
+    <param name="host" value="ldap.freeswitch.org"/>
+    <param name="dn" value="cn=Manager,dc=freeswitch,dc=org"/>
+    <param name="pass" value="test"/>
+    <param name="base" value="dc=freeswitch,dc=org"/>
+  </settings>
+</configuration>
+```
+
+## Selecting This Dialplan
+
+Assign the dialplan name `directory` wherever FreeSWITCH accepts a `dialplan` parameter. For a SIP profile this is the `dialplan` param in `sip_profiles/*.xml`:
+
+```xml
+<param name="dialplan" value="directory"/>
+```
+
+For an inbound call leg created via `originate` or a gateway, pass it as the `dialplan` field of the dial-string or leg variable. The string `"directory"` matches the name registered by `SWITCH_ADD_DIALPLAN(dp_interface, "directory", directory_dialplan_hunt)` in the module.
+
+## How Routing Works
+
+On each call, the hunt function:
+
+1. Builds a directory filter string of the form `exten=<destination_number>context=<context>` (context is appended only when the caller profile carries one).
+2. Opens a connection to the directory backend identified by `directory-name` using the configured `host`, `dn`, and `pass` (via `switch_core_directory_open`).
+3. Executes the directory query using the configured `base` and the filter string built in step 1 (via `switch_core_directory_query`), then iterates over every returned entry and every attribute pair in that entry.
+4. For each attribute whose name is `callflow`, splits the value on the first space into an application name and data string, then appends that application to the caller extension being built.
+5. Returns the assembled extension to the core for execution, or `NULL` if no `callflow` attributes were found.
+
+The directory backend (e.g. `mod_ldap`) must be loaded separately; `mod_dialplan_directory` only orchestrates the lookup through FreeSWITCH's generic directory interface (`switch_core_directory_open` / `switch_core_directory_query` / `switch_core_directory_next_pair`).
+
+## Dependencies
+
+`mod_dialplan_directory` requires at least one loaded **directory interface** module as its backend. The only directory interface module shipped with FreeSWITCH is `mod_ldap` (`src/mod/directories/mod_ldap`). `mod_ldap` links against OpenLDAP (`libldap`) which must be installed on the system separately and is not built by default.
+
+**Source:** `src/mod/dialplans/mod_dialplan_directory`, `conf/vanilla/autoload_configs/dialplan_directory.conf.xml`

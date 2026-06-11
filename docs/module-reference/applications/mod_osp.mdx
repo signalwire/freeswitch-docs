@@ -1,0 +1,162 @@
+---
+sidebar_position: 14
+id: mod_osp
+slug: /module-reference/applications/mod_osp
+title: "mod_osp — Open Settlement Protocol Routing"
+description: "Routes calls through an OSP clearinghouse, performing AuthReq/AuthRsp exchanges and usage reporting via the OSP Toolkit."
+sidebar_label: "mod_osp"
+---
+
+# mod_osp — Open Settlement Protocol Routing
+
+`mod_osp` integrates FreeSWITCH with an Open Settlement Protocol (OSP) clearinghouse. On an inbound call, the `osplookup` dialplan application contacts the configured OSP server to obtain one or more authorized destinations, then populates channel variables that the dialplan uses to bridge the call. When a route fails, `ospnext` retrieves the next destination from the same authorization response without a new server round-trip. After the call ends, the module's reporting state handler automatically sends a usage indication back to the OSP server.
+
+The module is appropriate when interconnect partners or a wholesale carrier require OSP-based authorization and CDR reporting. It supports SIP, H.323, IAX, and Skype signaling protocols and can operate in either direct (FreeSWITCH is the originating device) or indirect (FreeSWITCH sits behind an access proxy) work mode.
+
+## Loading the Module
+
+The module is **not** present in the default vanilla `modules.conf.xml` and is not loaded automatically. Add the following line to `autoload_configs/modules.conf.xml` to enable it at startup, or load it at runtime from `fs_cli`:
+
+```
+load mod_osp
+```
+
+The module requires the **OSP Toolkit** (`libosp`) to be installed on the system before compiling. See the Dependencies section below.
+
+## Configuration: `osp.conf.xml`
+
+`mod_osp` reads `autoload_configs/osp.conf.xml`. The file contains a `<settings>` block for global options and a `<profiles>` block where each `<profile>` describes one OSP provider connection. Up to eight `service-point-url` entries may be listed per profile.
+
+### Global Settings Parameters
+
+| Parameter | Purpose | Accepted Values | Default |
+|---|---|---|---|
+| `debug-info` | Enable verbose debug logging | `enabled`, `disabled` | `disabled` |
+| `log-level` | Log level used for debug messages | `console`, `alert`, `crit`, `error`, `warning`, `notice`, `info`, `debug` | `debug` |
+| `crypto-hardware` | Use hardware crypto acceleration via OSP Toolkit | `enabled`, `disabled` | `disabled` |
+| `default-protocol` | Signaling protocol to use when the outbound module is not recognized | `sip`, `h323`, `iax`, `skype` | `sip` |
+| `sip` | SIP endpoint: FreeSWITCH module and profile to use for SIP legs | `module="<name>" profile="<name>"` | `module="sofia" profile="external"` |
+| `h323` | H.323 endpoint module and profile | `module="<name>" profile="<name>"` | not set |
+| `iax` | IAX endpoint module and profile | `module="<name>" profile="<name>"` | not set |
+| `skype` | Skype endpoint module and profile | `module="<name>" profile="<name>"` | not set |
+
+### Profile Parameters
+
+| Parameter | Purpose | Accepted Values | Default |
+|---|---|---|---|
+| `service-point-url` | URL of an OSP service point (repeatable, up to 8) | HTTP or HTTPS URL | required |
+| `device-ip` | IP:port FreeSWITCH reports to the OSP server as its own address | `address:port` | none |
+| `ssl-lifetime` | SSL session lifetime in seconds | integer | `300` |
+| `http-max-connections` | Maximum concurrent HTTP connections to the OSP server | `1`–`1000` | `20` |
+| `http-persistence` | HTTP keep-alive duration in seconds | integer | `60` |
+| `http-retry-delay` | Seconds to wait between HTTP retries | `0`–`10` | `0` |
+| `http-retry-limit` | Maximum number of HTTP retries | `0`–`100` | `2` |
+| `http-timeout` | HTTP request timeout in milliseconds | `200`–`60000` | `10000` |
+| `work-mode` | Whether FreeSWITCH is the edge device (`direct`) or sits behind a proxy (`indirect`) | `direct`, `indirect` | `direct` |
+| `service-type` | OSP service requested | `voice`, `npquery` | `voice` |
+| `max-destinations` | Maximum number of destinations to request per authorization | `1`–`12` | `12` |
+
+### Example excerpt from `osp.conf.xml`
+
+```xml
+<configuration name="osp.conf" description="OSP Module Configuration">
+  <settings>
+    <param name="debug-info" value="disabled"/>
+    <param name="log-level" value="info"/>
+    <param name="crypto-hardware" value="disabled"/>
+    <param name="sip" module="sofia" profile="external"/>
+    <param name="default-protocol" value="sip"/>
+  </settings>
+
+  <profiles>
+    <profile name="default">
+      <param name="service-point-url" value="http://127.0.0.1:5045/osp"/>
+      <param name="device-ip" value="127.0.0.1:5080"/>
+      <param name="ssl-lifetime" value="300"/>
+      <param name="http-max-connections" value="20"/>
+      <param name="http-persistence" value="60"/>
+      <param name="http-retry-delay" value="0"/>
+      <param name="http-retry-limit" value="2"/>
+      <param name="http-timeout" value="10000"/>
+      <param name="work-mode" value="direct"/>
+      <param name="service-type" value="voice"/>
+      <param name="max-destinations" value="12"/>
+    </profile>
+  </profiles>
+</configuration>
+```
+
+## Dialplan Applications
+
+| Application | Purpose | Arguments |
+|---|---|---|
+| `osplookup` | Query the OSP server for authorized routes and populate routing channel variables | `[profile-name]` |
+| `ospnext` | Advance to the next destination returned by a previous `osplookup` | _(none)_ |
+
+### `osplookup`
+
+Sends an OSP Authorization Request (AuthReq) to the named profile's service point. On success it sets `osp_auto_route` to a bridge string for the first destination and records the transaction handle and routing metadata in channel variables. If the optional `profile-name` argument is omitted, the profile named `default` is used.
+
+```xml
+<action application="osplookup" data="default"/>
+<action application="bridge" data="${osp_auto_route}"/>
+```
+
+### `ospnext`
+
+Reads the transaction handle stored by `osplookup` and retrieves the next destination from the OSP server's earlier response. Updates `osp_auto_route` with the new bridge string and increments `osp_route_count`. Call this when a bridge fails and you want to try the next authorized route.
+
+```xml
+<action application="ospnext"/>
+<action application="bridge" data="${osp_auto_route}"/>
+```
+
+## API Commands
+
+| Command | Purpose | Syntax |
+|---|---|---|
+| `osp` | Display current module settings and profile status | `osp status` |
+
+### `fs_cli` example
+
+```
+freeswitch@> osp status
+```
+
+The output lists global flags (`debug-info`, `log-level`, `crypto-hardware`, configured endpoints, `default-protocol`) followed by each profile's parameters and whether its OSP provider handle is active.
+
+## Channel Variables
+
+### Variables the module reads (input)
+
+| Variable | Set / Read | Purpose |
+|---|---|---|
+| `osp_source_device` | Read | Actual source device IP for indirect mode (overrides the caller network address) |
+| `osp_source_nid` | Read | Source network ID passed to the OSP server |
+| `osp_custom_info_1` … `osp_custom_info_8` | Read | Up to eight custom info strings included in the AuthReq |
+| `osp_networkid_userparam` | Read | Destination network ID user parameter name for outbound URI construction |
+| `osp_networkid_uriparam` | Read | Destination network ID URI parameter name for outbound URI |
+| `osp_outstring_userparam` | Read | Fixed outbound user parameter string |
+| `osp_outstring_uriparam` | Read | Fixed outbound URI parameter string |
+| `osp_user_phone` | Read | When true, appends `user=phone` to the outbound Request-URI |
+| `osp_outbound_proxy` | Read | Outbound SIP proxy IP address |
+
+### Variables the module sets (output)
+
+| Variable | Set / Read | Purpose |
+|---|---|---|
+| `osp_profile_name` | Set | Name of the OSP profile used for this call |
+| `osp_transaction_handle` | Set | OSP Toolkit transaction handle (integer) |
+| `osp_transaction_id` | Set | OSP transaction ID (uint64) |
+| `osp_lookup_status` | Set | Return status of the `osplookup` application |
+| `osp_next_status` | Set | Return status of the `ospnext` application |
+| `osp_route_total` | Set | Total number of destinations returned by the OSP server |
+| `osp_route_count` | Set | Index of the current destination (starts at 1, incremented by `ospnext`) |
+| `osp_auto_route` | Set | Bridge string for the current destination; unset when no more routes remain |
+| `osp_termination_cause` | Set | Termination cause code for the attempted destination; cleared when routing succeeds |
+
+## Dependencies
+
+`mod_osp` requires the **OSP Toolkit** library (`libosp`) from TransNexus, which is not included in the FreeSWITCH source tree and is not built by default. The toolkit headers must be installed under `osp/` (e.g., `/usr/include/osp/osp.h`) before the module can be compiled.
+
+**Source:** `src/mod/applications/mod_osp`, `conf/vanilla/autoload_configs/osp.conf.xml`
