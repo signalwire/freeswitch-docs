@@ -1,0 +1,146 @@
+---
+sidebar_position: 22
+id: mod_http_cache
+slug: /module-reference/applications/mod_http_cache
+title: "mod_http_cache — Cached HTTP Media and Object Storage"
+description: "mod_http_cache fetches remote HTTP and HTTPS documents to a local disk cache for repeated playback, and reads from and writes to AWS S3 and Azure Blob storage."
+sidebar_label: "mod_http_cache"
+---
+
+# mod_http_cache — Cached HTTP Media and Object Storage
+
+`mod_http_cache` is an application module in `src/mod/applications/mod_http_cache` that downloads documents from HTTP and HTTPS URLs to a local on-disk cache and serves them from there on subsequent requests. It honors the origin server's cache-control lifetime (falling back to a configurable default) so that a prompt or other media file fetched from a web server is downloaded once and replayed from disk thereafter.
+
+Beyond plain HTTP, the module can read from and write to object storage: it signs requests for **AWS S3** and **Azure Blob Storage** using credentials defined in named profiles, which makes it a common way to play recordings and prompts hosted in a bucket and to upload call recordings back to one.
+
+Operators reach for `mod_http_cache` to play media referenced by URL in the dialplan without re-downloading it on every call, and to move recordings to and from cloud storage.
+
+## Loading the Module
+
+The module is **not in the default load set**; it has no entry in `conf/vanilla/autoload_configs/modules.conf.xml`. Add a load line and restart, or load it at runtime:
+
+```xml
+<load module="mod_http_cache"/>
+```
+
+```
+freeswitch@> load mod_http_cache
+```
+
+The module links against libcurl; AWS S3 and Azure Blob support are built in. No additional build flag is required when libcurl is present.
+
+## Configuration: `http_cache.conf.xml`
+
+The `<settings>` section controls the cache and the HTTP client.
+
+| Parameter | Purpose | Accepted Values | Default |
+|---|---|---|---|
+| `enable-file-formats` | Register the `http://` and `https://` file formats so URLs can be passed directly to `playback`, `record`, and similar applications. The `http_cache://` format is always available regardless of this setting. **Do not enable when `mod_httapi` is loaded** — both modules claim the `http`/`https` formats. | `true` / `false` | `false` |
+| `max-urls` | Maximum number of URLs tracked in the cache index. | Integer | `10000` |
+| `location` | Local directory where cached documents are stored. | Filesystem path | `$${cache_dir}` |
+| `default-max-age` | Cache lifetime, in seconds, applied when the origin server does not specify one. | Integer (seconds) | `86400` |
+| `prefetch-thread-count` | Number of background threads that service `http_prefetch` requests. Must be greater than 0. | Integer | `8` |
+| `prefetch-queue-size` | Maximum number of queued prefetch requests. Must be greater than 0. | Integer | `100` |
+| `ssl-cacert` | Absolute path to the CA bundle used to verify HTTPS certificates. | Filesystem path | `$${certs_dir}/cacert.pem` |
+| `ssl-verifypeer` | Verify the peer's TLS certificate. | `true` / `false` | `true` |
+| `ssl-verifyhost` | Verify that the hostname matches the TLS certificate. | `true` / `false` | `true` |
+| `connect-timeout` | Connection timeout in seconds. | Integer (seconds) | `300` |
+| `download-timeout` | Total download timeout in seconds. | Integer (seconds) | `300` |
+
+```xml
+<configuration name="http_cache.conf" description="HTTP GET cache">
+  <settings>
+    <param name="enable-file-formats" value="false"/>
+    <param name="max-urls" value="10000"/>
+    <param name="location" value="$${cache_dir}"/>
+    <param name="default-max-age" value="86400"/>
+    <param name="prefetch-thread-count" value="8"/>
+    <param name="prefetch-queue-size" value="100"/>
+    <param name="ssl-cacert" value="$${certs_dir}/cacert.pem"/>
+    <param name="ssl-verifypeer" value="true"/>
+    <param name="ssl-verifyhost" value="true"/>
+  </settings>
+</configuration>
+```
+
+### Storage Profiles (S3 and Azure Blob)
+
+A `<profiles>` block defines named credential sets for object storage. Each `<profile>` contains either an `<aws-s3>` or an `<azure-blob>` element and an optional `<domains>` list. When a request targets a host listed under a profile's `<domains>`, that profile's credentials are applied automatically; otherwise a profile is selected explicitly with the `{profile=...}` parameter on the URL (see below).
+
+| Element | Purpose |
+|---|---|
+| `<aws-s3>` / `<access-key-id>` | AWS (or S3-compatible) access key identifier. |
+| `<aws-s3>` / `<secret-access-key>` | AWS secret access key. |
+| `<aws-s3>` / `<region>` | Storage region. |
+| `<aws-s3>` / `<base-domain>` | Base domain for an S3-compatible (non-AWS) service. Required to target a custom endpoint. |
+| `<aws-s3>` / `<expires>` | Lifetime, in seconds, of the generated URL signature. Default `604800` (one week). |
+| `<azure-blob>` / `<secret-access-key>` | Azure storage account key. Can be overridden by the `AZURE_STORAGE_ACCESS_KEY` environment variable. |
+| `<domains>` / `<domain name="...">` | Hosts to which this profile's credentials are applied automatically. |
+
+```xml
+<profiles>
+  <profile name="s3">
+    <aws-s3>
+      <access-key-id><![CDATA[AKIAIOSFODNN7EXAMPLE]]></access-key-id>
+      <secret-access-key><![CDATA[wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY]]></secret-access-key>
+      <region><![CDATA[ap-southeast-1]]></region>
+      <expires>604800</expires>
+    </aws-s3>
+    <domains>
+      <domain name="bucket1.s3-ap-southeast-1.amazonaws.com"/>
+    </domains>
+  </profile>
+</profiles>
+```
+
+## API Commands
+
+| Command | Purpose | Syntax |
+|---|---|---|
+| `http_get` | Download a URL (using the cache) and return the local file path. | `{param=val}<url>` |
+| `http_tryget` | Return the cached local file for a URL only if it is already cached; does not download. | `{param=val}<url>` |
+| `http_put` | Upload a local file to a URL via HTTP PUT (or S3 / Azure). | `{param=val}<url> <file>` |
+| `http_prefetch` | Download a URL in a background thread so a later `http_get` returns immediately. | `{param=val}<url>` |
+| `http_clear_cache` | Remove every entry from the cache. | (no arguments) |
+| `http_remove_cache` | Remove a single URL from the cache. | `<url>` |
+
+The optional `{param=val}` prefix accepts:
+
+- `profile` — select a named storage profile, e.g. `{profile=s3}`.
+- `refresh` — when `true`, ignore any cached copy and download a fresh one.
+
+```
+freeswitch@> http_get http://example.com/prompts/welcome.wav
+freeswitch@> http_get {refresh=true}https://example.com/prompts/welcome.wav
+freeswitch@> http_put {profile=s3}https://bucket1.s3-ap-southeast-1.amazonaws.com/recording.wav /tmp/recording.wav
+freeswitch@> http_clear_cache
+```
+
+## Dialplan Usage
+
+Because the module registers API commands and file formats (not dialplan applications), it is used from the dialplan in two ways.
+
+**As an API, via expansion** — resolve a URL to a local path and play it:
+
+```xml
+<action application="set" data="prompt=${http_get(http://example.com/prompts/welcome.wav)}"/>
+<action application="playback" data="${prompt}"/>
+```
+
+**As a file format** — pass the URL directly to media applications. The `http_cache://` form is always available and wraps a full URL:
+
+```xml
+<action application="playback" data="http_cache://http://example.com/prompts/welcome.wav"/>
+```
+
+When `enable-file-formats` is `true`, the bare `http://` and `https://` forms work as well:
+
+```xml
+<action application="playback" data="http://example.com/prompts/welcome.wav"/>
+```
+
+## Dependencies
+
+Requires **libcurl**. AWS S3 request signing and Azure Blob support are compiled into the module.
+
+**Source:** `src/mod/applications/mod_http_cache`, `conf/vanilla/autoload_configs/http_cache.conf.xml`
