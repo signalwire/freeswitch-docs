@@ -1,0 +1,144 @@
+---
+sidebar_position: 8
+id: mod_distributor
+slug: /module-reference/applications/mod_distributor
+title: "mod_distributor — Weighted Call Distribution"
+description: "Routes calls across a named list of destinations using relative weights, distributing traffic proportionally rather than sequentially."
+sidebar_label: "mod_distributor"
+---
+
+# mod_distributor — Weighted Call Distribution
+
+`mod_distributor` provides weighted, stateful distribution of calls across a named list of destinations (nodes). Each node carries an integer weight; the module tracks a running counter per node so that traffic is spread proportionally across the entire list on every cycle rather than sending all calls to one destination before moving to the next.
+
+Operators reach for `mod_distributor` when they need to send, for example, 10 % of traffic to one gateway and 90 % to another, or to split load among several SIP trunks in any arbitrary ratio. It is not a round-robin or least-cost router; it is a ratio-based traffic shaper that can also skip specific nodes at call time via an exception list.
+
+## Loading the Module
+
+The module name for `load` and `modules.conf.xml` is `mod_distributor`.
+
+In the vanilla FreeSWITCH distribution the entry in `autoload_configs/modules.conf.xml` is **commented out** by default:
+
+```xml
+<!--<load module="mod_distributor"/>-->
+```
+
+Uncomment that line (or issue `load mod_distributor` from `fs_cli`) to activate the module. No special build flag is required; the module is compiled as part of the standard FreeSWITCH build.
+
+## Configuration: `distributor.conf.xml`
+
+`mod_distributor` reads `distributor.conf` from the FreeSWITCH autoload config path. The file contains one or more named `<list>` elements, each holding `<node>` entries with relative weights.
+
+### Parameters
+
+#### `<list>` attributes
+
+| Parameter | Purpose | Accepted Values | Default |
+|-----------|---------|-----------------|---------|
+| `name` | Unique identifier for the list; passed as the argument to the application or API | Any string | (required) |
+| `total-weight` | Deprecated — no longer used by the engine; a warning is logged if present | Integer | — |
+
+#### `<node>` attributes
+
+| Parameter | Purpose | Accepted Values | Default |
+|-----------|---------|-----------------|---------|
+| `name` | The value returned when this node is selected; typically a gateway name or destination string | Any string | (required) |
+| `weight` | Relative weight of this node; must be a positive integer greater than 0 | Integer ≥ 1 | (required) |
+
+The engine computes each node's share by subtracting its own weight from the list total and using that difference as a counter ceiling. A node with `weight="1"` in a 10-point list is selected roughly once every 10 selections; a node with `weight="9"` is selected roughly nine times in ten.
+
+### Example
+
+```xml
+<configuration name="distributor.conf" description="Distributor Configuration">
+  <lists>
+    <!-- every 10 calls to 'test': foo1 is chosen once, foo2 nine times -->
+    <list name="test">
+      <node name="foo1" weight="1"/>
+      <node name="foo2" weight="9"/>
+    </list>
+  </lists>
+</configuration>
+```
+
+## Dialplan Applications
+
+| Application | Purpose | Arguments |
+|-------------|---------|-----------|
+| `distributor` | Selects a node from the named list and stores it in `${DISTRIBUTOR}` | `<list-name> [exception1 exceptionN ...]` |
+
+### `distributor`
+
+Looks up the named list, runs the weighted selection algorithm, and sets the channel variable `DISTRIBUTOR` to the chosen node name. One or more node names may be appended as space-separated exceptions; those nodes are skipped during this particular selection. The application supports `SAF_SUPPORT_NOMEDIA` and `SAF_ROUTING_EXEC`, so it can run in the dialplan before media is established.
+
+**Syntax:**
+
+```
+distributor <list-name> [exception1 [exception2 ...]]
+```
+
+**Dialplan example — bridge through a weighted gateway selection:**
+
+```xml
+<extension name="weighted gateway distribution">
+  <condition field="destination_number" expression="^(.*)$">
+    <action application="distributor" data="test"/>
+    <action application="bridge" data="sofia/gateway/${DISTRIBUTOR}/$1"/>
+  </condition>
+</extension>
+```
+
+The shipped dialplan example uses the inline API form `${distributor(test)}` directly inside a `bridge` data string, which is equivalent:
+
+```xml
+<action application="bridge" data="sofia/gateway/${distributor(test)}/$1"/>
+```
+
+## API Commands
+
+| Command | Purpose | Syntax |
+|---------|---------|--------|
+| `distributor` | Returns the next selected node name for a list | `distributor <list-name>[ exception1 exceptionN]` |
+| `distributor_ctl` | Manages lists at runtime: reload config, dump list state, or modify node weights | `distributor_ctl reload \| dump <list> \| modify <list> <node>=<weight> ...` |
+
+### `distributor`
+
+Returns the chosen node name as a plain string, or `-err` if the list is not found or no node could be selected.
+
+```
+freeswitch@> distributor test
+foo2
+```
+
+### `distributor_ctl`
+
+**Subcommands:**
+
+| Subcommand | Description |
+|------------|-------------|
+| `reload` | Re-reads `distributor.conf` and replaces the in-memory list; returns `+OK reloaded.` |
+| `dump <list-name>` | Prints the current name and weight of every node in the named list |
+| `modify <list-name> <node>=<weight> [...]` | Adjusts the weight of one or more nodes in the named list at runtime, then recalculates and resets the distribution counters |
+
+```
+freeswitch@> distributor_ctl dump test
+list: name=test
+node: name=foo1 weight=1
+node: name=foo2 weight=9
+
+freeswitch@> distributor_ctl modify test foo2=4
+list: name=test
+node: name=foo1 weight=1
+node: name=foo2 weight=4
+
+freeswitch@> distributor_ctl reload
++OK reloaded.
+```
+
+## Channel Variables
+
+| Variable | Set / Read | Purpose |
+|----------|-----------|---------|
+| `DISTRIBUTOR` | Set | Receives the name of the node chosen by the `distributor` dialplan application |
+
+**Source:** `src/mod/applications/mod_distributor`, `conf/vanilla/autoload_configs/distributor.conf.xml`

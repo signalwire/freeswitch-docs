@@ -1,0 +1,146 @@
+---
+sidebar_position: 1
+id: mod_dialplan_asterisk
+slug: /module-reference/dialplans/mod_dialplan_asterisk
+title: "mod_dialplan_asterisk — Asterisk extensions.conf Dialplan"
+description: "Parses an Asterisk-style extensions.conf file and maps its exten entries to FreeSWITCH applications, easing migration from Asterisk."
+sidebar_label: "mod_dialplan_asterisk"
+---
+
+# mod_dialplan_asterisk — Asterisk extensions.conf Dialplan
+
+`mod_dialplan_asterisk` is a dialplan parser found in `src/mod/dialplans/`. It reads a plain-text `extensions.conf` file that uses Asterisk dialplan syntax and translates each matching entry into FreeSWITCH application calls at call time. No XML dialplan knowledge is required to use it.
+
+Operators reach for this module when migrating an existing Asterisk deployment to FreeSWITCH without rewriting the entire dialplan at once. It is also useful for teams already comfortable with Asterisk's `exten =>` notation who want to keep that style while gaining FreeSWITCH's media capabilities.
+
+## Loading the Module
+
+The module name for `load` and `modules.conf.xml` is `mod_dialplan_asterisk`. It is included in the default vanilla load set — `/Users/brian/workdir/freeswitch-docs/freeswitch/conf/vanilla/autoload_configs/modules.conf.xml` contains an uncommented `<load module="mod_dialplan_asterisk"/>` entry, so it loads automatically on a stock build.
+
+No special build flags or external libraries are required. The module links only against `libfreeswitch`.
+
+## Selecting the Dialplan
+
+FreeSWITCH selects a dialplan engine from the `dialplan` attribute (or `dialplan` parameter) of the incoming SIP profile or gateway, and from the context attribute on a channel. To route a call through the Asterisk parser instead of the default XML dialplan, set `dialplan` to `asterisk` wherever the channel or profile is configured.
+
+Example — inline originate:
+
+```
+originate sofia/internal/1000@pbx.example.com &park() asterisk default
+```
+
+Example — SIP profile snippet (`sofia.conf.xml`):
+
+```xml
+<param name="dialplan" value="asterisk"/>
+<param name="context" value="default"/>
+```
+
+When the `dialplan` is set to `asterisk`, FreeSWITCH passes control to `mod_dialplan_asterisk`, which opens `extensions.conf` (see below), looks for a section matching the caller's context, and builds an extension from all matching `exten` (or field-match) lines.
+
+## Configuration: `extensions.conf`
+
+There is no `mod_dialplan_asterisk.conf.xml`. The module reads a separate flat file named `extensions.conf`, located in the FreeSWITCH configuration directory (the same directory searched for other config files). A custom path can be passed as the dialplan `arg`; if none is given the module defaults to `extensions.conf`.
+
+The file uses standard Asterisk INI-style syntax: section headers in `[brackets]` define contexts; entries inside each section are matched against the call.
+
+### Entry formats
+
+The module recognises three line forms inside a context section:
+
+| Form | Field matched | Notes |
+|---|---|---|
+| `exten => pattern,priority,App(args)` | `destination_number` (DNIS) | Standard Asterisk exten keyword. Priorities are accepted but ignored; all matching lines in the context run in order. |
+| `caller_id_number => value,priority,App(args)` | Caller-profile field by name (`caller_id_number`) | Any field name from the caller profile can replace `exten`. |
+| `${variable} => value,priority,App(args)` | Expanded channel variable | Expressions containing `$` are expanded before comparison. |
+
+### Pattern syntax
+
+| Prefix | Meaning |
+|---|---|
+| (literal) | Exact string match against the field |
+| `_` | Asterisk-style pattern — `X`, `Z`, `N`, `[range]`, `.` placeholders; converted to a PCRE regex by `switch_ast2regex` at match time |
+| `~` | Raw PCRE regex — used directly without conversion |
+
+A `cid` guard can be appended to an `exten` pattern with a `/` separator:
+
+```
+exten => 2137991400/1000,n,Goto(default|music)
+```
+
+This matches destination `1000` only when the caller-ID number is `2137991400`. The part before `/` is compared against `caller_id_number`; the part after `/` is the destination pattern.
+
+### Example `extensions.conf`
+
+The following is the file shipped with the module under `conf/`:
+
+```ini
+[default]
+
+; Standard exten matching destination number
+exten => music,n,Dial(SIP/1234@conference.freeswitch.org|120)
+
+; Asterisk-style pattern (converted to PCRE internally)
+exten => _1XXXXX,n,set(cool=${EXTEN})
+exten => _1XXXXX,n,set(myvar=true)
+exten => _1XXXXX,n,Goto(default|music)
+
+; Exact destination with CID guard
+exten => 2137991400/1000,n,Goto(default|music)
+
+; Raw PCRE regex (prefix ~)
+exten => ~^(18(0{2}|8{2}|7{2}|6{2})\d{7})$,n,enum($1)
+exten => ~^(18(0{2}|8{2}|7{2}|6{2})\d{7})$,n,bridge(${enum_auto_route})
+
+; Match on caller_id_number field instead of destination
+caller_id_number => 2137991400,n,Goto(default|music)
+
+; Match on an expanded channel variable
+${sip_from_user} => bill,n,Goto(default|music)
+```
+
+## Dialplan Applications
+
+`mod_dialplan_asterisk` registers three compatibility applications that emulate their Asterisk counterparts. Any other application name used in `extensions.conf` is passed directly to FreeSWITCH's own application registry by name.
+
+| Application | Purpose | Arguments |
+|---|---|---|
+| `Dial` | Bridge the call to a SIP or IAX2 endpoint using Asterisk dial string notation | `endpoint\|timeout_seconds` |
+| `Goto` | Transfer the session to another extension within a context | `context\|extension` |
+| `AvoidingDeadlock` | No-op stub — exists only to prevent crashes if an Asterisk dialplan references this app | (none) |
+
+### `Dial`
+
+Accepts an Asterisk-style dial string. Ampersand-separated targets (`SIP/100&SIP/101`) are converted to comma-separated FreeSWITCH bridge strings. The optional second field sets the `call_timeout` channel variable before bridging.
+
+```
+exten => 1000,n,Dial(SIP/1000@10.0.0.1|30)
+```
+
+The `SIP/` prefix is handled by a compatibility endpoint facade that prepends the value of the `sip_profile` channel variable (defaulting to `default`) and routes through `mod_sofia`. The `IAX2/` prefix is handled by a similar facade that routes through the `iax` endpoint (i.e., `mod_iax2`).
+
+### `Goto`
+
+Transfers the current session to a new context and extension using `switch_ivr_session_transfer` with the `asterisk` dialplan.
+
+```
+exten => _1XXXXX,n,Goto(default|music)
+```
+
+### `AvoidingDeadlock`
+
+A stub registered to absorb references to Asterisk's deadlock-avoidance mechanism. It logs a warning five times (with 100 ms yields between each) and then logs that it should never be called. It is intended only as a placeholder; real dialplans should not route calls to this application.
+
+## Channel Variables
+
+The module sets the following variables on the channel for each matched extension, mirroring Asterisk's well-known environment variables:
+
+| Variable | Set / Read | Purpose |
+|---|---|---|
+| `EXTEN` | Set | The `destination_number` from the caller profile at the time of the match |
+| `CHANNEL` | Set | The channel name (`switch_channel_get_name`) |
+| `UNIQUEID` | Set | The session UUID (`switch_core_session_get_uuid`) |
+| `call_timeout` | Set | Set by the `Dial` application to the timeout value from the dial string |
+| `sip_profile` | Read | Read by the `SIP` endpoint facade to select the sofia profile for outbound legs |
+
+**Source:** `src/mod/dialplans/mod_dialplan_asterisk`

@@ -1,0 +1,108 @@
+---
+sidebar_position: 20
+id: mod_vmd
+slug: /module-reference/applications/mod_vmd
+title: "mod_vmd — Voicemail Beep Detection"
+description: "Detects voicemail system beep tones in the audio stream using the DESA-2 frequency estimation algorithm."
+sidebar_label: "mod_vmd"
+---
+
+# mod_vmd — Voicemail Beep Detection
+
+`mod_vmd` is a dialplan application module (`src/mod/applications/mod_vmd`) that detects the characteristic beep tone played by a voicemail system at the end of its greeting. It uses the Discrete Energy Separation Algorithm 2 (DESA-2) to estimate the instantaneous frequency and amplitude of each audio frame, looking for a sustained tone in the 600–1100 Hz range. Detection runs in O(1) time per frame with no external library dependencies.
+
+Operators use this module when originating calls that may land on a voicemail box and need to know precisely when to begin recording a message. When a beep is confirmed, the module sets a channel variable and fires a custom event so the dialplan or an ESL application can react immediately.
+
+> **Note:** The FreeSWITCH source logs a deprecation notice at CRITICAL log level (`SWITCH_LOG_CRIT`) at load time and directs operators to migrate to `mod_avmd`, which is the actively maintained successor.
+
+## Loading the Module
+
+The module name is `mod_vmd`. It is **not** present in the default vanilla `autoload_configs/modules.conf.xml` and must be added manually:
+
+```xml
+<load module="mod_vmd"/>
+```
+
+No external libraries or special build flags are required; the module compiles as part of the standard FreeSWITCH build tree.
+
+## Configuration
+
+`mod_vmd` ships no `.conf.xml` file and registers no XML configuration parameters. All tuning is performed through channel variables set before the application or API command is invoked (see [Channel Variables](#channel-variables) below).
+
+## Dialplan Applications
+
+| Application | Purpose | Arguments |
+|---|---|---|
+| `vmd` | Start or stop voicemail beep detection on the current channel | `[start]` \| `stop` |
+
+### `vmd`
+
+Attaches a read-leg media bug to the session that continuously analyses incoming audio. The optional argument `start` (or no argument) begins detection; passing `stop` removes the bug and ends detection. Running a second `start` on a channel that already has the bug active logs a warning and returns without error.
+
+When a beep is confirmed the module:
+
+1. Sets the channel variable `vmd_detect` to `TRUE`.
+2. Fires a `CUSTOM` event with subclass `vmd::beep`.
+
+Example dialplan usage:
+
+```xml
+<extension name="vmdtest">
+  <condition field="destination_number" expression="^vmd(\d{10})$">
+    <action application="answer"/>
+    <action application="vmd"/>
+    <action application="sleep" data="25000"/>
+    <!-- vmd_detect will be TRUE here if a beep was heard -->
+    <action application="info"/>
+    <action application="hangup"/>
+  </condition>
+</extension>
+```
+
+To stop detection mid-call:
+
+```xml
+<action application="vmd" data="stop"/>
+```
+
+## API Commands
+
+| Command | Purpose | Syntax |
+|---|---|---|
+| `vmd` | Start or stop detection on an arbitrary session by UUID | `vmd <uuid> <start\|stop>` |
+
+### `vmd`
+
+The API form lets an ESL client or `mod_event_socket` script control detection on a live session without requiring dialplan access.
+
+```
+vmd 5ec74a35-e9e4-42cb-8a0d-d68e5e146bab start
+vmd 5ec74a35-e9e4-42cb-8a0d-d68e5e146bab stop
+```
+
+Returns `+OK` on success or `-USAGE: <uuid> <command>` on invalid input.
+
+## Channel Variables
+
+| Variable | Set / Read | Purpose |
+|---|---|---|
+| `vmd_detect` | Set | Set to `TRUE` by the module when a voicemail beep is confirmed. Readable by the dialplan after a `sleep` or bridge returns. |
+| `vmd_min_time` | Read | Override the minimum sustained-beep duration (in DESA-2 sample units; default `8000`). Read once when the `vmd` dialplan application starts. Not read when detection is started via the `vmd <uuid> start` API command — the API always uses the compiled-in default of `8000`. |
+
+## Events
+
+`mod_vmd` fires one custom event subclass:
+
+**`vmd::beep`** (`SWITCH_EVENT_CUSTOM`) — fired when a confirmed beep ends. Headers included:
+
+| Header | Value |
+|---|---|
+| `Beep-Status` | `stop` |
+| `Beep-Time` | Integer — duration of the beep in DESA-2 point units |
+| `Frequency` | Estimated beep frequency in Hz |
+| `Unique-ID` | UUID of the originating session |
+| `call-command` | `vmd` |
+
+The event is both queued to the session and fired to the global event system.
+
+**Source:** `src/mod/applications/mod_vmd`

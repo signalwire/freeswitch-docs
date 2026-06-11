@@ -1,0 +1,138 @@
+---
+sidebar_position: 7
+id: mod_cdr_pg_csv
+slug: /module-reference/event-handlers/mod_cdr_pg_csv
+title: "mod_cdr_pg_csv — PostgreSQL CDR (CSV Schema)"
+description: "Writes per-call CDR records directly to a PostgreSQL table using a configurable channel-variable schema, with CSV or SQL disk spooling on failure."
+sidebar_label: "mod_cdr_pg_csv"
+---
+
+# mod_cdr_pg_csv — PostgreSQL CDR (CSV Schema)
+
+`mod_cdr_pg_csv` is an event-handler module (`src/mod/event_handlers`) that writes Call Detail Records directly to a PostgreSQL database table at the end of each call. The column set is fully configurable: a `<schema>` block in the conf maps FreeSWITCH channel variables to database columns, so the same module can feed any table layout without recompiling.
+
+Reach for this module when you need CDRs in a relational database for reporting, billing, or compliance without adding a middleware layer. On database failure the module automatically spools records to a local flat file (CSV values or full SQL statements) so no records are silently dropped.
+
+## Loading the Module
+
+The module is **not** included in the default vanilla `autoload_configs/modules.conf.xml` and must be added manually. Add the following line to your `modules.conf.xml` under the `event_handlers` group, then reload or restart FreeSWITCH:
+
+```xml
+<load module="mod_cdr_pg_csv"/>
+```
+
+The module links against `libpq` (the PostgreSQL C client library). Ensure the PostgreSQL development package (`libpq-dev` on Debian/Ubuntu, `postgresql-devel` on RHEL/CentOS) is installed before building.
+
+## Configuration: `cdr_pg_csv.conf.xml`
+
+`mod_cdr_pg_csv` reads `cdr_pg_csv.conf` at load and on reload. The file contains a `<settings>` block for connection and behaviour parameters, and a `<schema>` block that defines the column mapping.
+
+### Settings Parameters
+
+| Parameter | Purpose | Accepted Values | Default |
+|-----------|---------|-----------------|---------|
+| `db-info` | PostgreSQL connection string passed verbatim to `PQconnectdb()` | Any libpq connection string (key=value pairs) | `dbname=cdr` |
+| `db-table` | Name of the PostgreSQL table to insert into | Any valid table name | `cdr` |
+| `legs` | Which call leg(s) to record | `a`, `b`, `ab` | `a` |
+| `spool-dir` | Directory for disk spooling when the DB insert fails | Writable directory path | `$${log_dir}/cdr-pg-csv` |
+| `spool-format` | File format for disk-spooled records | `csv` (values only) or `sql` (full INSERT statement) | `csv` |
+| `rotate-on-hup` | Rename the spool file with a timestamp on SIGHUP instead of just re-opening it | `true` / `false` | `false` |
+| `debug` | Log the full channel variable dump at `INFO` level and the generated SQL INSERT at `NOTICE` level for each call | `true` / `false` | `false` |
+
+### Schema Fields
+
+Each `<field>` element in `<schema>` maps one FreeSWITCH channel variable to one database column. Three optional attributes control quoting and null handling:
+
+| Attribute | Purpose | Values | Default |
+|-----------|---------|--------|---------|
+| `var` | FreeSWITCH channel variable name to read (required) | Any channel variable name | — |
+| `column` | PostgreSQL column name to write; defaults to `var` if omitted | Any valid column name | same as `var` |
+| `quote` | Wrap the value in single quotes in the INSERT statement | `true` / `false` | `true` |
+| `not-null` | Insert an empty string instead of SQL `NULL` when the variable is unset | `true` / `false` | `false` |
+
+### Example Configuration
+
+```xml
+<configuration name="cdr_pg_csv.conf" description="CDR PG CSV Format">
+  <settings>
+    <param name="db-info" value="host=localhost dbname=cdr connect_timeout=10" />
+    <param name="legs" value="a"/>
+    <param name="spool-format" value="csv"/>
+    <param name="rotate-on-hup" value="true"/>
+  </settings>
+  <schema>
+    <field var="local_ip_v4"/>
+    <field var="caller_id_name"/>
+    <field var="caller_id_number"/>
+    <field var="destination_number"/>
+    <field var="context"/>
+    <field var="start_stamp"/>
+    <field var="answer_stamp"/>
+    <field var="end_stamp"/>
+    <field var="duration" quote="false"/>
+    <field var="billsec" quote="false"/>
+    <field var="hangup_cause"/>
+    <field var="uuid"/>
+    <field var="bleg_uuid"/>
+    <field var="accountcode"/>
+    <field var="read_codec"/>
+    <field var="write_codec"/>
+  </schema>
+</configuration>
+```
+
+## Call Legs and Recording Trigger
+
+The module hooks into the `on_reporting` state handler, which fires once per session when the channel reaches the reporting state (after hangup). Leg selection via the `legs` parameter works as follows:
+
+- `a` — record only the originating (A) leg; sessions that have an originator caller profile are skipped.
+- `b` — record only the B leg (originated sessions); sessions that have an originatee caller profile are skipped.
+- `ab` — record both legs.
+
+## Database Schema
+
+The shipped `scripts/create.sql` defines a sample PostgreSQL table matching the default `<schema>` block:
+
+```sql
+create table cdr (
+    id                        serial primary key,
+    local_ip_v4               inet not null,
+    caller_id_name            varchar,
+    caller_id_number          varchar,
+    destination_number        varchar not null,
+    context                   varchar not null,
+    start_stamp               timestamp with time zone not null,
+    answer_stamp              timestamp with time zone,
+    end_stamp                 timestamp with time zone not null,
+    duration                  int not null,
+    billsec                   int not null,
+    hangup_cause              varchar not null,
+    uuid                      uuid not null,
+    bleg_uuid                 uuid,
+    accountcode               varchar,
+    read_codec                varchar,
+    write_codec               varchar,
+    sip_hangup_disposition    varchar,
+    ani                       varchar
+);
+```
+
+`duration` and `billsec` are declared with `quote="false"` in the default schema so they are inserted as bare integers. Timestamp columns (`start_stamp`, `answer_stamp`, `end_stamp`) are inserted as quoted strings and rely on PostgreSQL's implicit cast from text to `timestamp with time zone`.
+
+## Disk Spool Fallback
+
+When a database connection cannot be established or an INSERT fails, the record is written to a flat file under `spool-dir`:
+
+- `spool-format csv` — writes the raw comma-separated value string to `cdr-spool.csv`.
+- `spool-format sql` — writes the complete `INSERT INTO ...` statement to `cdr-spool.sql`.
+
+Each spool file grows until it reaches the platform `UINT_MAX` byte limit, at which point it is rotated automatically. On SIGHUP, if `rotate-on-hup` is `true`, all open spool files are renamed to `<filename>.<YYYY-MM-DD-HH-MM-SS>` and new files are opened; the database connection is also closed and will be re-established on the next call.
+
+## Dependencies
+
+`mod_cdr_pg_csv` requires `libpq`, the PostgreSQL client library. Install the PostgreSQL development package for your distribution before building FreeSWITCH with this module enabled:
+
+- Debian/Ubuntu: `apt-get install libpq-dev`
+- RHEL/CentOS/Rocky: `dnf install postgresql-devel`
+
+**Source:** `src/mod/event_handlers/mod_cdr_pg_csv`, `conf/vanilla/autoload_configs/cdr_pg_csv.conf.xml`

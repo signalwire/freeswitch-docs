@@ -1,0 +1,111 @@
+---
+sidebar_position: 1
+id: mod_pocketsphinx
+slug: /module-reference/asr-tts/mod_pocketsphinx
+title: "mod_pocketsphinx — PocketSphinx Speech Recognition"
+description: "ASR module that integrates CMU PocketSphinx for offline, grammar-based speech recognition in FreeSWITCH dialplans."
+sidebar_label: "mod_pocketsphinx"
+---
+
+# mod_pocketsphinx — PocketSphinx Speech Recognition
+
+`mod_pocketsphinx` integrates the CMU PocketSphinx speech recognizer into FreeSWITCH as an ASR engine. It lives in `src/mod/asr_tts/` and exposes the `pocketsphinx` ASR interface name to the core. Recognition is grammar-driven: callers provide a JSGF grammar file and the module performs offline, in-process decoding — no external ASR service is required.
+
+Reach for this module when you need basic, low-latency, fully on-premise speech recognition with a tightly constrained vocabulary. It supports 8 kHz (narrowband) and 16 kHz (wideband) audio and returns results as an XML result block including a confidence score.
+
+## Loading the Module
+
+The module name is `mod_pocketsphinx`. In the vanilla `modules.conf.xml` it is commented out and is **not** loaded by default:
+
+```xml
+<!-- <load module="mod_pocketsphinx"/> -->
+```
+
+To enable it, uncomment that line (or add it) in `conf/autoload_configs/modules.conf.xml`. The module requires the PocketSphinx and SphinxBase libraries (`libpocketsphinx`, `libsphinxbase`) to be present at compile time.
+
+## Configuration: `pocketsphinx.conf.xml`
+
+The module reads `pocketsphinx.conf` from the FreeSWITCH config search path. All parameters live inside a `<settings>` block. The file is reloaded automatically on `SWITCH_EVENT_RELOADXML` when `auto-reload` is `true`.
+
+Model files are resolved relative to `$${grammar_dir}/model/<model-name>`. The dictionary file is resolved relative to `$${grammar_dir}/<dictionary>`. Grammar files passed to `detect_speech` are resolved relative to `$${grammar_dir}` (with `.gram` appended if no extension is present).
+
+| Parameter | Purpose | Accepted Values | Default |
+|---|---|---|---|
+| `threshold` | Energy threshold for voice-activity detection (VAD). Audio frames with average energy at or above this value are treated as speech. | Integer (energy units) | `400` |
+| `silence-hits` | Number of consecutive sub-threshold frames required before the engine concludes the speaker has stopped. | Integer (frames) | `25` |
+| `listen-hits` | Number of consecutive above-threshold frames required before the engine begins feeding audio to the decoder. | Integer (frames) | `1` |
+| `auto-reload` | Reload configuration when FreeSWITCH processes a `reloadxml` event. | `true` / `false` | `true` |
+| `language-weight` | Language model weight (`-lw` passed to the PocketSphinx decoder). | Float as string | `6.5` |
+| `narrowband-model` | Acoustic model directory name (under `$${grammar_dir}/model/`) to use for 8 kHz audio. | Directory name | `communicator` |
+| `wideband-model` | Acoustic model directory name (under `$${grammar_dir}/model/`) to use for 16 kHz audio. | Directory name | `wsj1` |
+| `dictionary` | Pronunciation dictionary file name (under `$${grammar_dir}/`) used for all recognition sessions. | File name | `default.dic` |
+| `start-input-timers` | If `true`, input timers (`no-input-timeout` and `speech-timeout`) start immediately when the grammar is loaded rather than waiting for a caller-side start command. | `true` / `false` | `false` |
+| `no-input-timeout` | Milliseconds of silence before the engine reports a no-input result (requires input timers to be active). | Integer (ms) | `4000` |
+| `speech-timeout` | Milliseconds after speech onset before the engine forces end-of-utterance processing (requires input timers to be active). | Integer (ms) | `1000` |
+| `confidence-threshold` | Minimum confidence score (0–100 integer) required to return a match; results below this value produce a no-match result instead. `0` disables the check. | Integer (0–100) | `0` |
+
+Example excerpt from the shipped `pocketsphinx.conf.xml`:
+
+```xml
+<configuration name="pocketsphinx.conf" description="PocketSphinx ASR Configuration">
+  <settings>
+    <param name="threshold" value="400"/>
+    <param name="silence-hits" value="25"/>
+    <param name="listen-hits" value="1"/>
+    <param name="auto-reload" value="true"/>
+    <!--<param name="language-weight" value="1"/>-->
+    <!--<param name="narrowband-model" value="communicator"/>-->
+    <!--<param name="wideband-model" value="wsj1"/>-->
+    <!--<param name="dictionary" value="default.dic"/>-->
+  </settings>
+</configuration>
+```
+
+## Dialplan Applications
+
+`mod_pocketsphinx` does not register its own dialplan applications. Recognition is invoked through the core `detect_speech` application using `pocketsphinx` as the engine name.
+
+| Application | Purpose | Key Arguments |
+|---|---|---|
+| `detect_speech` | Open a PocketSphinx recognition session, load a grammar, and begin listening | `pocketsphinx <grammar-name> <grammar-name> [<param>=<value> ...]` |
+
+The grammar argument is a name or path resolved to a `.gram` JSGF file. Per-session parameters (`no-input-timeout`, `speech-timeout`, `start-input-timers`, `confidence-threshold`) can be set after opening by calling `detect_speech` with the `set` sub-command.
+
+```xml
+<!-- Open a recognition session with grammar "menu" -->
+<action application="detect_speech" data="pocketsphinx menu menu"/>
+
+<!-- Override the no-input timeout for this session -->
+<action application="detect_speech" data="set no-input-timeout 5000"/>
+
+<!-- Start input timers explicitly -->
+<action application="detect_speech" data="start_input_timers"/>
+
+<!-- Pause recognition -->
+<action application="detect_speech" data="pause"/>
+
+<!-- Resume recognition -->
+<action application="detect_speech" data="resume"/>
+
+<!-- Stop recognition and close the session -->
+<action application="detect_speech" data="stop"/>
+```
+
+Results are delivered to the dialplan as `DETECTED_SPEECH` events. The result payload is an XML document with `<result>`, `<interpretation>`, and `<input>` elements. A no-input result contains `<noinput/>` and a no-match result contains `<nomatch/>`.
+
+## Runtime Parameters (per-session)
+
+The following parameters can be adjusted per-session via `detect_speech set <param> <value>` after the session is opened. They override the global defaults for that session only.
+
+| Parameter | Purpose | Accepted Values |
+|---|---|---|
+| `no-input-timeout` | Milliseconds of silence before no-input result | Integer (ms) |
+| `speech-timeout` | Milliseconds after speech onset before forced end-of-utterance | Integer (ms) |
+| `start-input-timers` | Enable or disable input timers for this session | `true` / `false` |
+| `confidence-threshold` | Minimum confidence to return a match (0 = disabled) | Integer (0–100) |
+
+## Dependencies
+
+`mod_pocketsphinx` requires the **PocketSphinx** and **SphinxBase** libraries at build time (`libpocketsphinx`, `libsphinxbase`). These are not included with FreeSWITCH and must be installed separately. Acoustic model data (the directories referenced by `narrowband-model` and `wideband-model`) must also be placed under `$${grammar_dir}/model/` before the module can load grammars.
+
+**Source:** `src/mod/asr_tts/mod_pocketsphinx`, `conf/vanilla/autoload_configs/pocketsphinx.conf.xml`

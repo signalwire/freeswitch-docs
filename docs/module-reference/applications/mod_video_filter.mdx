@@ -1,0 +1,169 @@
+---
+sidebar_position: 19
+id: mod_video_filter
+slug: /module-reference/applications/mod_video_filter
+title: "mod_video_filter — Chroma Key and Video Overlay"
+description: "Applies chroma-key compositing and video/image overlay to live video streams using media bugs attached to a channel."
+sidebar_label: "mod_video_filter"
+---
+
+# mod_video_filter — Chroma Key and Video Overlay
+
+`mod_video_filter` provides real-time chroma-key compositing and video replacement for FreeSWITCH video calls. It attaches a media bug to a channel and processes each outbound or inbound video frame: it removes a specified background color, then substitutes a static PNG image, a looping video file, or a live video feed from another channel UUID as the new background. Optional foreground PNG and foreground video overlays can be composited on top. A separate `video_replace` application and API command replace the entire video stream with a file without chroma-keying.
+
+Reach for this module when you need virtual backgrounds in a video conference, green-screen compositing in a conferencing bridge, or transparent-overlay watermarks on a live video stream. It lives under `src/mod/applications` and operates entirely through media bugs — no extra media processing threads are started.
+
+## Loading the Module
+
+The module load name is `mod_video_filter`. It is **not** present in the vanilla `autoload_configs/modules.conf.xml` and must be added manually. Add the following line to the Applications section of `modules.conf.xml`:
+
+```xml
+<load module="mod_video_filter"/>
+```
+
+Then load it at runtime:
+
+```
+load mod_video_filter
+```
+
+No external library beyond the FreeSWITCH core (which already provides `switch_chromakey_*` and `switch_img_*`) is required; the module uses only internal FreeSWITCH video primitives.
+
+## Dialplan Applications
+
+| Application | Purpose | Arguments |
+|---|---|---|
+| `chromakey` | Attach a chroma-key compositing bug to the channel | `<color>[+thresh][:<color>[+thresh]...] [threshold] [#bg_color\|path/to/file\|uuid:<uuid>] [filter:<filters>] [fgvid:<file>] [fg:<file.png>] [bg:<file.png>] [patch]` |
+| `video_replace` | Replace the entire inbound or outbound video stream with a file | `[read\|write] <file>` or `stop` |
+
+---
+
+### `chromakey`
+
+Waits for `CF_VIDEO_READY` on the channel (up to 10 seconds), then installs a media bug that composites every video frame. Pass `stop` as the only argument to remove a running bug.
+
+**Arguments (space-separated, positional):**
+
+| Position | Value | Purpose |
+|---|---|---|
+| 1 | `<color>[+thresh][:color[+thresh]...]` | Colon-separated list of colors to key out. Each entry is either an HTML hex color (`#RRGGBB`) or a shade name recognized by `switch_chromakey_str2shade`. Append `+N` to set a per-color threshold (integer). |
+| 2 | `<threshold>` | Global default threshold for chroma detection (integer, applied when per-color threshold is not set). The compiled default is `300`. |
+| 3 | `#bg_color` \| `path/to/image.png` \| `path/to/video` \| `uuid:<uuid>` | Background to display behind the keyed-out subject. A hex color fills a solid background; a `.png` path loads a static image; any other path opens it as a looping video file; `uuid:<uuid>` streams live video from another channel. |
+| 4+ | Keyword options | One or more of the options described below. |
+
+**Keyword options (position 4 and beyond):**
+
+| Option | Purpose |
+|---|---|
+| `filter:<name>` | Apply a named video filter. Recognized values are parsed by `switch_core_video_parse_filter_string`; supported filters include `bg-sepia`, `bg-gray`, `fg-sepia`, `fg-gray`, and `fg-8bit`. |
+| `fgvid:<file>` | Path to a video file to composite on top of the foreground subject. |
+| `fg:<file.png>` | Path to a PNG to composite over the foreground subject (center-bottom aligned). |
+| `bg:<file.png>` | Path to a PNG to composite over the background (center-bottom aligned). |
+| `patch` | Switch the media bug to `SMBF_VIDEO_PATCH` mode (patches the video frame rather than pinging). |
+
+**Dialplan examples:**
+
+Key out green, use a solid dark background:
+
+```xml
+<action application="chromakey" data="#00ff00 300 #1a1a2e"/>
+```
+
+Key out green with a PNG background image:
+
+```xml
+<action application="chromakey" data="#00ff00 300 /usr/local/freeswitch/images/office.png"/>
+```
+
+Key out green and use another live channel as the background:
+
+```xml
+<action application="chromakey" data="#00ff00 300 uuid:7f3e9abc-1234-5678-abcd-ef0123456789"/>
+```
+
+Apply a grayscale filter to the foreground and add a watermark PNG:
+
+```xml
+<action application="chromakey" data="#00ff00 300 /images/bg.png filter:fg-gray fg:/images/logo.png"/>
+```
+
+Stop an active chromakey bug:
+
+```xml
+<action application="chromakey" data="stop"/>
+```
+
+---
+
+### `video_replace`
+
+Replaces the inbound (`read`) or outbound (`write`) video stream with frames read from a file. Audio from the file is discarded unless started via the API with the `:sound` direction suffix. Pass `stop` to remove an active bug.
+
+**Arguments:**
+
+| Argument | Purpose |
+|---|---|
+| `read\|write` | Direction of the video stream to replace. Defaults to `write` when omitted. |
+| `<file>` | Path to a video file supported by the FreeSWITCH file-format subsystem. |
+| `stop` | Remove the active `video_replace` bug. |
+
+```xml
+<action application="video_replace" data="write /usr/local/freeswitch/videos/hold.mp4"/>
+```
+
+```xml
+<action application="video_replace" data="stop"/>
+```
+
+## API Commands
+
+| Command | Purpose | Syntax |
+|---|---|---|
+| `chromakey` | Start, update, or stop a chromakey bug on a channel by UUID | `chromakey <uuid> <start\|stop> [same args as app]` |
+| `uuid_video_replace` | Start or stop a video-replace bug on a channel by UUID | `uuid_video_replace <uuid> <start\|stop> [read\|write[:sound]] <file>` |
+
+### `chromakey` API
+
+Start or reconfigure chroma-key compositing on a live call:
+
+```
+chromakey <uuid> start #00ff00 300 /images/office.png
+```
+
+Update the background on a running bug (use `start` with new parameters):
+
+```
+chromakey <uuid> start #00ff00 300 uuid:other-channel-uuid
+```
+
+Stop an active bug:
+
+```
+chromakey <uuid> stop
+```
+
+### `uuid_video_replace` API
+
+Replace the write-direction video with a file (audio from the file included with `:sound`):
+
+```
+uuid_video_replace <uuid> start write:sound /usr/local/freeswitch/videos/hold.mp4
+```
+
+Replace the read-direction video (no audio):
+
+```
+uuid_video_replace <uuid> start read /usr/local/freeswitch/videos/hold.mp4
+```
+
+Stop video replacement:
+
+```
+uuid_video_replace <uuid> stop
+```
+
+## Channel Variables
+
+`mod_video_filter` does not call `switch_channel_set_variable` or `switch_channel_get_variable` directly. All runtime configuration is supplied through application arguments or API command parameters.
+
+**Source:** `src/mod/applications/mod_video_filter`

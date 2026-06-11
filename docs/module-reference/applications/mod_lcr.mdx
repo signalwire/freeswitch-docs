@@ -1,0 +1,153 @@
+---
+sidebar_position: 12
+id: mod_lcr
+slug: /module-reference/applications/mod_lcr
+title: "mod_lcr — Least Cost Routing"
+description: "Routes outbound calls through the cheapest available carrier by querying a rate table in an ODBC-connected database."
+sidebar_label: "mod_lcr"
+---
+
+# mod_lcr — Least Cost Routing
+
+`mod_lcr` is an applications module that selects the cheapest (or otherwise ranked) carrier for an outbound call by querying rate data stored in an ODBC-accessible relational database. On each call, it expands the dialed digits into a set of candidate prefix matches, runs a SQL query, ranks the resulting carrier routes by cost (and optionally quality or reliability), and builds a sequenced dialstring that FreeSWITCH can bridge through.
+
+The module is appropriate for carriers or resellers who maintain a rate deck in MySQL or PostgreSQL and want FreeSWITCH to automatically select among multiple upstream providers. It also registers a custom dialplan so that the context name in a SIP profile can be set to an LCR profile name, directing all calls through the LCR engine without explicit dialplan entries. In addition, it registers a `lcr://` endpoint that can be dialed directly from a bridge application.
+
+## Loading the Module
+
+The module name for `load` and `modules.conf.xml` is `mod_lcr`. In the vanilla default configuration it is **not** loaded; the entry is commented out:
+
+```xml
+<!--<load module="mod_lcr"/>-->
+```
+
+To activate it, uncomment that line in `conf/vanilla/autoload_configs/modules.conf.xml` (or add it to your deployment's equivalent). No special compile flags are required beyond having ODBC support enabled in the FreeSWITCH build (`--enable-core-odbc-support`).
+
+## Configuration: `lcr.conf.xml`
+
+The configuration file lives at `conf/vanilla/autoload_configs/lcr.conf.xml`. It has two sections: `<settings>` for global parameters, and `<profiles>` for one or more named routing profiles.
+
+### Global settings
+
+| Parameter | Purpose | Accepted Values | Default |
+|-----------|---------|-----------------|---------|
+| `odbc-dsn` | ODBC data source name (DSN), username, and password separated by colons | `dsn:user:pass` string | _(none — required)_ |
+
+### Profile parameters
+
+Each `<profile>` element accepts the following `<param>` children.
+
+| Parameter | Purpose | Accepted Values | Default |
+|-----------|---------|-----------------|---------|
+| `id` | Numeric profile ID used to filter rows in the `lcr` table (`lcr_profile` column). `0` matches all rows. | Integer | `0` |
+| `order_by` | Sort order applied to query results. Keywords `rate`, `quality`, and `reliability` map to DB columns; any other value is passed verbatim to `ORDER BY`. | Comma-separated list of `rate`, `quality`, `reliability`, or a column name | `rate` |
+| `custom_sql` | Replaces the built-in SELECT entirely. Use `%q` as a placeholder for the expanded digit list, or channel-variable syntax (`${var}`) for session variables. | SQL string | _(built-in query)_ |
+| `reorder_by_rate` | After the database returns results, re-sort the route list in memory by ascending rate. | `true` / `false` | `false` |
+| `info_in_headers` | Add `X-LCR-INFO` SIP header with carrier name and rate to outbound legs. | `true` / `false` | `false` |
+| `quote_in_list` | Wrap each digit prefix in single quotes inside the SQL `IN()` list (required for PostgreSQL text columns). | `true` / `false` | `false` |
+| `single_bridge` | Allow at most one gateway per carrier in the route list (deduplicate by carrier name as well as by gateway prefix/suffix). | `true` / `false` | `false` |
+| `export_fields` | Comma-separated list of extra SQL column names to export as channel variables on the outbound leg. | Comma-separated column names | _(none)_ |
+| `limit_type` | Backend used by `switch_limit` when enforcing per-carrier concurrent-call caps from the `lcr` table. | `db` / `hash` | `db` |
+| `enable_sip_redir` | Emit a SIP 302 redirect with all LCR routes instead of bridging directly. | `true` / `false` | `false` |
+
+### Example excerpt
+
+```xml
+<configuration name="lcr.conf" description="LCR Configuration">
+  <settings>
+    <param name="odbc-dsn" value="freeswitch-mysql:freeswitch:Fr33Sw1tch"/>
+  </settings>
+  <profiles>
+    <profile name="default">
+      <param name="id" value="0"/>
+      <param name="order_by" value="rate,quality,reliability"/>
+    </profile>
+    <profile name="qual_rel">
+      <param name="id" value="1"/>
+      <param name="order_by" value="quality,reliability"/>
+    </profile>
+  </profiles>
+</configuration>
+```
+
+## Dialplan Applications
+
+| Application | Purpose | Arguments |
+|-------------|---------|-----------|
+| `lcr` | Perform an LCR lookup and store the ordered routes as channel variables | `<number> [<profile>]` |
+
+### `lcr`
+
+Looks up routes for `<number>` using the named profile (or the default profile when omitted). On success it sets a series of numbered channel variables and a combined dialstring. It does **not** bridge the call; the dialplan must call `bridge` separately using `${lcr_auto_route}` or the individual `lcr_route_N` variables.
+
+```xml
+<action application="lcr" data="15555551212"/>
+<action application="bridge" data="${lcr_auto_route}"/>
+```
+
+With an explicit profile:
+
+```xml
+<action application="lcr" data="15555551212 qual_rel"/>
+<action application="bridge" data="${lcr_auto_route}"/>
+```
+
+The `intrastate` channel variable (set to `true`) causes the lookup to use the `intrastate_rate` column instead of `rate`. The `lrn` variable, if set, supplies a ported (LRN) number for the digit-prefix expansion.
+
+## API Commands
+
+| Command | Purpose | Syntax |
+|---------|---------|--------|
+| `lcr` | Look up and display LCR routes for a number | `lcr <digits> [<lcr profile>] [caller_id] [intrastate] [as xml]` |
+| `lcr_admin` | Display loaded LCR profiles | `lcr_admin show profiles` |
+
+### `lcr`
+
+Queries the database and prints a formatted table (or XML) of matching routes to the fs_cli console. Useful for debugging rate tables interactively.
+
+```
+freeswitch@> lcr 15555551212
+freeswitch@> lcr 15555551212 default 18005551212 intrastate
+freeswitch@> lcr 15555551212 default as xml
+```
+
+The optional `caller_id` argument overrides the caller-ID number used for CID-manipulation lookups. The `intrastate` keyword switches the rate column to `intrastate_rate`.
+
+### `lcr_admin`
+
+Lists every loaded profile and its configuration, including whether intrastate, intralata, or NPA-NXX data is available.
+
+```
+freeswitch@> lcr_admin show profiles
+```
+
+## Channel Variables
+
+| Variable | Set / Read | Purpose |
+|----------|-----------|---------|
+| `intrastate` | Read | When `true`, the lookup uses `intrastate_rate` instead of `rate`. Read by the app, the dialplan engine, and the endpoint. |
+| `intralata` | Read | When `true`, uses `intralata_rate`. Read by the dialplan engine and the endpoint (not the `lcr` dialplan application). |
+| `lrn` | Read | If set, provides the LRN (ported) number used alongside the dialed number in digit-prefix expansion. |
+| `max_rate` | Read | Upper bound on per-minute rate; routes with a higher rate are skipped. |
+| `lcr_auto_route` | Set | Pipe-separated dialstring of all matching routes (comma-separated when `enable_sip_redir` is true), ready to pass directly to `bridge`. |
+| `lcr_route_count` | Set | Total number of routes found. |
+| `lcr_route_N` | Set | Dialstring for the Nth route (1-based). |
+| `lcr_rate_N` | Set | Rate string for the Nth route. |
+| `lcr_carrier_N` | Set | Carrier name for the Nth route. |
+| `lcr_codec_N` | Set | Codec string for the Nth route (empty if not set in the DB). |
+| `lcr_carrier` | Set | Carrier name for the connected (winning) route, exported to the B-leg via `import`. |
+| `lcr_rate` | Set | Rate for the connected route, exported to the B-leg. |
+| `lcr_user_rate` | Set | User-facing rate for the connected route, exported to the B-leg. |
+| `lcr_rate_field` | Set | Name of the SQL rate column chosen for this call (`rate`, `intrastate_rate`, or `intralata_rate`). |
+| `lcr_user_rate_field` | Set | Name of the SQL user-rate column chosen for this call. |
+| `lcr_query_digits` | Set | Digit-only copy of the dialed number used in the SQL query. |
+| `lcr_query_profile` | Set | Numeric ID of the profile used for the lookup. |
+| `lcr_query_expanded_digits` | Set | Comma-expanded prefix list passed to the SQL `IN()` clause. |
+| `lcr_query_expanded_lrn_digits` | Set | Comma-expanded LRN prefix list passed to the SQL `IN()` clause. |
+| `lcr_lrn` | Set | LRN number used in the query (set only when an LRN number is supplied). |
+
+## Dependencies
+
+`mod_lcr` requires an ODBC-connected relational database (MySQL or PostgreSQL). The FreeSWITCH core must be built with `--enable-core-odbc-support` and the appropriate ODBC driver (e.g. `unixODBC` with the MySQL Connector/ODBC or `psqlODBC`) must be installed and configured in `odbc.ini`. The module does **not** create the database schema itself; SQL scripts for MySQL and PostgreSQL are provided in `src/mod/applications/mod_lcr/sql/`.
+
+**Source:** `src/mod/applications/mod_lcr`, `conf/vanilla/autoload_configs/lcr.conf.xml`

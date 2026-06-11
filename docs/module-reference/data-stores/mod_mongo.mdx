@@ -1,0 +1,123 @@
+---
+sidebar_position: 3
+id: mod_mongo
+slug: /module-reference/data-stores/mod_mongo
+title: "mod_mongo — MongoDB Client"
+description: "Provides MongoDB query API commands and a distributed call-limit backend for FreeSWITCH via the libmongoc driver."
+sidebar_label: "mod_mongo"
+---
+
+# mod_mongo — MongoDB Client
+
+`mod_mongo` is a FreeSWITCH application module (located under `src/mod/applications/mod_mongo`) that connects to a MongoDB server using a pooled `libmongoc` client. It serves two roles: it exposes API commands that let dialplan scripts and ESL clients query MongoDB collections directly, and it implements the `mongo` backend for FreeSWITCH's `limit` subsystem so call-rate limits can be shared across a cluster of FreeSWITCH servers.
+
+Reach for this module when you need to look up caller data, routing tables, or other records stored in MongoDB from within the dialplan, or when you need a distributed concurrency counter that survives across multiple FreeSWITCH instances.
+
+## Loading the Module
+
+The module name for the `load` command and `modules.conf.xml` is `mod_mongo`.
+
+In the vanilla distribution the entry is present but commented out:
+
+```xml
+<!--<load module="mod_mongo"/>-->
+```
+
+To enable it, uncomment that line in `conf/vanilla/autoload_configs/modules.conf.xml` (or the equivalent path in your installation). You must also compile the module with `libmongoc` available on the build host — the Makefile guard `HAVE_MONGOC` enforces this and aborts with an error message if the library is missing.
+
+## Configuration: `mongo.conf.xml`
+
+`mod_mongo` reads `mongo.conf` (`autoload_configs/mongo.conf.xml`) on load. All settings live inside a single `<settings>` block. A second connection pool can be configured exclusively for the limit backend; if omitted it reuses the main `connection-string` pool.
+
+| Parameter | Purpose | Accepted Values | Default |
+|---|---|---|---|
+| `connection-string` | MongoDB URI for general queries and (unless overridden) the limit backend | Standard MongoDB URI | _(required — no default)_ |
+| `limit-connection-string` | Separate MongoDB URI used only by the limit backend | Standard MongoDB URI | Value of `connection-string` |
+| `limit-database` | MongoDB database name for limit counters | Any valid database name | `limit` |
+| `limit-collection` | MongoDB collection name for limit counters | Any valid collection name | `mod_mongo` |
+| `limit-cleanup-interval-sec` | Seconds between background passes that remove zero-count limit documents | Integer `>= 0`; `0` disables cleanup | `300` |
+| `map` | JavaScript map function used by `mongo_mapreduce` | JavaScript function string | _(empty)_ |
+| `reduce` | JavaScript reduce function used by `mongo_mapreduce` | JavaScript function string | _(empty)_ |
+| `finalize` | JavaScript finalize function used by `mongo_mapreduce` | JavaScript function string | _(empty)_ |
+
+The MongoDB URI format is:
+
+```
+mongodb://[username:password@]host1[:port1][,host2[:port2],...][/[database][?options]]
+```
+
+Minimal real example from the shipped conf:
+
+```xml
+<configuration name="mongo.conf">
+  <settings>
+    <!--
+         mongodb://[username:password@]host1[:port1][,host2[:port2],...[,hostN[:portN]]][/[database][?options]]
+    -->
+    <param name="connection-string" value="mongodb://127.0.0.1:27017/?connectTimeoutMS=10000"/>
+
+<!--
+    <param name="map" value="function() { emit(this.a, 1); }"/>
+    <param name="reduce" value="function(key, values) { return Array.sum(values); }"/>
+    <param name="finalize" value="function(key, value) { return value;}"/>
+-->
+
+  </settings>
+</configuration>
+```
+
+## API Commands
+
+These commands are available from `fs_cli`, ESL, or the `api` dialplan application.
+
+| Command | Purpose | Syntax |
+|---|---|---|
+| `mongo_find_one` | Return the first document matching a query | `mongo_find_one ns; query; fields; options` |
+| `mongo_find_n` | Return up to N documents matching a query as a JSON array | `mongo_find_n ns; query; fields; options; n` |
+| `mongo_mapreduce` | Run a server-side Map/Reduce operation inline | `mongo_mapreduce ns; query` |
+
+**Argument details**
+
+- `ns` — Namespace in `database.collection` notation (e.g. `mydb.users`).
+- `query` — JSON object passed as the MongoDB query filter (e.g. `{"caller_id":"5551234"}`).
+- `fields` — JSON projection object selecting which fields to return (e.g. `{"name":1}`).
+- `options` — Optional flags as a comma-separated string. Recognized tokens: `cursorTailable`, `slaveOk`, `oplogReplay`, `noCursorTimeout`, `awaitData`, `exhaust`, `partialResults`. Pass `{}` or an empty string for none.
+- `n` — Maximum number of documents to return (integer `>= 1`; defaults to `1` if omitted or less than 1).
+
+The argument separator character is `;` (semicolon).
+
+On success the response begins with `-OK` followed by the JSON result. On error it begins with `-ERR` followed by a description.
+
+**fs\_cli examples**
+
+```
+freeswitch@> mongo_find_one mydb.callers; {"caller_id": "5551234"}; {"name": 1, "max_calls": 1}; {}
+
+freeswitch@> mongo_find_n mydb.callers; {}; {"caller_id": 1}; {}; 10
+
+freeswitch@> mongo_mapreduce mydb.callers; {"active": true}
+```
+
+## Limit Backend
+
+`mod_mongo` registers a `limit` interface named `mongo`. Use this backend with the standard `limit` dialplan application to enforce per-resource concurrency limits across a FreeSWITCH cluster. Counter documents are stored in MongoDB in the form:
+
+```json
+{ "_id": "realm_resource", "total": 5, "fs-hostname-1": 3, "fs-hostname-2": 2 }
+```
+
+Each FreeSWITCH instance tracks its own count as a field keyed by the server's switch name, and `total` holds the cluster-wide sum. Counters are automatically decremented when a session ends and background cleanup removes zero-count documents every `limit-cleanup-interval-sec` seconds.
+
+Example dialplan usage with the `limit` application:
+
+```xml
+<action application="limit" data="mongo realm resource 5"/>
+```
+
+The first token (`mongo`) selects this module's limit backend.
+
+## Dependencies
+
+`mod_mongo` requires **libmongoc** (the MongoDB C Driver, package `libmongoc-dev` on Debian/Ubuntu). The build system checks for this library via the `HAVE_MONGOC` autoconf flag and refuses to compile the module if it is absent. libmongoc is not included in the FreeSWITCH source tree and must be installed separately before building this module.
+
+**Source:** `src/mod/applications/mod_mongo`, `conf/vanilla/autoload_configs/mongo.conf.xml`

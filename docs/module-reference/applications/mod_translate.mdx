@@ -1,0 +1,125 @@
+---
+sidebar_position: 18
+id: mod_translate
+slug: /module-reference/applications/mod_translate
+title: "mod_translate — Number Translation Rules"
+description: "Rewrites destination numbers, caller ID, and ANI using ordered regex replacement rules grouped into named profiles."
+sidebar_label: "mod_translate"
+---
+
+# mod_translate — Number Translation Rules
+
+`mod_translate` normalizes telephone numbers against a library of named regex-replacement profiles. Each profile contains an ordered list of rules; the first matching rule is applied and expansion stops. Rules support PCRE capture groups and FreeSWITCH channel variable substitution in the replacement string.
+
+Operators reach for this module when numbers arrive in mixed or non-canonical formats — local short-dial, E.164 with a `+`, 10-digit NANP, or international prefixes — and need a single, configurable place to canonicalize them before routing. It is also registered as a dialplan driver so it can rewrite destination number, caller ID number, and ANI atomically before the main dialplan runs.
+
+## Loading the Module
+
+The module name for `load` / `modules.conf.xml` is `mod_translate`. In the vanilla distribution it is **commented out** and must be explicitly enabled:
+
+```xml
+<load module="mod_translate"/>
+```
+
+No special build flags are required; the module is compiled by default when present in the source tree.
+
+## Configuration: `translate.conf.xml`
+
+The configuration file is `translate.conf.xml` (searched on the FreeSWITCH config path). It contains a single `<profiles>` element. Each `<profile>` has a `name` attribute and one or more `<rule>` elements that are evaluated in document order.
+
+### `<profile>` element
+
+| Attribute | Purpose | Accepted Values | Default |
+|-----------|---------|-----------------|---------|
+| `name` | Identifies the profile; used by the dialplan driver, the app, and the API command | Any string (e.g. `US`, `GB`, `HK`) | — |
+
+### `<rule>` element
+
+| Attribute | Purpose | Accepted Values | Default |
+|-----------|---------|-----------------|---------|
+| `regex` | PCRE pattern matched against the number | Any PCRE expression | — |
+| `replace` | Replacement string; `$1`–`$9` reference capture groups; `${varname}` expands channel/event variables | Any string | — |
+
+Rules are evaluated in order; the first match wins. If no rule matches, the number is left unchanged.
+
+```xml
+<include>
+  <configuration name="translate.conf" description="Number Translation Rules">
+    <profiles>
+      <profile name="US">
+        <rule regex="^\+(\d+)$" replace="$1"/>
+        <rule regex="^(1[2-9]\d{2}[2-9]\d{6})$" replace="$1"/>
+        <rule regex="^([2-9]\d{2}[2-9]\d{6})$" replace="1$1"/>
+        <rule regex="^([2-9]\d{6})$" replace="1${areacode}$1"/>
+        <rule regex="^011(\d+)$" replace="$1"/>
+      </profile>
+      <profile name="GB">
+        <rule regex="^\+(\d+)$" replace="$1"/>
+        <rule regex="^$" replace="$1"/>
+      </profile>
+      <profile name="HK">
+        <rule regex="\+(\d+)$" replace="$1"/>
+        <rule regex="^(852\d{8})$" replace="$1"/>
+        <rule regex="^(\d{8})$" replace="852$1"/>
+      </profile>
+    </profiles>
+  </configuration>
+</include>
+```
+
+The configuration is reloaded whenever FreeSWITCH receives a `SWITCH_EVENT_RELOADXML` event (e.g. `reloadxml` from `fs_cli`).
+
+## Dialplan Applications
+
+| Application | Purpose | Arguments |
+|-------------|---------|-----------|
+| `translate` | Translate a single number using a named profile; result stored in `${translated}` | `<number> [<profile>]` |
+
+### `translate`
+
+Applies the first matching rule from the specified profile to `<number>` and stores the result in the channel variable `translated`. If `<profile>` is omitted, the profile defaults to `US`.
+
+```xml
+<action application="translate" data="${destination_number} US"/>
+<action application="log"       data="INFO Translated: ${translated}"/>
+```
+
+## API Commands
+
+| Command | Purpose | Syntax |
+|---------|---------|--------|
+| `translate` | Translate a number from the `fs_cli` or ESL | `translate <number> [<profile>]` |
+
+```
+freeswitch> translate 2125551234 US
+12125551234
+```
+
+When called outside a session, the module reads `default_areacode` from the global variables (set in `vars.xml`) to expand 7-digit local numbers. If `default_areacode` is not set, the placeholder `777` is used.
+
+## Dialplan Driver
+
+`mod_translate` also registers a dialplan named `translate`. When set as the dialplan for a SIP profile (e.g. `<param name="dialplan" value="translate"/>`), it translates the destination number, caller ID number, and ANI of every inbound call before passing control back.
+
+The profile used by the dialplan driver is resolved in this order:
+
+1. The profile name passed in the dialplan URI (e.g. `translate:GB`)
+2. Channel variable `translate_profile`
+3. Channel variable `country`
+4. Channel variable `default_country`
+5. Hard-coded fallback: `US`
+
+The `areacode` channel variable (falling back to `default_areacode`) is available for variable expansion inside rule `replace` strings during dialplan-driver processing.
+
+## Channel Variables
+
+| Variable | Set / Read | Purpose |
+|----------|-----------|---------|
+| `translated` | Set | Output of the `translate` dialplan application; holds the rewritten number |
+| `translate_profile` | Read | Profile name used by the dialplan driver (priority 2) |
+| `country` | Read | Profile name used by the dialplan driver when `translate_profile` is absent (priority 3) |
+| `default_country` | Read | Profile name used by the dialplan driver as last-resort fallback (priority 4) |
+| `areacode` | Read / Set | Local area code injected into 7-digit expansions; copied from `default_areacode` if not already set |
+| `default_areacode` | Read | Global fallback area code; used by both the dialplan driver and the API command |
+
+**Source:** `src/mod/applications/mod_translate`, `conf/vanilla/autoload_configs/translate.conf.xml`

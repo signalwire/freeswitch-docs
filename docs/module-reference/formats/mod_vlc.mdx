@@ -1,0 +1,123 @@
+---
+sidebar_position: 5
+id: mod_vlc
+slug: /module-reference/formats/mod_vlc
+title: "mod_vlc — VLC Media Playback and Streaming"
+description: "Integrates libvlc into FreeSWITCH to play, record, and stream audio/video via local files, HTTP, RTMP, RTP, MMS, and RTSP URLs."
+sidebar_label: "mod_vlc"
+---
+
+# mod_vlc — VLC Media Playback and Streaming
+
+`mod_vlc` integrates libvlc (the VLC media framework) into FreeSWITCH as a file-format and endpoint module. It lets you play audio and video from local files or network streams (HTTP, RTMP, RTP, MMS, RTSP) directly into a call, and capture a call's audio/video and push it out to a streaming destination using VLC's sout (stream output) pipeline.
+
+Reach for `mod_vlc` when you need to serve container formats such as MP4 or MOV, ingest a live network stream as a playback source, or push recorded media to an external streaming server. For simple WAV/raw audio playback, the built-in file interfaces are more efficient; `mod_vlc` is the right tool when libvlc's codec and protocol breadth is required.
+
+## Loading the Module
+
+The module name to load is `mod_vlc`. It is **not** present in the vanilla `autoload_configs/modules.conf.xml` and must be added manually:
+
+```xml
+<load module="mod_vlc"/>
+```
+
+The module must be compiled with libvlc development headers available. Pass `--enable-mod_vlc` to the FreeSWITCH `./configure` step, or build the module separately from `src/mod/formats/mod_vlc` with `make && make install`. Audio support requires libvlc >= 1.2; video support requires libvlc >= 2.0.2.
+
+## File Interface
+
+`mod_vlc` registers a file interface that intercepts the following path extensions and scheme prefixes:
+
+| Extension / Prefix | Notes |
+|--------------------|-------|
+| `vlc` | Generic VLC URI scheme — use `vlc://` to pass any libvlc-supported URL |
+| `mp4` | MPEG-4 container (audio + video) |
+| `mov` | QuickTime/MOV container |
+| `m4v` | iTunes video container |
+| `rtmp` | RTMP stream output identifier |
+| `youtube` | YouTube RTMP stream output identifier |
+
+### Playback (read mode)
+
+Pass a file path or URL anywhere FreeSWITCH accepts a file handle. The module determines the media type from the path prefix:
+
+| Path form | Behaviour |
+|-----------|-----------|
+| `/absolute/path/to/file.mp4` | Opens as a local file |
+| `http://host/stream.pls` | Opens as an HTTP network location |
+| `rtp://…`, `mms://…`, `rtsp://…` | Opens as a network path |
+| `vlc://ftp://host/file.mp3` | Strips `vlc://` prefix; passes remainder to libvlc |
+
+Example dialplan usage with `playback`:
+
+```xml
+<action application="playback" data="/tmp/promo.mp4"/>
+<action application="playback" data="http://streams.example.com:8000/on-hold.mp3"/>
+<action application="playback" data="vlc://ftp://media.example.com/greeting.ogg"/>
+```
+
+### Stream output (write mode)
+
+When writing, the `data` argument is passed directly as the libvlc `--sout` parameter. Use standard VLC sout syntax:
+
+```xml
+<!-- Stream call audio to an Icecast/Ogg endpoint -->
+<action application="record" data="vlc://#transcode{acodec=vorb,channels=1,samplerate=16000}:standard{access=http,mux=ogg,dst=:8080/stream.ogg}"/>
+
+<!-- Record to a local MP4 file (video + audio) -->
+<action application="record" data="/tmp/recording.mp4"/>
+```
+
+When the destination path ends in `.mp4` and video is present, the module automatically applies `#transcode{vcodec=h264,acodec=mpga}:std{access=file,mux=mp4,dst=<path>}`.
+
+For `rtmp` and `youtube` stream names, the module builds an x264/MP3/FLV sout pipeline automatically, selecting video bitrate by resolution (240 p → 400 kbps, 360 p → 750 kbps, 480 p → 1000 kbps, 720 p → 2500 kbps, 1080 p → 4500 kbps).
+
+## Dialplan Applications
+
+| Application | Purpose | Arguments |
+|-------------|---------|-----------|
+| `play_video` | Play a video file or stream into a channel (audio + video) | `<path-or-URL>` |
+| `capture_video` | Capture a channel's audio and video and push to a VLC sout destination | `<sout-string>` or `vlc://<sout-string>` |
+
+### `play_video`
+
+Plays a video file or network stream into the channel. Audio is written to the write leg; video frames are sent to the session's video write path. Supports the same path prefixes as the file interface (`http`, `rtp`, `mms`, `rtsp`, absolute path). Respects `playback_terminators` DTMF digits.
+
+```xml
+<action application="play_video" data="/tmp/intro.mp4"/>
+<action application="play_video" data="http://cdn.example.com/hold-video.mp4"/>
+```
+
+### `capture_video`
+
+Reads audio and video from the channel and pushes them to a VLC stream output destination. The argument is a VLC sout pipeline string; a leading `vlc://` prefix is stripped automatically.
+
+```xml
+<action application="capture_video" data="vlc://#transcode{venc=x264,vcodec=h264,acodec=mp3,ab=128,vb=1000,channels=1,samplerate=44100}:standard{access=avio,mux=flv,dst=rtmp://live.example.com/app/streamkey}"/>
+```
+
+## Channel Variables
+
+| Variable | Set / Read | Purpose |
+|----------|-----------|---------|
+| `vlc_force_width` | Read | Force the decoded video width (pixels) in `play_video`. Must be a valid integer string. |
+| `vlc_force_height` | Read | Force the decoded video height (pixels) in `play_video`. Must be a valid integer string. |
+| `vlc_capture_offset` | Read | Audio/video sync offset in milliseconds for `capture_video` and the file write path. Default: `250`. |
+| `vlc_interval` | Read | Packet interval in milliseconds for outbound `vlc/` endpoint dialing. Default: `20`. |
+| `vlc_rate` | Read | Sample rate for outbound `vlc/` endpoint dialing. Default: `8000`. |
+| `vlc_channels` | Read | Channel count for outbound `vlc/` endpoint dialing. Clamped to 1–2. Default: `1`. |
+
+## Endpoint Interface
+
+`mod_vlc` also registers an endpoint interface named `vlc`. This allows originating a call leg that feeds media from a VLC source into a bridge:
+
+```
+originate vlc/http://cdn.example.com/moh.mp4 &bridge(sofia/internal/1000@pbx.example.com)
+```
+
+The `vlc_interval`, `vlc_rate`, and `vlc_channels` channel variables control codec parameters when no originating session provides them.
+
+## Dependencies
+
+`mod_vlc` requires the libvlc runtime and development headers. These are not included in the FreeSWITCH source tree and must be installed separately from the host distribution (e.g., `libvlc-dev` on Debian/Ubuntu, `vlc-devel` on RHEL/CentOS). Audio support requires libvlc >= 1.2; video requires libvlc >= 2.0.2.
+
+**Source:** `src/mod/formats/mod_vlc`

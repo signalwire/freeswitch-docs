@@ -1,0 +1,165 @@
+---
+sidebar_position: 2
+id: mod_erlang_event
+slug: /module-reference/event-handlers/mod_erlang_event
+title: "mod_erlang_event — Erlang Event Interface"
+description: "Exposes FreeSWITCH events, log output, and call control to Erlang nodes via the Erlang distribution protocol."
+sidebar_label: "mod_erlang_event"
+---
+
+# mod_erlang_event — Erlang Event Interface
+
+`mod_erlang_event` connects FreeSWITCH to an Erlang cluster using the native Erlang distribution protocol (via the `ei` C library). It registers FreeSWITCH as an Erlang c-node, accepts inbound connections from remote Erlang nodes, and can also initiate outbound connections to those nodes. Once connected, Erlang processes can subscribe to FreeSWITCH events, receive log output, execute API commands, and take full control of individual calls.
+
+Reach for this module when your call-processing logic is written in Erlang or Elixir and you want to exchange structured Erlang terms with FreeSWITCH rather than parsing plain-text ESL or JSON. It sits in `src/mod/event_handlers` alongside `mod_event_socket` and serves the same general purpose but over the binary Erlang wire protocol.
+
+## Loading the Module
+
+The module name is `mod_erlang_event`. It is **not** loaded by default in the vanilla configuration — the entry in `conf/vanilla/autoload_configs/modules.conf.xml` is commented out:
+
+```xml
+<!-- <load module="mod_erlang_event"/> -->
+```
+
+To activate it, uncomment that line (or add it) and restart FreeSWITCH, or load it at runtime:
+
+```
+freeswitch@> load mod_erlang_event
+```
+
+Building the module requires the Erlang/OTP `erl_interface` / `ei` development headers (see [Dependencies](#dependencies)).
+
+## Configuration: `erlang_event.conf.xml`
+
+The module reads `conf/autoload_configs/erlang_event.conf.xml` on load. All parameters live inside a single `<settings>` block.
+
+| Parameter | Purpose | Accepted Values | Default |
+|---|---|---|---|
+| `listen-ip` | IP address to listen on for inbound Erlang node connections | IPv4/IPv6 address string | `0.0.0.0` |
+| `listen-port` | TCP port to listen on | 1–65535 | `8031` |
+| `nodename` | Short name or full node name for the FreeSWITCH c-node (e.g. `freeswitch` or `freeswitch@host.example.com`) | string | `freeswitch` |
+| `cookie` | Erlang distribution magic cookie used for authentication | string | `ClueCon` (or `$HOME/.erlang.cookie` if that file exists) |
+| `cookie-file` | Path to a file containing the cookie (alternative to `cookie`) | absolute file path | — |
+| `shortname` | Use short node names (`-sname` style) | `true` / `false` | `true` |
+| `apply-inbound-acl` | ACL list name to restrict which IPs may connect; may be repeated up to 100 times | ACL name string | — (no restriction) |
+| `encoding` | Wire encoding for string values in Erlang terms | `string` / `binary` | `string` |
+| `compat-rel` | Request OTP back-compat mode for connecting to older releases (value must be ≥ 7) | integer | `0` (disabled) |
+| `max-event-bulk` | Maximum events to dequeue and send per listener loop iteration | positive integer | `1` |
+| `max-log-bulk` | Maximum log lines to dequeue and send per listener loop iteration | positive integer | `1` |
+| `stop-on-bind-error` | Abort module startup if the listen socket cannot be bound | `true` / `false` | `false` |
+
+**Example** (trimmed from the shipped `erlang_event.conf.xml`):
+
+```xml
+<configuration name="erlang_event.conf" description="Erlang Socket Client">
+  <settings>
+    <param name="listen-ip" value="0.0.0.0"/>
+    <param name="listen-port" value="8031"/>
+    <param name="nodename" value="freeswitch"/>
+    <param name="cookie" value="ClueCon"/>
+    <param name="shortname" value="true"/>
+    <!--<param name="apply-inbound-acl" value="lan"/>-->
+    <!--<param name="encoding" value="string"/>-->
+    <!--<param name="compat-rel" value="12"/> -->
+  </settings>
+</configuration>
+```
+
+## Dialplan Applications
+
+| Application | Purpose | Arguments |
+|---|---|---|
+| `erlang` | Park the current call and yield control to an Erlang process on a named node | `<registered-name-or-module:function> <node@host>` |
+| `erlang_sendmsg` | Send a one-shot message to a registered process on a named node without transferring call control | `<registered-name> <node@host> <message>` |
+
+### `erlang`
+
+Connects the current session to an Erlang process running on `node@host`. The module looks for an existing listener to that node; if none exists it opens an outbound connection. There are two addressing forms:
+
+- **Registered name** — `erlang_outbound_function` sends an initial `{call, <channel-data>}` message to the registered process and then delivers subsequent events as `{call_event, <event>}` tuples. When the call ends a `{call_hangup, <uuid>}` message is sent.
+- **Module:function** — the module calls `Module:Function(Ref)` via RPC to obtain a pid. Use `Module:!` to instead send a `{get_pid, UUID, Ref, Self}` message to the registered name `Module` and wait for the pid reply.
+
+After attaching the session the call is placed in a parked state (`switch_ivr_park`) so the Erlang process drives the call.
+
+```xml
+<action application="erlang" data="my_call_handler mynode@192.168.1.10"/>
+```
+
+```xml
+<action application="erlang" data="myapp:start mynode@192.168.1.10"/>
+```
+
+### `erlang_sendmsg`
+
+Sends a `{freeswitch_sendmsg, Message}` tuple to a registered process. Does not park the call or transfer control. Useful for notifications.
+
+```xml
+<action application="erlang_sendmsg" data="logger mynode@192.168.1.10 call_started"/>
+```
+
+## API Commands
+
+The module registers a single `erlang` API command with several subcommands.
+
+| Command | Purpose | Syntax |
+|---|---|---|
+| `erlang listeners` | List all active Erlang node connections and their statistics | `erlang listeners` |
+| `erlang sessions <node>` | List active outbound call sessions attached to a specific node | `erlang sessions <node@host>` |
+| `erlang bindings` | List active XML section bindings registered by Erlang processes | `erlang bindings` |
+| `erlang handlers` | List event and custom-event subscriptions for each listener | `erlang handlers` |
+| `erlang debug <on\|off>` | Enable or disable verbose debug logging for XML fetch responses | `erlang debug on` |
+
+**`fs_cli` examples:**
+
+```
+freeswitch@> erlang listeners
+freeswitch@> erlang sessions mynode@192.168.1.10
+freeswitch@> erlang bindings
+freeswitch@> erlang handlers
+freeswitch@> erlang debug on
+```
+
+## Erlang Protocol Messages
+
+Connected Erlang processes communicate by sending Erlang terms (tuples and atoms) directly to the FreeSWITCH c-node. The following messages are recognized (received from Erlang nodes):
+
+**Atom messages** (sent as bare atoms):
+
+| Atom | Effect |
+|---|---|
+| `register_event_handler` | Register the sending pid as the global event receiver for this connection |
+| `register_log_handler` | Register the sending pid as the log receiver for this connection |
+| `noevents` | Cancel all event subscriptions and flush the event queue |
+| `nolog` | Cancel log delivery and flush the log queue |
+| `session_noevents` | Cancel event subscriptions for the session owned by the sending pid |
+| `getpid` | Reply with `{ok, Pid}` — the FreeSWITCH c-node's own pid |
+| `exit` | Close the connection from this node |
+
+**Tuple messages** (first element is the command atom):
+
+| Tuple tag | Purpose |
+|---|---|
+| `{event, EventName, ...}` | Subscribe the listener to one or more event types |
+| `{nixevent, EventName, ...}` | Unsubscribe from one or more event types |
+| `{setevent, EventName, ...}` | Atomically replace the current event subscription set |
+| `{session_event, EventName, ...}` | Subscribe a per-session pid to event types |
+| `{session_nixevent, EventName, ...}` | Unsubscribe a per-session pid from event types |
+| `{session_setevent, EventName, ...}` | Atomically replace a per-session event subscription set |
+| `{filter, "Header Value", ...}` | Add or delete event header filters |
+| `{set_log_level, Level}` | Set the minimum log level delivered to this connection |
+| `{api, Command, Args}` | Execute a FreeSWITCH API command synchronously; reply is `{ok, Output}` or `{error, Reason}` |
+| `{bgapi, Command, Args}` | Execute a FreeSWITCH API command in a background thread; reply is `{ok, UUID}`, result delivered as `{bgok, UUID, Output}` or `{bgerror, UUID, Reason}` |
+| `{sendevent, EventName, [{Key, Value}, ...]}` | Fire a FreeSWITCH event into the event system |
+| `{sendmsg, UUID, [{Key, Value}, ...]}` | Queue a `SWITCH_EVENT_SEND_MESSAGE` private event for a session |
+| `{bind, Section}` | Register this pid as the XML fetch handler for `config`, `directory`, `dialplan`, `phrases`, or `chatplan` |
+| `{handlecall, UUID}` | Attach the sending pid to an existing session to receive its events |
+| `{handlecall, RegName, UUID}` | Attach a registered process to an existing session |
+| `{fetch_reply, UUID, XMLString}` | Respond to an outstanding XML fetch request from `{bind, ...}` |
+
+Events delivered to subscribed Erlang pids are encoded as Erlang terms tagged `event`. Per-session events are wrapped as `{call_event, Event}`. On call end, `{call_hangup, UUID}` is sent. Log lines are delivered as `{log, [{level,N},{text_channel,N},{file,F},{func,Fn},{line,L},{data,D},{user_data,U}]}`.
+
+## Dependencies
+
+`mod_erlang_event` links against the Erlang `ei` (erl_interface) C library, which ships with Erlang/OTP but is not present on most systems by default. Install the `erlang-dev` (Debian/Ubuntu) or `erlang-devel` (RHEL/CentOS) package, or provide the OTP source tree, before building FreeSWITCH with this module enabled. The `epmd` daemon (Erlang Port Mapper Daemon) must also be reachable at runtime; the module attempts to start it automatically via `epmd -daemon` if it is in `$PATH`.
+
+**Source:** `src/mod/event_handlers/mod_erlang_event`, `conf/vanilla/autoload_configs/erlang_event.conf.xml`

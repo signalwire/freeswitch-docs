@@ -1,0 +1,81 @@
+---
+sidebar_position: 3
+id: mod_png
+slug: /module-reference/formats/mod_png
+title: "mod_png — PNG Image Frames"
+description: "Registers a PNG file-format interface so a static PNG image can be streamed as a video source during playback, with optional audio."
+sidebar_label: "mod_png"
+---
+
+# mod_png — PNG Image Frames
+
+`mod_png` lives in `src/mod/formats/` and registers a read-only file-format interface for the `.png` extension. When a video-capable channel opens a `.png` file through the standard file-playback machinery (e.g. `playback`), the module decodes the image into an I420 frame and repeats it continuously as the video stream, while either generating silence or forwarding audio from a companion audio file.
+
+The module also exposes the `uuid_write_png` API command, which captures a single video frame from an active call and writes it to disk as a PNG file. Together these two features make the module useful for: displaying a static logo or hold-screen on a video call, and for capturing screenshots from live video sessions for logging or monitoring purposes.
+
+## Loading the Module
+
+The module name for `modules.conf.xml` and `load` commands is `mod_png`.
+
+In the vanilla distribution it is **enabled by default** — the line appears uncommented in `conf/vanilla/autoload_configs/modules.conf.xml`:
+
+```xml
+<load module="mod_png"/>
+```
+
+No special build flag is required; the module links against FreeSWITCH's core video library, which in turn requires libpng (>= 1.2.49, recommended >= 1.6.16) to be present at build time.
+
+## Using mod_png as a Video Source
+
+### File interface
+
+`mod_png` registers the `png` extension with the FreeSWITCH file-format layer. Any dialplan application that opens a media file — primarily `playback` — can reference a `.png` path and the module will serve it as a continuous video stream.
+
+The module accepts two URI parameters passed via `{key=value}` file-open params:
+
+| Parameter | Purpose | Accepted Values | Default |
+|---|---|---|---|
+| `audio_file` | Path to an audio file to play alongside the PNG image | Any path resolvable by the file-format layer | _(none — silence)_ |
+| `png_ms` | Maximum duration in milliseconds to stream the PNG before ending | Positive integer (milliseconds) | `86400000` (24 hours) |
+
+When the channel has **no video**, the module requires `audio_file` to be set; otherwise the open call fails. When the channel **has video**, the PNG is decoded once and each video frame is a copy of that image. Audio frames contain silence unless `audio_file` is set.
+
+### Dialplan example
+
+```xml
+<action application="playback" data="{audio_file=/tmp/hold_music.wav,png_ms=30000}/tmp/logo.png"/>
+```
+
+This plays `logo.png` as a video frame for up to 30 seconds while simultaneously playing `hold_music.wav` as audio.
+
+## API Commands
+
+| Command | Purpose | Syntax |
+|---|---|---|
+| `uuid_write_png` | Capture a video frame from an active call and write it to a PNG file | `uuid_write_png <uuid> <path> [concat \| split <other_path> \| write]` |
+
+### `uuid_write_png` detail
+
+Attaches a transient media bug to the session identified by `<uuid>`, waits for the next video frame, writes it to `<path>` as a PNG file, then removes the bug. If `<path>` is not an absolute path, the file is written under FreeSWITCH's configured `images` directory.
+
+**Modes:**
+
+- _(no third argument)_ — captures the **read** (inbound) video leg.
+- `write` — captures the **write** (outbound) video leg.
+- `concat` — captures both legs and writes them side-by-side into a single PNG at `<path>`. The session must be bridged and the far end must have video.
+- `split <other_path>` — captures both legs and writes each to a separate file (`<path>` for the read leg, `<other_path>` for the write leg). The session must be bridged and the far end must have video.
+
+**fs_cli examples:**
+
+```
+uuid_write_png 3f9b1c2a-... /tmp/snapshot.png
+uuid_write_png 3f9b1c2a-... /tmp/snapshot.png write
+uuid_write_png 3f9b1c2a-... /tmp/both.png concat
+uuid_write_png 3f9b1c2a-... /tmp/read.png split /tmp/write.png
+```
+
+## Dependencies
+
+`mod_png` itself has no external library dependencies beyond FreeSWITCH core. PNG reading and writing is performed by FreeSWITCH's internal video layer (`switch_core_video`), which requires **libpng** (>= 1.2.49; libpng >= 1.6.16 recommended for simplified-API support). libpng must be present at FreeSWITCH build time; it is not bundled and must be installed separately (e.g. `libpng-dev` on Debian/Ubuntu, `libpng-devel` on RHEL/CentOS).
+
+**Source:** `src/mod/formats/mod_png`

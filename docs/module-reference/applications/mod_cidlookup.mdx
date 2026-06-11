@@ -1,0 +1,137 @@
+---
+sidebar_position: 4
+id: mod_cidlookup
+slug: /module-reference/applications/mod_cidlookup
+title: "mod_cidlookup — Caller ID Name Lookup"
+description: "Resolves an inbound caller ID number to a name via HTTP URL, Whitepages API, or a local ODBC database, then sets the call's caller ID name."
+sidebar_label: "mod_cidlookup"
+---
+
+# mod_cidlookup — Caller ID Name Lookup
+
+`mod_cidlookup` is an applications module that resolves a telephone number to a caller ID name at call time. It supports three lookup sources, applied in priority order: a local ODBC database, a cached result from `mod_memcache`, and a remote HTTP endpoint (including the legacy Whitepages.com API). Results are written directly into the session's caller profile so downstream dialplan logic sees an updated `caller_id_name`.
+
+Operators reach for this module when they want to enrich inbound calls with a human-readable name before routing, announcements, or screen-pop. It is equally usable from a dialplan `<action>` or from `fs_cli` for ad-hoc testing.
+
+## Loading the Module
+
+The module name to load is `mod_cidlookup`. It is **not** present in the vanilla `autoload_configs/modules.conf.xml` and must be added manually:
+
+```xml
+<load module="mod_cidlookup"/>
+```
+
+No special build flag is required; the module is compiled with the standard FreeSWITCH build when libcurl is available (which it is by default).
+
+## Configuration: `cidlookup.conf.xml`
+
+FreeSWITCH reads `cidlookup.conf.xml` from the `autoload_configs` directory. All parameters live inside a single `<settings>` block. The configuration is reloadable via `reloadxml`.
+
+| Parameter | Purpose | Accepted Values | Default |
+|---|---|---|---|
+| `url` | HTTP(S) endpoint queried for a name. The variable `${caller_id_number}` is expanded before the request is made. Omit or comment out to disable URL lookups. | Any HTTP/HTTPS URL string | `NULL` (disabled) |
+| `whitepages-apikey` | API key for the Whitepages.com reverse-phone API. Omit or comment out to disable Whitepages lookups. | String | `NULL` (disabled) |
+| `cache` | Whether to cache URL/Whitepages results in `mod_memcache` using the key prefix `fs:cidlookup:`. | `true` \| `false` | `false` |
+| `cache-expire` | Lifetime of cached entries in seconds. | Integer (seconds) | `300` |
+| `curl-timeout` | Maximum time to wait for an HTTP response. | Integer (milliseconds) | `2000` |
+| `curl-warning-duration` | Log a warning when an HTTP request exceeds this duration. | Integer (milliseconds) | `1000` |
+| `odbc-dsn` | ODBC data source in `db:user:password` format. Required for `sql` and `citystate-sql` to function. | DSN string | `NULL` |
+| `sql` | SQL query for name lookup. Must return a single string column. `${caller_id_number}` is expanded. Omit to disable database name lookups. | SQL string | `NULL` |
+| `citystate-sql` | SQL query for city/state area lookup. Must return a single string column. Used to populate `cidlookup_area` when no area was resolved by other means. Omit to disable. | SQL string | `NULL` |
+
+Example excerpt from the shipped configuration:
+
+```xml
+<configuration name="cidlookup.conf" description="cidlookup Configuration">
+  <settings>
+    <!-- comment out url to not setup a url based lookup -->
+    <param name="url" value="http://query.voipcnam.com/query.php?api_key=MYAPIKEY&amp;number=${caller_id_number}"/>
+
+    <!-- comment out whitepages-apikey to not use whitepages.com, you must
+         get an API key from http://developer.whitepages.com/ -->
+    <param name="whitepages-apikey" value="MYAPIKEY"/>
+
+    <!-- set to false to not cache (in memcache) results from the url query -->
+    <param name="cache" value="true"/>
+    <!-- expire is in seconds -->
+    <param name="cache-expire" value="86400"/>
+
+    <param name="odbc-dsn" value="phone:phone:phone"/>
+
+    <!-- comment out sql to not setup a database (directory) lookup -->
+    <param name="sql" value="
+     SELECT name||' ('||type||')' AS name
+      FROM phonebook p JOIN numbers n ON p.id = n.phonebook_id
+      WHERE n.number='${caller_id_number}'
+      LIMIT 1
+      "/>
+
+    <!-- comment out citystate-sql to not setup a database (city/state) lookup -->
+    <param name="citystate-sql" value="
+     SELECT ratecenter||' '||state as name
+      FROM npa_nxx_company_ocn
+      WHERE npa = ${caller_id_number:1:3} AND nxx = ${caller_id_number:4:3}
+      LIMIT 1
+      "/>
+  </settings>
+</configuration>
+```
+
+## Dialplan Applications
+
+| Application | Purpose | Arguments |
+|---|---|---|
+| `cidlookup` | Looks up the caller ID name for the given number (or the session's own `caller_id_number` if omitted) and updates the caller profile in place. | `[number] [skipurl] [skipcitystate]` |
+
+**Arguments:**
+
+- `number` — The E.164 or digit string to look up. If omitted, the session's current `caller_id_number` is used.
+- `skipurl` — Optional keyword. When present, the HTTP URL and Whitepages lookups are skipped; only the ODBC database is queried.
+- `skipcitystate` — Optional keyword. When present, the `citystate-sql` lookup is skipped and `cidlookup_area` is not populated. If no name is found and `skipcitystate` is set, the number itself is formatted as the name (e.g. `614-555-1234`).
+
+Dialplan examples:
+
+```xml
+<!-- Look up caller ID name for the inbound caller_id_number -->
+<action application="cidlookup"/>
+
+<!-- Look up a specific number, skipping the remote URL -->
+<action application="cidlookup" data="${caller_id_number} skipurl"/>
+
+<!-- Look up a number, skip both URL and city/state enrichment -->
+<action application="cidlookup" data="${caller_id_number} skipurl skipcitystate"/>
+```
+
+## API Commands
+
+| Command | Purpose | Syntax |
+|---|---|---|
+| `cidlookup` | Performs a CID lookup from `fs_cli` and returns the resolved name. | `cidlookup status` \| `cidlookup <number> [skipurl] [skipcitystate] [verbose]` |
+
+**Arguments:**
+
+- `status` — Prints the current running configuration (URL, cache settings, timeouts, DSN, and SQL).
+- `number` — The number to look up.
+- `skipurl` — Skips HTTP and Whitepages lookups.
+- `skipcitystate` — Skips the `citystate-sql` area lookup.
+- `verbose` — Appends the area and lookup source to the output in the form `Name (Area) [source]`.
+
+`fs_cli` examples:
+
+```
+cidlookup status
+cidlookup 16145551234
+cidlookup 16145551234 verbose
+cidlookup 16145551234 skipurl skipcitystate verbose
+```
+
+## Channel Variables
+
+| Variable | Set / Read | Purpose |
+|---|---|---|
+| `caller_id_number` | Read | The number passed to the lookup engine. If not supplied as an argument, the value is read from the session's caller profile. |
+| `original_caller_id_name` | Set | Preserves the caller ID name as it existed before the lookup overwrote it. |
+| `cidlookup_source` | Set | Indicates which lookup source produced the name: `phone_database`, `url`, `whitepages`, `npanxx_database`, or a combined string such as `url,npanxx_database`. Appended with ` (cache)` when the result came from memcache. |
+| `cidlookup_area` | Set | City/state or area string associated with the number, when resolved via `citystate-sql` or the Whitepages API. |
+
+**Source:** `src/mod/applications/mod_cidlookup`, `conf/vanilla/autoload_configs/cidlookup.conf.xml`

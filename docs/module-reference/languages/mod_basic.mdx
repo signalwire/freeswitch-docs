@@ -1,0 +1,76 @@
+---
+sidebar_position: 1
+id: mod_basic
+slug: /module-reference/languages/mod_basic
+title: "mod_basic — MY-BASIC Scripting"
+description: "Embeds the MY-BASIC interpreter so dialplan and API callers can execute BASIC-language scripts on FreeSWITCH channels."
+sidebar_label: "mod_basic"
+---
+
+# mod_basic — MY-BASIC Scripting
+
+`mod_basic` embeds the [MY-BASIC](http://code.google.com/p/my-basic/) interpreter (a lightweight BASIC dialect) directly into FreeSWITCH. The MY-BASIC runtime is bundled as `my_basic.c` / `my_basic.h` in the module tree, so no external library installation is required. The module lives under `src/mod/languages/`.
+
+Operators reach for `mod_basic` when they want to write simple call-control logic in a procedural BASIC dialect without pulling in a heavier scripting runtime such as Lua or Python. Scripts read and write channel variables, invoke dialplan applications, and call FreeSWITCH API commands — all through a small set of built-in BASIC functions registered by the module.
+
+## Loading the Module
+
+The module is **not** included in the vanilla autoload set. Add it to `autoload_configs/modules.conf.xml` under the `<modules>` section:
+
+```xml
+<load module="mod_basic"/>
+```
+
+To load it at runtime without restarting FreeSWITCH:
+
+```
+freeswitch@> load mod_basic
+```
+
+No special compile-time build flag is required beyond enabling the module in `modules.conf` (the build-system equivalent) before compiling.
+
+## Configuration
+
+`mod_basic` ships with no `.conf.xml` file and reads no configuration at load time. There are no tunable parameters. Script files are resolved against FreeSWITCH's global `script_dir` (typically `$${base_dir}/scripts`) when a bare filename is given without an absolute path.
+
+## Dialplan Applications
+
+| Application | Purpose | Arguments |
+|-------------|---------|-----------|
+| `basic` | Execute a MY-BASIC script file in the context of the current channel | `<file> [arg1 arg2 ...]` |
+
+The first token of the argument string is the script filename. Additional space-separated tokens become positional arguments retrievable inside the script with `FS_GETARG`. If `<file>` is not an absolute path, the module prepends the FreeSWITCH `scripts/` directory.
+
+```xml
+<action application="basic" data="hello.bas"/>
+<action application="basic" data="/opt/freeswitch/scripts/ivr.bas option1 option2"/>
+```
+
+## API Commands
+
+| Command | Purpose | Syntax |
+|---------|---------|--------|
+| `basic` | Execute a MY-BASIC script file outside of a dialplan leg (no channel required) | `basic <file> [args]` |
+
+```
+freeswitch@> basic /opt/freeswitch/scripts/test.bas
+```
+
+The API version calls the same underlying function as the dialplan application. When invoked from the CLI without an active session, script functions that require a channel (`FS_EXECUTE`, `FS_GETVAR`, `FS_SETVAR`) log an error and return a warning result; `FS_API` and `FS_LOG` work normally.
+
+## BASIC Built-in Functions
+
+The following functions are registered into the MY-BASIC interpreter for every script execution. They are called as BASIC functions, not as FreeSWITCH API commands.
+
+| Function | Purpose | Signature |
+|----------|---------|-----------|
+| `FS_EXECUTE` | Run a FreeSWITCH dialplan application on the current channel | `FS_EXECUTE(app$, args$)` |
+| `FS_GETARG` | Return a positional argument passed to the script | `FS_GETARG(index%)` |
+| `FS_GETVAR` | Read a channel variable | `FS_GETVAR(name$)` |
+| `FS_SETVAR` | Write a channel variable | `FS_SETVAR(name$, value$)` |
+| `FS_API` | Call a FreeSWITCH API command and return its output | `FS_API(cmd$, args$)` |
+| `FS_LOG` | Write a message to the FreeSWITCH log | `FS_LOG(level$, message$)` |
+
+`level$` passed to `FS_LOG` is a standard FreeSWITCH log-level string such as `"DEBUG"`, `"INFO"`, `"WARNING"`, or `"ERROR"`.
+
+**Source:** `src/mod/languages/mod_basic`

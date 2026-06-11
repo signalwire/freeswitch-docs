@@ -1,0 +1,167 @@
+---
+sidebar_position: 1
+id: mod_avmd
+slug: /module-reference/applications/mod_avmd
+title: "mod_avmd — Answering Machine and Beep Detection"
+description: "Detects voicemail beep tones on a call leg using a modified DESA-2 algorithm and fires events when a beep is found."
+sidebar_label: "mod_avmd"
+---
+
+# mod_avmd — Answering Machine and Beep Detection
+
+`mod_avmd` (Advanced Voicemail Detection) attaches a media bug to a call leg and analyzes the audio stream in real time to detect single-frequency beep tones in the 440–2000 Hz range. Detection uses a modified DESA-2 algorithm with configurable amplitude and frequency estimators running across multiple parallel detector threads. When a beep is confirmed, the module fires an `avmd::beep` event and sets channel variables that downstream dialplan actions or scripts can test.
+
+Operators reach for this module when building progressive-dialer or click-to-call flows that need to skip over voicemail greetings and respond as soon as the recording beep sounds — for example, to play a pre-recorded message or disconnect before leaving an unwanted recording.
+
+## Loading the Module
+
+The module name is `mod_avmd`. It is **not** included in the vanilla `modules.conf.xml` load list and must be added manually:
+
+```xml
+<load module="mod_avmd"/>
+```
+
+No special build flag is required; the module compiles as part of the standard FreeSWITCH build when the applications group is enabled.
+
+## Configuration: `avmd.conf.xml`
+
+`mod_avmd` reads `autoload_configs/avmd.conf.xml` at load time and re-reads it whenever a `reloadxml` event fires or the `avmd reload` API command is issued. All parameters live in a single `<settings>` block. Per-session values can be overridden at the dialplan level (see [Dialplan Applications](#dialplan-applications)).
+
+### Parameter Reference
+
+| Parameter | Purpose | Accepted Values | Default |
+|---|---|---|---|
+| `debug` | Log intermediate DESA-2 computation values | `0` / `1` | `0` |
+| `report_status` | Log detection status, session start/stop diagnostics, and config dumps | `0` / `1` | `1` |
+| `fast_math` | Use a memory-mapped arc cosine lookup table for faster computation (non-Windows only) | `0` / `1` | `0` |
+| `require_continuous_streak` | Require a consecutive run of SMA frequency samples (no reset) before declaring a beep | `0` / `1` | `1` |
+| `sample_n_continuous_streak` | Number of consecutive frequency SMA samples required | integer 0–65535 | `3` |
+| `sample_n_to_skip` | Samples to skip at the start of each frame and after a reset, to discard inaccurate early estimates | integer 0–65535 | `0` |
+| `require_continuous_streak_amp` | Same as `require_continuous_streak` but for the amplitude estimator | `0` / `1` | `1` |
+| `sample_n_continuous_streak_amp` | Number of consecutive amplitude SMA samples required | integer 0–65535 | `3` |
+| `simplified_estimation` | Approximate sin(x) with x in the range [0, π/2] for faster frequency estimation | `0` / `1` | `1` |
+| `inbound_channel` | Enable detection on inbound call legs (write stream) | `0` / `1` | `0` |
+| `outbound_channel` | Enable detection on outbound call legs (read stream) | `0` / `1` | `1` |
+| `detection_mode` | Criteria used to declare a beep: `0` = amplitude only, `1` = frequency only, `2` = both | `0`, `1`, `2` | `2` |
+| `detectors_n` | Number of parallel detector threads per session | integer 0–255 | `36` |
+| `detectors_lagged_n` | Number of additional lagged detector threads per session | integer 0–255 | `1` |
+
+### Configuration Example
+
+```xml
+<configuration name="avmd.conf" description="AVMD config">
+    <settings>
+        <param name="debug"                          value="0"/>
+        <param name="report_status"                  value="1"/>
+        <param name="fast_math"                      value="0"/>
+        <param name="require_continuous_streak"      value="1"/>
+        <param name="sample_n_continuous_streak"     value="3"/>
+        <param name="sample_n_to_skip"               value="0"/>
+        <param name="require_continuous_streak_amp"  value="1"/>
+        <param name="sample_n_continuous_streak_amp" value="3"/>
+        <param name="simplified_estimation"          value="1"/>
+        <param name="inbound_channel"                value="0"/>
+        <param name="outbound_channel"               value="1"/>
+        <param name="detection_mode"                 value="2"/>
+        <param name="detectors_n"                    value="36"/>
+        <param name="detectors_lagged_n"             value="1"/>
+    </settings>
+</configuration>
+```
+
+## Dialplan Applications
+
+| Application | Purpose | Arguments |
+|---|---|---|
+| `avmd_start` | Attach a media bug and start beep detection on the current session | Optional comma-separated `key=value` pairs overriding any global config setting |
+| `avmd_stop` | Remove the media bug and stop detection, firing an `avmd::stop` event | None |
+| `avmd` | Deprecated combined start/stop interface (do not use in new dialplans) | `stop` to stop; no argument to start |
+
+### `avmd_start`
+
+Starts detection on the current session. With no arguments the global configuration values are used. Any subset of configuration parameters can be passed as comma-separated `key=value` pairs to override the global setting for this session only.
+
+```xml
+<!-- Start detection on an inbound leg, using frequency+amplitude mode -->
+<action application="avmd_start" data="inbound_channel=1,outbound_channel=0,detection_mode=2"/>
+```
+
+```xml
+<!-- Start with global defaults (outbound leg, detection_mode=2) -->
+<action application="avmd_start"/>
+```
+
+### `avmd_stop`
+
+Stops detection and fires an `avmd::stop` event containing the final beep status and total running time.
+
+```xml
+<action application="avmd_stop"/>
+```
+
+### Typical dialplan pattern
+
+```xml
+<extension name="detect_beep">
+    <condition field="destination_number" expression="^5551234$">
+        <action application="avmd_start" data="outbound_channel=1,detection_mode=2"/>
+        <action application="bridge"     data="sofia/gateway/mycarrier/15551234"/>
+        <action application="avmd_stop"/>
+    </condition>
+</extension>
+```
+
+## API Commands
+
+The `avmd` API command is available from `fs_cli` or ESL. Its full syntax is:
+
+```
+avmd <uuid> < start | stop >
+avmd set  < inbound | outbound | default >
+avmd load < inbound | outbound >
+avmd reload
+avmd show
+```
+
+| Command | Purpose | Syntax |
+|---|---|---|
+| `avmd <uuid> start` | Start detection on an existing session by UUID | `avmd <uuid> start` |
+| `avmd <uuid> stop` | Stop detection on a session | `avmd <uuid> stop` |
+| `avmd set inbound` | Set global direction to inbound=1, outbound=0 (in memory only) | `avmd set inbound` |
+| `avmd set outbound` | Set global direction to inbound=0, outbound=1 (in memory only) | `avmd set outbound` |
+| `avmd set default` | Reset all global settings to factory defaults (in memory only) | `avmd set default` |
+| `avmd load inbound` | Reload XML config then set direction to inbound | `avmd load inbound` |
+| `avmd load outbound` | Reload XML config then set direction to outbound | `avmd load outbound` |
+| `avmd reload` | Reload XML configuration from disk | `avmd reload` |
+| `avmd show` | Display current global settings and active session count | `avmd show` |
+
+### `fs_cli` examples
+
+```
+avmd 3e7a2707-cd5a-4b5e-8c7f-1234abcd start
+avmd 3e7a2707-cd5a-4b5e-8c7f-1234abcd stop
+avmd reload
+avmd show
+```
+
+## Channel Variables
+
+| Variable | Set / Read | Purpose |
+|---|---|---|
+| `avmd_detect` | Set | Set to `TRUE` when a beep is detected |
+| `avmd_total_time` | Set | Detection elapsed time in milliseconds from detection start to detection stop |
+| `execute_on_avmd_beep` | Read | Dialplan action string executed by the module via `switch_channel_execute_on` immediately on beep detection |
+
+## Events
+
+`mod_avmd` registers and fires three custom event subclasses under `SWITCH_EVENT_CUSTOM`:
+
+| Event subclass | When fired | Notable headers |
+|---|---|---|
+| `avmd::start` | When `avmd_start` (or `avmd <uuid> start`) successfully attaches the media bug | `Unique-ID`, `Start-time` |
+| `avmd::beep` | When a beep is detected on the audio stream | `Unique-ID`, `Beep-Status` (`DETECTED`), `Frequency`, `Frequency-variance`, `Amplitude`, `Amplitude-variance`, `Detection-time`, `Detector-resolution`, `Detector-offset`, `Detector-index` |
+| `avmd::stop` | When `avmd_stop` (or `avmd <uuid> stop`) removes the media bug | `Unique-ID`, `Beep-Status` (`DETECTED` or `NOTDETECTED`), `Total-time` |
+
+Both the originating session queue and the global event bus receive each event.
+
+**Source:** `src/mod/applications/mod_avmd`, `conf/vanilla/autoload_configs/avmd.conf.xml`

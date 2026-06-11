@@ -1,0 +1,90 @@
+---
+sidebar_position: 3
+id: mod_event_multicast
+slug: /module-reference/event-handlers/mod_event_multicast
+title: "mod_event_multicast — Event Sharing over Multicast"
+description: "Broadcasts FreeSWITCH events over UDP to multicast groups or unicast peers, enabling real-time event sharing across a cluster."
+sidebar_label: "mod_event_multicast"
+---
+
+# mod_event_multicast — Event Sharing over Multicast
+
+`mod_event_multicast` is an event-handler module (`src/mod/event_handlers`) that serializes FreeSWITCH events and sends them as UDP datagrams to one or more destination addresses. Destinations can be IPv4 or IPv6 multicast group addresses, or plain unicast addresses; the module detects which type each destination is and handles it accordingly. Inbound datagrams from peers are deserialized and re-injected into the local event bus as `SWITCH_EVENT_CUSTOM` events with the subclass `multicast::event`, making the remote event visible to any local subscriber.
+
+Use this module when you need multiple FreeSWITCH nodes to share event state — for example, to drive a distributed CDR processor, a shared presence or BLF system, or a custom monitoring dashboard that aggregates events from a cluster — without requiring a centralized message broker.
+
+## Loading the Module
+
+The module name is `mod_event_multicast`. It is **not** loaded by default in the vanilla configuration; the entry in `modules.conf.xml` is commented out:
+
+```xml
+<!-- <load module="mod_event_multicast"/> -->
+```
+
+To enable it, uncomment that line (or add it) in `conf/autoload_configs/modules.conf.xml`. No special build flags are required beyond having OpenSSL development headers present if you want PSK encryption (see Dependencies).
+
+## Configuration: `event_multicast.conf.xml`
+
+The module reads `conf/autoload_configs/event_multicast.conf.xml` on load and on receipt of a `SWITCH_EVENT_RELOADXML` event (only if the file's MD5 checksum has changed).
+
+| Parameter | Purpose | Accepted Values | Default |
+|---|---|---|---|
+| `address` | Comma-separated list of destination IP addresses (IPv4 or IPv6, multicast or unicast). Up to 16 entries. IPv4 multicast range is `224.0.0.0`–`239.255.255.255`; IPv6 multicast starts with `FF`. | IP address string(s) | _(none — required)_ |
+| `port` | UDP port used for both sending and receiving. | Integer (1–65535) | `0` (must be set) |
+| `bindings` | Space-separated list of event type names to subscribe to and transmit. Use `all` for `SWITCH_EVENT_ALL`. Custom subclass names follow a `CUSTOM` entry. | FreeSWITCH event type names | _(none)_ |
+| `ttl` | IP multicast time-to-live / hop limit (IPv4 only; IPv6 TTL is not set due to an APR limitation). | `0`–`255` | `1` |
+| `loopback` | Whether multicast packets are looped back to the sending socket on the same host. | `yes` / `no` | `no` |
+| `source_address` | Local IPv4 address to bind the receive socket to. | IPv4 address | `0.0.0.0` |
+| `source_address_ipv6` | Local IPv6 address to bind the receive socket to. | IPv6 address | `::` |
+| `psk` | Pre-shared key for Blowfish CBC encryption of outbound packets and decryption of inbound packets. Requires OpenSSL at build time. | String | _(none — unencrypted)_ |
+
+Example (trimmed from the shipped conf):
+
+```xml
+<configuration name="event_multicast.conf" description="Multicast Event">
+  <settings>
+    <param name="address" value="225.1.1.1"/>
+    <param name="port" value="4242"/>
+    <param name="bindings" value="all"/>
+    <param name="ttl" value="1"/>
+    <!-- <param name="loopback" value="no"/> -->
+    <!-- <param name="psk" value="ClueCon"/> -->
+  </settings>
+</configuration>
+```
+
+## API Commands
+
+| Command | Purpose | Syntax |
+|---|---|---|
+| `multicast_peers` | Display module state, configured peer addresses, and the up/down status with last-seen time for every peer detected via heartbeat. | `multicast_peers` |
+
+Example `fs_cli` usage:
+
+```
+freeswitch@> multicast_peers
+Module state: Active
+
+Configured peers:
+	IPv4 multicast: 225.1.1.1
+
+Peer fs-node2 UP; last seen 8 seconds ago
+```
+
+## Events
+
+The module registers and fires three custom event subclasses:
+
+| Subclass | Fired When |
+|---|---|
+| `multicast::event` | An inbound UDP datagram is successfully validated and deserialized; the remote event headers are re-added with an `Orig-` prefix. |
+| `multicast::peerup` | A peer node is seen for the first time, or returns after having been marked down. Headers: `Peer` (switch name), `Lastseen` (epoch or `Never`). |
+| `multicast::peerdown` | A peer node has not sent a heartbeat for more than 60 seconds. Headers: `Peer`, `Lastseen` (epoch). |
+
+Peer liveness tracking is driven by `SWITCH_EVENT_HEARTBEAT` events received from remote nodes. A peer is declared down if no heartbeat has been seen for more than 60 seconds.
+
+## Dependencies
+
+PSK encryption requires OpenSSL development headers (`libssl-dev` / `openssl-devel`) to be present when FreeSWITCH is compiled with `./configure`. If OpenSSL is not detected at build time, the `psk` parameter is silently ignored and a warning is logged. All other functionality has no external library dependencies beyond the FreeSWITCH core.
+
+**Source:** `src/mod/event_handlers/mod_event_multicast`, `conf/vanilla/autoload_configs/event_multicast.conf.xml`

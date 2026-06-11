@@ -1,0 +1,115 @@
+---
+sidebar_position: 5
+id: mod_snmp
+slug: /module-reference/event-handlers/mod_snmp
+title: "mod_snmp — SNMP Monitoring Agent"
+description: "Exposes FreeSWITCH identity, system statistics, and active channel data via SNMP using a Net-SNMP AgentX subagent."
+sidebar_label: "mod_snmp"
+---
+
+# mod_snmp — SNMP Monitoring Agent
+
+`mod_snmp` implements an SNMP AgentX subagent that connects to a running Net-SNMP master agent (typically `snmpd`) and publishes FreeSWITCH operational data under the private enterprise OID `.1.3.6.1.4.1.27880`. It ships a custom MIB (`FREESWITCH-MIB`) that defines three subtrees: identity scalars, system statistics, and a table of active channels.
+
+Reach for this module when you need to integrate FreeSWITCH into an existing SNMP-based monitoring infrastructure — polling tools, NMS platforms, or alerting systems that speak SNMPv2c. All exposed objects are read-only; no SNMP SET operations are supported.
+
+## Loading the Module
+
+The module is **not loaded by default**. In the vanilla `autoload_configs/modules.conf.xml` it appears as a commented-out entry. To enable it, uncomment or add the following line:
+
+```xml
+<load module="mod_snmp"/>
+```
+
+The module requires the Net-SNMP development libraries (`libsnmp-dev` / `net-snmp-devel`) to be present at compile time. It does not appear in the default vanilla load set.
+
+## Configuration
+
+`mod_snmp` ships **no `mod_snmp.conf.xml`** and reads no FreeSWITCH XML configuration of its own. All AgentX connection settings (socket path, master agent address, ping interval) are controlled by the system Net-SNMP configuration files (`/etc/snmp/snmpd.conf` and `/etc/snmp/snmp.conf`). The module hard-codes the AgentX ping interval to 2 seconds to prevent its runtime thread from blocking longer than that on `agent_check_and_process()`.
+
+Place the `FREESWITCH-MIB` file (found in `src/mod/event_handlers/mod_snmp/FREESWITCH-MIB`) into your MIB search path so that SNMP management tools can resolve object names.
+
+## MIB Structure
+
+The enterprise root is:
+
+```
+enterprises.freeswitch  ::=  { enterprises 27880 }
+core                    ::=  { freeswitch 1 }
+```
+
+### identity — `.1.3.6.1.4.1.27880.1.1`
+
+Scalar group; all objects are read-only `DisplayString`.
+
+| OID suffix | Object name | Type | Description |
+|---|---|---|---|
+| `.1` | `versionString` | DisplayString | FreeSWITCH version string |
+| `.2` | `uuid` | DisplayString | FreeSWITCH core UUID |
+
+### systemStats — `.1.3.6.1.4.1.27880.1.2`
+
+Scalar group; all objects are read-only.
+
+| OID suffix | Object name | Type | Description |
+|---|---|---|---|
+| `.1` | `uptime` | TimeTicks | Process uptime in hundredths of seconds |
+| `.2` | `sessionsSinceStartup` | Counter32 | Total sessions since process start |
+| `.3` | `currentSessions` | Gauge32 | Currently active sessions |
+| `.4` | `maxSessions` | Gauge32 | Configured session limit |
+| `.5` | `currentCalls` | Gauge32 | Currently active calls |
+| `.6` | `sessionsPerSecond` | Gauge32 | Current sessions-per-second rate |
+| `.7` | `maxSessionsPerSecond` | Gauge32 | Configured sessions-per-second limit |
+| `.8` | `peakSessionsPerSecond` | Gauge32 | All-time peak sessions per second |
+| `.9` | `peakSessionsPerSecondFiveMin` | Gauge32 | Peak sessions per second in last 5 minutes |
+| `.10` | `peakSessions` | Gauge32 | All-time peak concurrent sessions |
+| `.11` | `peakSessionsFiveMin` | Gauge32 | Peak concurrent sessions in last 5 minutes |
+
+### channelList — `.1.3.6.1.4.1.27880.1.9`
+
+Read-only table of active channels, indexed by `chanIndex`. The cache refreshes every 5 seconds from the FreeSWITCH core database. Only channels belonging to the current hostname are included.
+
+| OID suffix | Column name | Type | Description |
+|---|---|---|---|
+| `.1.1` | `chanIndex` | Integer32 | Row index |
+| `.1.2` | `chanUUID` | DisplayString | Channel UUID |
+| `.1.3` | `chanDirection` | DisplayString | Call direction (`inbound` / `outbound`) |
+| `.1.4` | `chanCreated` | DateAndTime | Channel creation timestamp (UTC) |
+| `.1.5` | `chanName` | DisplayString | Channel name |
+| `.1.6` | `chanState` | DisplayString | Channel state string |
+| `.1.7` | `chanCIDName` | DisplayString | Caller ID name |
+| `.1.8` | `chanCIDNum` | DisplayString | Caller ID number |
+| `.1.9` | `chanInetAddressType` | InetAddressType | Originator address family (1=IPv4, 2=IPv6) |
+| `.1.10` | `chanInetAddress` | InetAddress | Originator IP address |
+| `.1.11` | `chanDest` | DisplayString | Destination number |
+| `.1.12` | `chanApplication` | DisplayString | Currently executing dialplan application |
+| `.1.13` | `chanAppData` | DisplayString | Application argument data |
+| `.1.14` | `chanDialplan` | DisplayString | Dialplan type |
+| `.1.15` | `chanContext` | DisplayString | Dialplan context |
+| `.1.16` | `chanReadCodec` | DisplayString | Inbound audio codec name |
+| `.1.17` | `chanReadRate` | Gauge32 | Inbound audio sample rate (samples/sec) |
+| `.1.18` | `chanReadBitRate` | Gauge32 | Inbound audio bit rate (bits/sec) |
+| `.1.19` | `chanWriteCodec` | DisplayString | Outbound audio codec name |
+| `.1.20` | `chanWriteRate` | Gauge32 | Outbound audio sample rate (samples/sec) |
+| `.1.21` | `chanWriteBitRate` | Gauge32 | Outbound audio bit rate (bits/sec) |
+
+## Example SNMP Queries
+
+Poll current active sessions from the command line (requires Net-SNMP tools and the `FREESWITCH-MIB` loaded):
+
+```
+snmpget -v2c -c public localhost FREESWITCH-MIB::currentSessions.0
+snmpwalk -v2c -c public localhost FREESWITCH-MIB::channelList
+```
+
+Query by raw OID without the MIB file:
+
+```
+snmpget -v2c -c public localhost .1.3.6.1.4.1.27880.1.2.3.0
+```
+
+## Dependencies
+
+`mod_snmp` requires Net-SNMP (version 5.x or later) at build time. The headers and the shared library (`libnetsnmp`) must be available when compiling FreeSWITCH. At runtime, a Net-SNMP master agent (`snmpd`) must be running and configured to accept AgentX subagent connections (the default Unix socket is `/var/agentx/master`). Net-SNMP is not included in the FreeSWITCH source tree and must be installed separately from your OS package manager (`libsnmp-dev` on Debian/Ubuntu, `net-snmp-devel` on RHEL/CentOS).
+
+**Source:** `src/mod/event_handlers/mod_snmp`

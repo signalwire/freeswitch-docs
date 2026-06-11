@@ -1,0 +1,93 @@
+---
+sidebar_position: 10
+id: mod_esl
+slug: /module-reference/applications/mod_esl
+title: "mod_esl — Remote Event Socket Commands"
+description: "Provides the single_esl API command to execute a one-shot API call against a remote FreeSWITCH ESL socket."
+sidebar_label: "mod_esl"
+---
+
+# mod_esl — Remote Event Socket Commands
+
+`mod_esl` is an application module in `src/mod/applications/mod_esl` that exposes a single API command, `single_esl`, for sending an API request to a remote FreeSWITCH Event Socket Layer (ESL) server. It establishes a short-lived TCP connection, authenticates, issues one API command, returns the response, and disconnects.
+
+Reach for this module when a dialplan or script running on one FreeSWITCH instance needs to invoke an API command on a different FreeSWITCH instance (or any ESL-compatible server) without maintaining a persistent inbound ESL connection. It is a lightweight alternative to mod_event_socket for fire-and-forget remote control use cases.
+
+## Loading the Module
+
+The module name is `mod_esl`. It is **not** present in the default vanilla `autoload_configs/modules.conf.xml` and must be added manually before it will load at startup.
+
+Add the following line to `autoload_configs/modules.conf.xml`:
+
+```xml
+<load module="mod_esl"/>
+```
+
+Or load it at runtime from `fs_cli`:
+
+```
+load mod_esl
+```
+
+No special build flags are required; the module compiles with the standard FreeSWITCH build system as long as the bundled `libesl` is present (it is built by default).
+
+## Configuration: No conf file
+
+`mod_esl` does not ship a `.conf.xml` file and registers no configuration parameters. All connection details are supplied inline as arguments to the `single_esl` API command.
+
+## API Commands
+
+| Command | Purpose | Syntax |
+|---------|---------|--------|
+| `single_esl` | Execute one API call on a remote ESL server and return the response | `[<user>]\|<password> <host>[:<port>] <timeout_ms> <remote_api> [<arguments>]` |
+
+### `single_esl`
+
+Connects to a remote ESL server, authenticates, sends a single `api` command, streams back the response body, and disconnects.
+
+**Argument breakdown:**
+
+| Field | Description | Default |
+|-------|-------------|---------|
+| `[<user>]\|` | Optional ESL username followed by a literal `\|`. The pipe delimiter is **always required**; omit only the username, not the pipe. | _(empty username)_ |
+| `<password>` | ESL password | `ClueCon` |
+| `<host>` | Remote hostname or IP | `127.0.0.1` |
+| `<port>` | Remote ESL port (colon-appended to host) | `8021` |
+| `<timeout_ms>` | Connection and receive timeout in milliseconds | `5000` |
+| `<remote_api> [<arguments>]` | The API command to run on the remote server, followed by any arguments to that command. The command name is required; arguments are optional. | _(required)_ |
+
+All fields except the username portion of `[<user>]|` are required. The pipe character (`|`) separating the username from the password is **always present** in the argument string — use `|<password>` (empty username) when no username is needed.
+
+**`fs_cli` examples:**
+
+Run `status` on a remote FreeSWITCH with default credentials (empty username, pipe required):
+
+```
+single_esl |ClueCon 192.168.1.10 5000 status
+```
+
+Run `status` with an explicit port and no username:
+
+```
+single_esl |ClueCon 192.168.1.10:8022 5000 status
+```
+
+Run `uuid_kill` on a remote instance using a custom password:
+
+```
+single_esl |mypassword 192.168.1.10 3000 uuid_kill 1234abcd-5678-ef01-2345-6789abcdef01
+```
+
+Authenticate with an explicit username:
+
+```
+single_esl admin|mypassword 192.168.1.10 5000 show channels
+```
+
+**Dialplan example** (execute from an `<action>` tag via the `api` application):
+
+```xml
+<action application="set" data="remote_result=${single_esl(|ClueCon 192.168.1.10 5000 status)}"/>
+```
+
+**Source:** `src/mod/applications/mod_esl`

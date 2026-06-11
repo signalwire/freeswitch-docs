@@ -1,0 +1,151 @@
+---
+sidebar_position: 21
+id: mod_voicemail_ivr
+slug: /module-reference/applications/mod_voicemail_ivr
+title: "mod_voicemail_ivr — Voicemail IVR Navigation"
+description: "DTMF-driven voicemail IVR: authenticate callers, browse and manage messages, record greetings and names, and forward messages."
+sidebar_label: "mod_voicemail_ivr"
+---
+
+# mod_voicemail_ivr — Voicemail IVR Navigation
+
+`mod_voicemail_ivr` lives in `src/mod/applications/mod_voicemail_ivr` and provides a fully DTMF-driven IVR front-end for voicemail retrieval and management. It handles caller authentication, inbox navigation (new/saved messages), message deletion, saving, forwarding with optional prepend recording, and subscriber preferences such as greeting and name recording and password changes.
+
+The module delegates all storage operations to configurable back-end API commands — by default the `vm_fsdb_*` family provided by `mod_voicemail` — so the IVR logic is decoupled from the storage layer. Reach for this module when you need a phone-based voicemail retrieval experience on top of an existing voicemail store.
+
+## Loading the Module
+
+The module name for `load` and `modules.conf.xml` is `mod_voicemail_ivr`. It is **not** present in the vanilla `modules.conf.xml` load list (only `mod_voicemail` appears there); you must add the entry manually and then either restart FreeSWITCH or run `load mod_voicemail_ivr` from `fs_cli`.
+
+```xml
+<load module="mod_voicemail_ivr"/>
+```
+
+No special build flag is needed; the module compiles as part of the standard FreeSWITCH build when its source directory is present.
+
+## Configuration: `voicemail_ivr.conf.xml`
+
+The module reads `voicemail_ivr.conf.xml` from the FreeSWITCH autoload config path. The file contains one or more named `<profile>` blocks. Each profile has three child sections:
+
+- `<settings>` — operational parameters.
+- `<apis>` — mapping of logical operation names to actual FreeSWITCH API commands that perform storage operations.
+- `<menus>` — DTMF key bindings and phrase macro names for each IVR screen.
+
+All 13 `<api>` entries are required; the module logs an error and refuses to use the profile if any are missing.
+
+### Settings Parameters
+
+| Parameter | Purpose | Accepted Values | Default |
+|---|---|---|---|
+| `IVR-Maximum-Attempts` | Maximum DTMF entry retries before exiting an IVR screen | Positive integer | `3` |
+| `IVR-Entry-Timeout` | Milliseconds to wait for DTMF after audio finishes | Positive integer (ms) | `3000` |
+| `Record-Format` | Audio file format used when recording greetings, names, or prepend messages | Any FreeSWITCH-supported format string (e.g., `wav`, `mp3`) | `wav` |
+| `Record-Sample-Rate` | Sample rate override for recordings | Integer Hz (e.g., `8000`) | Not set (uses channel rate) |
+| `Record-Silence-Hits` | Number of consecutive silence frames that trigger end-of-recording | Positive integer | `4` |
+| `Record-Silence-Threshold` | Silence energy threshold for end-of-recording detection | Integer | `200` |
+| `Record-Maximum-Length` | Maximum recording duration in seconds | Positive integer | `30` |
+| `Record-Minimum-Length` | Minimum acceptable recording duration in seconds; recordings shorter than this are rejected | Positive integer | Not set (no minimum enforced) |
+| `Exit-Purge` | When `true`, permanently deletes all messages flagged for deletion when the session ends | `true` / `false` | `true` |
+| `Password-Mask` | DTMF input mask applied when collecting a password or new password; `.` means one-or-more repetitions | Mask string (e.g., `XXX.`) | `XXX.` |
+| `User-Mask` | DTMF input mask applied when collecting a mailbox ID | Mask string (e.g., `X.`) | `X.` |
+
+Settings defined at the `<profile>` level act as defaults; individual `<menu>` blocks may override `IVR-Maximum-Attempts` and `IVR-Entry-Timeout` with their own `<settings>` section. The navigator menu also accepts `Nav-Action-On-Delete` (e.g., `next_msg`) to control cursor movement after a message is deleted.
+
+### API Mappings
+
+Each `<api>` element binds a logical operation to the FreeSWITCH API command that the module will call at runtime. The default profile maps all operations to the `vm_fsdb_*` commands from `mod_voicemail`.
+
+| `name` attribute | Default `value` | Operation performed |
+|---|---|---|
+| `auth_login` | `vm_fsdb_auth_login` | Authenticate a mailbox ID and password |
+| `msg_list` | `vm_fsdb_msg_list` | List messages in a folder |
+| `msg_count` | `vm_fsdb_msg_count` | Count messages by status |
+| `msg_delete` | `vm_fsdb_msg_delete` | Mark a message for deletion |
+| `msg_undelete` | `vm_fsdb_msg_undelete` | Unmark a message for deletion |
+| `msg_save` | `vm_fsdb_msg_save` | Move a message to the saved folder |
+| `msg_purge` | `vm_fsdb_msg_purge` | Permanently purge deleted messages |
+| `msg_get` | `vm_fsdb_msg_get` | Retrieve metadata and path for one message |
+| `msg_forward` | `vm_fsdb_msg_forward` | Forward a message to another mailbox |
+| `pref_greeting_set` | `vm_fsdb_pref_greeting_set` | Set the active greeting slot |
+| `pref_greeting_get` | `vm_fsdb_pref_greeting_get` | Retrieve current greeting file path |
+| `pref_recname_set` | `vm_fsdb_pref_recname_set` | Save a recorded name file |
+| `pref_password_set` | `vm_fsdb_pref_password_set` | Update the mailbox password |
+
+### Configuration Example
+
+The following is a trimmed excerpt from the shipped `voicemail_ivr.conf.xml`:
+
+```xml
+<configuration name="voicemail_ivr.conf" description="Voicemail IVR">
+  <profiles>
+    <profile name="default">
+      <settings>
+        <param name="IVR-Maximum-Attempts"     value="3" />
+        <param name="IVR-Entry-Timeout"        value="3000" />
+        <param name="Record-Format"            value="wav" />
+        <!--<param name="Record-Sample-Rate"   value="8000" />-->
+        <param name="Record-Silence-Hits"      value="4" />
+        <param name="Record-Silence-Threshold" value="200" />
+        <param name="Record-Maximum-Length"    value="30" />
+        <!--<param name="Record-Minimum-Length" value="3" />-->
+        <param name="Exit-Purge"               value="true" />
+        <param name="Password-Mask"            value="XXX." />
+        <param name="User-Mask"                value="X." />
+      </settings>
+      <apis>
+        <api name="auth_login"        value="vm_fsdb_auth_login" />
+        <api name="msg_list"          value="vm_fsdb_msg_list" />
+        <api name="msg_count"         value="vm_fsdb_msg_count" />
+        <api name="msg_delete"        value="vm_fsdb_msg_delete" />
+        <api name="msg_undelete"      value="vm_fsdb_msg_undelete" />
+        <api name="msg_save"          value="vm_fsdb_msg_save" />
+        <api name="msg_purge"         value="vm_fsdb_msg_purge" />
+        <api name="msg_get"           value="vm_fsdb_msg_get" />
+        <api name="msg_forward"       value="vm_fsdb_msg_forward" />
+        <api name="pref_greeting_set" value="vm_fsdb_pref_greeting_set" />
+        <api name="pref_greeting_get" value="vm_fsdb_pref_greeting_get" />
+        <api name="pref_recname_set"  value="vm_fsdb_pref_recname_set" />
+        <api name="pref_password_set" value="vm_fsdb_pref_password_set" />
+      </apis>
+      <!-- <menus> section omitted for brevity; see voicemail_ivr.conf.xml -->
+    </profile>
+  </profiles>
+</configuration>
+```
+
+## Dialplan Applications
+
+| Application | Purpose | Arguments |
+|---|---|---|
+| `voicemail_ivr` | Launch the voicemail IVR for an authenticated or unauthenticated caller | `check <profile> <domain> [id]` |
+
+### `voicemail_ivr`
+
+The sole registered application. The first positional argument must be the literal word `check`. The `profile` argument names a `<profile>` block in `voicemail_ivr.conf.xml`. The `domain` argument identifies the voicemail domain. The optional `id` argument pre-supplies the mailbox number; when omitted the IVR prompts the caller for it during authentication.
+
+When `id` is provided and the channel variable `voicemail_authorized` is set to `true`, the authentication screen is bypassed entirely and the caller goes directly to the main menu.
+
+```xml
+<!-- Route to voicemail retrieval without pre-supplying the mailbox number -->
+<action application="voicemail_ivr" data="check default $${domain}"/>
+
+<!-- Skip authentication when the dialplan already verified the caller -->
+<action application="set" data="voicemail_authorized=true"/>
+<action application="voicemail_ivr" data="check default $${domain} ${caller_id_number}"/>
+```
+
+#### IVR Flow
+
+The application runs three sequential phases, each resolved to a named menu function:
+
+1. **Authentication** (`std_authenticate`) — collects mailbox ID (if not pre-supplied) and password via DTMF and calls the `auth_login` API. Skipped if `voicemail_authorized=true`.
+2. **Main menu** (`std_main_menu`) — announces message counts and accepts keys to navigate new messages, saved messages, or preferences.
+3. **Termination** (`std_purge`) — if `Exit-Purge` is `true`, calls the `msg_purge` API before the session ends.
+
+## Channel Variables
+
+| Variable | Set / Read | Purpose |
+|---|---|---|
+| `voicemail_authorized` | Read | When set to `true` on the channel before calling `voicemail_ivr`, the authentication screen is skipped and the caller proceeds directly to the main menu. |
+
+**Source:** `src/mod/applications/mod_voicemail_ivr`, `conf/vanilla/autoload_configs/voicemail_ivr.conf.xml`

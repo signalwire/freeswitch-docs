@@ -1,0 +1,127 @@
+---
+sidebar_position: 7
+id: mod_directory
+slug: /module-reference/applications/mod_directory
+title: "mod_directory — Dial-by-Name Directory"
+description: "IVR application that lets callers search for extensions by spelling a name on the keypad and transfers them on selection."
+sidebar_label: "mod_directory"
+---
+
+# mod_directory — Dial-by-Name Directory
+
+`mod_directory` provides a dial-by-name IVR that reads your FreeSWITCH XML directory, prompts callers to enter keypad digits corresponding to a name, presents matching entries, and transfers the call to the selected extension. It lives in `src/mod/applications/mod_directory` and is categorised as an application module.
+
+Reach for this module when you need an automated corporate directory — callers who do not know an extension can spell part of a name and be connected without operator assistance.
+
+## Loading the Module
+
+The module name is `mod_directory`. In the vanilla `autoload_configs/modules.conf.xml` the entry is commented out:
+
+```xml
+<!--<load module="mod_directory"/>-->
+```
+
+To activate it, uncomment that line (or add it) and restart FreeSWITCH, or load it at runtime from `fs_cli`:
+
+```
+load mod_directory
+```
+
+No special build flag is required; the module is compiled as part of the standard FreeSWITCH build when present.
+
+## Configuration: `directory.conf.xml`
+
+The module reads `autoload_configs/directory.conf.xml`. The file has two sections: a global `<settings>` block and a `<profiles>` block containing one or more named profiles. The dialplan application call references a profile by name.
+
+### Global settings
+
+| Parameter | Purpose | Accepted Values | Default |
+|-----------|---------|-----------------|---------|
+| `odbc-dsn` | ODBC data source for the search database | DSN string (`dsn:user:pass`) | _(none — SQLite used)_ |
+| `dbname` | SQLite database filename | string | `directory` |
+| `debug` | Log verbosity level | integer | `0` |
+
+### Profile parameters
+
+| Parameter | Purpose | Accepted Values | Default |
+|-----------|---------|-----------------|---------|
+| `next-key` | DTMF digit to advance to the next result | single digit or `#` or `*` | `6` |
+| `prev-key` | DTMF digit to go back to the previous result | single digit or `#` or `*` | `4` |
+| `terminator-key` | DTMF digit to end input / abort | single digit or `#` or `*` | `#` |
+| `switch-order-key` | DTMF digit to toggle first-name / last-name search | single digit or `#` or `*` | `*` |
+| `select-name-key` | DTMF digit to select the announced entry and transfer | single digit or `#` or `*` | `1` |
+| `new-search-key` | DTMF digit to start a new search | single digit or `#` or `*` | `3` |
+| `search-order` | Default search field | `last_name`, `first_name`, `first_and_last_name` | `last_name` |
+| `digit-timeout` | Inter-digit timeout in milliseconds | integer 0–30000 | `3000` |
+| `min-search-digits` | Minimum digits required before searching | integer ≥ 0 | `3` |
+| `max-menu-attempts` | Maximum search attempts before exiting | integer ≥ 0 | `3` |
+| `max-result` | Maximum matches to announce (0 = unlimited) | integer ≥ 0 | `5` |
+| `use-number-alias` | Use `number-alias` attribute as the transfer target instead of the user id | `true`, `false` | `false` |
+
+### Example configuration
+
+```xml
+<configuration name="directory.conf" description="Directory">
+  <settings>
+    <!--<param name="odbc-dsn" value="dsn:user:pass"/>-->
+    <!--<param name="dbname" value="directory"/>-->
+  </settings>
+  <profiles>
+    <profile name="default">
+      <param name="max-menu-attempts" value="3"/>
+      <param name="min-search-digits" value="3"/>
+      <param name="terminator-key" value="#"/>
+      <param name="digit-timeout" value="3000"/>
+      <param name="max-result" value="5"/>
+      <param name="next-key" value="6"/>
+      <param name="prev-key" value="4"/>
+      <param name="switch-order-key" value="*"/>
+      <param name="select-name-key" value="1"/>
+      <param name="new-search-key" value="3"/>
+      <param name="search-order" value="last_name"/>
+    </profile>
+  </profiles>
+</configuration>
+```
+
+### Per-user directory visibility
+
+Two user-level `<param>` elements in the XML directory control whether a user appears in search results:
+
+| Parameter | Purpose | Values | Default |
+|-----------|---------|--------|---------|
+| `directory-visible` | Include user in name search results | `true`, `false` | `true` |
+| `directory-exten-visible` | Announce the extension when reading the entry | `true`, `false` | `true` |
+
+The display name is taken from the user variable `effective_caller_id_name`. If a user variable `directory_full_name` is also set, it overrides `effective_caller_id_name` for directory purposes.
+
+## Dialplan Applications
+
+| Application | Purpose | Arguments |
+|-------------|---------|-----------|
+| `directory` | Run the dial-by-name IVR and transfer on selection | `<profile_name> <domain_name> [<context_name>]` or `<profile_name> <domain_name> <dialplan_name> <context_name>` |
+
+The application populates an internal search table from the named domain's XML directory, guides the caller through keypad entry, and transfers the call when the caller selects an entry. If the caller does not select an entry within `max-menu-attempts` tries the application returns without transferring.
+
+When only three arguments are supplied the third argument is treated as `context_name` and `dialplan_name` defaults to `XML`. When four arguments are supplied the third is `dialplan_name` and the fourth is `context_name`.
+
+```xml
+<action application="directory" data="default $${domain} XML default"/>
+```
+
+```xml
+<!-- Search within a specific context using an alternate dialplan -->
+<action application="directory" data="default example.com XML sales"/>
+```
+
+## Channel Variables
+
+The following channel variables are **read** by `mod_directory` during execution.
+
+| Variable | Set / Read | Purpose |
+|----------|-----------|---------|
+| `directory_group_selection` | Read | When set, restricts the user population to the named directory group only |
+| `directory_voicemail_profile` | Read | Voicemail profile used when looking up pre-recorded names via `mod_voicemail`; defaults to the directory profile name |
+| `directory_search_order` | Read | Overrides the profile `search-order` parameter for this call; accepts `last_name`, `first_name`, or `first_and_last_name` |
+
+**Source:** `src/mod/applications/mod_directory`

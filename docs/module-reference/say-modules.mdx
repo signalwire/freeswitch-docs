@@ -1,0 +1,214 @@
+---
+sidebar_position: 11
+id: say-modules
+slug: /module-reference/say
+title: "Say Modules: Number, Date, and Money Pronunciation"
+description: "Per-language modules that convert numbers, dates, currency, and time values into spoken audio using pre-recorded sound files."
+sidebar_label: "Say (i18n)"
+---
+
+# Say Modules: Number, Date, and Money Pronunciation
+
+The say subsystem converts structured data — integers, monetary amounts, timestamps, IP addresses, and spelled names — into spoken audio by assembling sequences of pre-recorded sound files. Each `mod_say_*` module implements a language-specific pronunciation algorithm that determines which sound files to play and in what order. The `say` dialplan application and the `say_string` API command both invoke these modules at runtime.
+
+Sound files are located under the path set by `sound_prefix` for the active language (configured in the `<languages>` section of `freeswitch.xml`). The modules use sub-directories such as `digits/`, `currency/`, and `time/` relative to that prefix.
+
+## Supported Languages
+
+The following modules ship in `src/mod/say`. Each module registers a say interface under its interface name; that name is what you pass as `<module_name>` in the `say` application.
+
+| Module | Interface name | Language |
+|---|---|---|
+| `mod_say_de` | `de` | German |
+| `mod_say_en` | `en` | English |
+| `mod_say_es` | `es` | Spanish (Castilian) |
+| `mod_say_es_ar` | `es_ar` | Spanish (Argentina) |
+| `mod_say_fa` | `fa` | Persian (Farsi) |
+| `mod_say_fr` | `fr` | French |
+| `mod_say_he` | `he` | Hebrew |
+| `mod_say_hr` | `hr` | Croatian |
+| `mod_say_hu` | `hu` | Hungarian |
+| `mod_say_it` | `it` | Italian |
+| `mod_say_ja` | `ja` | Japanese |
+| `mod_say_nl` | `nl` | Dutch |
+| `mod_say_pl` | `pl` | Polish |
+| `mod_say_pt` | `pt` | Portuguese |
+| `mod_say_ru` | `ru` | Russian |
+| `mod_say_sv` | `sv` | Swedish |
+| `mod_say_th` | `th` | Thai |
+| `mod_say_zh` | `zh` | Chinese |
+
+**Default load:** Only `mod_say_en` is enabled by default in `autoload_configs/modules.conf.xml`. All other say modules are commented out and must be explicitly added:
+
+```xml
+<load module="mod_say_en"/>
+<!-- <load module="mod_say_ru"/> -->
+<!-- <load module="mod_say_zh"/> -->
+<!-- <load module="mod_say_sv"/> -->
+```
+
+To activate an additional language, uncomment its `<load>` line or add the equivalent to your local modules configuration.
+
+## The `say` Application and `say_string`
+
+### `say` dialplan application
+
+Registered by `mod_dptools`. Syntax (from `SAY_SYNTAX` in `mod_dptools.c`):
+
+```
+say <module_name>[:<lang>] <say_type> <say_method> [<say_gender>] <text>
+```
+
+- `<module_name>` — the say interface name (e.g. `en`, `de`, `fr`). Optionally append `:<lang>` to override the language tag used for sound-path lookup while keeping the pronunciation module separate (e.g. `en:fr`).
+- `<say_type>` — what kind of value is being spoken (see table below).
+- `<say_method>` — how the value should be rendered (see table below).
+- `<say_gender>` — optional grammatical gender (see table below); relevant only for languages with gendered inflection.
+- `<text>` — the value to speak (a number, epoch timestamp, dotted-quad IP, currency string, etc.).
+
+The full data string must contain exactly 4 or 5 space-separated tokens: `<module_name> <say_type> <say_method> <text>` (4 tokens) or `<module_name> <say_type> <say_method> <say_gender> <text>` (5 tokens). It sets `PLAYBACK_TERMINATOR_USED` to empty before playing.
+
+**Example:**
+
+```xml
+<action application="say" data="en NUMBER PRONOUNCED 12345"/>
+<action application="say" data="en CURRENCY PRONOUNCED 19.99"/>
+<action application="say" data="en CURRENT_DATE_TIME PRONOUNCED 0"/>
+<action application="say" data="de NUMBER COUNTED MASCULINE 1"/>
+```
+
+### `say_string` API command
+
+Registered by `mod_commands`. Returns the colon-separated file path string instead of playing audio. Syntax (from `SAY_STRING_SYNTAX` in `mod_commands.c`):
+
+```
+say_string <module_name>[.<ext>] <lang>[.<ext>] <say_type> <say_method> [<say_gender>] <text>
+```
+
+The optional `.ext` suffix on either the first or second token sets the audio file extension (default `wav`). The `<lang>` token sets the language for sound-path lookup. Prefix `<text>` with `~` to strip the `file_string://` protocol prefix from the returned path.
+
+**Example:**
+
+```
+say_string en en NUMBER PRONOUNCED 42
+say_string en.wav en NUMBER ITERATED 555
+```
+
+### Say types
+
+The `<say_type>` token maps to `switch_say_type_t`. The string names are case-insensitive.
+
+| Token | Description |
+|---|---|
+| `NUMBER` | Cardinal integer |
+| `ITEMS` | Item count |
+| `PERSONS` | Person count |
+| `MESSAGES` | Message count |
+| `CURRENCY` | Monetary amount (dollars and cents for English) |
+| `TIME_MEASUREMENT` | Duration in hours, minutes, and seconds |
+| `CURRENT_DATE` | Date portion of a timestamp |
+| `CURRENT_TIME` | Time portion of a timestamp |
+| `CURRENT_DATE_TIME` | Full date and time of a timestamp |
+| `SHORT_DATE_TIME` | Abbreviated date/time (today/yesterday/day-of-week heuristic) |
+| `TELEPHONE_NUMBER` | Phone number digit-by-digit |
+| `TELEPHONE_EXTENSION` | Extension digits |
+| `IP_ADDRESS` | IPv4 dotted-quad address |
+| `URL` | URL string |
+| `EMAIL_ADDRESS` | E-mail address |
+| `POSTAL_ADDRESS` | Postal address |
+| `ACCOUNT_NUMBER` | Account number |
+| `NAME_SPELLED` | Name spelled out using `ascii/` sound files |
+| `NAME_PHONETIC` | Name spelled using `phonetic-ascii/` sound files |
+
+Not all modules handle every type. For example, `mod_say_en` handles `TELEPHONE_NUMBER`; `mod_say_fr` additionally handles `TELEPHONE_EXTENSION`, `URL`, `EMAIL_ADDRESS`, `POSTAL_ADDRESS`, and `ACCOUNT_NUMBER`; several modules (e.g. `mod_say_es`, `mod_say_ja`, `mod_say_nl`, `mod_say_th`) do not implement `SHORT_DATE_TIME`. Unrecognised types log an error and return false.
+
+### Say methods
+
+The `<say_method>` token maps to `switch_say_method_t`.
+
+| Token | Description |
+|---|---|
+| `PRONOUNCED` | Speak the value as a natural number (e.g. "twelve thousand three hundred forty-five") |
+| `ITERATED` | Speak each digit or character individually (e.g. "one two three") |
+| `COUNTED` | Speak the value as an ordinal (e.g. "twelfth") |
+| `PRONOUNCED_YEAR` | Speak a year in the conventional two-group form (e.g. "nineteen ninety-nine") |
+
+When `say_method` is `ITERATED` and `say_type` is `CURRENT_TIME`, `mod_say_en` uses 24-hour (military) time format.
+
+### Say genders
+
+The `<say_gender>` token maps to `switch_say_gender_t`. This argument is optional and is silently ignored by modules that do not use it.
+
+| Token | Description |
+|---|---|
+| `MASCULINE` | Masculine grammatical gender |
+| `FEMININE` | Feminine grammatical gender |
+| `NEUTER` | Neuter grammatical gender |
+
+`mod_say_de` uses gender to select inflected sound files for counted ordinals: masculine uses `digits/h-1_m.wav`, neuter uses `digits/h-1_n.wav`, and feminine (and unspecified gender) falls back to the unsuffixed form `digits/h-1.wav`. `mod_say_he`, `mod_say_ru`, and other modules with grammatical gender do the same.
+
+## Selecting the Language
+
+When `switch_ivr_say` is called (from the `say` application), it determines the active language in this order:
+
+1. The `:lang` suffix on the `<module_name>` argument, if present.
+2. The channel variable `language`.
+3. The channel variable `default_language`.
+4. The module name itself (bare, without any suffix).
+
+The resolved language tag is then used to look up a `<language>` element in the `languages` section of `freeswitch.xml`. The lookup is performed via `switch_xml_locate_language`.
+
+### The `<languages>` section
+
+`freeswitch.xml` contains a `<section name="languages">` block that includes per-language XML files:
+
+```xml
+<section name="languages" description="Language Management">
+  <X-PRE-PROCESS cmd="include" data="lang/de/*.xml"/>
+  <X-PRE-PROCESS cmd="include" data="lang/en/*.xml"/>
+  <X-PRE-PROCESS cmd="include" data="lang/fr/*.xml"/>
+  <X-PRE-PROCESS cmd="include" data="lang/ru/*.xml"/>
+  <X-PRE-PROCESS cmd="include" data="lang/he/*.xml"/>
+  <X-PRE-PROCESS cmd="include" data="lang/es/es_ES.xml"/>
+  <X-PRE-PROCESS cmd="include" data="lang/pt/pt_BR.xml"/>
+</section>
+```
+
+Each included file defines a `<language>` element. The `say-module` attribute on `<language>` tells the core which say interface module to use; `sound-prefix` sets the base path for audio files.
+
+**English (`lang/en/en.xml`):**
+
+```xml
+<language name="en" say-module="en" sound-prefix="$${sound_prefix}"
+          tts-engine="cepstral" tts-voice="callie">
+  <phrases>
+    <macros>
+      <X-PRE-PROCESS cmd="include" data="demo/*.xml"/>
+      <X-PRE-PROCESS cmd="include" data="vm/sounds.xml"/>
+      <X-PRE-PROCESS cmd="include" data="dir/sounds.xml"/>
+      <X-PRE-PROCESS cmd="include" data="ivr/*.xml"/>
+    </macros>
+  </phrases>
+</language>
+```
+
+**French (`lang/fr/fr.xml`):**
+
+```xml
+<language name="fr" say-module="fr"
+          sound-prefix="$${sounds_dir}/fr/ca/june"
+          tts-engine="cepstral" tts-voice="david">
+```
+
+| Attribute | Purpose |
+|---|---|
+| `name` | Language tag matched against the `language` / `default_language` channel variables |
+| `say-module` | Say interface name to load (must match the `interface_name` registered by the module) |
+| `sound-prefix` | Base directory for all audio files used by this language |
+| `tts-engine` | TTS engine name (used by phrase macros that call TTS; not used by the say subsystem directly) |
+| `tts-voice` | TTS voice name (same scope as `tts-engine`) |
+
+If `say-module` is absent, the core falls back to the deprecated `module` attribute (with a warning), and then to the language tag itself.
+
+The `sound_prefix` channel variable can be overridden at call time. The core saves and restores the previous value around each `say` invocation unless `sound_prefix_enforced` is set to a true value on the channel.
+
+**Source:** `src/mod/say`, `src/mod/applications/mod_dptools`, `src/mod/applications/mod_commands`, `src/switch_ivr.c`, `src/switch_ivr_say.c`

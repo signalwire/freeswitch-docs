@@ -1,0 +1,80 @@
+---
+sidebar_position: 2
+id: mod_managed
+slug: /module-reference/languages/mod_managed
+title: "mod_managed — Mono / .NET CLR Scripting"
+description: "Embeds the Mono runtime (or Microsoft CLR) into FreeSWITCH to run C#, F#, VB.NET, and script-file plugins from the dialplan and API."
+sidebar_label: "mod_managed"
+---
+
+# mod_managed — Mono / .NET CLR Scripting
+
+`mod_managed` embeds the Mono JIT runtime (or the Microsoft Common Language Runtime when built with `_MANAGED`) directly into FreeSWITCH, allowing operators to write dialplan applications and API commands in any Common Language Infrastructure language — C#, F#, VB.NET, or compatible script files — without restarting the switch. The native layer is in `src/mod/languages/mod_managed`; most of the logic lives in the companion managed assembly `FreeSWITCH.Managed.dll`.
+
+Reach for this module when your team prefers the .NET ecosystem, needs to share business logic between FreeSWITCH and other .NET services, or wants the live-reload behaviour that comes from dropping a new `.dll` or script file into the `managed/` directory while the switch is running.
+
+## Loading the Module
+
+`mod_managed` is **not** in the vanilla default load set. It does not appear anywhere in `conf/vanilla/autoload_configs/modules.conf.xml` (commented-out or otherwise). To load it, add the entry below and restart, or use `load` from the `fs_cli`.
+
+```xml
+<load module="mod_managed"/>
+```
+
+```
+freeswitch@> load mod_managed
+```
+
+The module requires that `FreeSWITCH.Managed.dll` be present in the FreeSWITCH modules directory (installed alongside `mod_managed.so`). Build the module with Mono development headers available so that `pkg-config mono-2` resolves correctly.
+
+## Configuration
+
+`mod_managed` has **no `mod_managed.conf.xml`**. There is no shipped configuration file and none is consulted at load time. All configuration is implicit:
+
+- **Plugin directory:** `{modules_dir}/managed/` — the loader scans every file in this directory at startup and watches it for changes at runtime.
+- **Shadow copy directory:** `{modules_dir}/managed/shadow/` — if this directory already exists at load time, the loader deletes and re-creates it; it is used by the .NET AppDomain shadow-copy mechanism to stage assemblies.
+- **Per-plugin config:** a `.config` file alongside a `.dll` or `.exe` (e.g. `MyPlugin.dll.config`) is read as the `AppDomain` configuration for that plugin's isolated domain.
+
+## Dialplan Applications
+
+| Application | Purpose | Arguments |
+|-------------|---------|-----------|
+| `managed` | Run a .NET `IAppPlugin` implementation (or script) on an active channel | `<plugin-name> [<args>]` |
+
+`<plugin-name>` is either the fully-qualified type name (`Namespace.ClassName`) or the short class name (`ClassName`) for compiled assemblies, or the filename (e.g. `Demo.csx`) for script files.
+
+```xml
+<action application="managed" data="AppDemo"/>
+<action application="managed" data="MyCompany.IVR.WelcomeApp some-argument"/>
+<action application="managed" data="Demo.csx"/>
+```
+
+The application supports `SAF_SUPPORT_NOMEDIA`, meaning it can be invoked on media-free (bypass-media) channels.
+
+## API Commands
+
+| Command | Purpose | Syntax |
+|---------|---------|--------|
+| `managed` | Execute a .NET `IApiPlugin` synchronously (blocking) | `managed <plugin-name> [<args>]` |
+| `managedrun` | Execute a .NET `IApiPlugin` asynchronously in the background (`ExecuteBackground`) | `managedrun <plugin-name> [<args>]` |
+| `managedreload` | Force-reload a specific file from the `managed/` directory | `managedreload <filename-or-path>` |
+| `managedlist` | Write the currently loaded APIs and Apps to the stream (or log) | `managedlist` |
+
+```
+freeswitch@> managed ApiDemo hello-world
+freeswitch@> managedrun ApiDemo background-job
+freeswitch@> managedreload MyPlugin.dll
+freeswitch@> managedlist
+```
+
+`managedreload` accepts either a bare filename (resolved relative to the `managed/` directory) or an absolute path. The loader also watches the `managed/` directory automatically and reloads files when they change, unless the plugin sets `PluginOptions.NoAutoReload`.
+
+## Dependencies
+
+`mod_managed` requires the **Mono runtime** (package `mono-devel` / `libmono-dev`) to be installed before building. The build system links against `mono-2` via `pkg-config`. On Windows, the module can alternatively be compiled with the Microsoft CLR (`_MANAGED` preprocessor flag), which removes the Mono dependency.
+
+On Linux, the build also requires **SWIG** to regenerate `freeswitch_wrap.cxx` and `managed/swig.cs` when the FreeSWITCH core API changes (run `make reswig`). The pre-generated files shipped in the tree are used by default.
+
+---
+
+**Source:** `src/mod/languages/mod_managed`

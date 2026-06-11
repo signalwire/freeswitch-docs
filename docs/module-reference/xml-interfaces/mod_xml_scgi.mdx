@@ -1,0 +1,90 @@
+---
+sidebar_position: 2
+id: mod_xml_scgi
+slug: /module-reference/xml-interfaces/mod_xml_scgi
+title: "mod_xml_scgi — SCGI XML Binding Backend"
+description: "Serves FreeSWITCH XML lookup requests to an SCGI backend process over a plain TCP socket connection."
+sidebar_label: "mod_xml_scgi"
+---
+
+# mod_xml_scgi — SCGI XML Binding Backend
+
+`mod_xml_scgi` is an XML interface module located in `src/mod/xml_int/`. It registers an XML binding that forwards FreeSWITCH configuration, dialplan, and directory lookup requests to an external process over the Simple Common Gateway Interface (SCGI) protocol. The backend receives POST parameters describing the lookup (section, tag, key name, key value, and any channel variables) and must respond with a valid `freeswitch/xml` document.
+
+Use this module when you want to serve dynamic XML from a long-running backend process (Python, Perl, Ruby, etc.) that can stay resident and handle multiple requests without the per-request fork overhead of a traditional CGI gateway. The SCGI server listens on a TCP socket; `mod_xml_scgi` connects, sends the request, reads the XML response, and parses it into the FreeSWITCH XML tree.
+
+## Loading the Module
+
+The module name is `mod_xml_scgi`. In the vanilla distribution the entry in `autoload_configs/modules.conf.xml` is commented out:
+
+```xml
+<!-- <load module="mod_xml_scgi"/> -->
+```
+
+To activate it, uncomment that line (or add `<load module="mod_xml_scgi"/>` to your `modules.conf.xml`) and restart FreeSWITCH. No special compile-time flag is required beyond having the bundled `libscgi` available, which is built as part of the standard FreeSWITCH tree.
+
+## Configuration: `xml_scgi.conf.xml`
+
+The configuration file is `autoload_configs/xml_scgi.conf.xml`. It contains a `<bindings>` block with one or more `<binding>` elements. Each `<binding>` defines one SCGI endpoint. The `name` attribute on the binding tag becomes the URI path sent in the SCGI `REQUEST_URI` header (for example, a binding named `example` produces the URI `/example`).
+
+| Parameter | Purpose | Accepted Values | Default |
+|---|---|---|---|
+| `host` | Hostname or IP address of the SCGI backend | Any resolvable hostname or IP | `127.0.0.1` |
+| `port` | TCP port of the SCGI backend | Any valid port number | `8080` |
+| `timeout` | Connection and read timeout in seconds | Non-negative integer | `0` (no timeout) |
+| `enable-post-var` | Restrict which channel variables are included in the POST body; repeat for each variable to pass | Any channel variable name | All variables are sent when this param is omitted |
+| `server` | Shell command to launch and supervise an SCGI backend process; the module spawns a monitor thread that restarts the process if it exits | Any shell command string | None (optional) |
+
+The `host` param also accepts an optional XML attribute `bindings` that limits which XML sections trigger this binding. The value is a pipe-delimited list of section names recognized by `switch_xml_parse_section_string`: `config` (the string `configuration` also works because matching is substring-based), `directory`, `dialplan`, `languages`, `chatplan`, `channels`. When omitted, the binding handles all sections.
+
+**Example (trimmed from the shipped conf):**
+
+```xml
+<configuration name="xml_scgi.conf" description="SCGI XML Gateway">
+  <bindings>
+    <binding name="example">
+      <!-- one or more |-delim of configuration|directory|dialplan -->
+      <!-- <param name="host" value="127.0.0.1" bindings="dialplan"/> -->
+      <!-- <param name="port" value="8080"/> -->
+      <!-- <param name="timeout" value="10"/> -->
+      <!-- one or more of these imply you want to pick the exact variables that are transmitted -->
+      <!--<param name="enable-post-var" value="Unique-ID"/>-->
+    </binding>
+  </bindings>
+</configuration>
+```
+
+A minimal active binding that serves all sections from a backend on port 8090:
+
+```xml
+<configuration name="xml_scgi.conf" description="SCGI XML Gateway">
+  <bindings>
+    <binding name="freeswitch">
+      <param name="host" value="127.0.0.1" bindings="configuration|directory|dialplan"/>
+      <param name="port" value="8090"/>
+      <param name="timeout" value="10"/>
+    </binding>
+  </bindings>
+</configuration>
+```
+
+The SCGI backend receives a POST body with URL-encoded parameters including at minimum: `hostname`, `section`, `tag_name`, `key_name`, `key_value`, plus any allowed channel variables. It must return a well-formed `freeswitch/xml` document. The module enforces a hard maximum response size of 1 MB (`XML_SCGI_MAX_BYTES`).
+
+## API Commands
+
+| Command | Purpose | Syntax |
+|---|---|---|
+| `xml_scgi` | Enable or disable verbose debug logging for SCGI request/response cycles | `xml_scgi debug_on` \| `xml_scgi debug_off` |
+
+When debug is on, the module logs the SCGI URL, the full POST body, and the raw XML response to the FreeSWITCH log at `ERROR` level for each lookup.
+
+**fs_cli examples:**
+
+```
+freeswitch@> xml_scgi debug_on
+OK
+freeswitch@> xml_scgi debug_off
+OK
+```
+
+**Source:** `src/mod/xml_int/mod_xml_scgi`, `conf/vanilla/autoload_configs/xml_scgi.conf.xml`

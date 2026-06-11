@@ -1,0 +1,107 @@
+---
+sidebar_position: 4
+id: mod_smpp
+slug: /module-reference/event-handlers/mod_smpp
+title: "mod_smpp — SMPP SMS Gateway"
+description: "Connects FreeSWITCH to an SMPP SMS gateway for sending and receiving SMS messages via the chatplan."
+sidebar_label: "mod_smpp"
+---
+
+# mod_smpp — SMPP SMS Gateway
+
+`mod_smpp` implements an SMPP (Short Message Peer-to-Peer) client that connects FreeSWITCH to external SMPP servers (SMSCs or aggregators). It authenticates using the SMPP `bind_transceiver` command so it can both send and receive SMS over a single persistent TCP connection per gateway.
+
+Inbound `DELIVER_SM` PDUs are decoded into FreeSWITCH chat events and dispatched through the chatplan. Outbound messages can be triggered from the dialplan, the chatplan, or the `fs_cli` using the `smpp_send` API command.
+
+## Loading the Module
+
+The module name is `mod_smpp`. It is **not** loaded by default — both entries in `conf/vanilla/autoload_configs/modules.conf.xml` are commented out. To enable it, uncomment (or add) the load line:
+
+```xml
+<load module="mod_smpp"/>
+```
+
+The module requires `libsmpp34` at compile time (see [Dependencies](#dependencies)).
+
+## Configuration: `smpp.conf.xml`
+
+`smpp.conf.xml` defines one or more named gateways. Each gateway represents a TCP connection to an SMPP server. The module reads this file on startup; there is no reload command — restart FreeSWITCH to apply changes.
+
+### Gateway Parameters
+
+| Parameter | Purpose | Accepted Values | Default |
+|---|---|---|---|
+| `host` | Hostname or IP of the SMPP server | Any resolvable hostname or IP | `localhost` |
+| `port` | TCP port of the SMPP server | Integer | `8000` |
+| `system_id` | SMPP username sent in the bind request | String (max 16 chars) | `username` |
+| `password` | SMPP password sent in the bind request | String (max 9 chars) | `password` |
+| `system_type` | SMPP `system_type` field in the bind request | String (max 13 chars) | `freeswitch_smpp` |
+| `profile` | FreeSWITCH SIP profile name associated with this gateway | String | `default` |
+| `debug` | Per-gateway PDU debug logging | `0` or `1` | `0` |
+
+The gateway `name` attribute is the handle used to address the gateway in API calls and channel variables (e.g., `smpp_gateway`).
+
+### Example Configuration
+
+```xml
+<configuration name="smpp.conf" description="SMPP client and server Gateway">
+  <gateways>
+    <gateway name="example.com">
+      <params>
+        <param name="host" value="example.com"/>
+        <param name="port" value="2775"/>
+        <param name="debug" value="1"/>
+        <param name="profile" value="default"/>
+        <param name="system_id" value="username"/>
+        <param name="password" value="password"/>
+        <param name="system_type" value="remote_smpp"/>
+      </params>
+    </gateway>
+  </gateways>
+</configuration>
+```
+
+## Dialplan Applications
+
+| Application | Purpose | Arguments |
+|---|---|---|
+| `smpp_send` | Send an SMS through a named gateway using channel variables | Gateway name |
+
+The application reads all channel variables prefixed with `smpp_` and strips the prefix before populating the outbound SMPP message. The `from_user` and `to_user` event headers (and the message body) must be set as `smpp_from_user`, `smpp_to_user`, etc., or as plain channel variables before the application is invoked.
+
+```xml
+<action application="smpp_send" data="example.com"/>
+```
+
+## API Commands
+
+| Command | Purpose | Syntax |
+|---|---|---|
+| `smpp_send` | Send an SMS from `fs_cli` through a named gateway | `smpp_send gateway\|destination\|source\|message` |
+| `smpp_debug` | Toggle global PDU debug logging on or off | `smpp_debug [true\|false]` |
+
+`fs_cli` examples:
+
+```
+smpp_send example.com|15551234567|15559876543|Hello from FreeSWITCH
+smpp_debug true
+smpp_debug false
+```
+
+Fields in `smpp_send` are pipe-delimited: gateway name, destination number (`to_user`), source number (`from_user`), and message body.
+
+## Channel Variables
+
+| Variable | Set / Read | Purpose |
+|---|---|---|
+| `smpp_gateway` | Both | On inbound `DELIVER_SM` PDUs, set to the name of the receiving gateway. On outbound messages routed through the chat interface, read to select which configured gateway to use; defaults to `default` if absent. |
+| `smpp_from_user` | Read | Stripped of the `smpp_` prefix and mapped to `from_user` in the outbound SMPP PDU by the `smpp_send` dialplan application. |
+| `smpp_to_user` | Read | Stripped of the `smpp_` prefix and mapped to `to_user` in the outbound SMPP PDU by the `smpp_send` dialplan application. |
+
+Any channel variable with the `smpp_` prefix is copied into the outgoing message event with the prefix removed. Other channel variables are copied as-is.
+
+## Dependencies
+
+`mod_smpp` requires **libsmpp34** (the Osmocom SMPP library) at build time. Headers `smpp34.h`, `smpp34_structs.h`, and `smpp34_params.h` must be available. This library is not bundled with FreeSWITCH and must be installed separately before compiling the module.
+
+**Source:** `src/mod/event_handlers/mod_smpp`, `conf/vanilla/autoload_configs/smpp.conf.xml`

@@ -1,0 +1,134 @@
+---
+sidebar_position: 1
+id: mod_xml_rpc
+slug: /module-reference/xml-interfaces/mod_xml_rpc
+title: "mod_xml_rpc — XML-RPC and Embedded HTTP Server"
+description: "Embeds an HTTP server in FreeSWITCH that exposes all API commands over HTTP and XML-RPC."
+sidebar_label: "mod_xml_rpc"
+---
+
+# mod_xml_rpc — XML-RPC and Embedded HTTP Server
+
+`mod_xml_rpc` embeds a small HTTP server (based on the Abyss library from xmlrpc-c) directly inside FreeSWITCH. It exposes every FreeSWITCH API command over plain HTTP GET/POST requests and over the XML-RPC protocol at `/RPC2`. It also serves static files from the `htdocs` directory and optionally accepts WebSocket event subscriptions.
+
+Operators reach for this module when they need a simple, credential-protected HTTP gateway to FreeSWITCH API commands — for example, a web-based admin portal, AJAX polling from a browser, or an integration that speaks XML-RPC rather than ESL.
+
+## Loading the Module
+
+The module name for `load` and `modules.conf.xml` is `mod_xml_rpc`. It is **not** loaded by default in the vanilla configuration — the entry in `conf/vanilla/autoload_configs/modules.conf.xml` is commented out:
+
+```xml
+<!-- <load module="mod_xml_rpc"/> -->
+```
+
+To enable it, uncomment that line (or add it) and restart FreeSWITCH, or load it at runtime with:
+
+```
+freeswitch@> load mod_xml_rpc
+```
+
+No special build flag is required beyond the standard FreeSWITCH build with xmlrpc-c support.
+
+## Configuration: `xml_rpc.conf.xml`
+
+The module reads `xml_rpc.conf` from the FreeSWITCH configuration directory. All parameters live inside `<configuration> / <settings>`.
+
+| Parameter | Purpose | Accepted Values | Default |
+|-----------|---------|-----------------|---------|
+| `http-port` | TCP port the embedded HTTP server listens on | Any valid port number | `8080` |
+| `auth-realm` | HTTP Basic Auth realm name; all three auth params must be set to enable authentication | String | _(none)_ |
+| `auth-user` | Static username for HTTP Basic Auth | String | _(none)_ |
+| `auth-pass` | Static password for HTTP Basic Auth | String | _(none)_ |
+| `default-domain` | Domain used when the client does not supply one in credentials | Domain string | _(none — falls back to system domain)_ |
+| `virtual-host` | When `true`, derive domain from the HTTP `Host` header rather than requiring it in credentials | `true` / `false` | `true` |
+| `enable-websocket` | Enable WebSocket event subscription endpoint at `/socket` | `true` / `false` | `false` |
+| `commands-to-log` | Regex pattern; matching API commands executed via HTTP are logged at INFO level | PCRE regex string | _(none)_ |
+
+Authentication logic: if `auth-realm`, `auth-user`, and `auth-pass` are all non-empty, every request requires HTTP Basic Auth matching those static credentials. Alternatively, a user can authenticate as `user@domain` and the module looks up their `password` and `http-allowed-api` params in the FreeSWITCH XML directory. The `http-allowed-api` directory param is a comma-separated list of API command names (or `any`) that the directory user is permitted to call.
+
+The `/pub` URI prefix bypasses authentication and serves files directly from `htdocs`. The `/domains/<domain>/` URI prefix triggers per-domain directory auth.
+
+Example excerpt from the shipped configuration:
+
+```xml
+<configuration name="xml_rpc.conf" description="XML RPC">
+  <settings>
+    <!-- The port where you want to run the http service (default 8080) -->
+    <param name="http-port" value="8080"/>
+    <!-- if all 3 of the following params exist all http traffic will require auth -->
+    <param name="auth-realm" value="freeswitch"/>
+    <param name="auth-user" value="freeswitch"/>
+    <param name="auth-pass" value="works"/>
+
+    <!-- regex pattern to match against commands called against this service.
+         If a command with arguments matches, it will be logged at INFO level -->
+    <!--<param name="commands-to-log" value=""/> -->
+
+  </settings>
+</configuration>
+```
+
+## API Commands
+
+The module does not register any `SWITCH_ADD_API` commands of its own. All FreeSWITCH API commands are made accessible through HTTP endpoints described below.
+
+### HTTP API Endpoints
+
+Once the module is loaded, API commands are reachable at the following URL patterns (all on the configured `http-port`):
+
+| URL Pattern | Response Content-Type | Notes |
+|-------------|----------------------|-------|
+| `http://host:port/api/<cmd>[?<args>]` | `text/plain` (auto) | Plain-text output; the API command controls content-type |
+| `http://host:port/webapi/<cmd>[?<args>]` | `text/html` | HTML output; supports `&refresh=N` auto-refresh |
+| `http://host:port/txtapi/<cmd>[?<args>]` | `text/plain` | Explicit plain-text |
+| `http://host:port/xmlapi/<cmd>[?<args>]` | `text/xml` | XML output |
+| `http://host:port/RPC2` | XML-RPC | Accepts `freeswitch.api` / `freeswitch_api` and `freeswitch.management` / `freeswitch_management` methods |
+
+Query string key-value pairs (separated by `&`) are passed to the API command as FreeSWITCH event headers. The special key `refresh=N` causes the module to inject an HTML meta-refresh header (for `/webapi/` responses only, when the API command sets the `HTTP-REFRESH` event header).
+
+Examples using `curl`:
+
+```
+# Plain-text API call
+curl -u freeswitch:works http://localhost:8080/api/show?calls
+
+# HTML API call with 5-second auto-refresh
+curl -u freeswitch:works "http://localhost:8080/webapi/show?calls&refresh=5"
+
+# XML-RPC call (freeswitch.api method, args: command and argument)
+curl -u freeswitch:works http://localhost:8080/RPC2 \
+  -d '<?xml version="1.0"?><methodCall><methodName>freeswitch.api</methodName>
+  <params><param><value><string>show</string></value></param>
+  <param><value><string>calls</string></value></param></params></methodCall>'
+```
+
+### XML-RPC Methods
+
+| Method | Purpose | Arguments |
+|--------|---------|-----------|
+| `freeswitch.api` / `freeswitch_api` | Execute any FreeSWITCH API command | `(string command, string args)` — returns result string |
+| `freeswitch.management` / `freeswitch_management` | Read or write a management OID | `(string oid, string action, string data)` — action is `get` or `set` |
+
+### WebSocket Endpoint
+
+When `enable-websocket` is `true`, clients may connect to `ws://host:port/socket` and subscribe to FreeSWITCH events by sending text frames in the format:
+
+```
+event <format> <EVENT_TYPE> [subclass]
+```
+
+where `<format>` is `json`, `xml`, or `plain`. Subscribed events are streamed back as JSON-serialized frames. Send a WebSocket close frame to unsubscribe.
+
+## Events
+
+The module reserves and fires one custom event subclass:
+
+| Subclass | When Fired |
+|----------|-----------|
+| `websocket::stophook` | Fired internally during module shutdown to signal all active WebSocket connections to close |
+
+## Dependencies
+
+`mod_xml_rpc` requires **xmlrpc-c** (including its bundled Abyss HTTP library). On most Linux distributions this is available as `libxmlrpc-c3-dev` (Debian/Ubuntu) or `xmlrpc-c-devel` (RHEL/CentOS). It is not part of the FreeSWITCH core and must be present at build time.
+
+**Source:** `src/mod/xml_int/mod_xml_rpc`, `conf/vanilla/autoload_configs/xml_rpc.conf.xml`

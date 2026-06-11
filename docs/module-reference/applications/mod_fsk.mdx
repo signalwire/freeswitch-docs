@@ -1,0 +1,106 @@
+---
+sidebar_position: 11
+id: mod_fsk
+slug: /module-reference/applications/mod_fsk
+title: "mod_fsk — FSK Data and Caller ID Signaling"
+description: "Sends and receives Bell 202 FSK-encoded caller ID and arbitrary name/value data over audio channels."
+sidebar_label: "mod_fsk"
+---
+
+# mod_fsk — FSK Data and Caller ID Signaling
+
+`mod_fsk` provides Bell 202 FSK (Frequency Shift Keying) modem signaling for FreeSWITCH audio channels. It can both transmit and receive MDMF (Multiple Data Message Format) caller ID data, including date/time, phone number, caller name, and arbitrary name/value pairs encoded as FSK audio.
+
+Operators reach for this module when working with analog telephone adapters, FXS/FXO gateways, or SIP trunks that pass caller ID in-band as FSK audio rather than through SIP headers. It is also used for proprietary in-band data transfer between endpoints that speak FSK.
+
+## Loading the Module
+
+The module name for `load` and `modules.conf.xml` is `mod_fsk`. It is **not** loaded by default in the vanilla configuration — the entry is present but commented out:
+
+```xml
+<!--<load module="mod_fsk"/>-->
+```
+
+To enable it, uncomment that line in `autoload_configs/modules.conf.xml`, or load it at runtime from `fs_cli`:
+
+```
+load mod_fsk
+```
+
+No special build flags are required; the module compiles with a standard FreeSWITCH build.
+
+## Dialplan Applications
+
+| Application | Purpose | Arguments |
+|---|---|---|
+| `fsk_send` | Encode and transmit FSK caller ID data over the channel audio | Optional DTMF string to send before transmission |
+| `fsk_recv` | Attach a media bug to detect and decode incoming FSK data | Optional flag: `w` to inspect the write (outbound) stream instead of the read stream |
+| `fsk_display` | Send a `SWITCH_MESSAGE_INDICATE_DISPLAY` update using decoded FSK variables | Optional flag: `b` to send the display update to the bridged peer instead |
+| `fsk_simplify` | Transfer the session point-to-point to the URI received in `fsk_uri`, eliminating intermediate legs | None |
+
+### `fsk_send`
+
+Reads all current channel variables whose names begin with `fsk_` and encodes them as Bell 202 FSK audio, then writes that audio to the channel. The `MDMF_DATETIME` field is always prepended with the current local time. Variables named `fsk_phone_num` and `fsk_phone_name` are encoded in their dedicated MDMF fields; all other `fsk_*` variables are encoded as `MDMF_NAME_VALUE` pairs (`name:value`).
+
+If an argument is supplied it is sent as a DTMF string one second before the FSK burst, which is a common requirement for waking up ATA equipment.
+
+```xml
+<!-- Send FSK caller ID, preceded by a "*" hook-flash DTMF -->
+<action application="set" data="fsk_phone_num=5551234567"/>
+<action application="set" data="fsk_phone_name=John Doe"/>
+<action application="fsk_send" data="*"/>
+```
+
+```xml
+<!-- Send FSK with no preceding DTMF -->
+<action application="set" data="fsk_phone_num=5559876543"/>
+<action application="fsk_send"/>
+```
+
+### `fsk_recv`
+
+Installs a media bug on the channel that listens for Bell 202 FSK data. By default it monitors the read (inbound) stream. Pass the flag `w` to monitor the write (outbound) stream instead. Once a complete MDMF message is decoded the bug removes itself and the decoded values are written as channel variables. If the channel variable `execute_on_fsk` is set, that dialplan application is executed immediately after decoding.
+
+```xml
+<!-- Listen for FSK on the inbound audio; run fsk_display when data arrives -->
+<action application="set" data="execute_on_fsk=fsk_display"/>
+<action application="fsk_recv"/>
+```
+
+```xml
+<!-- Listen on the outbound (write) stream -->
+<action application="fsk_recv" data="w"/>
+```
+
+### `fsk_display`
+
+Intended to be invoked via `execute_on_fsk` after `fsk_recv` decodes data. Sends a display-update message (`SWITCH_MESSAGE_INDICATE_DISPLAY`) using the values in `fsk_phone_name` and `fsk_phone_num`. With the `b` flag the message is sent to the bridged session rather than the current one.
+
+```xml
+<action application="set" data="execute_on_fsk=fsk_display b"/>
+<action application="fsk_recv"/>
+```
+
+### `fsk_simplify`
+
+Intended to be invoked via `execute_on_fsk`. Reads `fsk_uri` from the channel variables and transfers the session directly to that SIP URI using the `internal` Sofia profile (overridable via `fsk_simplify_profile`). The bridged peer is also redirected, eliminating the intermediate FreeSWITCH legs.
+
+```xml
+<action application="set" data="execute_on_fsk=fsk_simplify"/>
+<action application="fsk_recv"/>
+```
+
+## Channel Variables
+
+| Variable | Set / Read | Purpose |
+|---|---|---|
+| `fsk_phone_num` | Both | Phone number field (MDMF type 2). Set on decode; read on encode. |
+| `fsk_phone_name` | Both | Caller name field (MDMF type 7). Set on decode; read on encode. |
+| `fsk_datetime` | Set | Date/time decoded from the MDMF datetime field (MDMF type 1), format `MMDDhhmm`. |
+| `fsk_*` (arbitrary) | Both | Any channel variable whose name starts with `fsk_` is encoded as an MDMF name/value pair on send. On receive, decoded name/value pairs are stored as `fsk_<name>` channel variables. |
+| `fsk_uri` | Read | SIP URI consumed by `fsk_simplify` to redirect the call. Must be a bare SIP URI without the `sip:` scheme prefix. |
+| `execute_on_fsk` | Read | Application (with optional argument) to execute immediately after `fsk_recv` successfully decodes an FSK message. |
+| `fsk_simplify_profile` | Read | Sofia profile name used by `fsk_simplify` when building the bridge target. Defaults to `internal`. |
+| `fsk_simplify_context` | Read | Dialplan context passed to `switch_ivr_session_transfer` by `fsk_simplify`. |
+
+**Source:** `src/mod/applications/mod_fsk`

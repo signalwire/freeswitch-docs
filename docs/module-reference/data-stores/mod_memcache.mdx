@@ -1,0 +1,118 @@
+---
+sidebar_position: 2
+id: mod_memcache
+slug: /module-reference/data-stores/mod_memcache
+title: "mod_memcache — Memcached Client"
+description: "Provides a FreeSWITCH API and file-interface backend that stores and retrieves data from a Memcached cluster."
+sidebar_label: "mod_memcache"
+---
+
+# mod_memcache — Memcached Client
+
+`mod_memcache` is a data-store client module in `src/mod/applications/mod_memcache`. It connects FreeSWITCH to one or more Memcached servers using the **libmemcached** C library and exposes the connection through two interfaces: an API command (`memcache`) callable from the dialplan via inline execution, and a file-format interface (scheme `memcache://`) that lets the media subsystem read or write raw audio blobs stored as Memcached values.
+
+Reach for this module when you need a fast, shared, in-memory key–value store across multiple FreeSWITCH nodes — for example, to cache per-call data that other nodes must read, to implement cross-box counters, or to serve audio prompts from memory rather than disk.
+
+## Loading the Module
+
+The module name for `load` and `modules.conf.xml` is `mod_memcache`. It is **not** present in the vanilla `autoload_configs/modules.conf.xml` and must be added manually before it will load at startup.
+
+To load at runtime without restarting:
+
+```
+freeswitch@> load mod_memcache
+```
+
+To load automatically on startup, add the following line inside the appropriate `<modules>` section of `conf/autoload_configs/modules.conf.xml`:
+
+```xml
+<load module="mod_memcache"/>
+```
+
+## Configuration: `memcache.conf.xml`
+
+The module reads a single settings block from `memcache.conf`. The file is reloaded whenever FreeSWITCH processes a `reloadxml` event.
+
+| Parameter | Purpose | Accepted Values | Default |
+|---|---|---|---|
+| `memcache-servers` | Comma-separated list of Memcached server addresses. Each entry may be `host` or `host:port`. | String (one or more `host[:port]` entries) | `localhost` |
+
+Real example from the shipped conf:
+
+```xml
+<configuration name="memcache.conf" description="memcache Configuration">
+  <settings>
+    <!-- comma sep list of servers: eg:  localhost,otherhost:port,anotherone -->
+    <param name="memcache-servers" value="localhost"/>
+  </settings>
+</configuration>
+```
+
+## API Commands
+
+There is a single top-level API command, `memcache`, with sub-commands for each operation. It is the primary dialplan interface and can also be called from `fs_cli`.
+
+| Command | Purpose | Syntax |
+|---|---|---|
+| `memcache set` | Store a value (overwrite if exists) | `memcache set <key> <value> [expiration [flags]]` |
+| `memcache replace` | Store a value only if the key already exists | `memcache replace <key> <value> [expiration [flags]]` |
+| `memcache add` | Store a value only if the key does not yet exist | `memcache add <key> <value> [expiration [flags]]` |
+| `memcache get` | Retrieve a value by key | `memcache get <key>` |
+| `memcache getflags` | Retrieve the 32-bit flags stored with a key (returned as hex) | `memcache getflags <key>` |
+| `memcache delete` | Delete a key | `memcache delete <key> [expiration]` |
+| `memcache increment` | Atomically increment a numeric value | `memcache increment <key> [offset [expires [flags]]]` |
+| `memcache decrement` | Atomically decrement a numeric value | `memcache decrement <key> [offset [expires [flags]]]` |
+| `memcache flush` | Invalidate all keys on all configured servers | `memcache flush [expiration]` |
+| `memcache status` | List configured servers and their count | `memcache status [verbose]` |
+
+`expiration` is a Unix timestamp or relative TTL in seconds (integer). `flags` is a 32-bit integer written in hexadecimal. For `increment` and `decrement`, if the key does not exist the module creates it with `memcached_add` before retrying the operation.
+
+`fs_cli` examples:
+
+```
+freeswitch@> memcache set mykey "hello world" 300
++OK
+freeswitch@> memcache get mykey
+hello world
+freeswitch@> memcache increment counter 1
+1
+freeswitch@> memcache delete mykey
++OK
+freeswitch@> memcache status
+Lib version: 1.0.18
+Servers: 1
+  localhost (11211)
+freeswitch@> memcache status verbose
+Lib version: 1.0.18
+Servers: 1
+  localhost (11211)
+    pid: 12345
+    ...
+```
+
+Dialplan inline use via `${}` expansion:
+
+```xml
+<action application="set" data="cached_val=${memcache(get mykey)}"/>
+<action application="set" data="ignore=${memcache(set mykey ${caller_id_number} 3600)}"/>
+```
+
+## File Format Interface
+
+`mod_memcache` registers `memcache` as a supported audio file scheme. The media subsystem can open a Memcached key as if it were an audio file; the entire value is loaded into memory on open and streamed from there. Writing appends binary chunks to the key using `memcached_append`.
+
+This allows applications like `playback` or `record` to use a `memcache://` URI, for example:
+
+```xml
+<action application="playback" data="memcache://my_audio_prompt_key"/>
+```
+
+The scheme does not support seeking (`offset_pos` is rejected at open time).
+
+## Dependencies
+
+`mod_memcache` requires **libmemcached** (the C client library, header `<libmemcached/memcached.h>`). This library is not bundled with FreeSWITCH and must be installed separately before the module can be compiled. On Debian/Ubuntu systems the package is typically `libmemcached-dev`; on RHEL/CentOS it is `libmemcached-devel`.
+
+---
+
+**Source:** `src/mod/applications/mod_memcache`, `conf/vanilla/autoload_configs/memcache.conf.xml`
