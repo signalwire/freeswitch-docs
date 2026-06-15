@@ -90,6 +90,23 @@ smpp_debug false
 
 Fields in `smpp_send` are pipe-delimited: gateway name, destination number (`to_user`), source number (`from_user`), and message body.
 
+## Chat Interface
+
+In addition to the dialplan application and API commands, the module registers a `smpp` chat interface and a `smpp_send` chat application for use in the chatplan.
+
+| Interface | Type | Purpose |
+|---|---|---|
+| `smpp` | CHAT (`proto=smpp`) | Routes inbound `DELIVER_SM` PDUs through the chatplan, and is the proto used to deliver outbound chat messages. When sending, the gateway is selected from the `smpp_gateway` event header, falling back to `default` if absent. |
+| `smpp_send` | CHAT-APP | Used directly in a chatplan to send the message through a named gateway. |
+
+The `smpp_send` chat application takes the gateway name as its `data` argument:
+
+```xml
+<action application="smpp_send" data="example.com"/>
+```
+
+The module ships a sample `chatplan.conf.xml` demonstrating both inbound routing and outbound delivery via `smpp_send`.
+
 ## Channel Variables
 
 | Variable | Set / Read | Purpose |
@@ -99,6 +116,8 @@ Fields in `smpp_send` are pipe-delimited: gateway name, destination number (`to_
 | `smpp_to_user` | Read | Stripped of the `smpp_` prefix and mapped to `to_user` in the outbound SMPP PDU by the `smpp_send` dialplan application. |
 
 Any channel variable with the `smpp_` prefix is copied into the outgoing message event with the prefix removed. Other channel variables are copied as-is.
+
+On inbound `DELIVER_SM`, the decoded chat event carries additional headers beyond `smpp_gateway` that can be matched in the chatplan: `proto` (`smpp`), `endpoint` (`mod_smpp`), `sequence_number`, `command_status`, `command_id`, `source_addr_ton`, `source_addr_npi`, `dest_addr_ton`, `dest_addr_npi`, `data_coding`, and `profile` (plus `from_user`, `to_user`, and the message body).
 
 ## Dependencies
 
