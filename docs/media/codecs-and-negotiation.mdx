@@ -124,7 +124,7 @@ The general format for a codec token in a preference string is:
 codecname[@<samplerate>h[@<ptime>i]]
 ```
 
-- `codecname` is the IANA codec name as used by FreeSWITCH (case-insensitive in configuration, but the canonical forms are shown in the table in section 16.7).
+- `codecname` is the IANA codec name as used by FreeSWITCH (case-insensitive in configuration; the canonical forms are listed in [Appendix B: Codec Reference Table](../reference/appendix-codec-table.mdx) and summarized in section 16.7).
 - `@<samplerate>h` specifies the sample rate in Hz. Required for codecs that operate at multiple rates (for example, `speex@8000h` vs `speex@16000h`). Omit for codecs with a single defined rate.
 - `@<ptime>i` specifies the packetization time in milliseconds. The value must be a multiple of the codec's frame size. Omit to use the codec's default ptime.
 
@@ -169,99 +169,25 @@ For features that require FreeSWITCH to access the media stream (conference, rec
 
 ## 16.6 SRTP Crypto Suites
 
-When SRTP is enabled via the `rtp_secure_media` variable, FreeSWITCH offers crypto suites in the order defined by `rtp_sdes_suites`. The default suite list from `conf/vanilla/vars.xml` is:
+SRTP secures the media transport rather than the codec/SDP negotiation that is the subject of this chapter, so the full crypto-suite catalog, the `rtp_secure_media` negotiation modes, and the `rtp_sdes_suites` global list are documented in [Chapter 17, section 17.8: Secure Media with SRTP](../media/media-handling.mdx#178-secure-media-with-srtp). In summary, when SRTP is enabled via the `rtp_secure_media` variable FreeSWITCH offers crypto suites in the order defined by `rtp_sdes_suites` (pipe-delimited, strongest first), and the negotiated suite is the first entry the remote endpoint also supports. FreeSWITCH supports the AES-CM (HMAC-SHA1) suites and the AES-GCM authenticated-encryption suites (RFC 7714 for the SRTP-AES-GCM suites).
 
-```xml
-<X-PRE-PROCESS cmd="set" data="rtp_sdes_suites=AEAD_AES_256_GCM_8|AEAD_AES_128_GCM_8|AES_CM_256_HMAC_SHA1_80|AES_CM_192_HMAC_SHA1_80|AES_CM_128_HMAC_SHA1_80|AES_CM_256_HMAC_SHA1_32|AES_CM_192_HMAC_SHA1_32|AES_CM_128_HMAC_SHA1_32|AES_CM_128_NULL_AUTH"/>
-```
-
-Suites are separated by `|` and offered in left-to-right order (strongest first). The negotiated suite is the first entry in this list that the remote endpoint also supports.
-
-| Suite | Key length | Auth tag | Notes |
-|---|---|---|---|
-| `AEAD_AES_256_GCM` | 256-bit | 128-bit | GCM authenticated encryption; full 16-octet tag (RFC 7714) |
-| `AEAD_AES_256_GCM_8` | 256-bit | 64-bit | GCM authenticated encryption; 8-octet tag (RFC 7714) |
-| `AEAD_AES_128_GCM` | 128-bit | 128-bit | GCM authenticated encryption; full 16-octet tag (RFC 7714) |
-| `AEAD_AES_128_GCM_8` | 128-bit | 64-bit | GCM authenticated encryption; 8-octet tag (RFC 7714) |
-| `AES_CM_256_HMAC_SHA1_80` | 256-bit | 80-bit | AES counter mode, HMAC-SHA1 |
-| `AES_CM_192_HMAC_SHA1_80` | 192-bit | 80-bit | AES counter mode, HMAC-SHA1 |
-| `AES_CM_128_HMAC_SHA1_80` | 128-bit | 80-bit | SRTP default cipher (RFC 3711) |
-| `AES_CM_256_HMAC_SHA1_32` | 256-bit | 32-bit | Short tag; 30-octet key+salt required |
-| `AES_CM_192_HMAC_SHA1_32` | 192-bit | 32-bit | Short tag |
-| `AES_CM_128_HMAC_SHA1_32` | 128-bit | 32-bit | Short tag |
-| `AES_CM_128_NULL_AUTH` | 128-bit | None | No authentication; not recommended (RFC 3711 section 7.5) |
-
-The full-tag GCM suites `AEAD_AES_256_GCM` and `AEAD_AES_128_GCM` (16-octet authentication tag) are recognized by FreeSWITCH but are not part of the default `rtp_sdes_suites` list shown above, which uses only the 8-octet (`_8`) GCM variants. To offer the full-tag suites, add them explicitly to `rtp_sdes_suites`.
-
-The `rtp_secure_media` variable controls SRTP negotiation mode. Its accepted values are:
-
-| Value | Behavior |
-|---|---|
-| `mandatory` or `true` | Accept and offer SAVP only. Calls that do not negotiate SRTP are rejected. |
-| `optional` | Offer and accept both SAVP and AVP; prefer SAVP. |
-| `forbidden` or `false` | Deny SAVP negotiation on inbound; do not offer SAVP on outbound. |
-
-Direction-specific overrides are available as `rtp_secure_media_inbound` and `rtp_secure_media_outbound`, using the same value set.
-
-To restrict which suites are offered without embedding them in `rtp_secure_media`, set `rtp_sdes_suites` to the desired pipe-delimited list, then set `rtp_secure_media` independently:
-
-```xml
-<X-PRE-PROCESS cmd="set" data="rtp_sdes_suites=AEAD_AES_256_GCM_8|AES_CM_128_HMAC_SHA1_80"/>
-```
-
-You can also specify suites inline with `rtp_secure_media` using a colon-separated suffix:
-
-```xml
-<action application="set" data="rtp_secure_media=mandatory:AES_CM_256_HMAC_SHA1_80:AES_CM_128_HMAC_SHA1_80"/>
-```
-
-Note from `vars.xml`: when using SRTP, variable-bitrate codecs should not be offered or accepted, as VBR payloads can leak information through packet size variation and compromise the SRTP stream.
+The one point that bears directly on codec negotiation: when using SRTP, variable-bitrate codecs should not be offered or accepted, as VBR payloads can leak information through packet size variation and compromise the SRTP stream (note from `vars.xml`). Prefer fixed-rate codecs, or Opus at a fixed bitrate (`use-vbr=0`), on secure calls.
 
 ---
 
 ## 16.7 Bundled Codec Reference
 
-The following codec modules are present in `src/mod/codecs/` (audio) or provided by `mod_av` / the built-in VPX implementation (video). All modules listed below ship with the FreeSWITCH source tree; some require external libraries and must be explicitly compiled and loaded.
+The exhaustive catalog of bundled codec modules — every codec's IANA name, confirmed sample rates, configuration file, module location, external-library requirements, and whether the module loads by default in the vanilla `modules.conf.xml` — lives in [Appendix B: Codec Reference Table](../reference/appendix-codec-table.mdx). Consult it when you need the full inventory; the rest of this section covers only the points that affect how codecs appear in a preference string.
 
-Audio codecs whose module column shows "Built-in" are registered by the FreeSWITCH core at startup without loading a separate `.so` file. `mod_spandsp` provides G.722, G.726, DVI4, GSM, and LPC. `mod_speex` (the internal Speex wrapper, `CORE_SPEEX_MODULE`) provides Speex.
+When writing a preference string (section 16.2) or an `absolute_codec_string`, use the codec's IANA token as listed in Appendix B — for example `OPUS`, `PCMU`, `PCMA`, `G722`, `G729`, `AMR`, `H264`, or `VP8`. A few tokens carry negotiation- or ptime-specific nuances worth keeping in mind:
 
-| Codec | Module | Sample rates | Notes / config file |
-|---|---|---|---|
-| `OPUS` | `mod_opus` | 8000, 12000, 16000, 24000, 48000 Hz (always negotiated at 48000 Hz on the wire) | Full encoder/decoder. Requires libopus. See `opus.conf.xml` (section 16.8). |
-| `PCMU` | Built-in (`switch_pcm.c`) | 8000 Hz | G.711 mu-law. No external library required. |
-| `PCMA` | Built-in (`switch_pcm.c`) | 8000 Hz | G.711 A-law. No external library required. |
-| `L16` | Built-in (`switch_pcm.c`) | 8000-48000 Hz | Linear 16-bit PCM. Can exceed the RTP MTU at higher rates; use with caution. |
-| `G722` | `mod_spandsp` | 16000 Hz | G.722 wideband. Requires libspandsp. |
-| `G726-16` | `mod_spandsp` | 8000 Hz | G.726 ADPCM 16 kbit/s. |
-| `G726-24` | `mod_spandsp` | 8000 Hz | G.726 ADPCM 24 kbit/s. |
-| `G726-32` | `mod_spandsp` | 8000 Hz | G.726 ADPCM 32 kbit/s. |
-| `G726-40` | `mod_spandsp` | 8000 Hz | G.726 ADPCM 40 kbit/s. |
-| `AAL2-G726-16` | `mod_spandsp` | 8000 Hz | G.726 16 kbit/s with AAL2 packing. |
-| `AAL2-G726-24` | `mod_spandsp` | 8000 Hz | G.726 24 kbit/s with AAL2 packing. |
-| `AAL2-G726-32` | `mod_spandsp` | 8000 Hz | G.726 32 kbit/s with AAL2 packing. |
-| `AAL2-G726-40` | `mod_spandsp` | 8000 Hz | G.726 40 kbit/s with AAL2 packing. |
-| `DVI4` | `mod_spandsp` | 8000, 16000 Hz | IMA ADPCM. Multiples of 10 ms. |
-| `GSM` | `mod_spandsp` | 8000 Hz | GSM 06.10. Default 20 ms; multiples of 20 ms only. |
-| `LPC` | `mod_spandsp` | 8000 Hz | LPC-10. Only 90 ms ptime supported. |
-| `speex` | Built-in (`switch_speex.c`) | 8000, 16000, 32000 Hz | Speex narrowband, wideband, and ultra-wideband. |
-| `G729` | `mod_g729` | 8000 Hz | Pass-through only (no transcoding without a licensed DSP library). |
-| `G723` | `mod_g723_1` | 8000 Hz | G.723.1 pass-through only. |
-| `AMR` | `mod_amr` | 8000 Hz | AMR narrowband. Octet-aligned and bandwidth-efficient modes. Requires opencore-amrnb for full encode/decode; pass-through otherwise. See `amr.conf.xml` (section 16.9). |
-| `AMR-WB` | `mod_amrwb` | 16000 Hz | AMR wideband. Octet-aligned and bandwidth-efficient modes. Requires opencore-amrwb/vo-amrwbenc for full encode/decode; pass-through otherwise. See `amrwb.conf.xml` (section 16.10). |
-| `iLBC` | `mod_ilbc` | 8000 Hz | Supports 20 ms (mode 20) and 30 ms (mode 30) frame sizes. Use `iLBC@30i` to force mode 30. |
-| `SILK` | `mod_silk` | 8000, 12000, 16000, 24000 Hz | Skype narrowband/wideband codec. Requires libSKP_SILK_SDK. |
-| `G7221` | `mod_siren` | 16000, 32000 Hz | G.722.1 (Siren 7 at 16 kHz) and G.722.1C (Siren 14 at 32 kHz). |
-| `BV16` | `mod_bv` | 8000 Hz | BroadVoice 16 narrowband (16 kbit/s). |
-| `BV32` | `mod_bv` | 16000 Hz | BroadVoice 32 wideband (32 kbit/s). |
-| `CODEC2` | `mod_codec2` | 8000 Hz | Low-bitrate open codec (3200/2400/1400/1200 bps). Requires libcodec2. |
-| `b64` | `mod_b64` | 8000, 16000, 32000 Hz | Base64-encoded audio; primarily for testing. |
-| `H264` | `mod_av` | Video | H.264 via libavcodec. See `av.conf.xml` (section 16.11). Also available via `mod_openh264` (Cisco OpenH264). |
-| `H263` | `mod_av` | Video | H.263 via libavcodec. See `av.conf.xml` (section 16.11). |
-| `H263-1998` | `mod_av` | Video | H.263+ (RFC 2429) via libavcodec. See `av.conf.xml` (section 16.11). |
-| `VP8` | Built-in (`switch_vpx.c`) | Video | VP8 via libvpx. See `vpx.conf.xml` (section 16.12). |
-| `VP9` | Built-in (`switch_vpx.c`) | Video | VP9 via libvpx. See `vpx.conf.xml` (section 16.12). |
+- `OPUS` is negotiated at 48000 Hz on the wire regardless of the internal sample rate, so a preference string lists it as plain `OPUS` (no `@<samplerate>h`).
+- `speex` operates at three rates and therefore requires an explicit rate token: `speex@8000h`, `speex@16000h`, or `speex@32000h`.
+- `iLBC` supports a 20 ms (mode 20) and a 30 ms (mode 30) frame size; use `iLBC@30i` in the preference string to force mode 30.
+- `GSM` packetizes in multiples of 20 ms and `LPC` only at 90 ms, so a ptime token such as `GSM@40i` must respect the codec's frame-size constraint (section 16.4).
+- The video tokens `H264`, `H263`, `H263-1998`, `VP8`, and `VP9` are listed in a preference string by name; their per-codec tuning is in sections 16.11 and 16.12, not the preference string.
 
-Note: `mod_com_g729` (in `src/mod/codecs/mod_com_g729/`) is a separate commercial G.729 module with full encode/decode support, distinct from the pass-through `mod_g729`.
+Per-module audio and video configuration files referenced from a preference string are documented later in this chapter: Opus (`opus.conf.xml`, section 16.8), AMR (`amr.conf.xml`, section 16.9), AMR-WB (`amrwb.conf.xml`, section 16.10), H.264/H.263 (`av.conf.xml`, section 16.11), and VP8/VP9 (`vpx.conf.xml`, section 16.12).
 
 ---
 

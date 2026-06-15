@@ -39,10 +39,8 @@ FreeSWITCH resolves audio from multiple source types: plain file paths resolved 
   - [18.9.3 Language File Structure](#1893-language-file-structure)
   - [18.9.4 Phrase Macro Structure](#1894-phrase-macro-structure)
   - [18.9.5 The say Application](#1895-the-say-application)
-  - [18.9.6 Say Types Implemented in mod\_say\_en](#1896-say-types-implemented-in-mod_say_en)
-  - [18.9.7 Say Methods](#1897-say-methods)
-  - [18.9.8 sound\_prefix and Language Sound Files](#1898-sound_prefix-and-language-sound-files)
-  - [18.9.9 Adding a Custom Phrase Macro](#1899-adding-a-custom-phrase-macro)
+  - [18.9.6 sound\_prefix and Language Sound Files](#1896-sound_prefix-and-language-sound-files)
+  - [18.9.7 Adding a Custom Phrase Macro](#1897-adding-a-custom-phrase-macro)
 
 ---
 
@@ -754,76 +752,11 @@ The `phrase` application reads the channel variable `language` (or falls back to
 
 ### 18.9.5 The say Application
 
-The `say` dialplan application passes a value directly to a language say module without going through a phrase macro.
+The `say` dialplan application passes a value directly to a language say module without going through a phrase macro. It renders numbers, dates, money, time, IP addresses, phone numbers, and spelled names via a language-specific `mod_say_*` module, which assembles pre-recorded sound files into spoken output.
 
-**Syntax (from `mod_dptools`):**
+For the full `say` syntax, the per-type table (`number`, `currency`, `current_date_time`, `ip_address`, `telephone_number`, and so on), the say-method reference (`pronounced`, `iterated`, `counted`, `pronounced_year`), the list of supported language modules, and dialplan examples, see [the Say Modules reference](/module-reference/say).
 
-```
-say <module_name>[:<lang>] <say_type> <say_method> [<say_gender>] <text>
-```
-
-| Field | Description |
-|---|---|
-| `<module_name>[:<lang>]` | The say module to use, optionally followed by a colon and a language code. Example: `en` or `en:en`. When the colon form is absent, the language is resolved from the channel variable `language`, then `default_language`, then the module name itself. |
-| `<say_type>` | What kind of value `<text>` represents. See section 18.9.6 for the full table. Case-insensitive. |
-| `<say_method>` | How the value is spoken. See section 18.9.7. Case-insensitive. |
-| `<say_gender>` | Optional. `masculine`, `feminine`, or `neuter`. Used by languages whose grammar requires gender agreement. Ignored by `mod_say_en`. |
-| `<text>` | The value to speak. Its interpretation depends on `<say_type>`. |
-
-**Dialplan examples:**
-
-```xml
-<!-- Speak a cardinal number -->
-<action application="say" data="en number pronounced 1234"/>
-
-<!-- Speak a dollar amount -->
-<action application="say" data="en currency pronounced 9.95"/>
-
-<!-- Speak an IP address, digit by digit -->
-<action application="say" data="en ip_address iterated 192.168.1.1"/>
-
-<!-- Speak the current date and time -->
-<action application="say" data="en current_date_time pronounced 0"/>
-
-<!-- Speak a phone number -->
-<action application="say" data="en telephone_number pronounced 18005551212"/>
-```
-
-For `current_date`, `current_time`, and `current_date_time` types, the text value is ignored; the module reads the system clock directly.
-
-### 18.9.6 Say Types Implemented in mod\_say\_en
-
-The table below lists only the types that `mod_say_en` actually handles. Types defined in the core enum but not listed here (`telephone_extension`, `url`, `email_address`, `postal_address`, `account_number`) are not implemented in `mod_say_en` and will log an error if used with that module.
-
-| Type | What `text` should contain | What is spoken |
-|---|---|---|
-| `number` | An integer or decimal string | Cardinal number ("one thousand two hundred thirty four") |
-| `items` | An integer | Ordinal count, same audio set as `number` but used in list contexts |
-| `persons` | An integer | Person count, same audio set as `number` |
-| `messages` | An integer | Message count, same audio set as `number` |
-| `currency` | A decimal value such as `9.95` | Dollar and cent amounts ("nine dollars and ninety-five cents") |
-| `time_measurement` | An integer number of seconds | Duration in hours, minutes, and seconds |
-| `current_date` | Any (ignored) | Today's date from the system clock (month, day, year) |
-| `current_time` | Any (ignored) | Current time from the system clock (hour and minute) |
-| `current_date_time` | Any (ignored) | Current date and time from the system clock |
-| `short_date_time` | A Unix epoch timestamp as a string | A compact date and time rendering |
-| `ip_address` | A dotted-quad IPv4 address | Each octet spoken as a number with "dot" separators |
-| `name_spelled` | Any alphanumeric string | Each character spoken individually using `ascii/` sound files |
-| `name_phonetic` | Any alphanumeric string | Each character spoken using `phonetic-ascii/` sound files |
-| `telephone_number` | A digit string (may include `+` and letters) | Each digit spoken individually with pauses at non-digit separators |
-
-### 18.9.7 Say Methods
-
-Methods control how a numeric value is rendered. Not every method has a distinct effect for every type; the say module implementation determines what changes.
-
-| Method | String used in dialplan or macro | Effect for `mod_say_en` |
-|---|---|---|
-| `pronounced` | `pronounced` | Reads the value as a natural spoken number or phrase ("one thousand two hundred"). |
-| `iterated` | `iterated` | Reads each digit or character individually ("one two zero zero"). |
-| `counted` | `counted` | Reads the value as an ordinal ("first", "second", "third"). |
-| `pronounced_year` | `pronounced_year` | Reads a 4-digit year in the conventional spoken form ("nineteen ninety-nine"). Used internally by date handling; available explicitly. |
-
-### 18.9.8 sound\_prefix and Language Sound Files
+### 18.9.6 sound\_prefix and Language Sound Files
 
 When a phrase macro action uses `play-file` with a relative path, FreeSWITCH prepends the language `sound-prefix` attribute to build the full path. For the `en` language, `sound-prefix` is set to `$${sound_prefix}` in `en.xml`, which evaluates to the value of the preprocessor variable from `conf/vanilla/vars.xml`:
 
@@ -847,7 +780,7 @@ The channel variable `sound_prefix` can be overridden per call:
 
 The language XML can also lock the prefix so the channel variable cannot override it by setting `sound-prefix-enforced="true"` on a `<macros>` block.
 
-### 18.9.9 Adding a Custom Phrase Macro
+### 18.9.7 Adding a Custom Phrase Macro
 
 Place a new XML file in `conf/vanilla/lang/en/ivr/` (the `ivr/*.xml` glob is already included by `en.xml`) or create a new file and add an explicit `<X-PRE-PROCESS cmd="include">` for it inside the `<macros>` block in `en.xml`.
 
