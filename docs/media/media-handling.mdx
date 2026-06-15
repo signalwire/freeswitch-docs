@@ -13,58 +13,58 @@ FreeSWITCH gives the operator explicit control over whether RTP audio and video 
 
 ## Table of Contents
 
-- [17.1 Media Modes](#171-media-modes)
-  - [17.1.1 FreeSWITCH in the Media Path](#1711-freeswitch-in-the-media-path)
-  - [17.1.2 Proxy Media Mode](#1712-proxy-media-mode)
-  - [17.1.3 Bypass Media Mode](#1713-bypass-media-mode)
-  - [17.1.4 Mode Comparison Table](#1714-mode-comparison-table)
-- [17.2 Setting Media Mode](#172-setting-media-mode)
-  - [17.2.1 Profile-Level Defaults](#1721-profile-level-defaults)
-  - [17.2.2 Per-Call Channel Variables](#1722-per-call-channel-variables)
-  - [17.2.3 media-option Behaviors](#1723-media-option-behaviors)
-- [17.3 Early Media](#173-early-media)
-- [17.4 Late Negotiation](#174-late-negotiation)
-  - [17.4.1 inbound-late-negotiation](#1741-inbound-late-negotiation)
-  - [17.4.2 inbound-proxy-media](#1742-inbound-proxy-media)
-- [17.5 RTP Timeouts](#175-rtp-timeouts)
-  - [17.5.1 Current Mechanism: Channel Variables](#1751-current-mechanism-channel-variables)
-  - [17.5.2 Deprecated Profile Parameters](#1752-deprecated-profile-parameters)
-  - [17.5.3 execute_on_media_timeout](#1753-execute_on_media_timeout)
-- [17.6 Jitter Buffer](#176-jitter-buffer)
-- [17.7 Additional RTP Parameters](#177-additional-rtp-parameters)
-- [17.8 Secure Media with SRTP](#178-secure-media-with-srtp)
-  - [17.8.1 rtp_secure_media Channel Variable](#1781-rtp_secure_media-channel-variable)
-  - [17.8.2 Crypto Suite Selection](#1782-crypto-suite-selection)
-  - [17.8.3 Global Suite List with rtp_sdes_suites](#1783-global-suite-list-with-rtp_sdes_suites)
-  - [17.8.4 DTLS-SRTP and WebRTC](#1784-dtls-srtp-and-webrtc)
-- [17.9 NAT Traversal](#179-nat-traversal)
-  - [17.9.1 The NAT Problem](#1791-the-nat-problem)
-  - [17.9.2 Advertising the Public Address: ext-sip-ip and ext-rtp-ip](#1792-advertising-the-public-address-ext-sip-ip-and-ext-rtp-ip)
-  - [17.9.3 ext-ip Value Forms](#1793-ext-ip-value-forms)
-  - [17.9.4 vars.xml Global Variables and the external Profile](#1794-varsxml-global-variables-and-the-external-profile)
-  - [17.9.5 auto-nat: NAT-PMP and UPnP Discovery](#1795-auto-nat-nat-pmp-and-upnp-discovery)
-  - [17.9.6 Far-End NAT Handling](#1796-far-end-nat-handling)
-  - [17.9.7 NAT Traversal Parameter Reference](#1797-nat-traversal-parameter-reference)
+- [Media Modes](#media-modes)
+  - [FreeSWITCH in the Media Path](#freeswitch-in-the-media-path)
+  - [Proxy Media Mode](#proxy-media-mode)
+  - [Bypass Media Mode](#bypass-media-mode)
+  - [Mode Comparison Table](#mode-comparison-table)
+- [Setting Media Mode](#setting-media-mode)
+  - [Profile-Level Defaults](#profile-level-defaults)
+  - [Per-Call Channel Variables](#per-call-channel-variables)
+  - [media-option Behaviors](#media-option-behaviors)
+- [Early Media](#early-media)
+- [Late Negotiation](#late-negotiation)
+  - [inbound-late-negotiation](#inbound-late-negotiation)
+  - [inbound-proxy-media](#inbound-proxy-media)
+- [RTP Timeouts](#rtp-timeouts)
+  - [Current Mechanism: Channel Variables](#current-mechanism-channel-variables)
+  - [Deprecated Profile Parameters](#deprecated-profile-parameters)
+  - [execute_on_media_timeout](#execute_on_media_timeout)
+- [Jitter Buffer](#jitter-buffer)
+- [Additional RTP Parameters](#additional-rtp-parameters)
+- [Secure Media with SRTP](#secure-media-with-srtp)
+  - [rtp_secure_media Channel Variable](#rtp_secure_media-channel-variable)
+  - [Crypto Suite Selection](#crypto-suite-selection)
+  - [Global Suite List with rtp_sdes_suites](#global-suite-list-with-rtp_sdes_suites)
+  - [DTLS-SRTP and WebRTC](#dtls-srtp-and-webrtc)
+- [NAT Traversal](#nat-traversal)
+  - [The NAT Problem](#the-nat-problem)
+  - [Advertising the Public Address: ext-sip-ip and ext-rtp-ip](#advertising-the-public-address-ext-sip-ip-and-ext-rtp-ip)
+  - [ext-ip Value Forms](#ext-ip-value-forms)
+  - [vars.xml Global Variables and the external Profile](#varsxml-global-variables-and-the-external-profile)
+  - [auto-nat: NAT-PMP and UPnP Discovery](#auto-nat-nat-pmp-and-upnp-discovery)
+  - [Far-End NAT Handling](#far-end-nat-handling)
+  - [NAT Traversal Parameter Reference](#nat-traversal-parameter-reference)
 
 ---
 
-## 17.1 Media Modes
+## Media Modes {#media-modes}
 
 FreeSWITCH supports three distinct modes that determine how RTP flows between call legs.
 
-### 17.1.1 FreeSWITCH in the Media Path
+### FreeSWITCH in the Media Path {#freeswitch-in-the-media-path}
 
 This is the default mode. FreeSWITCH terminates RTP on both legs independently. It decodes, processes, and re-encodes media internally. Transcoding between codecs, recording, DTMF detection, jitter buffering, and hold music all require this mode. The server allocates two RTP ports per call (one per leg) and is fully visible in the media path.
 
-### 17.1.2 Proxy Media Mode
+### Proxy Media Mode {#proxy-media-mode}
 
 In proxy media mode, FreeSWITCH passes RTP packets between endpoints transparently without decoding the payload. The server still allocates RTP ports for both legs and remains in the media path at the IP/UDP layer, but it does not inspect or modify the RTP payload. SDP is rewritten so each endpoint sends RTP to FreeSWITCH's ports, but packets are forwarded with minimal processing. Transcoding is not possible in this mode.
 
-### 17.1.3 Bypass Media Mode
+### Bypass Media Mode {#bypass-media-mode}
 
 In bypass media mode (also referred to as no-media mode), FreeSWITCH rewrites the SDP to direct the two endpoints to exchange RTP directly with each other. Once the call is established, RTP does not touch the FreeSWITCH host at all. Transcoding, recording, DTMF detection on the RTP stream, hold music injection, and other media processing are unavailable. The server handles signaling only.
 
-### 17.1.4 Mode Comparison Table
+### Mode Comparison Table {#mode-comparison-table}
 
 | Mode | RTP Path | How to Enable |
 |------|----------|---------------|
@@ -74,13 +74,13 @@ In bypass media mode (also referred to as no-media mode), FreeSWITCH rewrites th
 
 ---
 
-## 17.2 Setting Media Mode
+## Setting Media Mode {#setting-media-mode}
 
-### 17.2.1 Profile-Level Defaults
+### Profile-Level Defaults {#profile-level-defaults}
 
 The following parameters in a [Sofia SIP profile](../users-endpoints/sip-profiles-sofia.mdx) set the media mode for all inbound calls handled by that profile. They are configured inside the `<settings>` block of the profile XML file (for example, `conf/sip_profiles/internal.xml`).
 
-| Parameter | Purpose | Values | Default |
+| Parameter | Purpose | Accepted Values | Default |
 |-----------|---------|--------|---------|
 | `inbound-bypass-media` | Force all inbound calls to bypass media mode. Alias: `inbound-no-media`. Implicitly enables `inbound-late-negotiation`. | `true`, `false` | `false` |
 | `inbound-proxy-media` | Force all inbound calls to proxy media mode | `true`, `false` | `false` |
@@ -102,7 +102,7 @@ The following parameters in a [Sofia SIP profile](../users-endpoints/sip-profile
 <!--<param name="disable-transcoding" value="true"/>-->
 ```
 
-### 17.2.2 Per-Call Channel Variables
+### Per-Call Channel Variables {#per-call-channel-variables}
 
 Media mode can be controlled per call in the dialplan using channel variables. Set these variables before bridging.
 
@@ -137,7 +137,7 @@ If both variables are set, `proxy_media` takes precedence over `bypass_media`.
 </extension>
 ```
 
-### 17.2.3 media-option Behaviors
+### media-option Behaviors {#media-option-behaviors}
 
 The `media-option` profile parameter adjusts media mode behavior for specific events. Multiple values can be set by repeating the parameter. `proxy-hold=true` is incompatible with `resume-media-on-hold` and `bypass-media-after-hold`; FreeSWITCH logs a warning and clears the conflicting option at profile load time.
 
@@ -156,7 +156,7 @@ The `media-option` profile parameter adjusts media mode behavior for specific ev
 
 ---
 
-## 17.3 Early Media
+## Early Media {#early-media}
 
 Early media allows FreeSWITCH to establish an RTP stream before a call is answered. It is used to pass ringback tone, IVR prompts, or other audio to the caller during the alerting phase.
 
@@ -176,9 +176,9 @@ Early media and bypass media mode interact: if `bypass_media` is set and the cal
 
 ---
 
-## 17.4 Late Negotiation
+## Late Negotiation {#late-negotiation}
 
-### 17.4.1 inbound-late-negotiation
+### inbound-late-negotiation {#inbound-late-negotiation}
 
 By default, FreeSWITCH selects a codec for the inbound leg as soon as the INVITE arrives, before the dialplan executes. With `inbound-late-negotiation` enabled, codec selection for the A-leg is deferred until after the dialplan has run. This allows dialplan logic to influence codec selection and is required for some advanced routing scenarios.
 
@@ -189,21 +189,21 @@ By default, FreeSWITCH selects a codec for the inbound leg as soon as the INVITE
 
 The vanilla `internal` profile ships with this parameter enabled (`true`).
 
-| Parameter | Purpose | Values | Default |
+| Parameter | Purpose | Accepted Values | Default |
 |-----------|---------|--------|---------|
 | `inbound-late-negotiation` | Defer A-leg codec selection until after the dialplan runs | `true`, `false` | `false` |
 
-### 17.4.2 inbound-proxy-media
+### inbound-proxy-media {#inbound-proxy-media}
 
 `inbound-proxy-media` is a profile-level shorthand for enabling proxy media mode on all inbound calls. See the table in section 17.2.1. When set, it is equivalent to setting `proxy_media=true` on every inbound call channel.
 
 ---
 
-## 17.5 RTP Timeouts
+## RTP Timeouts {#rtp-timeouts}
 
 FreeSWITCH can terminate a call when no RTP activity is detected for a configurable period.
 
-### 17.5.1 Current Mechanism: Channel Variables
+### Current Mechanism: Channel Variables {#current-mechanism-channel-variables}
 
 The preferred mechanism is per-channel variables. These values are in **milliseconds**.
 
@@ -228,18 +228,18 @@ The preferred mechanism is per-channel variables. These values are in **millisec
 </extension>
 ```
 
-### 17.5.2 Deprecated Profile Parameters
+### Deprecated Profile Parameters {#deprecated-profile-parameters}
 
 The profile parameters `rtp-timeout-sec` and `rtp-hold-timeout-sec` are deprecated. FreeSWITCH logs a `WARNING` to the console whenever they are parsed at profile load. Their values are in **seconds**. They remain functional in the current codebase and continue to appear in the vanilla `internal.xml` for backward compatibility, but new deployments should use the channel variables in section 17.5.1 instead.
 
-| Parameter | Purpose | Values | Default (vanilla) |
+| Parameter | Purpose | Accepted Values | Default (vanilla) |
 |-----------|---------|--------|---------|
 | `rtp-timeout-sec` | Seconds of RTP inactivity on an active call before hangup. **Deprecated.** | Integer (seconds), `0` to disable | `300` |
 | `rtp-hold-timeout-sec` | Seconds of RTP inactivity while on hold before hangup. **Deprecated.** | Integer (seconds), `0` to disable | `1800` |
 
 Deprecated channel variables `rtp_timeout_sec` and `rtp_hold_timeout_sec` also exist and are logged as deprecated with the same warning. Use `media_timeout` and `media_hold_timeout` instead.
 
-### 17.5.3 execute_on_media_timeout
+### execute_on_media_timeout {#execute_on_media_timeout}
 
 A media timeout causes FreeSWITCH to hang up the call with `SWITCH_CAUSE_MEDIA_TIMEOUT`. Setting the `execute_on_media_timeout` channel variable to a dialplan application name causes FreeSWITCH to execute that application when the timeout fires, allowing custom handling such as logging or notification.
 
@@ -256,7 +256,7 @@ So `execute_on_media_timeout` is best treated as a hook that runs alongside the 
 
 ---
 
-## 17.6 Jitter Buffer
+## Jitter Buffer {#jitter-buffer}
 
 The software jitter buffer is activated per channel via the `jitterbuffer_msec` channel variable. It is only available in normal (non-proxy, non-bypass) media mode.
 
@@ -283,11 +283,11 @@ The `rtp_jitter_buffer_plc` channel variable controls packet loss concealment wi
 
 ---
 
-## 17.7 Additional RTP Parameters
+## Additional RTP Parameters {#additional-rtp-parameters}
 
 The following profile parameters control RTP behavior beyond media mode and timeouts.
 
-| Parameter | Purpose | Values | Default |
+| Parameter | Purpose | Accepted Values | Default |
 |-----------|---------|--------|---------|
 | `rtp-autofix-timing` | Attempt to correct RTP timing anomalies from endpoints that send at irregular packet rates | `true`, `false` | `true` |
 | `disable-rtp-auto-adjust` | Disable automatic RTP source IP/port learning (re-INVITE NAT traversal) | `true`, `false` | `false` (auto-adjust enabled) |
@@ -306,11 +306,11 @@ The channel variable `rtp_media_autofix_timing` (`true`/`false`) overrides the `
 
 ---
 
-## 17.8 Secure Media with SRTP
+## Secure Media with SRTP {#secure-media-with-srtp}
 
 FreeSWITCH supports Secure RTP (SRTP) with key exchange via SDES (SDP security descriptions, RFC 4568). The `rtp_secure_media` channel variable and the global `rtp_sdes_suites` variable control SRTP negotiation.
 
-### 17.8.1 rtp_secure_media Channel Variable
+### rtp_secure_media Channel Variable {#rtp_secure_media-channel-variable}
 
 The `rtp_secure_media` channel variable controls whether FreeSWITCH offers, accepts, or rejects SAVP (Secure Audio/Video Profile) in SDP negotiation.
 
@@ -349,7 +349,7 @@ When a directional variable is set, it takes precedence over `rtp_secure_media` 
 
 **Note:** When using SRTP, do not offer or accept variable bit rate codecs (such as variable-rate Opus or AMR). Doing so leaks information about the payload through packet size patterns, potentially compromising the SRTP stream. Use fixed-rate codecs (for example, `PCMU`, `PCMA`, `G722`, or Opus at a fixed bitrate) with SRTP.
 
-### 17.8.2 Crypto Suite Selection
+### Crypto Suite Selection {#crypto-suite-selection}
 
 Specific SRTP crypto suites can be appended to the `rtp_secure_media` value as a colon-separated list. FreeSWITCH will offer or accept only the listed suites, in the specified order.
 
@@ -387,7 +387,7 @@ The supported crypto suites are listed in the table below.
 | `AES_CM_128_HMAC_SHA1_32` | AES-128 Counter Mode with 32-bit HMAC-SHA1 authentication tag |
 | `AES_CM_128_NULL_AUTH` | AES-128 Counter Mode with no authentication. Not recommended (see RFC 3711 Section 7.5). |
 
-### 17.8.3 Global Suite List with rtp_sdes_suites
+### Global Suite List with rtp_sdes_suites {#global-suite-list-with-rtp_sdes_suites}
 
 The `rtp_sdes_suites` preprocessor variable in `conf/vars.xml` sets the default ordered list of SRTP suites offered system-wide when no per-call suite override is in effect. Suites are separated by `\|`.
 
@@ -398,7 +398,7 @@ The `rtp_sdes_suites` preprocessor variable in `conf/vars.xml` sets the default 
 
 The vanilla default lists all supported suites from strongest to weakest. FreeSWITCH selects the strongest suite that both endpoints share. Narrow this list to restrict acceptable suites globally.
 
-### 17.8.4 DTLS-SRTP and WebRTC
+### DTLS-SRTP and WebRTC {#dtls-srtp-and-webrtc}
 
 WebRTC endpoints (browsers and WebRTC-capable SIP clients connecting over WebSocket or Secure WebSocket) use DTLS-SRTP (RFC 5764) rather than SDES for key exchange. DTLS-SRTP is negotiated automatically when FreeSWITCH detects an AVPF SDP profile from the remote endpoint, which is standard for WebRTC. The `rtp_secure_media` SDES mechanism described in this chapter does not apply to DTLS-SRTP negotiation.
 
@@ -406,9 +406,9 @@ For WebRTC configuration, including WebSocket bindings (`ws-binding`, `wss-bindi
 
 ---
 
-## 17.9 NAT Traversal
+## NAT Traversal {#nat-traversal}
 
-### 17.9.1 The NAT Problem
+### The NAT Problem {#the-nat-problem}
 
 When FreeSWITCH runs on a host behind a Network Address Translator, it binds to the host's private IP address. By default it inserts that private IP into SIP Contact and Via headers and into the SDP `c=` and `m=` connection lines. A far-end endpoint on the public Internet receives these private addresses and cannot route RTP back to FreeSWITCH, causing one-way audio or no audio at all.
 
@@ -419,7 +419,7 @@ The solution has two parts:
 
 Both parts are configured at the [SIP profile level](../users-endpoints/sip-profiles-sofia.mdx).
 
-### 17.9.2 Advertising the Public Address: ext-sip-ip and ext-rtp-ip
+### Advertising the Public Address: ext-sip-ip and ext-rtp-ip {#advertising-the-public-address-ext-sip-ip-and-ext-rtp-ip}
 
 `ext-sip-ip` and `ext-rtp-ip` are Sofia SIP profile parameters. They tell FreeSWITCH which address to advertise externally. They do not change the local bind address (`sip-ip`, `rtp-ip`); they only override the address placed in outgoing SIP headers and SDP.
 
@@ -432,7 +432,7 @@ When `ext-sip-ip` is set and `ext-rtp-ip` is not, `ext-rtp-ip` inherits the reso
 
 The local bind parameters, `sip-ip` and `rtp-ip`, accept `auto` or a literal IP and determine which local interface FreeSWITCH listens on. Setting `sip-ip` or `rtp-ip` to `auto` causes FreeSWITCH to use its best-guess local IP (`local_ip_v4`). They also accept the `interface:` prefix (`interface:eth0`, `interface:ipv4/eth0`, `interface:ipv6/eth0`) to bind to a specific network interface.
 
-### 17.9.3 ext-ip Value Forms
+### ext-ip Value Forms {#ext-ip-value-forms}
 
 Both `ext-sip-ip` and `ext-rtp-ip` accept the same set of value forms.
 
@@ -448,7 +448,7 @@ All resolution forms (`auto-nat`, `stun:`, `host:`) are performed once when the 
 
 `0.0.0.0` is explicitly rejected. FreeSWITCH logs a warning and substitutes the local best-guess IP.
 
-### 17.9.4 vars.xml Global Variables and the external Profile
+### vars.xml Global Variables and the external Profile {#varsxml-global-variables-and-the-external-profile}
 
 The vanilla configuration centralizes external IP resolution in `conf/vars.xml` using the `stun-set` preprocessor command:
 
@@ -472,7 +472,7 @@ Replace the `stun:stun.freeswitch.org` values with a literal IP, a `host:` form,
 
 If `external_rtp_ip` or `external_sip_ip` are unset (for example, STUN resolution failed), the external profile falls back to the resolved `local_ip_v4` value, which will be a private address behind NAT.
 
-### 17.9.5 auto-nat: NAT-PMP and UPnP Discovery
+### auto-nat: NAT-PMP and UPnP Discovery {#auto-nat-nat-pmp-and-upnp-discovery}
 
 Setting `ext-sip-ip` or `ext-rtp-ip` to `auto-nat` causes FreeSWITCH to query the local gateway using NAT-PMP (RFC 6886) and UPnP IGD to obtain the public IP address. FreeSWITCH tries NAT-PMP first; if no response is received, it falls back to UPnP.
 
@@ -482,7 +482,7 @@ When a gateway is found, FreeSWITCH stores the public address in the global vari
 
 If `auto-nat` is used and no gateway responds, `ext-sip-ip` and `ext-rtp-ip` are left unresolved and the profile will not advertise a public address.
 
-### 17.9.6 Far-End NAT Handling
+### Far-End NAT Handling {#far-end-nat-handling}
 
 FreeSWITCH also needs to handle SIP endpoints that are themselves behind NAT: their REGISTER Contact headers contain private addresses that FreeSWITCH cannot route to, and their RTP source port may differ from what their SDP advertises.
 
@@ -530,11 +530,11 @@ When an endpoint is behind NAT, the source IP and port of arriving RTP packets o
 
 This is enabled by default. The profile parameter `disable-rtp-auto-adjust` (section 17.7) turns it off globally; the per-call channel variable `disable_rtp_auto_adjust=true` turns it off for a single call. Auto-adjust is automatically suppressed for AVPF (WebRTC) sessions, where ICE handles address negotiation.
 
-### 17.9.7 NAT Traversal Parameter Reference
+### NAT Traversal Parameter Reference {#nat-traversal-parameter-reference}
 
 The following table consolidates all NAT-related profile parameters.
 
-| Parameter | Purpose | Values | Default |
+| Parameter | Purpose | Accepted Values | Default |
 |-----------|---------|--------|---------|
 | `ext-sip-ip` | Public IP advertised in SIP Contact, Via, and Record-Route | Literal IP, `auto`, `auto-nat`, `stun:server`, `host:name` | none |
 | `ext-rtp-ip` | Public IP advertised in SDP `c=` and `m=` lines | Literal IP, `auto`, `auto-nat`, `stun:server`, `host:name` | none |

@@ -14,39 +14,39 @@ FreeSWITCH provides two distinct HTTP integration points. `mod_xml_curl` replace
 ## Table of Contents
 
 - [Part 1: XML Curl](#part-1-xml-curl)
-  - [1. How XML Curl Works](#1-how-xml-curl-works)
-  - [2. Enabling the Module](#2-enabling-the-module)
-  - [3. Configuration File](#3-configuration-file)
-  - [4. Bindings](#4-bindings)
-    - [4.1 The gateway-url Parameter and the bindings Attribute](#41-the-gateway-url-parameter-and-the-bindings-attribute)
-    - [4.2 Bindable Section Names](#42-bindable-section-names)
-    - [4.3 Binding Parameter Reference](#43-binding-parameter-reference)
-  - [5. The HTTP Request](#5-the-http-request)
-  - [6. The HTTP Response](#6-the-http-response)
-    - [6.1 Found Response](#61-found-response)
-    - [6.2 Not-Found Response](#62-not-found-response)
-  - [7. Loading mod_xml_curl Early](#7-loading-mod_xml_curl-early)
-  - [8. Behavior with Static Files](#8-behavior-with-static-files)
-  - [9. Debug Mode](#9-debug-mode)
+  - [How XML Curl Works](#how-xml-curl-works)
+  - [Enabling the Module](#enabling-the-module)
+  - [Configuration File](#configuration-file)
+  - [Bindings](#bindings)
+    - [The gateway-url Parameter and the bindings Attribute](#the-gateway-url-parameter-and-the-bindings-attribute)
+    - [Bindable Section Names](#bindable-section-names)
+    - [Binding Parameter Reference](#binding-parameter-reference)
+  - [The HTTP Request](#the-http-request)
+  - [The HTTP Response](#the-http-response)
+    - [Found Response](#found-response)
+    - [Not-Found Response](#not-found-response)
+  - [Loading mod_xml_curl Early](#loading-mod_xml_curl-early)
+  - [Behavior with Static Files](#behavior-with-static-files)
+  - [Debug Mode](#debug-mode)
 - [Part 2: HTTAPI](#part-2-httapi)
-  - [10. HTTAPI Overview](#10-httapi-overview)
-  - [11. Enabling mod_httapi](#11-enabling-mod_httapi)
-  - [12. httapi.conf.xml](#12-httapiconfxml)
-    - [12.1 Global Settings](#121-global-settings)
-    - [12.2 Profile Params Reference](#122-profile-params-reference)
-    - [12.3 Permissions Reference](#123-permissions-reference)
-  - [13. The httapi Dialplan Application](#13-the-httapi-dialplan-application)
-    - [13.1 Application Syntax](#131-application-syntax)
-    - [13.2 Fields Posted to the Backend](#132-fields-posted-to-the-backend)
-    - [13.3 Response Document Structure](#133-response-document-structure)
-    - [13.4 Response Verb Reference](#134-response-verb-reference)
-    - [13.5 Worked Example](#135-worked-example)
+  - [HTTAPI Overview](#httapi-overview)
+  - [Enabling mod_httapi](#enabling-mod_httapi)
+  - [httapi.conf.xml](#httapiconfxml)
+    - [Global Settings](#global-settings)
+    - [Profile Params Reference](#profile-params-reference)
+    - [Permissions Reference](#permissions-reference)
+  - [The httapi Dialplan Application](#the-httapi-dialplan-application)
+    - [Application Syntax](#application-syntax)
+    - [Fields Posted to the Backend](#fields-posted-to-the-backend)
+    - [Response Document Structure](#response-document-structure)
+    - [Response Verb Reference](#response-verb-reference)
+    - [Worked Example](#worked-example)
 
 ---
 
 ## Part 1: XML Curl
 
-## 1. How XML Curl Works
+## How XML Curl Works {#how-xml-curl-works}
 
 FreeSWITCH uses an XML registry as its runtime data store. When FreeSWITCH needs to look up a dialplan, a directory entry, or a module configuration, it queries the registry for the appropriate section. By default, the registry is served from static files on disk.
 
@@ -56,7 +56,7 @@ The binding is exclusive for the bound sections: once a section is bound to a UR
 
 ---
 
-## 2. Enabling the Module
+## Enabling the Module {#enabling-the-module}
 
 Add `mod_xml_curl` to `autoload_configs/modules.conf.xml` if it is not already present:
 
@@ -64,11 +64,11 @@ Add `mod_xml_curl` to `autoload_configs/modules.conf.xml` if it is not already p
 <load module="mod_xml_curl"/>
 ```
 
-When `mod_xml_curl` must serve configuration for modules that load at startup, it must load before those modules. See [Section 7](#7-loading-mod_xml_curl-early) for the early-load mechanism.
+When `mod_xml_curl` must serve configuration for modules that load at startup, it must load before those modules. See [Loading mod_xml_curl Early](#loading-mod_xml_curl-early) for the early-load mechanism.
 
 ---
 
-## 3. Configuration File
+## Configuration File {#configuration-file}
 
 `mod_xml_curl` reads `autoload_configs/xml_curl.conf.xml`. The root element is a `<configuration>` element containing a single `<bindings>` child. Each `<binding>` element defines one HTTP gateway.
 
@@ -89,9 +89,9 @@ Multiple `<binding>` elements are permitted. Each binding is independent and may
 
 ---
 
-## 4. Bindings
+## Bindings {#bindings}
 
-### 4.1 The gateway-url Parameter and the bindings Attribute
+### The gateway-url Parameter and the bindings Attribute {#the-gateway-url-parameter-and-the-bindings-attribute}
 
 The `gateway-url` parameter sets the HTTP endpoint for the binding. Its `bindings` XML attribute (not a child `<param>`) declares which sections this binding handles:
 
@@ -115,7 +115,7 @@ The value may also use the `file:` scheme to read from a local file path instead
 
 When a `file:` URL is used, `mod_xml_curl` reads the named file directly. The `gateway-credentials`, `method`, `timeout`, and all TLS parameters are ignored for file-scheme URLs.
 
-### 4.2 Bindable Section Names
+### Bindable Section Names {#bindable-section-names}
 
 The following section names are recognized by `switch_xml_parse_section_string` and may be used in the `bindings` attribute:
 
@@ -128,11 +128,11 @@ The following section names are recognized by `switch_xml_parse_section_string` 
 | `chatplan` | Chat routing plans |
 | `channels` | Channel variable lookups |
 
-### 4.3 Binding Parameter Reference
+### Binding Parameter Reference {#binding-parameter-reference}
 
 All parameters are child `<param>` elements of a `<binding>` element.
 
-| Parameter | Purpose | Values | Default |
+| Parameter | Purpose | Accepted Values | Default |
 |---|---|---|---|
 | `gateway-url` | Endpoint to fetch XML from. Carries a `bindings` XML attribute to declare which sections this binding serves. Also accepts a `file:` scheme path to read from a local file. | HTTP or HTTPS URL, or `file:/path/to/file`. Variable substitution in the URL is supported when `use-dynamic-url` is enabled. | None (required) |
 | `gateway-credentials` | HTTP authentication credentials. | `username:password` string | None |
@@ -155,7 +155,7 @@ All parameters are child `<param>` elements of a `<binding>` element.
 
 ---
 
-## 5. The HTTP Request
+## The HTTP Request {#the-http-request}
 
 `mod_xml_curl` uses libcurl to contact the configured `gateway-url`. By default the request is HTTP POST with `Content-Type: application/x-www-form-urlencoded`. The `User-Agent` header is `freeswitch-xml/1.0`.
 
@@ -177,9 +177,9 @@ FreeSWITCH follows up to 10 HTTP redirects.
 
 ---
 
-## 6. The HTTP Response
+## The HTTP Response {#the-http-response}
 
-### 6.1 Found Response
+### Found Response {#found-response}
 
 The backend must return HTTP `200` with a body that is a valid FreeSWITCH XML section document. The document must begin with a `<document>` root element containing a `<section>` element whose `name` attribute matches the requested section.
 
@@ -207,7 +207,7 @@ Example response for a `directory` lookup:
 
 Any HTTP status code other than `200` causes FreeSWITCH to discard the response and log an error.
 
-### 6.2 Not-Found Response
+### Not-Found Response {#not-found-response}
 
 When the backend cannot find the requested entry, it must return HTTP `200` with a not-found result document. FreeSWITCH checks for this structure and treats it as a miss, allowing the lookup to fall through:
 
@@ -224,7 +224,7 @@ Returning an empty body or a non-200 status code is not equivalent to a not-foun
 
 ---
 
-## 7. Loading mod_xml_curl Early
+## Loading mod_xml_curl Early {#loading-mod_xml_curl-early}
 
 `mod_xml_curl` loads in the normal module load sequence defined by `autoload_configs/modules.conf.xml`. If `mod_xml_curl` is bound to the `config` section and another module that loads at startup reads its configuration from that section, a race condition occurs: the module loads before `mod_xml_curl` is ready to serve its configuration.
 
@@ -242,7 +242,7 @@ Modules listed in `pre_load_modules.conf.xml` are loaded before the main module 
 
 ---
 
-## 8. Behavior with Static Files
+## Behavior with Static Files {#behavior-with-static-files}
 
 A binding to a section completely replaces static-file lookup for that section. FreeSWITCH does not fall back to disk files when `mod_xml_curl` returns a valid not-found document. The backend is the sole authority for every lookup in a bound section.
 
@@ -250,7 +250,7 @@ Sections not listed in any binding's `bindings` attribute continue to be served 
 
 ---
 
-## 9. Debug Mode
+## Debug Mode {#debug-mode}
 
 `mod_xml_curl` exposes an API command to retain temporary response files on disk for inspection instead of deleting them after each fetch:
 
@@ -265,7 +265,7 @@ When debug mode is on, each response is written to a `.tmp.xml` file in the Free
 
 ## Part 2: HTTAPI
 
-## 10. HTTAPI Overview
+## HTTAPI Overview {#httapi-overview}
 
 `mod_httapi` is a dialplan application. Instead of statically configuring call flow in the dialplan, the operator points a call at the `httapi` application with a URL. For each step of the call, FreeSWITCH POSTs the current session state to that URL and expects an XML document in response. The document contains a `<work>` element whose child elements are verbs that instruct FreeSWITCH what to do next: play a file, collect digits, transfer the call, hang up, and so on. When the verb completes, FreeSWITCH POSTs again, creating a request-response loop until the call ends.
 
@@ -275,7 +275,7 @@ This is distinct from XML Curl. XML Curl serves static configuration and directo
 
 ---
 
-## 11. Enabling mod_httapi
+## Enabling mod_httapi {#enabling-mod_httapi}
 
 Confirm that `mod_httapi` is listed in `autoload_configs/modules.conf.xml`:
 
@@ -287,7 +287,7 @@ The module reads its configuration from `autoload_configs/httapi.conf.xml` on lo
 
 ---
 
-## 12. httapi.conf.xml
+## httapi.conf.xml {#httapiconfxml}
 
 The configuration file has three top-level sections under the `<configuration>` root: `<settings>` for global parameters, `<profiles>` containing one or more `<profile>` elements, and within each profile: a `<params>` block for HTTP connection settings, a `<permissions>` block controlling what the backend is allowed to do, and optional `<conference>` and `<dial>` blocks for defaults used by those verbs.
 
@@ -326,22 +326,22 @@ The configuration file has three top-level sections under the `<configuration>` 
 </configuration>
 ```
 
-### 12.1 Global Settings
+### Global Settings {#global-settings}
 
 These parameters appear in the `<settings>` element and apply to all profiles.
 
-| Parameter | Purpose | Values | Default |
+| Parameter | Purpose | Accepted Values | Default |
 |---|---|---|---|
 | `debug` | Print the full XML response to the console on every request. | `true`, `false` | `true` (in sample config; use `false` in production) |
 | `file-cache-ttl` | Seconds before re-checking the HTTP server to see whether a remotely fetched audio file has changed. | Non-negative integer | `300` |
 | `abs-file-cache-ttl` | Absolute maximum seconds a cached file is kept regardless of server headers. | Non-negative integer | `0` (disabled) |
 | `file-not-found-expires` | Seconds to cache a 404 response for a remote audio file before retrying. Set to `-1` to cache indefinitely. | Integer | `300` |
 
-### 12.2 Profile Params Reference
+### Profile Params Reference {#profile-params-reference}
 
 Parameters inside a profile's `<params>` block configure the HTTP connection used when contacting the backend for call control. All are optional except `gateway-url`.
 
-| Parameter | Purpose | Values | Default |
+| Parameter | Purpose | Accepted Values | Default |
 |---|---|---|---|
 | `gateway-url` | URL that FreeSWITCH POSTs call state to. Can be overridden per-call by passing a URL as application data. | HTTP or HTTPS URL | None (required) |
 | `gateway-credentials` | HTTP authentication credentials. | `username:password` string | None |
@@ -362,7 +362,7 @@ Parameters inside a profile's `<params>` block configure the HTTP connection use
 | `enable-post-var` | Restricts which POST fields are sent. Each instance names one variable to include. Without any `enable-post-var` params, all available fields are sent. | Variable name string | All fields sent |
 | `user-agent` | HTTP `User-Agent` header value. | String | `mod_httapi/1.0` |
 
-### 12.3 Permissions Reference
+### Permissions Reference {#permissions-reference}
 
 Permissions are child `<permission>` elements of the `<permissions>` block inside a profile. They control what actions the HTTP backend is allowed to request. Setting `name="all" value="true"` enables everything; `name="none" value="true"` disables everything. Individual permissions override `all`/`none` when listed after them.
 
@@ -385,9 +385,9 @@ Permissions are child `<permission>` elements of the `<permissions>` block insid
 
 ---
 
-## 13. The httapi Dialplan Application
+## The httapi Dialplan Application {#the-httapi-dialplan-application}
 
-### 13.1 Application Syntax
+### Application Syntax {#application-syntax}
 
 The `httapi` application is invoked from the dialplan like any other application:
 
@@ -403,7 +403,7 @@ The `data` field accepts:
 
 The profile can also be selected by setting the channel variable `httapi_profile` before invoking the application.
 
-### 13.2 Fields Posted to the Backend
+### Fields Posted to the Backend {#fields-posted-to-the-backend}
 
 FreeSWITCH sends an HTTP POST with `Content-Type: application/x-www-form-urlencoded` to the configured URL. The following fields are always present:
 
@@ -420,7 +420,7 @@ Parameters set by the backend in a `<params>` response block (see Section 13.3) 
 
 When `enable-post-var` entries are configured in the profile, only the named variables (plus the core fields above) are included.
 
-### 13.3 Response Document Structure
+### Response Document Structure {#response-document-structure}
 
 The backend must return HTTP `200` with `Content-Type: text/xml`. The document envelope is:
 
@@ -449,7 +449,7 @@ Verbs inside `<work>` are processed in document order. Processing stops when a v
 
 Most verbs accept an `action` attribute that redirects subsequent requests to a different URL for that step, and a `temp-action` attribute that redirects only the immediately following request.
 
-### 13.4 Response Verb Reference
+### Response Verb Reference {#response-verb-reference}
 
 | Verb | Effect | Key Attributes |
 |---|---|---|
@@ -473,7 +473,7 @@ Most verbs accept an `action` attribute that redirects subsequent requests to a 
 | `<continue>` | No-op. Continues to the next verb or re-requests the current URL. | None |
 | `<break>` | Stops processing the current `<work>` block without hanging up. | None |
 
-### 13.5 Worked Example
+### Worked Example {#worked-example}
 
 The following dialplan extension routes an inbound call to the HTTAPI application using the `default` profile:
 

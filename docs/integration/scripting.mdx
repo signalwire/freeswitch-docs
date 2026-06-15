@@ -13,23 +13,23 @@ FreeSWITCH embeds scripting language runtimes directly inside the switch process
 
 ## Table of Contents
 
-- [1. Embedded Scripting Overview](#1-embedded-scripting-overview)
-- [2. Script Directory](#2-script-directory)
-- [3. lua.conf.xml Reference](#3-luaconfxml-reference)
-  - [3.1 Parameter Table](#31-parameter-table)
-  - [3.2 Configuration Example](#32-configuration-example)
-- [4. Invoking Scripts from the Dialplan](#4-invoking-scripts-from-the-dialplan)
-- [5. Running Scripts from the Console](#5-running-scripts-from-the-console)
-- [6. Lua as an XML Handler](#6-lua-as-an-xml-handler)
-  - [6.1 Wiring the Handler](#61-wiring-the-handler)
-  - [6.2 Binding Targets](#62-binding-targets)
-- [7. Event Hooks](#7-event-hooks)
-- [8. Startup Scripts](#8-startup-scripts)
-- [9. Other Language Modules](#9-other-language-modules)
+- [Embedded Scripting Overview](#embedded-scripting-overview)
+- [Script Directory](#script-directory)
+- [lua.conf.xml Reference](#luaconfxml-reference)
+  - [Parameter Table](#parameter-table)
+  - [Configuration Example](#configuration-example)
+- [Invoking Scripts from the Dialplan](#invoking-scripts-from-the-dialplan)
+- [Running Scripts from the Console](#running-scripts-from-the-console)
+- [Lua as an XML Handler](#lua-as-an-xml-handler)
+  - [Wiring the Handler](#wiring-the-handler)
+  - [Binding Targets](#binding-targets)
+- [Event Hooks](#event-hooks)
+- [Startup Scripts](#startup-scripts)
+- [Other Language Modules](#other-language-modules)
 
 ---
 
-## 1. Embedded Scripting Overview
+## Embedded Scripting Overview {#embedded-scripting-overview}
 
 Language modules run inside the FreeSWITCH process. A script executes in a dedicated Lua state (or equivalent) with full access to the FreeSWITCH C API surface through the module's SWIG bindings. Scripts are not external processes and do not require IPC.
 
@@ -44,7 +44,7 @@ Each language module registers the same set of integration points:
 
 ---
 
-## 2. Script Directory
+## Script Directory {#script-directory}
 
 FreeSWITCH resolves relative script paths against the built-in `$${script_dir}` preprocessor variable. This variable is set at compile time and typically resolves to `/usr/local/freeswitch/scripts` on a standard installation. Its current value can be confirmed at the `fs_cli` prompt:
 
@@ -56,13 +56,13 @@ When a script name passed to the `lua` application or `luarun` API command does 
 
 ---
 
-## 3. lua.conf.xml Reference
+## lua.conf.xml Reference {#luaconfxml-reference}
 
 `lua.conf.xml` is located in `$${conf_dir}/autoload_configs/`. It is read once at module load time. A reload is triggered by `reload mod_lua` at the `fs_cli` prompt.
 
-### 3.1 Parameter Table
+### Parameter Table {#parameter-table}
 
-| Parameter | Purpose | Values | Default |
+| Parameter | Purpose | Accepted Values | Default |
 |---|---|---|---|
 | `script-directory` | Prepends a path to the Lua `LUA_PATH` environment variable so that `require` can locate `.lua` modules. Use the `?.lua` glob pattern. Multiple entries are allowed. | Path string with `?` glob, e.g. `$${script_dir}/?.lua` | None |
 | `module-directory` | Prepends a path to the Lua `LUA_CPATH` environment variable for native C extension modules (`.so` or `.dll`). Multiple entries are allowed. | Path string with `?` glob, e.g. `/usr/lib/lua/5.1/?.so` | None |
@@ -70,9 +70,9 @@ When a script name passed to the `lua` application or `luarun` API command does 
 | `xml-handler-bindings` | Registers `xml-handler-script` as the XML fetch handler for one or more configuration sections. Requires `xml-handler-script` to be set first in the same `<settings>` block. | `dialplan`, `directory`, `configuration`, `phrases`, or a space-separated combination | None |
 | `startup-script` | Launches a Lua script in a detached background thread when the module loads. Multiple entries are allowed, one script per `<param>`. | Script filename (resolved against `$${script_dir}`) | None |
 
-The `hook` element (a sibling of `<param>` inside `<settings>`) binds a Lua script to a FreeSWITCH event. See [Section 7](#7-event-hooks).
+The `hook` element (a sibling of `<param>` inside `<settings>`) binds a Lua script to a FreeSWITCH event. See [Event Hooks](#event-hooks).
 
-### 3.2 Configuration Example
+### Configuration Example {#configuration-example}
 
 ```xml
 <configuration name="lua.conf" description="LUA Configuration">
@@ -100,7 +100,7 @@ The `hook` element (a sibling of `<param>` inside `<settings>`) binds a Lua scri
 
 ---
 
-## 4. Invoking Scripts from the Dialplan
+## Invoking Scripts from the Dialplan {#invoking-scripts-from-the-dialplan}
 
 The `lua` dialplan application executes a script synchronously within a call leg. The call is held for the duration of the script. The `session` object is automatically available to the script as a global variable named `session`.
 
@@ -128,7 +128,7 @@ The `lua` application is registered with the `SAF_SUPPORT_NOMEDIA`, `SAF_ROUTING
 
 ---
 
-## 5. Running Scripts from the Console
+## Running Scripts from the Console {#running-scripts-from-the-console}
 
 Two API commands are available from `fs_cli` or the ESL API surface.
 
@@ -152,11 +152,11 @@ Neither command blocks the console for `luarun`; `lua` blocks until the script c
 
 ---
 
-## 6. Lua as an XML Handler
+## Lua as an XML Handler {#lua-as-an-xml-handler}
 
 FreeSWITCH consults registered XML handlers whenever it needs to resolve a configuration section. A Lua script can serve XML for the `dialplan`, `directory`, `configuration`, or `phrases` sections, replacing or supplementing static files.
 
-### 6.1 Wiring the Handler
+### Wiring the Handler {#wiring-the-handler}
 
 Two parameters in `lua.conf.xml` wire the handler. They must appear in order: `xml-handler-script` before `xml-handler-bindings`.
 
@@ -188,7 +188,7 @@ XML_STRING = [[
 ]]
 ```
 
-### 6.2 Binding Targets
+### Binding Targets {#binding-targets}
 
 The `xml-handler-bindings` value is passed to the internal `switch_xml_parse_section_string` function. Recognized values are:
 
@@ -203,7 +203,7 @@ Multiple bindings may be specified by listing them space-separated in a single `
 
 ---
 
-## 7. Event Hooks
+## Event Hooks {#event-hooks}
 
 The `<hook>` element inside `<settings>` binds a Lua script to a FreeSWITCH event. The script is executed in a dedicated thread each time the event fires.
 
@@ -221,7 +221,7 @@ Inside the script, the event is available as the global `event` object. Multiple
 
 ---
 
-## 8. Startup Scripts
+## Startup Scripts {#startup-scripts}
 
 The `startup-script` parameter launches a Lua script in a background thread when `mod_lua` loads. The script runs for as long as it needs to, including indefinitely. Multiple `startup-script` parameters are processed in order, with a 10-millisecond yield between each to avoid Lua initialization contention.
 
@@ -234,7 +234,7 @@ Startup scripts have no associated call session. They are useful for persistent 
 
 ---
 
-## 9. Other Language Modules
+## Other Language Modules {#other-language-modules}
 
 `mod_perl`, `mod_python3`, `mod_v8`, and `mod_java` provide equivalent integration points through their own configuration files and registered dialplan applications. None of these modules is loaded in the default configuration; each must be uncommented in `modules.conf.xml` and have its corresponding `autoload_configs` file present.
 
@@ -251,7 +251,7 @@ Each module registers two distinct API commands that mirror the behavior of Lua'
 
 `mod_v8` additionally registers `jsmon on|off` to enable or disable its runtime performance monitor, and `jsps` to display running script process status. These have no equivalent in the other language modules.
 
-### 9.1 Per-Engine Configuration
+### Per-Engine Configuration {#per-engine-configuration}
 
 The XML handler wiring for `mod_perl`, `mod_python3`, and `mod_v8` uses the **same parameter names as Lua** -- `xml-handler-script` followed by `xml-handler-bindings` -- and the same ordering rule applies: the script must be set before the binding that consumes it. `startup-script` also behaves identically across these three engines. The engines differ in which *additional* knobs they recognize and in whether they support `<hook>`.
 
@@ -267,7 +267,7 @@ The XML handler wiring for `mod_perl`, `mod_python3`, and `mod_v8` uses the **sa
 
 Note that Perl and Python 3 recognize **only** the three shared parameters. They do not implement `script-directory` or `module-directory`, and they do not parse a `<hook>` element -- only Lua and V8 bind event hooks from configuration.
 
-### 9.2 mod_perl (`perl.conf.xml`)
+### mod_perl (`perl.conf.xml`) {#mod_perl-perlconfxml}
 
 `mod_perl` parses exactly three parameters, with the same names and semantics as their Lua counterparts:
 
@@ -289,7 +289,7 @@ Note that Perl and Python 3 recognize **only** the three shared parameters. They
 
 There is no `<hook>` support and no script- or module-directory parameter.
 
-### 9.3 mod_python3 (`python.conf.xml`)
+### mod_python3 (`python.conf.xml`) {#mod_python3-pythonconfxml}
 
 `mod_python3` recognizes the same three parameters as `mod_perl`. The `xml-handler-script` and `startup-script` values name Python *modules* (importable on the interpreter path), not file paths.
 
@@ -305,7 +305,7 @@ There is no `<hook>` support and no script- or module-directory parameter.
 
 As with Perl, there is no `<hook>` support.
 
-### 9.4 mod_v8 (`v8.conf.xml`)
+### mod_v8 (`v8.conf.xml`) {#mod_v8-v8confxml}
 
 `mod_v8` shares the three Lua parameters and adds two V8-only caching knobs, a `<modules>` block for loading native V8 extension modules, and `<hook>` support.
 
@@ -340,7 +340,7 @@ The `<modules>` block (a sibling of `<settings>`) loads native extension modules
 
 The `<hook>` element works the same way as in Lua -- `event`, optional `subclass`, and `script` attributes -- and binds the named script to fire on each matching event. Inside the script, the event is available as the global `event` object.
 
-### 9.5 mod_java (`java.conf.xml`) {#mod-java}
+### mod_java (`java.conf.xml`) {#mod-java}
 
 `mod_java` does **not** use `<param>` elements. Its configuration is a set of dedicated child elements directly under `<configuration>`:
 
