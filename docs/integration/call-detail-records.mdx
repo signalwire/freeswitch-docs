@@ -9,31 +9,32 @@ sidebar_label: "27. Call Detail Records"
 
 # Chapter 27: Call Detail Records
 
-FreeSWITCH generates one Call Detail Record (CDR) per call leg at hangup. Three modules are available to capture and deliver those records: `mod_cdr_csv` writes delimited text files, `mod_xml_cdr` HTTP-POSTs an XML document to a remote endpoint, and `mod_cdr_sqlite` inserts rows into a local SQLite database. Each module is configured independently and can be loaded alongside the others.
+FreeSWITCH generates one Call Detail Record (CDR) per call leg at hangup. This chapter covers the three CDR modules most commonly deployed: `mod_cdr_csv` writes delimited text files, `mod_xml_cdr` HTTP-POSTs an XML document to a remote endpoint, and `mod_cdr_sqlite` inserts rows into a local SQLite database. Each module is configured independently and can be loaded alongside the others. Several additional bundled CDR backends are documented in Part 9 (see [Other CDR Backends](#other-cdr-backends) below).
 
 ## Table of Contents
 
-- [1. How CDRs Are Produced](#1-how-cdrs-are-produced)
-- [2. mod_cdr_csv](#2-mod_cdr_csv)
-  - [2.1 Configuration Parameters](#21-configuration-parameters)
-  - [2.2 Templates](#22-templates)
-  - [2.3 The Built-in Default Template](#23-the-built-in-default-template)
-  - [2.4 File Output](#24-file-output)
-  - [2.5 Log Rotation](#25-log-rotation)
-  - [2.6 Custom CSV Template Example](#26-custom-csv-template-example)
-- [3. mod_xml_cdr](#3-mod_xml_cdr)
-  - [3.1 Configuration Parameters](#31-configuration-parameters)
-  - [3.2 TLS and Authentication Parameters](#32-tls-and-authentication-parameters)
-  - [3.3 Example URL Binding](#33-example-url-binding)
-- [4. mod_cdr_sqlite](#4-mod_cdr_sqlite)
-  - [4.1 Configuration Parameters](#41-configuration-parameters)
-  - [4.2 Default Table Schema](#42-default-table-schema)
-  - [4.3 Templates](#43-templates)
-- [5. Module Load Status](#5-module-load-status)
+- [How CDRs Are Produced](#how-cdrs-are-produced)
+- [mod_cdr_csv](#mod_cdr_csv)
+  - [Configuration Parameters](#configuration-parameters)
+  - [Templates](#templates)
+  - [The Built-in Default Template](#the-built-in-default-template)
+  - [File Output](#file-output)
+  - [Log Rotation](#log-rotation)
+  - [Custom CSV Template Example](#custom-csv-template-example)
+- [mod_xml_cdr](#mod_xml_cdr)
+  - [Configuration Parameters](#configuration-parameters)
+  - [TLS and Authentication Parameters](#tls-and-authentication-parameters)
+  - [Example URL Binding](#example-url-binding)
+- [mod_cdr_sqlite](#mod_cdr_sqlite)
+  - [Configuration Parameters](#configuration-parameters)
+  - [Default Table Schema](#default-table-schema)
+  - [Templates](#templates)
+- [Module Load Status](#module-load-status)
+- [Other CDR Backends](#other-cdr-backends)
 
 ---
 
-## 1. How CDRs Are Produced
+## How CDRs Are Produced {#how-cdrs-are-produced}
 
 CDR generation is triggered by the `on_reporting` state-handler callback that each CDR module registers. The callback fires once per call leg at the moment the channel transitions to the reporting state, which occurs immediately after hangup processing completes.
 
@@ -43,15 +44,15 @@ Channel variables are expanded at record time. Any channel variable accessible o
 
 ---
 
-## 2. mod_cdr_csv
+## mod_cdr_csv {#mod_cdr_csv}
 
 `mod_cdr_csv` appends one line per call leg to flat CSV files. It is loaded by default in the vanilla configuration.
 
 Configuration file: `conf/autoload_configs/cdr_csv.conf.xml`
 
-### 2.1 Configuration Parameters
+### Configuration Parameters {#configuration-parameters}
 
-| Parameter | Purpose | Values | Default |
+| Parameter | Purpose | Accepted Values | Default |
 |---|---|---|---|
 | `log-base` | Parent directory for CDR output. The string `cdr-csv` is always appended to form the actual directory path. | Absolute path | FreeSWITCH log directory |
 | `default-template` | Name of the template to use for all records that do not match an account-code-specific template. | Any named template | `default` |
@@ -60,7 +61,7 @@ Configuration file: `conf/autoload_configs/cdr_csv.conf.xml`
 | `master-file-only` | When `true`, suppress per-account-code CSV files; write only to `Master.csv`. | `true`, `false` | `false` |
 | `debug` | Log the full channel variable set to the FreeSWITCH log at INFO level for each CDR event. | `true`, `false` | `false` |
 
-### 2.2 Templates
+### Templates {#templates}
 
 A template is a string in which channel variables are referenced as `${variable_name}`. At call teardown the module expands all variables against the live channel and appends the resulting line to the output file.
 
@@ -87,7 +88,7 @@ The vanilla configuration ships these named templates:
 | `asterisk` | Field-compatible with Asterisk CDR output |
 | `opencdrrate` | OpenCDRate billing system format |
 
-### 2.3 The Built-in Default Template
+### The Built-in Default Template {#the-built-in-default-template}
 
 At module startup, the module pre-registers one template into the template hash under the key `default`:
 
@@ -107,7 +108,7 @@ This 18-field Asterisk-compatible template is used only when the named template 
 
 The vanilla configuration sets `default-template` to `example`, so by default the `example` template from `cdr_csv.conf.xml` is active, not either compiled-in fallback.
 
-### 2.4 File Output
+### File Output {#file-output}
 
 The module writes two categories of files into the `log-base`/`cdr-csv` directory:
 
@@ -116,13 +117,13 @@ The module writes two categories of files into the `log-base`/`cdr-csv` director
 
 The channel variable `cdr_csv_base` overrides the global `log-base` on a per-channel basis. When `cdr_csv_base` is set on a session, all CDR files for that call are written to the specified directory instead of the global `log-base`/`cdr-csv` path.
 
-### 2.5 Log Rotation
+### Log Rotation {#log-rotation}
 
 When `rotate-on-hup` is `true`, sending SIGHUP to the FreeSWITCH process renames each open file by appending a timestamp suffix in the format `YYYY-MM-DD-HH-MM-SS`, then reopens a fresh file at the original path. The API command `cdr_csv rotate` triggers the same rotation without a signal.
 
 When `rotate-on-hup` is `false`, a SIGHUP causes the files to be closed and reopened in place (useful when an external log management tool has already moved them).
 
-### 2.6 Custom CSV Template Example
+### Custom CSV Template Example {#custom-csv-template-example}
 
 ```xml
 <configuration name="cdr_csv.conf" description="CDR CSV Format">
@@ -142,7 +143,7 @@ With this configuration, `mod_cdr_csv` writes to `/var/log/freeswitch/cdr-csv/Ma
 
 ---
 
-## 3. mod_xml_cdr
+## mod_xml_cdr {#mod_xml_cdr}
 
 `mod_xml_cdr` generates a structured XML document for each call leg and delivers it via HTTP POST to one or more configured URLs. When no URL is configured, or as a fallback on POST failure, it writes the XML to disk. `mod_xml_cdr` is not loaded by default; enable it in `conf/autoload_configs/modules.conf.xml`.
 
@@ -150,9 +151,9 @@ Configuration file: `conf/autoload_configs/xml_cdr.conf.xml`
 
 The module is located under `src/mod/xml_int/mod_xml_cdr` (not `event_handlers`).
 
-### 3.1 Configuration Parameters
+### Configuration Parameters {#configuration-parameters}
 
-| Parameter | Purpose | Values | Default |
+| Parameter | Purpose | Accepted Values | Default |
 |---|---|---|---|
 | `url` | HTTP or HTTPS endpoint to POST records to. Up to 20 URLs may be specified; the module cycles through them on failure. Omitting this parameter disables HTTP delivery. | URL string | None |
 | `cred` | HTTP credentials in `user:password` form. | String | None |
@@ -170,9 +171,9 @@ The module is located under `src/mod/xml_int/mod_xml_cdr` (not `event_handlers`)
 | `auth-scheme` | HTTP authentication scheme for credential delivery. | `basic`, `digest`, `NTLM`, `GSS-NEGOTIATE`, `any` | `basic` |
 | `cookie-file` | Path to a file used for cookie persistence across requests. | Absolute path | None |
 
-### 3.2 TLS and Authentication Parameters
+### TLS and Authentication Parameters {#tls-and-authentication-parameters}
 
-| Parameter | Purpose | Values | Default |
+| Parameter | Purpose | Accepted Values | Default |
 |---|---|---|---|
 | `enable-cacert-check` | Instruct libcurl to verify the server certificate against the system CA bundle. Disabled by default. | `true`, `false` | `false` |
 | `enable-ssl-verifyhost` | Verify that the server hostname matches the certificate CN. | `true`, `false` | `false` |
@@ -182,7 +183,7 @@ The module is located under `src/mod/xml_int/mod_xml_cdr` (not `event_handlers`)
 | `ssl-version` | Force a specific SSL/TLS version. | `SSLv3`, `TLSv1` | libcurl auto-negotiates |
 | `ssl-cacert-file` | Path to a custom PEM CA certificate for peer verification. Meaningful only when `enable-cacert-check` is `true`. | Absolute path | None |
 
-### 3.3 Example URL Binding
+### Example URL Binding {#example-url-binding}
 
 ```xml
 <configuration name="xml_cdr.conf" description="XML CDR CURL logger">
@@ -212,15 +213,15 @@ The channel variable `xml_cdr_base` on the session overrides the global `log-dir
 
 ---
 
-## 4. mod_cdr_sqlite
+## mod_cdr_sqlite {#mod_cdr_sqlite}
 
 `mod_cdr_sqlite` inserts one row per call leg into a SQLite database table. The database file is created automatically if it does not exist; the table is created automatically if it does not exist, using the default schema. `mod_cdr_sqlite` is not loaded by default; enable it in `conf/autoload_configs/modules.conf.xml`.
 
 Configuration file: `conf/autoload_configs/cdr_sqlite.conf.xml`
 
-### 4.1 Configuration Parameters
+### Configuration Parameters {#configuration-parameters}
 
-| Parameter | Purpose | Values | Default |
+| Parameter | Purpose | Accepted Values | Default |
 |---|---|---|---|
 | `db-name` | Base name of the SQLite database file. The `.db` suffix is appended automatically by the FreeSWITCH DSN layer. | String | `cdr` |
 | `db-table` | Name of the table within the database that receives CDR rows. | String | `cdr` |
@@ -228,7 +229,7 @@ Configuration file: `conf/autoload_configs/cdr_sqlite.conf.xml`
 | `default-template` | Name of the template used to generate the VALUES clause of each INSERT statement. | Any named template | `default` |
 | `debug` | Log the full channel variable set to the FreeSWITCH log at INFO level for each CDR event. | `true`, `false` | `false` |
 
-### 4.2 Default Table Schema
+### Default Table Schema {#default-table-schema}
 
 When the configured table does not exist at startup, the module creates it with the following schema:
 
@@ -254,7 +255,7 @@ The table name substituted for `cdr` is the value of `db-table`. The module exec
 
 Note that the auto-created schema names the last column `account_code` (with an underscore), while the channel variable referenced in the built-in default template is `${accountcode}` (no underscore). These refer to the same call data; the discrepancy is in the column name vs the channel variable name.
 
-### 4.3 Templates
+### Templates {#templates}
 
 Templates for `mod_cdr_sqlite` follow the same `${variable_name}` expansion syntax as `mod_cdr_csv`, but the output is used as the VALUES clause of an SQL INSERT, not as a CSV line. Numeric fields (`duration`, `billsec`) must not be quoted in the template; string fields must be quoted.
 
@@ -284,7 +285,7 @@ Custom templates are defined in the `<templates>` block and referenced by name w
 
 ---
 
-## 5. Module Load Status
+## Module Load Status {#module-load-status}
 
 | Module | Loaded by default (vanilla conf) |
 |---|---|
@@ -293,3 +294,14 @@ Custom templates are defined in the `<templates>` block and referenced by name w
 | `mod_cdr_sqlite` | No |
 
 To enable a module that is not loaded by default, uncomment or add its `<load module="..."/>` entry in `conf/autoload_configs/modules.conf.xml` and reload or restart FreeSWITCH. Multiple CDR modules may be active simultaneously; each fires its own `on_reporting` callback independently.
+
+---
+
+## Other CDR Backends
+
+Beyond the three modules covered above, FreeSWITCH bundles additional CDR backends that target other storage and delivery mechanisms. These are documented in the Part 9 Module Reference:
+
+- [`mod_json_cdr`](/module-reference/event-handlers/mod_json_cdr) - posts each CDR as a JSON document over HTTP.
+- [`mod_format_cdr`](/module-reference/event-handlers/mod_format_cdr) - emits CDRs in a configurable format (JSON or XML) with HTTP posting options.
+- [`mod_odbc_cdr`](/module-reference/event-handlers/mod_odbc_cdr) - inserts CDR rows into a database via ODBC.
+- [`mod_cdr_pg_csv`](/module-reference/event-handlers/mod_cdr_pg_csv) - writes CDRs directly to PostgreSQL.

@@ -13,6 +13,15 @@ sidebar_label: "mod_xml_rpc"
 
 Operators reach for this module when they need a simple, credential-protected HTTP gateway to FreeSWITCH API commands — for example, a web-based admin portal, AJAX polling from a browser, or an integration that speaks XML-RPC rather than ESL.
 
+## Table of Contents
+
+- [Loading the Module](#loading-the-module)
+- [Configuration: xml_rpc.conf.xml](#configuration-xml_rpcconfxml)
+- [API Commands](#api-commands)
+- [Events](#events)
+- [Dependencies](#dependencies)
+- [See also](#see-also)
+
 ## Loading the Module
 
 The module name for `load` and `modules.conf.xml` is `mod_xml_rpc`. It is **not** loaded by default in the vanilla configuration — the entry in `conf/vanilla/autoload_configs/modules.conf.xml` is commented out:
@@ -44,9 +53,13 @@ The module reads `xml_rpc.conf` from the FreeSWITCH configuration directory. All
 | `enable-websocket` | Enable WebSocket event subscription endpoint at `/socket` | `true` / `false` | `false` |
 | `commands-to-log` | Regex pattern; matching API commands executed via HTTP are logged at INFO level | PCRE regex string | _(none)_ |
 
-Authentication logic: if `auth-realm`, `auth-user`, and `auth-pass` are all non-empty, every request requires HTTP Basic Auth matching those static credentials. Alternatively, a user can authenticate as `user@domain` and the module looks up their `password` and `http-allowed-api` params in the FreeSWITCH XML directory. The `http-allowed-api` directory param is a comma-separated list of API command names (or `any`) that the directory user is permitted to call.
+Authentication logic: if `auth-realm`, `auth-user`, and `auth-pass` are all non-empty, every request requires HTTP Basic Auth matching those static credentials. Alternatively, a user can authenticate as `user@domain` and the module looks up their directory params. The `http-allowed-api` directory param is a comma-separated list of API command names (or `any`) that the directory user is permitted to call.
+
+For the directory password check, the module accepts more than just the `password` param. It will authenticate the supplied credentials against the user's `password`, their `vm-password`, and (so long as one of those passwords matches) the same passwords paired with the user's `number-alias` / mailbox in place of the login name. This lets a directory user log in with their voicemail PIN, or with their mailbox number instead of their user id.
 
 The `/pub` URI prefix bypasses authentication and serves files directly from `htdocs`. The `/domains/<domain>/` URI prefix triggers per-domain directory auth.
+
+A bare request to `/portal` (with no trailing path) is answered with a `302` redirect to `/portal/index.html` before auth is evaluated.
 
 Example excerpt from the shipped configuration:
 
@@ -85,6 +98,8 @@ Once the module is loaded, API commands are reachable at the following URL patte
 | `http://host:port/RPC2` | XML-RPC | Accepts `freeswitch.api` / `freeswitch_api` and `freeswitch.management` / `freeswitch_management` methods |
 
 Query string key-value pairs (separated by `&`) are passed to the API command as FreeSWITCH event headers. The special key `refresh=N` causes the module to inject an HTML meta-refresh header (for `/webapi/` responses only, when the API command sets the `HTTP-REFRESH` event header).
+
+If an HTTP (or XML-RPC) request would run `unload mod_xml_rpc` or `reload mod_xml_rpc`, the module rewrites the call to `bgapi` so it runs in a background thread. This is a self-unload guard: unloading the module synchronously from inside its own HTTP request handler would tear down the thread servicing the request.
 
 Examples using `curl`:
 
@@ -130,5 +145,9 @@ The module reserves and fires one custom event subclass:
 ## Dependencies
 
 `mod_xml_rpc` requires **xmlrpc-c** (including its bundled Abyss HTTP library). On most Linux distributions this is available as `libxmlrpc-c3-dev` (Debian/Ubuntu) or `xmlrpc-c-devel` (RHEL/CentOS). It is not part of the FreeSWITCH core and must be present at build time.
+
+## See also
+
+- [Chapter 26: HTTP Integration: XML Curl and HTTAPI](../../integration/xml-curl.mdx)
 
 **Source:** `src/mod/xml_int/mod_xml_rpc`, `conf/vanilla/autoload_configs/xml_rpc.conf.xml`

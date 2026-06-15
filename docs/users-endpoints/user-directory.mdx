@@ -44,7 +44,7 @@ The directory section of the FreeSWITCH configuration tree lives under `conf/dir
 
 This directive causes every `.xml` file in `conf/directory/default/` to be merged into the enclosing `<users>` block at configuration parse time. Each included file must be a valid XML fragment wrapped in `<include>` tags and containing one or more `<user>` elements.
 
-Files are merged, not overridden. Adding a new file to `conf/directory/default/` is sufficient to register a new user; no changes to `default.xml` are required. The merge order follows filesystem glob expansion, which is typically alphabetical.
+Files are merged, not overridden. Adding a new file to `conf/directory/default/` is sufficient to register a new user; no changes to `default.xml` are required. The merge order follows glob expansion, which FreeSWITCH sorts alphabetically by filename.
 
 ---
 
@@ -119,7 +119,7 @@ Each user is represented by a `<user>` element with a mandatory `id` attribute. 
 |---|---|---|
 | `id` | Unique user identifier within the domain. Corresponds to the SIP username. | Required |
 | `number-alias` | Alternate number string that resolves to this user record. Allows a phone number to map to an alphanumeric `id`. | Optional |
-| `cidr` | Restricts registration to requests arriving from the specified CIDR range. Enables IP-based authentication without a password challenge. | Optional |
+| `cidr` | Adds a `<user-id>@<domain>` token to any ACL whose node lists this domain (a `network-list` ACL), pairing the user with the given CIDR range. It does not by itself bypass digest auth; a SIP profile must reference that ACL via `apply-inbound-acl`/`apply-register-acl` for the IP-based allow to take effect. | Optional |
 
 Example using `cidr` and `number-alias`:
 
@@ -191,21 +191,21 @@ All `vm-*` params are read from the user's `<params>` block by mod_voicemail. Th
 | `vm-enabled` | When `false`, voicemail is disabled for this user. Calls routed to voicemail return an invalid-extension prompt. | `true`, `false` | `true` |
 | `vm-mailto` | Email address to which new voicemail messages are sent as audio attachments or notifications. | Email address string | None |
 | `vm-notify-mailto` | Email address that receives a short notification (no audio attachment) when a new voicemail arrives. | Email address string | None |
-| `vm-mailfrom` | Sender address used in the `From` header of voicemail email notifications. | Email address string | Profile default |
+| `vm-mailfrom` | Sender address used in the `From` header of voicemail email notifications. | Email address string | Falls back to the profile `email-from` param (vanilla: `${voicemail_account}@${voicemail_domain}`) |
 | `vm-cc` | Voicemail box (in `user@domain` format) to which a copy of every new message is forwarded. | `user@domain` string | None |
 | `vm-email-all-messages` | When `true`, emails are sent for every new voicemail regardless of whether the profile has email enabled globally. | `true`, `false` | `false` |
 | `vm-notify-email-all-messages` | When `true`, notification-only emails (no attachment) are sent for every new voicemail. | `true`, `false` | `false` |
-| `vm-attach-file` | When `true`, the voicemail audio file is attached to the notification email. | `true`, `false` | Profile default |
+| `vm-attach-file` | When `true`, the voicemail audio file is attached to the notification email. There is no profile-level equivalent; if this param is absent, no file is attached. | `true`, `false` | `false` |
 | `vm-keep-local-after-email` | When `true`, the voicemail message is kept in the mailbox after it has been emailed. When `false`, the message is deleted from the mailbox once emailed. | `true`, `false` | `true` |
 | `vm-skip-instructions` | When `true`, the post-beep recording instructions are not played to the caller leaving a message. | `true`, `false` | `false` |
 | `vm-disk-quota` | Maximum total size in bytes of stored voicemail messages for this user. New messages are rejected when the quota is reached. | Integer (bytes) | Unlimited |
-| `vm-storage-dir` | Per-user directory path where voicemail recordings are stored, overriding the profile default. | Filesystem path | Profile default |
-| `vm-domain-storage-dir` | Directory path for domain-scoped voicemail storage. Deprecated `storage-dir` is an alias for this param. | Filesystem path | Profile default |
+| `vm-storage-dir` | Per-user directory path where voicemail recordings are stored, overriding the profile default. | Filesystem path | Falls back to the profile `storage-dir` param (unset in vanilla, so `$${storage_dir}/voicemail/<profile>/<domain>/<user>`) |
+| `vm-domain-storage-dir` | Directory path for domain-scoped voicemail storage. Deprecated `storage-dir` is an alias for this param. | Filesystem path | Falls back to the profile `storage-dir` param (unset in vanilla) |
 | `vm-alternate-greet-id` | User `id` whose greeting is played instead of this user's own greeting. Useful for shared or virtual mailboxes. | User `id` string | None |
-| `vm-message-ext` | File extension for recorded voicemail messages for this user, overriding the profile default. | Extension string (e.g., `mp3`, `wav`) | Profile default |
+| `vm-message-ext` | File extension for recorded voicemail messages for this user, overriding the profile default. | Extension string (e.g., `mp3`, `wav`) | Falls back to the profile `file-extension` param (`wav`) |
 | `vm-operator-extension` | Extension dialed when the caller presses `0` during the voicemail greeting. | Extension string | None |
-| `vm-convert-cmd` | Shell command used to convert the recorded audio file before storage or email. | Command string | Profile default |
-| `vm-convert-ext` | File extension produced by `vm-convert-cmd`. | Extension string | Profile default |
+| `vm-convert-cmd` | Shell command used to convert the recorded audio file before storage or email. | Command string | Falls back to the profile `convert-cmd` param (unset in vanilla, so no conversion) |
+| `vm-convert-ext` | File extension produced by `vm-convert-cmd`. | Extension string | Falls back to the profile `convert-ext` param (unset in vanilla) |
 
 ### Common User Variables
 
@@ -315,7 +315,7 @@ If `auth-acl` is set, the source IP of the request must pass the named ACL; fail
 
 Setting `sip-forbid-register` to `true` unconditionally rejects REGISTER for that user with a 403 response, regardless of credentials.
 
-The `cidr` attribute on the `<user>` element (see User Attributes above) bypasses digest authentication entirely for requests arriving from the specified IP range. A user with both `cidr` and `password` set will authenticate by CIDR for matching source IPs and fall back to digest for others.
+The `cidr` attribute on the `<user>` element (see User Attributes above) does not act in the digest-auth path on its own. When an ACL is built, FreeSWITCH walks the directory and, for each `<user>` carrying a `cidr`, adds a `<user-id>@<domain>` token bound to that range into any `network-list` ACL whose node names the domain. A SIP profile then enables IP-based authentication by referencing that ACL through `apply-inbound-acl` or `apply-register-acl`; without such a reference the `cidr` attribute has no effect and the request is still subject to the normal digest challenge.
 
 Which domain FreeSWITCH uses for the lookup depends on the `auth-calls` and related settings in the SIP profile. SIP profile configuration is covered in the chapter on SIP profiles.
 
@@ -346,4 +346,4 @@ This means arbitrary data can be stored on a user record and consumed by custom 
 <variable name="max_calls" value="5"/>
 ```
 
-These would appear as `$${department}` and `$${max_calls}` on any call leg for that user. There is no validation; any string is accepted.
+These would appear as the channel variables `${department}` and `${max_calls}` on any call leg for that user. (Directory `<variable>`s are channel variables, referenced with a single `$`; the `$${...}` form is reserved for preprocessor-global variables set in `vars.xml`.) There is no validation; any string is accepted.

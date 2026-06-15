@@ -13,6 +13,15 @@ sidebar_label: "mod_managed"
 
 Reach for this module when your team prefers the .NET ecosystem, needs to share business logic between FreeSWITCH and other .NET services, or wants the live-reload behaviour that comes from dropping a new `.dll` or script file into the `managed/` directory while the switch is running.
 
+## Table of Contents
+
+- [Loading the Module](#loading-the-module)
+- [Configuration](#configuration)
+- [Dialplan Applications](#dialplan-applications)
+- [API Commands](#api-commands)
+- [Dependencies](#dependencies)
+- [See also](#see-also)
+
 ## Loading the Module
 
 `mod_managed` is **not** in the vanilla default load set. It does not appear anywhere in `conf/vanilla/autoload_configs/modules.conf.xml` (commented-out or otherwise). To load it, add the entry below and restart, or use `load` from the `fs_cli`.
@@ -33,7 +42,8 @@ The module requires that `FreeSWITCH.Managed.dll` be present in the FreeSWITCH m
 
 - **Plugin directory:** `{modules_dir}/managed/` — the loader scans every file in this directory at startup and watches it for changes at runtime.
 - **Shadow copy directory:** `{modules_dir}/managed/shadow/` — if this directory already exists at load time, the loader deletes and re-creates it; it is used by the .NET AppDomain shadow-copy mechanism to stage assemblies.
-- **Per-plugin config:** a `.config` file alongside a `.dll` or `.exe` (e.g. `MyPlugin.dll.config`) is read as the `AppDomain` configuration for that plugin's isolated domain.
+- **Per-plugin config:** a `.config` file alongside a `.dll` or `.exe` (e.g. `MyPlugin.dll.config`) is read as the `AppDomain` configuration for that plugin's isolated domain. Editing this `.config` file while the switch is running triggers an automatic reload of the associated plugin.
+- **Per-plugin reference directory:** `{modules_dir}/managed/<modulename>/` — for a plugin file named `<modulename>.<ext>`, this directory is added to the plugin's AppDomain `PrivateBinPath` (alongside `managed` itself), so private dependency assemblies can be kept in a per-plugin subdirectory rather than the shared `managed/` directory.
 
 ## Dialplan Applications
 
@@ -42,6 +52,8 @@ The module requires that `FreeSWITCH.Managed.dll` be present in the FreeSWITCH m
 | `managed` | Run a .NET `IAppPlugin` implementation (or script) on an active channel | `<plugin-name> [<args>]` |
 
 `<plugin-name>` is either the fully-qualified type name (`Namespace.ClassName`) or the short class name (`ClassName`) for compiled assemblies, or the filename (e.g. `Demo.csx`) for script files.
+
+The loader recognizes compiled assemblies by the `.dll` extension and dispatches the following extensions to the script plugin manager (compiled on the fly via the CodeDOM providers): `.csx` (C#), `.fsx` (F#), `.vbx` (VB.NET), `.jsx` (JScript), and `.exe`. A file whose extension is none of these is ignored.
 
 ```xml
 <action application="managed" data="AppDemo"/>
@@ -76,5 +88,9 @@ freeswitch@> managedlist
 On Linux, the build also requires **SWIG** to regenerate `freeswitch_wrap.cxx` and `managed/swig.cs` when the FreeSWITCH core API changes (run `make reswig`). The pre-generated files shipped in the tree are used by default.
 
 ---
+
+## See also
+
+- [Chapter 28: Scripting Integration](../../integration/scripting.mdx)
 
 **Source:** `src/mod/languages/mod_managed`

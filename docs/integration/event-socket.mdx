@@ -13,27 +13,27 @@ The Event Socket is a TCP-based interface that exposes FreeSWITCH call control, 
 
 ## Table of Contents
 
-- [25.1 What the Event Socket Provides](#251-what-the-event-socket-provides)
-- [25.2 Module and Configuration File](#252-module-and-configuration-file)
-- [25.3 Parameter Reference](#253-parameter-reference)
-- [25.4 Inbound Mode](#254-inbound-mode)
-  - [25.4.1 Connection Lifecycle](#2541-connection-lifecycle)
-  - [25.4.2 Worked Session Example](#2542-worked-session-example)
-- [25.5 Outbound Mode](#255-outbound-mode)
-  - [25.5.1 Connection Handshake](#2551-connection-handshake)
-  - [25.5.2 async vs Blocking](#2552-async-vs-blocking)
-  - [25.5.3 Worked Outbound Session Example](#2553-worked-outbound-session-example)
-- [25.6 Command Reference](#256-command-reference)
-- [25.7 Event Subscription and Formats](#257-event-subscription-and-formats)
-  - [25.7.1 Selecting a Format](#2571-selecting-a-format)
-  - [25.7.2 Subscribing to Events](#2572-subscribing-to-events)
-  - [25.7.3 Event Delivery on the Wire](#2573-event-delivery-on-the-wire)
-- [25.8 Restricting Access with ACLs](#258-restricting-access-with-acls)
-- [25.9 Relationship to fs_cli](#259-relationship-to-fs_cli)
+- [What the Event Socket Provides](#what-the-event-socket-provides)
+- [Module and Configuration File](#module-and-configuration-file)
+- [Parameter Reference](#parameter-reference)
+- [Inbound Mode](#inbound-mode)
+  - [Connection Lifecycle](#connection-lifecycle)
+  - [Worked Session Example](#worked-session-example)
+- [Outbound Mode](#outbound-mode)
+  - [Connection Handshake](#connection-handshake)
+  - [async vs Blocking](#async-vs-blocking)
+  - [Worked Outbound Session Example](#worked-outbound-session-example)
+- [Command Reference](#command-reference)
+- [Event Subscription and Formats](#event-subscription-and-formats)
+  - [Selecting a Format](#selecting-a-format)
+  - [Subscribing to Events](#subscribing-to-events)
+  - [Event Delivery on the Wire](#event-delivery-on-the-wire)
+- [Restricting Access with ACLs](#restricting-access-with-acls)
+- [Relationship to fs_cli](#relationship-to-fs_cli)
 
 ---
 
-## 25.1 What the Event Socket Provides
+## What the Event Socket Provides {#what-the-event-socket-provides}
 
 The Event Socket listens on a TCP port and accepts connections from clients that speak the ESL (Event Socket Library) protocol. Once authenticated, a client can:
 
@@ -46,7 +46,7 @@ In outbound mode, the socket interface is invoked mid-call from the dialplan. Fr
 
 ---
 
-## 25.2 Module and Configuration File
+## Module and Configuration File {#module-and-configuration-file}
 
 The Event Socket is provided by `mod_event_socket`. It must be loaded at startup, typically via `modules.conf.xml`.
 
@@ -69,9 +69,9 @@ Note: The vanilla configuration sets `listen-ip` to `::` (all interfaces, dual-s
 
 ---
 
-## 25.3 Parameter Reference
+## Parameter Reference {#parameter-reference}
 
-| Parameter | Purpose | Values | Default |
+| Parameter | Purpose | Accepted Values | Default |
 |---|---|---|---|
 | `listen-ip` | IP address the socket binds to | Any valid IP address or `::` for all interfaces | `127.0.0.1` (code default when omitted) |
 | `listen-port` | TCP port the socket listens on | Any valid port number | `8021` |
@@ -89,11 +89,11 @@ Note: The vanilla configuration sets `listen-ip` to `::` (all interfaces, dual-s
 
 ---
 
-## 25.4 Inbound Mode
+## Inbound Mode {#inbound-mode}
 
 In inbound mode, `mod_event_socket` binds to `listen-ip`:`listen-port` at module load time and accepts incoming TCP connections.
 
-### 25.4.1 Connection Lifecycle
+### Connection Lifecycle {#connection-lifecycle}
 
 1. The client opens a TCP connection to `listen-ip`:`listen-port`.
 2. If `apply-inbound-acl` is configured and the source IP is not permitted, FreeSWITCH sends `Content-Type: text/rude-rejection` and closes the socket.
@@ -119,7 +119,7 @@ auth ClueCon
 
 To change the listening address or port, edit `event_socket.conf.xml` and reload or restart the module. Setting `listen-ip` to `127.0.0.1` restricts connections to the local host. Setting it to `0.0.0.0` or `::` accepts connections on all interfaces; in that case, use `apply-inbound-acl` to control which source addresses are permitted.
 
-### 25.4.2 Worked Session Example
+### Worked Session Example {#worked-session-example}
 
 The following shows the raw byte exchange for a session that authenticates, runs one API command in the foreground, one in the background, subscribes to heartbeat events, and then disconnects. Lines sent by the client are prefixed with `>`. Lines received from FreeSWITCH are prefixed with `<`. Blank lines that terminate each block are shown explicitly.
 
@@ -190,7 +190,7 @@ The following shows the raw byte exchange for a session that authenticates, runs
 
 ---
 
-## 25.5 Outbound Mode
+## Outbound Mode {#outbound-mode}
 
 In outbound mode, the dialplan routes a call to the `socket` application. FreeSWITCH initiates a TCP connection to the specified host and port, then hands control of the call leg to the remote process.
 
@@ -218,7 +218,7 @@ socket <host>[:<port>][/<path>] [full] [async]
 
 No `event_socket.conf.xml` parameters govern outbound mode. The listen address and port in that file apply only to inbound connections.
 
-### 25.5.1 Connection Handshake
+### Connection Handshake {#connection-handshake}
 
 The outbound connection handshake differs from the inbound lifecycle. FreeSWITCH is the TCP client; the remote process is the TCP server.
 
@@ -236,13 +236,13 @@ connect
 6. After receiving the connect reply, the remote process typically sends `myevents` to subscribe to events for this channel, then issues `sendmsg` commands to execute dialplan applications on the channel.
 7. When the remote process closes the TCP connection, control returns to the dialplan at the action after the `socket` application.
 
-### 25.5.2 async vs Blocking
+### async vs Blocking {#async-vs-blocking}
 
 Without `async`, the `socket` application occupies the dialplan thread for the duration of the TCP connection. The channel is fully under remote control and the dialplan does not advance.
 
 With `async`, FreeSWITCH parks the channel and spins up a separate thread for the ESL listener. The dialplan thread is released immediately after the park. When the remote process issues `resume` (or the channel variable `socket_resume` is set to `true`), FreeSWITCH transitions the channel to the execute state and continues the dialplan from the next action after the `socket` application. If the remote process closes the socket without sending `resume`, the channel remains parked until it is hungup or otherwise disposed of.
 
-### 25.5.3 Worked Outbound Session Example
+### Worked Outbound Session Example {#worked-outbound-session-example}
 
 The following shows the exchange for an outbound connection. The remote server is listening on port 8084. Lines sent by FreeSWITCH are prefixed with `<`. Lines sent by the remote process are prefixed with `>`.
 
@@ -306,7 +306,7 @@ The following shows the exchange for an outbound connection. The remote server i
 
 ---
 
-## 25.6 Command Reference
+## Command Reference {#command-reference}
 
 All commands are sent as plain text terminated by a blank line (two consecutive newlines). The parser reads until it sees `\r\n\r\n` or `\n\n`. Multi-line commands (such as `sendmsg`) include additional headers between the command line and the final blank line.
 
@@ -363,9 +363,9 @@ hangup-cause: NORMAL_CLEARING
 
 ---
 
-## 25.7 Event Subscription and Formats
+## Event Subscription and Formats {#event-subscription-and-formats}
 
-### 25.7.1 Selecting a Format
+### Selecting a Format {#selecting-a-format}
 
 The `event` command takes a format as its first argument. The format applies to all events delivered on the connection for the duration of the session (or until a new `event` command changes it).
 
@@ -375,7 +375,7 @@ The `event` command takes a format as its first argument. The format applies to 
 | `json` | The event serialized as a JSON object. |
 | `xml` | The event serialized as an XML document. |
 
-### 25.7.2 Subscribing to Events
+### Subscribing to Events {#subscribing-to-events}
 
 ```text
 event plain HEARTBEAT CHANNEL_HANGUP_COMPLETE BACKGROUND_JOB
@@ -423,7 +423,7 @@ filter Unique-ID b7f1e2a0-1234-5678-abcd-000000000001
 
 Multiple filters may be active simultaneously. For an event to be delivered, all active filters must match (logical AND). Values prefixed with `-` exclude matching events; values beginning with `/` are treated as regular expressions matched against the header value.
 
-### 25.7.3 Event Delivery on the Wire
+### Event Delivery on the Wire {#event-delivery-on-the-wire}
 
 Each event is delivered as a framed block:
 
@@ -457,11 +457,11 @@ User-Data: <string>
 
 ---
 
-## 25.8 Restricting Access with ACLs
+## Restricting Access with ACLs {#restricting-access-with-acls}
 
 The `apply-inbound-acl` parameter names an ACL defined in `acl.conf.xml`. When set, FreeSWITCH evaluates the connecting client's source IP against the named list before sending the authentication challenge. Connections from addresses not permitted by the ACL receive a `Content-Type: text/rude-rejection` response and the socket is closed.
 
-When `apply-inbound-acl` is absent from `event_socket.conf.xml`, the module applies `loopback.auto` by default, which permits only connections from `127.0.0.1` and `::1`. To accept connections from remote hosts, define an appropriate ACL in `acl.conf.xml`, then reference it with `apply-inbound-acl`. ACL configuration is covered in the ACL chapter of this manual.
+When `apply-inbound-acl` is absent from `event_socket.conf.xml`, the module applies `loopback.auto` by default, which permits only connections from `127.0.0.1` and `::1`. To accept connections from remote hosts, define an appropriate ACL in `acl.conf.xml`, then reference it with `apply-inbound-acl`. ACL configuration is covered in the [ACL chapter](./access-control-lists.mdx) of this manual.
 
 Multiple `apply-inbound-acl` entries can be added; up to 100 ACL names are accepted. A connection is permitted only if the source IP is permitted by every listed ACL. If the IP fails the check for any single ACL entry, the connection is rejected.
 
@@ -469,7 +469,7 @@ For deployments where the Event Socket must be reachable from non-loopback addre
 
 ---
 
-## 25.9 Relationship to fs_cli
+## Relationship to fs_cli {#relationship-to-fs_cli}
 
 `fs_cli` is the standard FreeSWITCH interactive console. It connects to the Event Socket in inbound mode using the same ESL protocol as any other client. By default it connects to `127.0.0.1:8021` with the password `ClueCon`.
 

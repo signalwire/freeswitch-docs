@@ -13,6 +13,14 @@ sidebar_label: "mod_pocketsphinx"
 
 Reach for this module when you need basic, low-latency, fully on-premise speech recognition with a tightly constrained vocabulary. It supports 8 kHz (narrowband) and 16 kHz (wideband) audio and returns results as an XML result block including a confidence score.
 
+## Table of Contents
+
+- [Loading the Module](#loading-the-module)
+- [Configuration: pocketsphinx.conf.xml](#configuration-pocketsphinxconfxml)
+- [Dialplan Applications](#dialplan-applications)
+- [Runtime Parameters (per-session)](#runtime-parameters-per-session)
+- [Dependencies](#dependencies)
+
 ## Loading the Module
 
 The module name is `mod_pocketsphinx`. In the vanilla `modules.conf.xml` it is commented out and is **not** loaded by default:
@@ -42,7 +50,7 @@ Model files are resolved relative to `$${grammar_dir}/model/<model-name>`. The d
 | `start-input-timers` | If `true`, input timers (`no-input-timeout` and `speech-timeout`) start immediately when the grammar is loaded rather than waiting for a caller-side start command. | `true` / `false` | `false` |
 | `no-input-timeout` | Milliseconds of silence before the engine reports a no-input result (requires input timers to be active). | Integer (ms) | `4000` |
 | `speech-timeout` | Milliseconds after speech onset before the engine forces end-of-utterance processing (requires input timers to be active). | Integer (ms) | `1000` |
-| `confidence_threshold` | Minimum confidence score (0–100 integer) required to return a match; results below this value produce a no-match result instead. `0` disables the check. Note the underscore: in the config file this parameter is parsed as `confidence_threshold`, so a hyphenated `confidence-threshold` entry is silently ignored. (The per-session runtime parameter set via `detect_speech set` uses the hyphenated `confidence-threshold`.) | Integer (0–100) | `0` |
+| `confidence_threshold` | Minimum confidence score (0–100 integer) required to return a match; results below this value produce a no-match result instead. `0` disables the check. Note the underscore: in the config file this parameter is parsed as `confidence_threshold`, so a hyphenated `confidence-threshold` entry is silently ignored. (The per-session runtime parameter set via `detect_speech param` uses the hyphenated `confidence-threshold`.) | Integer (0–100) | `0` |
 
 Example excerpt from the shipped `pocketsphinx.conf.xml`:
 
@@ -69,17 +77,17 @@ Example excerpt from the shipped `pocketsphinx.conf.xml`:
 |---|---|---|
 | `detect_speech` | Open a PocketSphinx recognition session, load a grammar, and begin listening | `pocketsphinx <grammar-name> <grammar-name> [<param>=<value> ...]` |
 
-The grammar argument is a name or path resolved to a `.gram` JSGF file. Per-session parameters (`no-input-timeout`, `speech-timeout`, `start-input-timers`, `confidence-threshold`) can be set after opening by calling `detect_speech` with the `set` sub-command.
+The grammar argument is a name or path resolved to a `.gram` JSGF file. Per-session parameters (`no-input-timeout`, `speech-timeout`, `start-input-timers`, `confidence-threshold`) can be set after opening by calling `detect_speech` with the `param` sub-command.
 
 ```xml
 <!-- Open a recognition session with grammar "menu" -->
 <action application="detect_speech" data="pocketsphinx menu menu"/>
 
 <!-- Override the no-input timeout for this session -->
-<action application="detect_speech" data="set no-input-timeout 5000"/>
+<action application="detect_speech" data="param no-input-timeout 5000"/>
 
 <!-- Start input timers explicitly -->
-<action application="detect_speech" data="start_input_timers"/>
+<action application="detect_speech" data="start-input-timers"/>
 
 <!-- Pause recognition -->
 <action application="detect_speech" data="pause"/>
@@ -95,7 +103,7 @@ Results are delivered to the dialplan as `DETECTED_SPEECH` events. The result pa
 
 ## Runtime Parameters (per-session)
 
-The following parameters can be adjusted per-session via `detect_speech set <param> <value>` after the session is opened. They override the global defaults for that session only.
+The following parameters can be adjusted per-session via `detect_speech param <name> <value>` after the session is opened. They override the global defaults for that session only.
 
 | Parameter | Purpose | Accepted Values |
 |---|---|---|

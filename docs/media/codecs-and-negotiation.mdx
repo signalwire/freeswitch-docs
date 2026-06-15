@@ -13,33 +13,35 @@ FreeSWITCH selects codecs through a standard SDP offer/answer exchange and appli
 
 ## Table of Contents
 
-- [16.1 How Codec Negotiation Works](#161-how-codec-negotiation-works)
-- [16.2 Codec Preference Strings](#162-codec-preference-strings)
-  - [16.2.1 Global Variables](#1621-global-variables)
-  - [16.2.2 SIP Profile Parameters](#1622-sip-profile-parameters)
-  - [16.2.3 Channel Variables](#1623-channel-variables)
-- [16.3 Inbound Codec Negotiation Policy](#163-inbound-codec-negotiation-policy)
-- [16.4 Ptime and the Codec String Format](#164-ptime-and-the-codec-string-format)
-- [16.5 Transcoding](#165-transcoding)
-- [16.6 SRTP Crypto Suites](#166-srtp-crypto-suites)
-- [16.7 Bundled Codec Reference](#167-bundled-codec-reference)
-- [16.8 Opus Configuration](#168-opus-configuration)
-- [16.9 AMR Configuration](#169-amr-configuration)
-- [16.10 AMR-WB Configuration](#1610-amr-wb-configuration)
+- [How Codec Negotiation Works](#how-codec-negotiation-works)
+- [Codec Preference Strings](#codec-preference-strings)
+  - [Global Variables](#global-variables)
+  - [SIP Profile Parameters](#sip-profile-parameters)
+  - [Channel Variables](#channel-variables)
+- [Inbound Codec Negotiation Policy](#inbound-codec-negotiation-policy)
+- [Ptime and the Codec String Format](#ptime-and-the-codec-string-format)
+- [Transcoding](#transcoding)
+- [SRTP Crypto Suites](#srtp-crypto-suites)
+- [Bundled Codec Reference](#bundled-codec-reference)
+- [Opus Configuration](#opus-configuration)
+- [AMR Configuration](#amr-configuration)
+- [AMR-WB Configuration](#amr-wb-configuration)
+- [H.264/H.263 (mod_av) Configuration](#h264h263-mod_av-configuration)
+- [VP8/VP9 (mod_vpx) Configuration](#vp8vp9-mod_vpx-configuration)
 
 ---
 
-## 16.1 How Codec Negotiation Works
+## How Codec Negotiation Works {#how-codec-negotiation-works}
 
 FreeSWITCH follows RFC 3264 offer/answer semantics. When an inbound INVITE arrives, `mod_sofia` compares the codec list in the remote SDP offer against the locally configured preference list. The intersection, ordered by the local preference list (or the remote list, depending on the negotiation policy described in section 16.3), becomes the negotiated codec set for the session.
 
 For outbound calls, FreeSWITCH generates an SDP offer from the outbound codec preference list and accepts the first mutually supported codec in the answer.
 
-When a call is bridged between two legs that share a common codec and transcoding is not required, FreeSWITCH can pass RTP directly between legs without decoding or re-encoding the audio. When the two legs do not share a codec, or when features that require media access (such as recording or conferencing) are in use, FreeSWITCH decodes and re-encodes the audio, performing transcoding between the two legs.
+When a call is bridged between two legs that share a common codec and transcoding is not required, FreeSWITCH can pass RTP directly between legs without decoding or re-encoding the audio (see [Chapter 17: Media Handling](../media/media-handling.mdx) for the media modes that govern whether RTP flows through the server). When the two legs do not share a codec, or when features that require media access (such as recording or conferencing) are in use, FreeSWITCH decodes and re-encodes the audio, performing transcoding between the two legs.
 
 ---
 
-## 16.2 Codec Preference Strings
+## Codec Preference Strings {#codec-preference-strings}
 
 A codec preference string is a comma-separated list of codec tokens. Each token identifies a codec and, optionally, a sample rate and packetization time. The resolution order from highest to lowest precedence is:
 
@@ -48,7 +50,7 @@ A codec preference string is a comma-separated list of codec tokens. Each token 
 3. The SIP profile `inbound-codec-prefs` or `outbound-codec-prefs` parameter
 4. The `global_codec_prefs` or `outbound_codec_prefs` global variable
 
-### 16.2.1 Global Variables
+### Global Variables {#global-variables}
 
 Defined in `conf/vanilla/vars.xml`:
 
@@ -59,7 +61,7 @@ Defined in `conf/vanilla/vars.xml`:
 
 `global_codec_prefs` is the default inbound codec preference list. `outbound_codec_prefs` is the default outbound codec preference list. Both are preprocessor variables, meaning they are expanded at configuration load time and are available to other config files as `$${global_codec_prefs}` and `$${outbound_codec_prefs}`.
 
-### 16.2.2 SIP Profile Parameters
+### SIP Profile Parameters {#sip-profile-parameters}
 
 Within a SIP profile (`conf/vanilla/sip_profiles/*.xml`), two parameters control per-profile codec preferences:
 
@@ -77,7 +79,7 @@ The vanilla internal profile sets both to `$${global_codec_prefs}`:
 
 A profile-level codec preference overrides the global variable for calls handled by that profile.
 
-### 16.2.3 Channel Variables
+### Channel Variables {#channel-variables}
 
 Two channel variables allow per-call codec control from the dialplan or an ESL application:
 
@@ -96,7 +98,7 @@ Using `absolute_codec_string` prevents FreeSWITCH from adapting to what the othe
 
 ---
 
-## 16.3 Inbound Codec Negotiation Policy
+## Inbound Codec Negotiation Policy {#inbound-codec-negotiation-policy}
 
 The `inbound-codec-negotiation` SIP profile parameter controls which side's preference order wins during inbound codec selection.
 
@@ -114,7 +116,7 @@ The default for profiles that do not set this parameter explicitly is `generous`
 
 ---
 
-## 16.4 Ptime and the Codec String Format
+## Ptime and the Codec String Format {#ptime-and-the-codec-string-format}
 
 The general format for a codec token in a preference string is:
 
@@ -122,7 +124,7 @@ The general format for a codec token in a preference string is:
 codecname[@<samplerate>h[@<ptime>i]]
 ```
 
-- `codecname` is the IANA codec name as used by FreeSWITCH (case-insensitive in configuration, but the canonical forms are shown in the table in section 16.7).
+- `codecname` is the IANA codec name as used by FreeSWITCH (case-insensitive in configuration; the canonical forms are listed in [Appendix B: Codec Reference Table](../reference/appendix-codec-table.mdx) and summarized in section 16.7).
 - `@<samplerate>h` specifies the sample rate in Hz. Required for codecs that operate at multiple rates (for example, `speex@8000h` vs `speex@16000h`). Omit for codecs with a single defined rate.
 - `@<ptime>i` specifies the packetization time in milliseconds. The value must be a multiple of the codec's frame size. Omit to use the codec's default ptime.
 
@@ -147,7 +149,7 @@ FreeSWITCH supports ptimes from 10 ms to 120 ms on many codecs, subject to the c
 
 ---
 
-## 16.5 Transcoding
+## Transcoding {#transcoding}
 
 FreeSWITCH transcodes automatically when the two legs of a bridged call do not share a codec. No explicit configuration is required to enable transcoding; it occurs whenever the negotiated codecs on the A-leg and B-leg differ and the relevant codec modules are loaded.
 
@@ -161,105 +163,35 @@ Transcoding is suppressed in two cases:
 
 2. **`absolute_codec_string` channel variable.** When this variable is set, FreeSWITCH skips the merge of inbound and outbound codec sets and presents only the specified list to the outbound leg. If the outbound endpoint cannot match any of those codecs, the call fails.
 
-For features that require FreeSWITCH to access the media stream (conference, recording, playback, speech detection), transcoding always occurs regardless of these settings, because the media must be decoded to PCM for processing.
+For features that require FreeSWITCH to access the media stream (conference, recording, [playback of audio files and streams](../media/audio-files-and-streaming.mdx), speech detection), transcoding always occurs regardless of these settings, because the media must be decoded to PCM for processing.
 
 ---
 
-## 16.6 SRTP Crypto Suites
+## SRTP Crypto Suites {#srtp-crypto-suites}
 
-When SRTP is enabled via the `rtp_secure_media` variable, FreeSWITCH offers crypto suites in the order defined by `rtp_sdes_suites`. The default suite list from `conf/vanilla/vars.xml` is:
+SRTP secures the media transport rather than the codec/SDP negotiation that is the subject of this chapter, so the full crypto-suite catalog, the `rtp_secure_media` negotiation modes, and the `rtp_sdes_suites` global list are documented in [Chapter 17, section 17.8: Secure Media with SRTP](../media/media-handling.mdx#secure-media-with-srtp). In summary, when SRTP is enabled via the `rtp_secure_media` variable FreeSWITCH offers crypto suites in the order defined by `rtp_sdes_suites` (pipe-delimited, strongest first), and the negotiated suite is the first entry the remote endpoint also supports. FreeSWITCH supports the AES-CM (HMAC-SHA1) suites and the AES-GCM authenticated-encryption suites (RFC 7714 for the SRTP-AES-GCM suites).
 
-```xml
-<X-PRE-PROCESS cmd="set" data="rtp_sdes_suites=AEAD_AES_256_GCM_8|AEAD_AES_128_GCM_8|AES_CM_256_HMAC_SHA1_80|AES_CM_192_HMAC_SHA1_80|AES_CM_128_HMAC_SHA1_80|AES_CM_256_HMAC_SHA1_32|AES_CM_192_HMAC_SHA1_32|AES_CM_128_HMAC_SHA1_32|AES_CM_128_NULL_AUTH"/>
-```
-
-Suites are separated by `|` and offered in left-to-right order (strongest first). The negotiated suite is the first entry in this list that the remote endpoint also supports.
-
-| Suite | Key length | Auth tag | Notes |
-|---|---|---|---|
-| `AEAD_AES_256_GCM_8` | 256-bit | 64-bit | GCM authenticated encryption; 8-octet tag (RFC 7714) |
-| `AEAD_AES_128_GCM_8` | 128-bit | 64-bit | GCM authenticated encryption; 8-octet tag (RFC 7714) |
-| `AES_CM_256_HMAC_SHA1_80` | 256-bit | 80-bit | AES counter mode, HMAC-SHA1 |
-| `AES_CM_192_HMAC_SHA1_80` | 192-bit | 80-bit | AES counter mode, HMAC-SHA1 |
-| `AES_CM_128_HMAC_SHA1_80` | 128-bit | 80-bit | SRTP default cipher (RFC 3711) |
-| `AES_CM_256_HMAC_SHA1_32` | 256-bit | 32-bit | Short tag; 30-octet key+salt required |
-| `AES_CM_192_HMAC_SHA1_32` | 192-bit | 32-bit | Short tag |
-| `AES_CM_128_HMAC_SHA1_32` | 128-bit | 32-bit | Short tag |
-| `AES_CM_128_NULL_AUTH` | 128-bit | None | No authentication; not recommended (RFC 3711 section 7.5) |
-
-The `rtp_secure_media` variable controls SRTP negotiation mode. Its accepted values are:
-
-| Value | Behavior |
-|---|---|
-| `mandatory` or `true` | Accept and offer SAVP only. Calls that do not negotiate SRTP are rejected. |
-| `optional` | Offer and accept both SAVP and AVP; prefer SAVP. |
-| `forbidden` or `false` | Deny SAVP negotiation on inbound; do not offer SAVP on outbound. |
-
-Direction-specific overrides are available as `rtp_secure_media_inbound` and `rtp_secure_media_outbound`, using the same value set.
-
-To restrict which suites are offered without embedding them in `rtp_secure_media`, set `rtp_sdes_suites` to the desired pipe-delimited list, then set `rtp_secure_media` independently:
-
-```xml
-<X-PRE-PROCESS cmd="set" data="rtp_sdes_suites=AEAD_AES_256_GCM_8|AES_CM_128_HMAC_SHA1_80"/>
-```
-
-You can also specify suites inline with `rtp_secure_media` using a colon-separated suffix:
-
-```xml
-<action application="set" data="rtp_secure_media=mandatory:AES_CM_256_HMAC_SHA1_80:AES_CM_128_HMAC_SHA1_80"/>
-```
-
-Note from `vars.xml`: when using SRTP, variable-bitrate codecs should not be offered or accepted, as VBR payloads can leak information through packet size variation and compromise the SRTP stream.
+The one point that bears directly on codec negotiation: when using SRTP, variable-bitrate codecs should not be offered or accepted, as VBR payloads can leak information through packet size variation and compromise the SRTP stream (note from `vars.xml`). Prefer fixed-rate codecs, or Opus at a fixed bitrate (`use-vbr=0`), on secure calls.
 
 ---
 
-## 16.7 Bundled Codec Reference
+## Bundled Codec Reference {#bundled-codec-reference}
 
-The following codec modules are present in `src/mod/codecs/` (audio) or provided by `mod_av` / the built-in VPX implementation (video). All modules listed below ship with the FreeSWITCH source tree; some require external libraries and must be explicitly compiled and loaded.
+The exhaustive catalog of bundled codec modules — every codec's IANA name, confirmed sample rates, configuration file, module location, external-library requirements, and whether the module loads by default in the vanilla `modules.conf.xml` — lives in [Appendix B: Codec Reference Table](../reference/appendix-codec-table.mdx). Consult it when you need the full inventory; the rest of this section covers only the points that affect how codecs appear in a preference string.
 
-Audio codecs whose module column shows "Built-in" are registered by the FreeSWITCH core at startup without loading a separate `.so` file. `mod_spandsp` provides G.722, G.726, DVI4, GSM, and LPC. `mod_speex` (the internal Speex wrapper, `CORE_SPEEX_MODULE`) provides Speex.
+When writing a preference string (section 16.2) or an `absolute_codec_string`, use the codec's IANA token as listed in Appendix B — for example `OPUS`, `PCMU`, `PCMA`, `G722`, `G729`, `AMR`, `H264`, or `VP8`. A few tokens carry negotiation- or ptime-specific nuances worth keeping in mind:
 
-| Codec | Module | Sample rates | Notes / config file |
-|---|---|---|---|
-| `OPUS` | `mod_opus` | 8000, 12000, 16000, 24000, 48000 Hz (always negotiated at 48000 Hz on the wire) | Full encoder/decoder. Requires libopus. See `opus.conf.xml` (section 16.8). |
-| `PCMU` | Built-in (`switch_pcm.c`) | 8000 Hz | G.711 mu-law. No external library required. |
-| `PCMA` | Built-in (`switch_pcm.c`) | 8000 Hz | G.711 A-law. No external library required. |
-| `L16` | Built-in (`switch_pcm.c`) | 8000-48000 Hz | Linear 16-bit PCM. Can exceed the RTP MTU at higher rates; use with caution. |
-| `G722` | `mod_spandsp` | 16000 Hz | G.722 wideband. Requires libspandsp. |
-| `G726-16` | `mod_spandsp` | 8000 Hz | G.726 ADPCM 16 kbit/s. |
-| `G726-24` | `mod_spandsp` | 8000 Hz | G.726 ADPCM 24 kbit/s. |
-| `G726-32` | `mod_spandsp` | 8000 Hz | G.726 ADPCM 32 kbit/s. |
-| `G726-40` | `mod_spandsp` | 8000 Hz | G.726 ADPCM 40 kbit/s. |
-| `AAL2-G726-16` | `mod_spandsp` | 8000 Hz | G.726 16 kbit/s with AAL2 packing. |
-| `AAL2-G726-24` | `mod_spandsp` | 8000 Hz | G.726 24 kbit/s with AAL2 packing. |
-| `AAL2-G726-32` | `mod_spandsp` | 8000 Hz | G.726 32 kbit/s with AAL2 packing. |
-| `AAL2-G726-40` | `mod_spandsp` | 8000 Hz | G.726 40 kbit/s with AAL2 packing. |
-| `DVI4` | `mod_spandsp` | 8000, 16000 Hz | IMA ADPCM. Multiples of 10 ms. |
-| `GSM` | `mod_spandsp` | 8000 Hz | GSM 06.10. Default 20 ms; multiples of 20 ms only. |
-| `LPC` | `mod_spandsp` | 8000 Hz | LPC-10. Only 90 ms ptime supported. |
-| `speex` | Built-in (`switch_speex.c`) | 8000, 16000, 32000 Hz | Speex narrowband, wideband, and ultra-wideband. |
-| `G729` | `mod_g729` | 8000 Hz | Pass-through only (no transcoding without a licensed DSP library). |
-| `G723` | `mod_g723_1` | 8000 Hz | G.723.1 pass-through only. |
-| `AMR` | `mod_amr` | 8000 Hz | AMR narrowband. Octet-aligned and bandwidth-efficient modes. Requires opencore-amrnb for full encode/decode; pass-through otherwise. See `amr.conf.xml` (section 16.9). |
-| `AMR-WB` | `mod_amrwb` | 16000 Hz | AMR wideband. Octet-aligned and bandwidth-efficient modes. Requires opencore-amrwb/vo-amrwbenc for full encode/decode; pass-through otherwise. See `amrwb.conf.xml` (section 16.10). |
-| `iLBC` | `mod_ilbc` | 8000 Hz | Supports 20 ms (mode 20) and 30 ms (mode 30) frame sizes. Use `iLBC@30i` to force mode 30. |
-| `SILK` | `mod_silk` | 8000, 12000, 16000, 24000 Hz | Skype narrowband/wideband codec. Requires libSKP_SILK_SDK. |
-| `G7221` | `mod_siren` | 16000, 32000 Hz | G.722.1 (Siren 7 at 16 kHz) and G.722.1C (Siren 14 at 32 kHz). |
-| `BV16` | `mod_bv` | 8000 Hz | BroadVoice 16 narrowband (16 kbit/s). |
-| `BV32` | `mod_bv` | 16000 Hz | BroadVoice 32 wideband (32 kbit/s). |
-| `CODEC2` | `mod_codec2` | 8000 Hz | Low-bitrate open codec (3200/2400/1400/1200 bps). Requires libcodec2. |
-| `b64` | `mod_b64` | 8000, 16000, 32000 Hz | Base64-encoded audio; primarily for testing. |
-| `H264` | `mod_av` | Video | H.264 via libavcodec. See `av.conf.xml`. Also available via `mod_openh264` (Cisco OpenH264). |
-| `H263` | `mod_av` | Video | H.263 via libavcodec. |
-| `H263-1998` | `mod_av` | Video | H.263+ (RFC 2429) via libavcodec. |
-| `VP8` | Built-in (`switch_vpx.c`) | Video | VP8 via libvpx. See `vpx.conf.xml`. |
-| `VP9` | Built-in (`switch_vpx.c`) | Video | VP9 via libvpx. See `vpx.conf.xml`. |
+- `OPUS` is negotiated at 48000 Hz on the wire regardless of the internal sample rate, so a preference string lists it as plain `OPUS` (no `@<samplerate>h`).
+- `speex` operates at three rates and therefore requires an explicit rate token: `speex@8000h`, `speex@16000h`, or `speex@32000h`.
+- `iLBC` supports a 20 ms (mode 20) and a 30 ms (mode 30) frame size; use `iLBC@30i` in the preference string to force mode 30.
+- `GSM` packetizes in multiples of 20 ms and `LPC` only at 90 ms, so a ptime token such as `GSM@40i` must respect the codec's frame-size constraint (section 16.4).
+- The video tokens `H264`, `H263`, `H263-1998`, `VP8`, and `VP9` are listed in a preference string by name; their per-codec tuning is in sections 16.11 and 16.12, not the preference string.
 
-Note: `mod_com_g729` (in `src/mod/codecs/mod_com_g729/`) is a separate commercial G.729 module with full encode/decode support, distinct from the pass-through `mod_g729`.
+Per-module audio and video configuration files referenced from a preference string are documented later in this chapter: Opus (`opus.conf.xml`, section 16.8), AMR (`amr.conf.xml`, section 16.9), AMR-WB (`amrwb.conf.xml`, section 16.10), H.264/H.263 (`av.conf.xml`, section 16.11), and VP8/VP9 (`vpx.conf.xml`, section 16.12).
 
 ---
 
-## 16.8 Opus Configuration
+## Opus Configuration {#opus-configuration}
 
 `mod_opus` is configured in `conf/vanilla/autoload_configs/opus.conf.xml`. All parameters apply globally to the Opus encoder and decoder for every call using the Opus codec.
 
@@ -309,7 +241,7 @@ The `use-vbr` parameter controls the SDP `cbr` fmtp attribute: when `use-vbr=0`,
 
 ---
 
-## 16.9 AMR Configuration
+## AMR Configuration {#amr-configuration}
 
 `mod_amr` is configured in `conf/vanilla/autoload_configs/amr.conf.xml`. When compiled without `opencore-amrnb`, the module operates in pass-through mode only and the encoder/decoder parameters below have no effect.
 
@@ -350,7 +282,7 @@ The `mode-set`, `octet-align`, `mode-change-period`, `mode-change-neighbor`, `cr
 
 ---
 
-## 16.10 AMR-WB Configuration
+## AMR-WB Configuration {#amr-wb-configuration}
 
 `mod_amrwb` is configured in `conf/vanilla/autoload_configs/amrwb.conf.xml`. When compiled without `opencore-amrwb`/`vo-amrwbenc`, the module operates in pass-through mode only.
 
@@ -389,3 +321,142 @@ AMR-WB mode index to bitrate mapping:
 | `6` | 19.85 kbit/s |
 | `7` | 23.05 kbit/s |
 | `8` | 23.85 kbit/s |
+
+---
+
+## H.264/H.263 (mod_av) Configuration {#h264h263-mod_av-configuration}
+
+`mod_av` provides the H.264, H.263, and H.263+ video codecs through libavcodec (FFmpeg). The codec side of the module is configured in `conf/vanilla/autoload_configs/av.conf.xml`, which contains two configuration blocks: `avcodec.conf` (the encoder/decoder settings and per-profile parameters documented here) and `avformat.conf` (used by the recording/playback side of `mod_av`, with a single `colorspace` setting). The vanilla file ships `avformat.conf` with `colorspace=1` (BT.709).
+
+### avcodec.conf settings {#avcodecconf-settings}
+
+The `<settings>` block applies module-wide. The shipped vanilla `av.conf.xml` sets only `dec-threads` and `enc-threads`; the others are present as commented examples. Defaults shown are the effective values applied after the config is loaded (out-of-range or unset values are clamped to these).
+
+| Parameter | Purpose | Accepted Values | Default |
+|---|---|---|---|
+| `max-bitrate` | Maximum bitrate the system will encode at; the encoder bandwidth is truncated to this value. A bandwidth string such as `5mb` is parsed. | Bandwidth string (e.g. `5mb`, `2000k`) | calculated for 1920x1080 @ 5 fps (used when unset or `<= 0`) |
+| `rtp-slice-size` | Maximum RTP payload size (before encryption) for packetized video. Values outside the valid range are reset to the default. | `500` to `1500` | `1200` |
+| `key-frame-min-freq` | Minimum interval between generated key frames, in milliseconds. Values outside the valid range are reset to the default. | `10` to `3000` (ms) | `250` |
+| `dec-threads` | Decoder thread count. Accepts an integer, `auto`, or a `cpu` expression. | integer, `auto`, or `cpu/<divisor>/<max>` | `1` |
+| `enc-threads` | Encoder thread count. Accepts an integer, `auto`, or a `cpu` expression. | integer, `auto`, or `cpu/<divisor>/<max>` | `cpu/2/4` |
+
+### Per-profile H.264/H.263 parameters {#per-profile-h264h263-parameters}
+
+Profiles are defined under `<profiles>` as `<profile name="...">` elements. The vanilla file ships profiles named `H263`, `H263+`, `H264`, `H265`, `conference`, and `conference-H264`. The `conference` profile maps codec names to profiles for conference video via a `<codecs>` block. Each profile accepts the following `<param>` entries, which map to libavcodec `AVCodecContext` fields:
+
+| Parameter | Purpose | Accepted Values | Default |
+|---|---|---|---|
+| `dec-threads` | Decoder thread count for this profile | integer, `auto`, or `cpu/<divisor>/<max>` | inherits settings `dec-threads` |
+| `enc-threads` | Encoder thread count for this profile | integer, `auto`, or `cpu/<divisor>/<max>` | inherits settings `enc-threads` |
+| `profile` | Codec profile. For H.264, the names `baseline`, `main`, `high` are accepted, or a numeric libavcodec profile id. | `baseline` \| `main` \| `high` \| integer | `baseline` (FF_PROFILE_H264_BASELINE) |
+| `level` | Codec level (e.g. H.264 level 3.1 = `31`, 4.1 = `41`) | integer | `31` |
+| `timebase` | Encoder time base as `num/den` | `<num>/<den>` (e.g. `1/90`) | unset (libavcodec default) |
+| `flags` | libavcodec encoder flags; pipe-delimited list of flag tokens (see vocabulary below) | pipe-delimited tokens, e.g. `LOOP_FILTER\|PSNR` | unset |
+| `me-cmp` | Motion-estimation comparison function | integer | libavcodec default |
+| `me-range` | Motion-estimation search range | integer | libavcodec default |
+| `max-b-frames` | Maximum number of B-frames between non-B-frames | integer | libavcodec default |
+| `refs` | Number of reference frames | integer | libavcodec default |
+| `gop-size` | Group-of-pictures size (key-frame interval in frames) | integer | libavcodec default |
+| `keyint-min` | Minimum GOP size | integer | libavcodec default |
+| `i-quant-factor` | I-frame quantizer factor relative to P-frames | float | libavcodec default |
+| `b-quant-factor` | B-frame quantizer factor relative to P-frames | float | libavcodec default |
+| `qcompress` | Quantizer curve compression factor | float (`0.0` to `1.0`) | libavcodec default |
+| `qmin` | Minimum quantizer | integer | libavcodec default |
+| `qmax` | Maximum quantizer | integer | libavcodec default |
+| `max-qdiff` | Maximum quantizer difference between frames | integer | libavcodec default |
+| `colorspace` | YUV colorspace (`AVColorSpace` enum value); values above the supported maximum fall back to RGB | integer (e.g. `0` = RGB/GBR, `1` = BT.709, `5` = BT.470BG, `6` = SMPTE170M) | `0` in vanilla H264 profile |
+| `color-range` | Color range (`AVColorRange` enum value); out-of-range values reset to `0` | `0` (unspecified) \| `1` (MPEG/limited) \| `2` (JPEG/full) | `2` in vanilla H264 profile |
+
+The vanilla `H264` profile additionally ships `flags="LOOP_FILTER|PSNR"`.
+
+### Encoder flags vocabulary {#encoder-flags-vocabulary}
+
+The `flags` parameter takes a pipe-delimited (`|`) list. Each token is matched case-insensitively and OR-ed into the libavcodec flag set (only applied if the corresponding `AV_CODEC_FLAG_*` is defined in the linked FFmpeg):
+
+`UNALIGNED`, `QSCALE`, `4MV`, `CORRUPT`, `QPEL`, `PASS1`, `PASS2`, `LOOP_FILTER`, `GRAY`, `PSNR`, `TRUNCATED`, `INTERLACED_DCT`, `LOW_DELAY`, `HEADER` (global header), `BITEXACT`, `AC_PRED`, `INTERLACED_ME`, `CLOSED_GOP`.
+
+### x264 private options passthrough {#x264-private-options-passthrough}
+
+A profile may include an `<options>` block whose `<option>` entries are passed verbatim to the underlying encoder's private option dictionary (for H.264 this is x264). These are not validated by FreeSWITCH; any libx264 option name and value may be supplied.
+
+```xml
+<profile name="H264">
+  <param name="flags" value="LOOP_FILTER|PSNR"/>
+  <options>
+    <option name="preset" value="veryfast"/>
+    <option name="intra_refresh" value="1"/>
+    <option name="tune" value="animation+zerolatency"/>
+    <option name="sc_threshold" value="40"/>
+    <option name="b_strategy" value="1"/>
+    <option name="crf" value="18"/>
+  </options>
+</profile>
+```
+
+The vanilla `H264` profile ships the options above (`crf=18`); the `conference-H264` profile ships the same set with `crf=10` for higher conference quality.
+
+---
+
+## VP8/VP9 (mod_vpx) Configuration {#vp8vp9-mod_vpx-configuration}
+
+The VP8 and VP9 video codecs are provided by the built-in VPX implementation (`src/switch_vpx.c`) using libvpx, not a separately loaded module. They are configured in `conf/vanilla/autoload_configs/vpx.conf.xml`.
+
+### vpx.conf settings {#vpxconf-settings}
+
+The `<settings>` block applies to both VP8 and VP9. In the vanilla file every setting is shipped commented out, so the effective defaults below apply. Out-of-range or unset values are clamped to these defaults after the config is loaded.
+
+| Parameter | Purpose | Accepted Values | Default |
+|---|---|---|---|
+| `debug` | Enable VPX debug logging | integer (`0` = off, non-zero = on) | `0` |
+| `max-bitrate` | Maximum bitrate the system will encode at; the encoder bandwidth is truncated to this value. A bandwidth string is parsed. | Bandwidth string (e.g. `5mb`) | calculated for 1920x1080 @ 5 fps (used when unset or `<= 0`) |
+| `rtp-slice-size` | Maximum RTP payload size before encryption | `500` to `1500` | `1200` |
+| `key-frame-min-freq` | Minimum interval between generated key frames, in milliseconds | `10` to `3000` (ms) | `250` |
+| `dec-threads` | Default decoder thread count (per-profile fallback) | integer, `auto`, or `cpu/<divisor>/<max>` | `cpu/2/4` (per-profile effective default) |
+| `enc-threads` | Default encoder thread count (per-profile fallback) | integer, `auto`, or `cpu/<divisor>/<max>` | `1` (per-profile effective default) |
+
+### Per-profile VP8/VP9 parameters {#per-profile-vp8vp9-parameters}
+
+Profiles are defined under `<profiles>` as `<profile name="...">` elements. The vanilla file ships profiles named `vp8`, `vp9`, `conference`, and `conference-vp8`. Most parameters map directly to libvpx `vpx_codec_enc_cfg_t` (`enc_cfg`) or `vpx_codec_dec_cfg_t` (`dec_cfg`) fields and are range-checked; an out-of-range value is rejected and the libvpx default is kept. Some parameters apply only to one codec, as noted.
+
+| Parameter | Purpose | Accepted Values | Default |
+|---|---|---|---|
+| `dec-threads` | Decoder thread count | integer, `auto`, or `cpu/<divisor>/<max>` (min `1`) | `cpu/2/4` |
+| `enc-threads` | Encoder thread count (`g_threads`) | integer, `auto`, or `cpu/<divisor>/<max>` (min `1`) | `1` |
+| `g-profile` | libvpx bitstream profile (`g_profile`) | `0` to `3` | libvpx default (vanilla `vp9` profile sets `0`) |
+| `g-error-resilient` | Error-resilience flags (`g_error_resilient`); pipe-delimited | `DEFAULT` \| `PARTITIONS` (pipe-delimited) | libvpx default |
+| `g-pass` | Encoding pass (`g_pass`) | `ONE_PASS` \| `FIRST_PASS` \| `LAST_PASS` | libvpx default |
+| `g-lag-in-frames` | Frames the encoder may consume before producing output (`g_lag_in_frames`) | `0` to `25` | libvpx default |
+| `rc_dropframe_thresh` | Frame-drop threshold for rate control (`rc_dropframe_thresh`). Note: the code matches this name with underscores. | `0` to `100` | libvpx default |
+| `rc-resize-allowed` | Allow spatial resampling (`rc_resize_allowed`) | `0` or `1` | libvpx default |
+| `rc-scaled-width` | Internal scaled width (`rc_scaled_width`) | `0` or greater | libvpx default |
+| `rc-scaled-height` | Internal scaled height (`rc_scaled_height`) | `0` or greater | libvpx default |
+| `rc-resize-up-thresh` | Upscale trigger threshold (`rc_resize_up_thresh`) | `0` to `100` | libvpx default |
+| `rc-resize-down-thresh` | Downscale trigger threshold (`rc_resize_down_thresh`) | `0` to `100` | libvpx default |
+| `rc-end-usage` | Rate-control mode (`rc_end_usage`) | `VBR` \| `CBR` \| `CQ` \| `Q` | libvpx default |
+| `rc-target-bitrate` | Target bitrate (`rc_target_bitrate`); bandwidth string parsed | Bandwidth string (e.g. `1mb`), min `1` | libvpx default |
+| `rc-min-quantizer` | Minimum quantizer (`rc_min_quantizer`) | `0` to `63` | libvpx default |
+| `rc-max-quantizer` | Maximum quantizer (`rc_max_quantizer`) | `0` to `63` | libvpx default |
+| `rc-undershoot-pct` | Undershoot percentage (`rc_undershoot_pct`) | `0` to `100` (VP9) / `0` to `1000` (VP8) | libvpx default |
+| `rc-overshoot-pct` | Overshoot percentage (`rc_overshoot_pct`) | `0` to `100` (VP9) / `0` to `1000` (VP8) | libvpx default |
+| `rc-buf-sz` | Decoder buffer size in ms (`rc_buf_sz`) | `1` or greater | libvpx default |
+| `rc-buf-initial-sz` | Initial decoder buffer size in ms (`rc_buf_initial_sz`) | `1` or greater | libvpx default |
+| `rc-buf-optimal-sz` | Optimal decoder buffer size in ms (`rc_buf_optimal_sz`) | `1` or greater | libvpx default |
+| `rc-2pass-vbr-bias-pct` | Two-pass VBR bias (`rc_2pass_vbr_bias_pct`) | `0` to `100` | libvpx default |
+| `rc-2pass-vbr-minsection-pct` | Two-pass VBR min section (`rc_2pass_vbr_minsection_pct`) | `1` or greater | libvpx default |
+| `rc-2pass-vbr-maxsection-pct` | Two-pass VBR max section (`rc_2pass_vbr_maxsection_pct`) | `1` or greater | libvpx default |
+| `kf-mode` | Key-frame placement mode (`kf_mode`) | `AUTO` \| `DISABLED` | libvpx default |
+| `kf-min-dist` | Minimum key-frame interval (`kf_min_dist`) | `0` or greater | libvpx default |
+| `kf-max-dist` | Maximum key-frame interval (`kf_max_dist`) | `0` or greater | libvpx default |
+| `ss-number-layers` | Number of spatial layers (`ss_number_layers`) | `0` to `VPX_SS_MAX_LAYERS` | libvpx default |
+| `ts-number-layers` | Number of temporal layers (`ts_number_layers`); locked for VP9 | `0` to `VPX_SS_MAX_LAYERS` (VP8); locked (VP9) | libvpx default |
+| `ts-periodicity` | Temporal layering periodicity (`ts_periodicity`); locked for VP9 | `0` to `16` (VP8); locked (VP9) | libvpx default |
+| `temporal-layering-mode` | Temporal layering mode (`temporal_layering_mode`); locked for VP9 | `0` to `3` (VP8); locked (VP9) | libvpx default |
+| `lossless` | VP9 lossless mode (set via codec_control). VP9 only. | `0` or `1` | `0` |
+| `cpuused` | Encoder speed/quality trade-off (set via codec_control) | `-16` to `16` (VP8) / `-8` to `8` (VP9) | libvpx default |
+| `token-parts` | Token partition count (set via codec_control) | `cpu` expression or integer, `1` to `8` partitions | libvpx default |
+| `static-thresh` | Static-content threshold (set via codec_control) | `0` or greater | libvpx default |
+| `noise-sensitivity` | Temporal denoising level (set via codec_control). VP8 only. | `0` to `6` | libvpx default |
+| `max-intra-bitrate-pct` | Maximum intra-frame bitrate as a percentage (set via codec_control). VP8 only. | `0` or greater | libvpx default |
+| `vp9e-tune-content` | VP9 content tuning (set via codec_control). VP9 only. | `DEFAULT` \| `SCREEN` | libvpx default |
+
+Parameters marked "set via codec_control" are applied to the live encoder through libvpx control calls rather than the initial `enc_cfg`. The `conference` profile uses a `<codecs>` block to bind codec names (`vp8`, `vp9`) to the profiles applied for conference video; the vanilla `conference-vp8` profile demonstrates an explicit CBR configuration tuned for conferencing.

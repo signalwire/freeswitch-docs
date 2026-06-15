@@ -13,6 +13,18 @@ sidebar_label: "mod_json_cdr"
 
 Reach for `mod_json_cdr` when your billing platform, data warehouse, or analytics pipeline consumes JSON rather than CSV or XML. It supports up to 20 HTTP endpoints with per-attempt retry, configurable payload encoding (raw JSON, URL-encoded form data, or Base64), mutual TLS, and per-channel log-directory overrides.
 
+## Table of Contents
+
+- [Loading the Module](#loading-the-module)
+- [Configuration: json_cdr.conf.xml](#configuration-json_cdrconfxml)
+- [Dialplan Applications](#dialplan-applications)
+- [API Commands](#api-commands)
+- [Channel Variables](#channel-variables)
+- [JSON Document Schema](#json-document-schema)
+- [File Delivery](#file-delivery)
+- [HTTP Delivery](#http-delivery)
+- [See also](#see-also)
+
 ## Loading the Module
 
 The module is **not** loaded by default. The vanilla `modules.conf.xml` does not include an entry for it. Add it manually:
@@ -46,7 +58,7 @@ All parameters live inside a `<settings>` block. No parameter is strictly requir
 | `rotate` | On SIGHUP, rotate the log directories into timestamped subdirectories (`YYYY-MM-DD-HH-MM-SS`). | `true`, `false` | `false` |
 | `log-http-and-disk` | Write every record to disk even when HTTP POST succeeds. Normally disk writing is skipped when a `url` is configured and the POST returns 2xx. | `true`, `false` | `false` |
 | `url` | HTTP or HTTPS endpoint to POST records to. Repeat the parameter up to 20 times to specify additional failover URLs. The session UUID is appended as `?uuid=<uuid>`. | URL string | None |
-| `timeout` | Total HTTP transaction timeout in seconds. `0` disables the timeout. | Integer ≥ 0 | `5` |
+| `timeout` | Total HTTP transaction timeout in seconds. `0` disables the timeout. | Integer ≥ 0 | `0` (vanilla conf ships `5`) |
 | `cred` | HTTP credentials in `username:password` form. When set, HTTP authentication is enabled using the `auth-scheme` (default `basic`). | String | None |
 | `auth-scheme` | HTTP authentication scheme. Prefix the value with `=` to use that scheme exclusively (e.g. `=digest`); without the prefix, schemes are ORed (libcurl picks). | `basic`, `digest`, `NTLM`, `GSS-NEGOTIATE`, `any` | `basic` |
 | `encode` | Encoding applied to the JSON payload before POST. `true` sends URL-encoded form data (`Content-Type: application/x-www-form-urlencoded`); `base64` sends Base64-encoded data (`Content-Type: application/x-www-form-base64-encoded`); `false` sends the raw JSON document (`Content-Type: application/json`). | `true`, `false`, `base64` | `false` |
@@ -156,5 +168,9 @@ When one or more `url` parameters are present, the module opens a libcurl handle
 3. On any non-2xx response, the module advances to the next configured URL and retries up to `retries` times, waiting `delay` seconds between attempts.
 4. If all retry attempts fail, the CDR is written to `err-log-dir` (when `log-errors-to-disk` is `true`).
 5. When `queue-capacity` is set, CDRs are pushed to an in-process queue and processed by a background thread, preventing delivery latency from blocking the call-teardown path.
+
+## See also
+
+- [Chapter 27: Call Detail Records](../../integration/call-detail-records.mdx)
 
 **Source:** `src/mod/event_handlers/mod_json_cdr`, `src/mod/event_handlers/mod_json_cdr/conf/autoload_configs/json_cdr.conf.xml`
