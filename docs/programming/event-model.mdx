@@ -1,0 +1,240 @@
+---
+sidebar_position: 1
+id: event-model
+slug: /programming/event-model
+title: "The Event Model"
+description: "How FreeSWITCH represents everything significant as a typed event with named headers and an optional body, the SWITCH_EVENT_* family, the headers every event carries, and the channel lifecycle as a stream of events."
+sidebar_label: "The Event Model"
+---
+
+FreeSWITCH is event-driven at its core. Almost everything significant that
+happens inside the system — a channel is created, a call is answered, a digit is
+pressed, a module is loaded, an API command runs — is published as an *event*.
+Your code does not poll FreeSWITCH for state; it subscribes to the events it
+cares about and reacts to them. Understanding the event model is the foundation
+for everything in this part of the manual: the Event Socket, the scripting
+APIs, and the event handler modules all consume the same events described here.
+
+## What an event is
+
+An event is a typed message. It has three parts:
+
+- A **type** (the event ID, one of the `SWITCH_EVENT_*` values).
+- A set of **headers** — name/value string pairs — that carry the event's data.
+- An optional **body** — a free-form block of text that does not fit neatly into
+  a header (for example, the textual result of an API call or a chat message).
+
+The header is the unit you work with most. Both the name and the value are
+strings, so an event is essentially a small, self-describing dictionary plus a
+type tag and an optional payload. This uniform shape is what lets a single Event
+Socket connection consume `CHANNEL_ANSWER`, `DTMF`, and `BACKGROUND_JOB` events
+through the same parsing code.
+
+Internally the body is stored on the event structure and read back with the core
+API; `switch_event_add_body()` sets it and the body field is what gets returned
+to a consumer (see `freeswitch/src/switch_event.c`, lines 862-870 and 1258-1267).
+
+## Event types
+
+The set of event types is a fixed enum, `switch_event_types_t`, declared in
+`freeswitch/src/include/switch_types.h` (lines 2083-2178). Each enum value has a
+matching string name in the `EVENT_NAMES[]` table in
+`freeswitch/src/switch_event.c` (lines 137-232); that string is what you see in
+the `Event-Name` header and what you subscribe to by name. The two lists are
+kept in lock-step and in the same order.
+
+The enum value is `SWITCH_EVENT_CHANNEL_ANSWER`; the wire name is
+`CHANNEL_ANSWER`. The names below are taken verbatim from `EVENT_NAMES[]`.
+
+### The channel lifecycle events
+
+These describe the life of a call leg (a *channel*) and are the events you will
+consume most often:
+
+| Event name | Meaning |
+| --- | --- |
+| `CHANNEL_CREATE` | A channel has been created. |
+| `CHANNEL_STATE` | A channel has changed state. |
+| `CHANNEL_CALLSTATE` | A channel has changed call state. |
+| `CHANNEL_ANSWER` | A channel has been answered. |
+| `CHANNEL_HANGUP` | A channel has begun hanging up. |
+| `CHANNEL_HANGUP_COMPLETE` | A channel has completed the hangup. |
+| `CHANNEL_DESTROY` | A channel has been destroyed and its session freed. |
+| `CHANNEL_BRIDGE` | A channel has bridged to another channel. |
+| `CHANNEL_UNBRIDGE` | A channel has unbridged from another channel. |
+| `CHANNEL_EXECUTE` | A channel has begun executing an application. |
+| `CHANNEL_EXECUTE_COMPLETE` | A channel has finished executing an application. |
+| `CHANNEL_PROGRESS` | A channel has started ringing. |
+| `CHANNEL_PROGRESS_MEDIA` | A channel has started early media. |
+| `CHANNEL_ORIGINATE` | A channel has been originated. |
+| `CHANNEL_PARK` / `CHANNEL_UNPARK` | A channel has been parked / unparked. |
+| `CHANNEL_HOLD` / `CHANNEL_UNHOLD` | A channel has been put on / taken off hold. |
+
+### Other commonly used events
+
+| Event name | Meaning |
+| --- | --- |
+| `DTMF` | A DTMF digit was detected on a channel. |
+| `CUSTOM` | A custom event, qualified by a subclass string (see below). |
+| `HEARTBEAT` | The system is alive; fired periodically by the core. |
+| `BACKGROUND_JOB` | An asynchronous (`bgapi`) job has finished; carries its result. |
+| `API` | An API command was executed. |
+| `RECORD_START` / `RECORD_STOP` | Recording of a channel started / stopped. |
+| `PLAYBACK_START` / `PLAYBACK_STOP` | Playback on a channel started / stopped. |
+| `STARTUP` / `SHUTDOWN` | The system started / shut down. |
+| `MODULE_LOAD` / `MODULE_UNLOAD` | A module was loaded / unloaded. |
+| `RELOADXML` | The XML registry was reloaded. |
+| `LOG` | A log line was emitted. |
+| `PRESENCE_IN` / `PRESENCE_OUT` / `PRESENCE_PROBE` | Presence (BLF) signalling. |
+
+There are roughly ninety event types in all; the table above is the working set.
+The full enumeration lives in the two source files cited above, and a per-event
+reference of the events you are most likely to consume is in the
+[events catalog](./events-catalog.mdx).
+
+### CUSTOM events and subclasses
+
+`CUSTOM` is special. Rather than adding a new enum value every time a module
+needs to publish something, modules fire a `CUSTOM` event qualified by a
+**subclass** — a namespaced string, conventionally `module::name`. The subclass
+is carried in the `Event-Subclass` header
+(`freeswitch/src/switch_event.c`, line 784), and subscribers match on both the
+`CUSTOM` type *and* the subclass string. Examples from the bundled modules:
+
+- `sofia::register` — a SIP endpoint registered
+  (`freeswitch/src/mod/endpoints/mod_sofia/mod_sofia.h`, line 84).
+- `conference::maintenance` — a conference state change such as a member
+  joining or leaving
+  (`freeswitch/src/mod/applications/mod_conference/mod_conference.h`, line 63).
+
+When you subscribe to events you can ask for `CUSTOM` with a specific subclass,
+which is far more precise than receiving every custom event in the system.
+
+## Standard headers
+
+Every event, regardless of type, is stamped with a common set of headers when it
+is fired. These are added by the core in `switch_event_prepare_for_fire()`
+(`freeswitch/src/switch_event.c`, lines 1986-2002):
+
+| Header | Contents |
+| --- | --- |
+| `Event-Name` | The event's wire name, e.g. `CHANNEL_ANSWER`. |
+| `Core-UUID` | The UUID of this FreeSWITCH core instance. |
+| `FreeSWITCH-Hostname` | The OS hostname of the server. |
+| `FreeSWITCH-Switchname` | The configured switch name (may differ from the hostname). |
+| `FreeSWITCH-IPv4` / `FreeSWITCH-IPv6` | The guessed local IP addresses. |
+| `Event-Date-Local` | Local wall-clock time the event was fired. |
+| `Event-Date-GMT` | The same instant as an RFC 822 (GMT) timestamp. |
+| `Event-Date-Timestamp` | Microseconds since the Unix epoch. |
+| `Event-Calling-File` | Source file that fired the event. |
+| `Event-Calling-Function` | Source function that fired the event. |
+| `Event-Calling-Line-Number` | Source line that fired the event. |
+| `Event-Sequence` | A monotonically increasing per-core sequence number. |
+
+`CUSTOM` events additionally carry `Event-Subclass` as described above.
+
+### Channel event headers
+
+When an event is associated with a channel, the core adds a further block of
+channel headers via `switch_channel_event_set_basic_data()`
+(`freeswitch/src/switch_channel.c`, lines 2672-2718):
+
+| Header | Contents |
+| --- | --- |
+| `Unique-ID` | The channel's UUID — the key you use to address it. |
+| `Channel-Name` | The channel name, e.g. `sofia/internal/1001@example.com`. |
+| `Channel-State` | The internal state machine state, e.g. `CS_EXECUTE`. |
+| `Channel-State-Number` | The numeric form of that state. |
+| `Channel-Call-State` | The call state, e.g. `RINGING`, `ACTIVE`, `HANGUP`. |
+| `Call-Direction` | `inbound` or `outbound`. |
+| `Answer-State` | `ringing`, `early`, `answered`, or `hangup`. |
+| `Channel-Call-UUID` | The UUID grouping the legs of a single call. |
+| `Hangup-Cause` | The hangup cause string, present once the channel is tearing down. |
+
+The caller's identity is added from the channel's caller profile with a `Caller-`
+prefix by `switch_caller_profile_event_set_data()`
+(`freeswitch/src/switch_caller.c`, lines 322-385) — for example
+`Caller-Caller-ID-Name`, `Caller-Caller-ID-Number`, `Caller-Destination-Number`,
+`Caller-ANI`, `Caller-Network-Addr`, and `Caller-Unique-ID`. When the channel is
+bridged, the far leg's profile is added under an `Other-Leg-` prefix.
+
+### DTMF, BACKGROUND_JOB, and API headers
+
+A few of the common non-lifecycle events carry their own distinctive headers:
+
+- `DTMF` carries `DTMF-Digit` (the pressed character) and `DTMF-Duration` (in
+  samples) — `freeswitch/src/switch_channel.c`, lines 681-682.
+- `BACKGROUND_JOB` carries `Job-UUID`, `Job-Command`, and `Job-Command-Arg`, and
+  the command's textual output is delivered in the event **body**
+  (`freeswitch/src/mod/event_handlers/mod_event_socket/mod_event_socket.c`,
+  lines 1570-1574).
+- `API` carries `API-Command` and `API-Command-Argument`
+  (`freeswitch/src/switch_loadable_module.c`, lines 2959-2962).
+
+## The channel lifecycle as a stream of events
+
+A single inbound call answered, bridged, and hung up produces a predictable
+sequence of events on its channel. Following one `Unique-ID` through that
+sequence is the canonical way to track a call. A typical answered-and-bridged
+call looks like this:
+
+```text
+CHANNEL_CREATE            a new channel exists (Unique-ID assigned)
+  CHANNEL_STATE  ...      one per internal state transition (CS_NEW, CS_INIT, ...)
+  CHANNEL_CALLSTATE ...   call-state transitions (DOWN -> RINGING -> ...)
+CHANNEL_PROGRESS          remote end is ringing
+CHANNEL_PROGRESS_MEDIA    early media (optional)
+CHANNEL_ANSWER            the call is answered
+  CHANNEL_EXECUTE         dialplan application starts (e.g. bridge)
+  CHANNEL_BRIDGE          this leg is bridged to another channel
+  ... DTMF, media events ...
+  CHANNEL_UNBRIDGE        the bridge ends
+  CHANNEL_EXECUTE_COMPLETE application finished
+CHANNEL_HANGUP            hangup has begun; Hangup-Cause is now set
+CHANNEL_HANGUP_COMPLETE   teardown finished, channel statistics finalized
+CHANNEL_DESTROY           the session is freed; no further events for this UUID
+```
+
+Two distinctions are worth internalizing:
+
+- `CHANNEL_HANGUP` fires when teardown *starts*; `CHANNEL_HANGUP_COMPLETE` fires
+  when it *finishes*. Use `CHANNEL_HANGUP_COMPLETE` for accounting, because by
+  then the durations and the final `Hangup-Cause` are settled.
+- `CHANNEL_DESTROY` is the very last event for a given `Unique-ID`. After it,
+  that UUID is gone. It is the right place to release any per-call state your
+  application is holding.
+
+State changes are reported by `CHANNEL_STATE` (the internal state machine,
+`Channel-State`) and `CHANNEL_CALLSTATE` (the higher-level call state,
+`Channel-Call-State`). For most applications the call-state view and the
+named lifecycle events above are enough; the raw state events are there when you
+need finer-grained tracking.
+
+## How variables ride on events
+
+Channel variables are surfaced on channel events as headers with a `variable_`
+prefix: a variable named `foo` appears as the header `variable_foo`. The core
+copies every channel variable onto qualifying events in
+`switch_channel_event_set_extended_data()`
+(`freeswitch/src/switch_channel.c`, lines 2825-2837, with the
+`switch_snprintf(buf, sizeof(buf), "variable_%s", vvar)` building the header
+name on line 2834).
+
+This is how data you set on a call — `sip_h_X-*` SIP headers, accounting tags,
+routing decisions, dialed digits stored in a variable — travels with the event
+to your consumer without any extra wiring. Not every event carries the full
+variable set; the extended data is attached for the major lifecycle events
+(create, answer, hangup, destroy, execute, and others) and whenever verbose
+events are enabled for the channel
+(`freeswitch/src/switch_channel.c`, lines 2768-2800).
+
+For the meaning of individual variables you will see in `variable_*` headers,
+see the [channel variables reference](../reference/channel-variables.mdx).
+
+## Where to go next
+
+- The [events catalog](./events-catalog.mdx) documents the individual events you
+  are most likely to consume, header by header.
+- [Consuming events with the inbound Event Socket](./esl-inbound.mdx) shows how
+  to connect to FreeSWITCH, subscribe to these events, and act on them from your
+  own code.

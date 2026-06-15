@@ -1,0 +1,185 @@
+---
+sidebar_position: 2
+id: events-catalog
+slug: /programming/events-catalog
+title: "Events Catalog"
+description: "Reference catalog of FreeSWITCH events: when each fires, its notable headers, and whether it is a first-class event or a CUSTOM subclass."
+sidebar_label: "Events Catalog"
+---
+
+# Events Catalog
+
+FreeSWITCH publishes a continuous stream of *events* that describe everything
+happening inside the switch: channels being created and torn down, applications
+executing, media starting and stopping, registrations arriving, and the system
+itself starting up and shutting down. Any consumer — the Event Socket, a
+scripting language, or a loaded module — can subscribe to these events and react
+to them. This catalog is the companion to the
+[Channel Variables Catalog](/reference/channel-variables): where that chapter
+documents the per-channel values you *read*, this chapter documents the events
+you *consume*.
+
+Every event has a name and a set of headers (name/value string pairs). The
+events listed here fall into two kinds:
+
+- **First-class events** have a dedicated entry in the `switch_event_types_t`
+  enum in `switch_types.h` and a matching string in the `EVENT_NAMES[]` table in
+  `switch_event.c`. You subscribe to them by name, for example `CHANNEL_ANSWER`.
+- **CUSTOM subclasses** are `SWITCH_EVENT_CUSTOM` events tagged with an
+  `Event-Subclass` header, used when a module needs an event that the core does
+  not define. You subscribe to them with `CUSTOM <subclass>`, for example
+  `CUSTOM sofia::register`. The subclass strings below are defined in
+  `mod_sofia.h` and reserved at module load.
+
+Channel-scoped events carry a near-universal set of channel headers added by
+`switch_channel_event_set_data()` in `switch_channel.c` — most importantly
+`Unique-ID` (the channel UUID), plus `Channel-State`, `Channel-Call-State`,
+`Answer-State`, `Caller-Caller-ID-Number`, `Caller-Destination-Number`, and the
+full set of `Caller-*` and `variable_*` headers. The tables below call out the
+headers that are *specific* to each event rather than repeating this common set.
+
+The event identifiers are confirmed against
+`src/include/switch_types.h` (the `SWITCH_EVENT_*` enum, lines 2084–2177) and
+`src/switch_event.c` (the `EVENT_NAMES[]` table, lines 137+).
+
+## Channel lifecycle
+
+These first-class events trace a call leg from creation through teardown. They
+all carry the common channel headers (`Unique-ID` and the `Caller-*` set);
+the table lists the headers most useful for each specific event.
+
+| Event | Fired when | Notable headers |
+| --- | --- | --- |
+| `CHANNEL_CREATE` | A new channel object is created, before it is answered. | `Unique-ID`, `Channel-State`, `Call-Direction` |
+| `CHANNEL_OUTGOING` | An outbound channel has been created (the B-leg of an origination). | `Unique-ID`, `Caller-Destination-Number` |
+| `CHANNEL_ORIGINATE` | A channel has been originated by the originate API/app. | `Unique-ID`, `Caller-Destination-Number` |
+| `CHANNEL_PROGRESS` | The channel has started ringing (180 Ringing, no media). | `Unique-ID`, `Channel-State` |
+| `CHANNEL_PROGRESS_MEDIA` | The channel has early media (183 Session Progress). | `Unique-ID`, `Channel-State` |
+| `CHANNEL_ANSWER` | The channel has been answered. | `Unique-ID`, `Answer-State` |
+| `CHANNEL_EXECUTE` | A dialplan application begins executing on the channel. | `Application`, `Application-Data`, `Application-UUID` |
+| `CHANNEL_EXECUTE_COMPLETE` | A dialplan application finishes executing. | `Application`, `Application-Data`, `Application-Response` |
+| `CHANNEL_BRIDGE` | The channel is bridged to another channel. | `Bridge-A-Unique-ID`, `Bridge-B-Unique-ID`, `Other-Leg-Unique-ID` |
+| `CHANNEL_UNBRIDGE` | The channel is unbridged from its peer. | `Bridge-A-Unique-ID`, `Bridge-B-Unique-ID` |
+| `CHANNEL_PARK` | The channel has been parked. | `Unique-ID`, `Channel-State` |
+| `CHANNEL_UNPARK` | The channel has been unparked. | `Unique-ID`, `Channel-State` |
+| `CHANNEL_HOLD` | The channel has been put on hold. | `Unique-ID` |
+| `CHANNEL_UNHOLD` | The channel has been taken off hold. | `Unique-ID` |
+| `CHANNEL_STATE` | The channel's internal state changes (CS_NEW, CS_ROUTING, CS_EXECUTE, etc.). | `Channel-State`, `Channel-State-Number`, `Channel-Call-State` |
+| `CHANNEL_CALLSTATE` | The channel's call state changes (DOWN, RINGING, ACTIVE, HELD, etc.). | `Channel-Call-State`, `Original-Channel-Call-State`, `Channel-Call-UUID` |
+| `CHANNEL_HANGUP` | The channel begins hanging up. | `Hangup-Cause`, `Unique-ID` |
+| `CHANNEL_HANGUP_COMPLETE` | The hangup has fully completed; all media and timing data is final. | `Hangup-Cause`, `Unique-ID` |
+| `CHANNEL_DESTROY` | The channel object is being destroyed and freed. | `Unique-ID`, `Hangup-Cause` |
+
+The `Channel-State` header on `CHANNEL_STATE` reflects the low-level state
+machine, while `Channel-Call-State` on `CHANNEL_CALLSTATE` reflects the
+higher-level call state that most applications care about. For most call-tracking
+purposes, `CHANNEL_ANSWER`, `CHANNEL_BRIDGE`, and `CHANNEL_HANGUP_COMPLETE` are
+the events to watch; `CHANNEL_HANGUP_COMPLETE` is preferred over `CHANNEL_HANGUP`
+for CDR-style processing because all timers and counters are finalized.
+
+## DTMF
+
+| Event | Fired when | Notable headers |
+| --- | --- | --- |
+| `DTMF` | A DTMF digit is received or sent on a channel. | `DTMF-Digit`, `DTMF-Duration`, `DTMF-Source` |
+
+`DTMF-Source` indicates how the digit arrived (for example `RTP`, `INBAND`, or
+`APP`). The event carries the common channel headers, so `Unique-ID` identifies
+the leg the digit belongs to.
+
+## Media and recording
+
+These first-class events mark the start and stop of recording and playback, and
+report detected audio conditions. They carry the common channel headers.
+
+| Event | Fired when | Notable headers |
+| --- | --- | --- |
+| `RECORD_START` | A recording begins on the channel. | `Record-File-Path`, `Unique-ID` |
+| `RECORD_STOP` | A recording stops. | `Record-File-Path`, `Record-Completion-Cause`, `Unique-ID` |
+| `PLAYBACK_START` | File playback begins on the channel. | `Playback-File-Path`, `Unique-ID` |
+| `PLAYBACK_STOP` | File playback stops (completed or interrupted). | `Playback-File-Path`, `Playback-Status`, `Unique-ID` |
+| `DETECTED_TONE` | A tone the channel was watching for is detected. | `Detected-Tone`, `Unique-ID` |
+| `TALK` | Voice activity (talking) is detected on the channel. | `Unique-ID` |
+| `NOTALK` | Voice activity stops (silence) on the channel. | `Unique-ID` |
+
+`Playback-Status` is `done` when playback completed normally and `break` when it
+was interrupted (for example by a caller pressing a digit). `RECORD_STOP` carries
+a `Record-Completion-Cause` when the recording ended for a specific reason. `TALK`
+and `NOTALK` are emitted by the RTP layer's voice-activity detector and require
+VAD to be enabled on the channel.
+
+## System and jobs
+
+These first-class events describe the switch itself rather than any one channel.
+
+| Event | Fired when | Notable headers |
+| --- | --- | --- |
+| `STARTUP` | The system has finished starting and is ready. | `Event-Info` (`System Ready`), `Up-Time` |
+| `SHUTDOWN` | The system is shutting down. | `Event-Info` |
+| `HEARTBEAT` | Emitted periodically (every ~20 seconds) while the system runs. | `Event-Info`, `Up-Time`, `FreeSWITCH-Version`, `Session-Count`, `Session-Per-Sec`, `Idle-CPU` |
+| `BACKGROUND_JOB` | A `bgapi` background job completes; the body holds the API result. | `Job-UUID`, `Job-Command`, `Job-Command-Arg` |
+| `API` | An API command has been executed. | `API-Command`, `API-Command-Argument` |
+| `MODULE_LOAD` | A module (or one of its interfaces) is loaded. | `type`, `name`, `key`, `filename` |
+| `MODULE_UNLOAD` | A module is unloaded. | `type`, `name`, `key` |
+| `RELOADXML` | The XML registry has been reloaded. | — |
+| `TRAP` | An internal trap fires for a system-level condition (hostname change, network address change, network outage). | `condition`, plus condition-specific headers |
+
+`BACKGROUND_JOB` is the key event for the inbound Event Socket `bgapi` workflow:
+you submit a command, receive the `Job-UUID` immediately, and later receive a
+`BACKGROUND_JOB` event whose `Job-UUID` matches and whose body contains the
+command's output. `MODULE_LOAD` fires once per interface a module registers, so a
+single module can produce several `MODULE_LOAD` events with different `type`
+values (`endpoint`, `codec`, `dialplan`, `application`, and so on).
+
+## Registration and presence
+
+Registration and presence are split between **CUSTOM subclasses** published by
+`mod_sofia` and **first-class** presence/messaging events defined in the core.
+Subscribe to the `mod_sofia` events with `CUSTOM <subclass>`; the subclass
+strings are defined in `src/mod/endpoints/mod_sofia/mod_sofia.h` and fired from
+`sofia_reg.c`.
+
+### mod_sofia CUSTOM subclasses
+
+| Event (subclass) | Fired when | Notable headers |
+| --- | --- | --- |
+| `sofia::register` | A SIP endpoint successfully registers. | `profile-name`, `from-user`, `from-host`, `contact`, `call-id`, `expires`, `network-ip`, `user-agent` |
+| `sofia::unregister` | An endpoint unregisters (sends a REGISTER with Expires: 0). | `profile-name`, `from-user`, `from-host`, `contact`, `call-id` |
+| `sofia::expire` | A registration is reaped because it expired. | `profile-name`, `user`, `host`, `contact`, `call-id`, `expires`, `network-ip` |
+| `sofia::gateway_state` | A gateway's registration/ping state changes. | `Gateway`, `State`, `Ping-Status`, `Register-Network-IP` |
+
+`sofia::register` additionally merges any variables collected during
+registration, and sets `update-reg` to `true` when the event represents a
+re-registration of an already-known contact rather than a brand-new one. For
+`sofia::gateway_state`, `State` is the gateway's lifecycle state (for example
+`REGED`, `UNREGED`, `FAIL_WAIT`) and `Ping-Status` reflects OPTIONS keepalive
+health.
+
+### First-class presence and messaging events
+
+| Event | Fired when | Notable headers |
+| --- | --- | --- |
+| `PRESENCE_IN` | An incoming presence/status update is published for a user. | `proto`, `login`, `from`, `status`, `rpid`, `event_type` |
+| `PRESENCE_OUT` | An outgoing presence update. | `proto`, `from`, `status` |
+| `MESSAGE` | A basic chat/instant message passes through the switch. | `proto`, `from`, `to` |
+
+`PRESENCE_IN` and `PRESENCE_OUT` are the transport-neutral presence events that
+`mod_sofia` both produces (from registrations and SUBSCRIBE/NOTIFY traffic) and
+consumes (to drive BLF/dialog NOTIFY). The `proto` header identifies the
+originating protocol or chat plugin; for SIP it is typically `sip`. `MESSAGE` is
+the generic instant-message event used by the chat plumbing across protocols.
+
+## Quick reference: first-class vs CUSTOM
+
+| Name | Kind | Source |
+| --- | --- | --- |
+| All `CHANNEL_*` above | First-class | `switch_types.h` enum / `EVENT_NAMES[]` |
+| `DTMF` | First-class | `switch_types.h` enum / `EVENT_NAMES[]` |
+| `RECORD_*`, `PLAYBACK_*`, `DETECTED_TONE`, `TALK`, `NOTALK` | First-class | `switch_types.h` enum / `EVENT_NAMES[]` |
+| `STARTUP`, `SHUTDOWN`, `HEARTBEAT`, `BACKGROUND_JOB`, `API`, `MODULE_LOAD`, `MODULE_UNLOAD`, `RELOADXML`, `TRAP` | First-class | `switch_types.h` enum / `EVENT_NAMES[]` |
+| `PRESENCE_IN`, `PRESENCE_OUT`, `MESSAGE` | First-class | `switch_types.h` enum / `EVENT_NAMES[]` |
+| `sofia::register`, `sofia::unregister`, `sofia::expire`, `sofia::gateway_state` | CUSTOM subclass | `mod_sofia.h` / `sofia_reg.c` |
+
+To see the live headers for any event on your own system, subscribe to it from
+`fs_cli` with `/event plain <NAME>` (or `/event plain CUSTOM <subclass>`) and
+trigger the condition; the full header set is printed as it fires.

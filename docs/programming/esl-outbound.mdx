@@ -1,0 +1,343 @@
+---
+sidebar_position: 4
+id: esl-outbound
+slug: /programming/esl-outbound
+title: "The Outbound Event Socket"
+description: "How FreeSWITCH connects out to your server with the socket dialplan application, the connect/linger/myevents handshake, the sync and async execution models, and a worked outbound handler built on the ESL library."
+sidebar_label: "ESL: Outbound"
+---
+
+# The Outbound Event Socket
+
+The inbound Event Socket (see [ESL: Inbound](/programming/esl-inbound)) has your
+program open a TCP connection *to* FreeSWITCH, authenticate, and then drive the
+whole system. The **outbound** Event Socket inverts that relationship. Here
+FreeSWITCH is the client: when the dialplan executes the `socket` application on
+a call, FreeSWITCH opens a TCP connection *out* to a server you are running, and
+your code on the far end controls that one call.
+
+This is the natural model for "one connection per call" call control. Each call
+that reaches a `socket` action gets its own socket to your handler, already bound
+to that channel — there is no password, no `api uuid_...` indirection, and no
+need to hunt for the channel by UUID. Your handler answers the call, plays
+prompts, collects digits, bridges, and hangs up, then the socket closes when the
+call ends.
+
+## Invoking it from the dialplan
+
+The outbound socket is started by the `socket` dialplan application, registered
+by `mod_event_socket`:
+
+```c
+SWITCH_ADD_APP(app_interface, "socket", "Connect to a socket", "Connect to a socket",
+               socket_function, "<ip>[:<port>]", SAF_SUPPORT_NOMEDIA);
+```
+
+(`mod_event_socket.c`, line 1198.) You call it from the dialplan like any other
+application:
+
+```xml
+<action application="socket" data="127.0.0.1:8084 async full"/>
+```
+
+The first token of `data` is the destination; the remaining tokens are flags.
+`socket_function` splits `data` on spaces, then treats the first argument as the
+host (`mod_event_socket.c`, lines 430–431). The host token itself has structure:
+
+- **`host:port`** — the port is split off at the last `:`. If no port is given,
+  it defaults to **8084** (`port = 8084;` at line 417; port parsing at lines
+  451–454).
+- **`host:port/path`** — an optional trailing `/path` is stripped and stored in
+  the channel variable `socket_path`; the host is stored in `socket_host`
+  (lines 456–461).
+- **`hostA:port|hostB:port`** — the host token is also split on `|` into a list
+  of up to 50 candidates. FreeSWITCH tries each in order and connects to the
+  first one that answers (lines 439–484). This gives you simple failover across
+  several handler servers.
+
+### The `async` and `full` flags
+
+After the host, every remaining space-separated token is checked, case
+insensitively, against exactly two flag names (`mod_event_socket.c`, lines
+514–520):
+
+```c
+for (x = 1; x < argc; x++) {
+    if (argv[x] && !strcasecmp(argv[x], "full")) {
+        switch_set_flag(listener, LFLAG_FULL);
+    } else if (argv[x] && !strcasecmp(argv[x], "async")) {
+        switch_set_flag(listener, LFLAG_ASYNC);
+    }
+}
+```
+
+Order does not matter, and anything that is not `full` or `async` is ignored.
+
+**`async`** changes how the `socket` application behaves *inside FreeSWITCH while
+your handler runs*. By default (synchronous), the channel is blocked in the
+`socket` application and each command you send runs to completion before the
+next one is read. With `async` set, FreeSWITCH launches a separate listener
+thread and parks the call, so the channel keeps processing events and your
+queued application commands while your handler is still issuing more of them
+(lines 522–549). In other words, `async` lets you fire `sendmsg`/`execute`
+commands without each one blocking the read loop. The mode you chose is reported
+back to you in the connect reply as the `Socket-Mode` header: `async` or
+`static` (line 2026).
+
+**`full`** grants the outbound connection access to the *global* command set —
+`sendevent`, `api`, `bgapi`, log subscription, and so on — in addition to the
+per-channel commands. Without `full`, the connection is restricted to its own
+channel. This restriction is enforced directly in the command parser
+(`mod_event_socket.c`, lines 2225–2227):
+
+```c
+if (switch_test_flag(listener, LFLAG_OUTBOUND) && !switch_test_flag(listener, LFLAG_FULL)) {
+    goto done;
+}
+```
+
+Commands handled *before* this check — `connect`, `getvar`, `myevents`,
+`sendmsg`, `linger`, `nolinger`, and the event subscription commands — always
+work on an outbound socket. Everything after it requires `full`. The connect
+reply reports this as the `Control` header: `full` or `single-channel` (line
+2027).
+
+:::tip
+Use `async full` when your handler needs to issue overlapping commands and reach
+the broader API; use plain `socket` (synchronous, single-channel) for a simple
+"answer, play a prompt, hang up" flow where blocking on each step is exactly what
+you want.
+:::
+
+## The handshake
+
+When FreeSWITCH connects out, your side speaks the same line-based Event Socket
+protocol as inbound, with one difference at the start: there is **no
+authentication**. The outbound connection is already authenticated and already
+bound to the channel (`switch_set_flag(listener, LFLAG_AUTHED)` and
+`LFLAG_OUTBOUND` at lines 512–513).
+
+Your first command is `connect`. In response, FreeSWITCH builds a
+`CHANNEL_DATA` event populated with the channel's caller profile and all its
+variables, and serializes it back to you (`mod_event_socket.c`, lines
+2012–2036):
+
+```c
+if (!strncasecmp(cmd, "connect", 7)) {
+    switch_set_flag_locked(listener, LFLAG_CONNECTED);
+    switch_event_create(&call_event, SWITCH_EVENT_CHANNEL_DATA);
+    /* ... fills in caller profile + channel variables ... */
+    switch_event_add_header_string(call_event, SWITCH_STACK_BOTTOM, "Content-Type", "command/reply");
+    switch_event_add_header_string(call_event, SWITCH_STACK_BOTTOM, "Reply-Text", "+OK\n");
+    switch_event_add_header_string(call_event, SWITCH_STACK_BOTTOM, "Socket-Mode", /* async | static */);
+    switch_event_add_header_string(call_event, SWITCH_STACK_BOTTOM, "Control",     /* full | single-channel */);
+    /* serialized and sent back over the socket */
+}
+```
+
+That reply block is your snapshot of the call: the `Channel-*` headers, the
+caller ID, the dialed number, every channel variable, plus the `Socket-Mode` and
+`Control` headers describing the flags you chose. Header names are normalized,
+for example `Channel-Unique-ID` and `Caller-Unique-ID` (the channel UUID you will
+pass to later commands).
+
+After connecting, the per-channel commands available to an outbound socket
+include:
+
+| Command | Effect |
+| --- | --- |
+| `connect` | Bind to the call and receive the `CHANNEL_DATA` reply. |
+| `linger` / `linger <seconds>` | Keep the socket open after the call hangs up so you can drain remaining events. `linger` with no argument lingers indefinitely; `linger 5` lingers 5 seconds. Default when no number is given is "forever" until disconnect (lines 2420–2435). |
+| `nolinger` | Turn linger back off (lines 2439–2444). |
+| `myevents` | Subscribe to only this channel's events (see below). |
+| `sendmsg` | Send a message to the bound call — most importantly, execute an application (lines 2169–2223). |
+| `getvar <name>` | Fetch a single channel variable (lines 2037–2051). |
+
+### Subscribing with `myevents`
+
+A plain `connect` gives you the call data but no ongoing event stream. To follow
+the call as it progresses, issue `myevents`. On an outbound socket it subscribes
+*this* connection to the events for *its own* channel — answer, execute,
+execute-complete, DTMF, hangup, and the rest of the channel event family
+(`mod_event_socket.c`, lines 2052–2124). From then on, every event for your call
+is delivered to you as a message you read off the socket. You can request a
+serialization format by appending `plain` (the default), `xml`, or `json`.
+
+### Sync vs async execution
+
+You drive the call by executing dialplan applications on it. At the protocol
+level this is a `sendmsg` with `call-command: execute` and `execute-app-name` /
+`execute-app-arg` headers. The ESL library builds exactly that for you
+(`libs/esl/src/esl.c`, `esl_execute`, lines 530–559):
+
+```c
+snprintf(send_buf, sizeof(send_buf), "%s\ncall-command: execute\n%s%s%s%s\n",
+         cmd_buf, app_buf, arg_buf,
+         handle->event_lock    ? "event-lock: true\n" : "",
+         handle->async_execute ? "async: true\n"      : "");
+```
+
+Two execution models follow from this:
+
+- **Synchronous** — by default the channel runs your application to completion
+  before reading the next command. If you subscribed with `myevents`, you will
+  receive a `CHANNEL_EXECUTE` event when the application starts and a
+  `CHANNEL_EXECUTE_COMPLETE` event when it finishes. Waiting for
+  `CHANNEL_EXECUTE_COMPLETE` is how you know a `playback` actually finished, what
+  digits a `play_and_get_digits` collected, and so on.
+- **Asynchronous** — when the connection or the individual `sendmsg` is marked
+  `async`, the command is queued as a private event and control returns
+  immediately (`mod_event_socket.c`, lines 2169–2207; the per-message `async`
+  header is honored at lines 2172–2177). This lets you queue several
+  applications back to back, or interrupt a running one, without blocking on each.
+
+The `event-lock: true` header (set by the library's `setEventLock`) forces
+applications you queue to run strictly in the order you sent them even in async
+mode — useful when you want async delivery but ordered execution.
+
+## A worked example: the ESL library in outbound mode
+
+The Event Socket Library (ESL) ships with FreeSWITCH under `libs/esl` and wraps
+the protocol in an object API (`ESLconnection` and `ESLevent`) available from
+C++, Lua, Perl, Python, Ruby, and more. For outbound mode it provides a
+constructor that takes an already-accepted socket file descriptor
+(`libs/esl/src/esl_oop.h`, line 81; implementation in `esl_oop.cpp`, lines 45–49):
+
+```cpp
+ESLconnection::ESLconnection(int socket)
+{
+    connection_construct_common();
+    esl_attach_handle(&handle, (esl_socket_t)socket, NULL);
+}
+```
+
+`esl_attach_handle` performs the handshake for you: it sends `connect\n\n` and
+stores the `CHANNEL_DATA` reply as the connection's *info event*
+(`libs/esl/src/esl.c`, lines 454–492):
+
+```c
+esl_send_recv(handle, "connect\n\n");
+if (handle->last_sr_event) {
+    handle->info_event = handle->last_sr_event;
+    /* ... */
+}
+```
+
+So by the time the constructor returns, the call data is already available
+through `getInfo()`. The pattern is: run your own TCP accept loop, and for each
+incoming connection hand the file descriptor to a new `ESLconnection`. The ESL
+methods you use to control the call are (`esl_oop.h`, lines 73–101):
+
+- `getInfo()` — the `CHANNEL_DATA` event for this call.
+- `event:getHeader(name)` — read a header (such as `unique-id`) from any event.
+- `execute(app, arg, uuid)` — run a dialplan application synchronously; returns
+  the reply event (`esl_oop.cpp`, lines 179–188).
+- `executeAsync(app, arg, uuid)` — the async variant (lines 191–207).
+- `recvEvent()` / `recvEventTimed(ms)` — read the next channel event, used after
+  `myevents` (lines 232–259).
+- `setEventLock(val)` / `setAsyncExecute(val)` — toggle the headers described
+  above (lines 163–177).
+
+The repository's own outbound example demonstrates the whole flow
+(`libs/esl/perl/server.pl`). It is the most compact correct outbound handler in
+the tree:
+
+```perl
+require ESL;
+use IO::Socket::INET;
+
+my $sock = IO::Socket::INET->new(LocalHost => "127.0.0.1", LocalPort => 8084,
+                                 Proto => 'tcp', Listen => 1, Reuse => 1);
+die "Could not create socket: $!\n" unless $sock;
+
+for (;;) {
+    my $new_sock = $sock->accept();      # FreeSWITCH connected out to us
+    my $pid = fork();
+    if ($pid) { close($new_sock); next; } # parent keeps listening
+
+    my $fd  = fileno($new_sock);
+    my $con = ESL::ESLconnection->new($fd);   # sends "connect", binds to the call
+    my $info = $con->getInfo();               # the CHANNEL_DATA reply
+    my $uuid = $info->getHeader("unique-id");
+
+    $con->execute("answer", "", $uuid);
+    $con->execute("playback", "/usr/share/freeswitch/sounds/.../ivr-welcome.wav", $uuid);
+    $con->execute("hangup", "", $uuid);
+
+    close($new_sock);
+    exit;
+}
+```
+
+Here is the same idea in Lua, adding `myevents` so we can collect digits and read
+the result of `play_and_get_digits` from its `CHANNEL_EXECUTE_COMPLETE` event.
+The Lua binding exposes the identical method names from `esl_oop.h`, and
+constructs the object as `ESL.ESLconnection(fd)`:
+
+```lua
+require("ESL")
+
+-- 'fd' is the file descriptor of a socket your accept loop just accepted.
+local con  = ESL.ESLconnection(fd)        -- handshake: sends "connect"
+local info = con:getInfo()                -- CHANNEL_DATA reply
+local uuid = info:getHeader("unique-id")
+
+con:execute("answer", "", uuid)
+con:execute("playback", "ivr/ivr-welcome.wav", uuid)
+
+-- Subscribe to this call's events, then collect 4 digits.
+con:setEventLock("true")
+con:myevents()
+con:execute("play_and_get_digits",
+            "4 4 3 5000 # ivr/ivr-enter_pin.wav ivr/ivr-that_was_an_invalid_entry.wav mypin \\d+",
+            uuid)
+
+-- Wait for the application to finish and read what was collected.
+local pin
+while con:connected() == 1 do
+    local e = con:recvEvent()
+    if e then
+        local name = e:getHeader("Event-Name")
+        if name == "CHANNEL_EXECUTE_COMPLETE" then
+            if e:getHeader("Application") == "play_and_get_digits" then
+                -- the collected digits are now in the channel variable 'mypin';
+                -- the value comes back in the command reply's Reply-Text.
+                pin = con:sendRecv("getvar mypin"):getHeader("Reply-Text")
+                break
+            end
+        elseif name == "CHANNEL_HANGUP" then
+            break
+        end
+    end
+end
+
+con:execute("hangup", "", uuid)
+```
+
+The `myevents` subscription is what makes the `recvEvent()` loop meaningful: it
+turns the connection into a stream of this channel's events, so the handler can
+react to `CHANNEL_EXECUTE_COMPLETE`, `DTMF`, and `CHANNEL_HANGUP` rather than
+blindly firing applications. Collected digits are written into the channel
+variable named by the `play_and_get_digits` argument (here `mypin`), which you
+read back with `getvar` or from a later channel snapshot.
+
+:::note
+`con:myevents()` here is shorthand for `con:sendRecv("myevents")` — send the raw
+`myevents` command and read its `+OK` reply. The ESL object API exposes
+`events()` for the general event subscription; for outbound per-channel events
+the `myevents` command is what you want, and `sendRecv` sends it verbatim.
+:::
+
+## When to use outbound vs inbound
+
+| Use **outbound** when… | Use **inbound** when… |
+| --- | --- |
+| You are controlling individual calls (IVR, voicebot, screening) and want one connection bound to each call. | You are monitoring, logging, or originating across the whole system. |
+| You want FreeSWITCH to reach out to your app servers, with `\|`-separated failover. | Your app is a long-lived client that connects once and stays connected. |
+| You do not want to manage authentication or look calls up by UUID. | You need the global API (`api`/`bgapi`), system-wide event streams, or to originate new calls. |
+| Each call's logic is short-lived and self-contained. | One process must see and act on many channels at once. |
+
+The two modes are not exclusive. A common architecture uses an inbound
+connection for system-wide monitoring and origination, and the `socket`
+application to hand specific calls off to a dedicated outbound handler for
+detailed call control.

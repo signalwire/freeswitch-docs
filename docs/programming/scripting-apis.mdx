@@ -1,0 +1,378 @@
+---
+sidebar_position: 5
+id: scripting-apis
+slug: /programming/scripting-apis
+title: "Embedded Scripting APIs"
+description: "The shared scripting surface for mod_lua and mod_v8: the Session object, freeswitch.API, freeswitch.Event, consoleLog, and stream output, with parallel Lua and JavaScript examples."
+sidebar_label: "Scripting APIs"
+---
+
+# Embedded Scripting APIs
+
+[Chapter 28: Scripting Integration](/integration/scripting) covered how to *wire up* the language modules — the dialplan application, the API command, the XML handler, and the event hooks. This chapter documents the *programmable surface* those modules expose: the objects and functions a script calls once it is running.
+
+`mod_lua` and `mod_v8` (JavaScript) share almost the same object model because both wrap the same C++ classes in `src/switch_cpp.cpp` — the `CoreSession`, `API`, `Event`, and `Stream` classes declared in `src/include/switch_cpp.h`. `mod_lua` exposes them through a SWIG binding (`src/mod/languages/mod_lua/freeswitch.i`); `mod_v8` reimplements an equivalent surface in C++ under `src/mod/languages/mod_v8/`. The two languages are close enough to read interchangeably, but the spellings differ in a few places. Those differences are flagged explicitly below.
+
+Every method and function named in this chapter was verified against the FreeSWITCH source. Where Lua and JavaScript disagree, both names are given.
+
+---
+
+## How a Script Gets a Session {#how-a-script-gets-a-session}
+
+A *session* is the script's handle to a call leg. There are three ways a script comes to hold one.
+
+### The global `session` {#the-global-session}
+
+When a script is launched by the `lua` or `javascript` dialplan application on an active call leg, the module injects a ready-to-use session object into the script under the global name `session`.
+
+In Lua this is done by `mod_lua_conjure_session(L, session, "session", 1)` (`mod_lua.cpp`); in JavaScript `mod_v8` registers the same object under the name `session` (`mod_v8.cpp`, `RegisterInstance(isolate, "session", true)`). In both languages the global is simply called `session`.
+
+```lua title="Lua — from the lua dialplan app"
+-- 'session' already exists; it is the inbound call leg
+session:answer()
+```
+
+```javascript title="JavaScript — from the javascript dialplan app"
+// 'session' already exists; it is the inbound call leg
+session.answer();
+```
+
+When a script is run *outside* a call leg (the `luarun`/`jsrun` API command, a startup script, or an XML handler), there is no call, so `session` is not a usable call object. In `mod_v8` the global is set to the boolean `false` in that case so a script can test for it (`mod_v8.cpp`).
+
+### Wrapping an existing call by UUID {#wrapping-an-existing-call-by-uuid}
+
+A script can attach to any live channel by its UUID.
+
+In Lua, construct a `freeswitch.Session` with the UUID string:
+
+```lua
+local sess = freeswitch.Session("<uuid>")
+if sess:ready() then
+  sess:execute("playback", "ivr/ivr-welcome.wav")
+end
+```
+
+In JavaScript, construct a `Session` with the UUID. If the argument contains no `/`, `mod_v8` treats it as a UUID and locates the existing channel (`fssession.cpp`, `FSSession::Construct`):
+
+```javascript
+var sess = new Session("<uuid>");
+if (sess.ready()) {
+  sess.execute("playback", "ivr/ivr-welcome.wav");
+}
+```
+
+### Originating a new call {#originating-a-new-call}
+
+Passing a dial string (something containing `/`) originates a *new* outbound leg instead of wrapping an existing one. An optional second argument is the originating (A-leg) session, used to inherit caller-profile data.
+
+```lua
+-- new outbound leg, originated from the current call leg
+local b = freeswitch.Session("sofia/gateway/mygw/+15551234567", session)
+if b:ready() then
+  session:bridge(b)
+end
+```
+
+```javascript
+// new outbound leg, originated from the current call leg
+var b = new Session("sofia/gateway/mygw/+15551234567", session);
+if (b.ready()) {
+  bridge(session, b);   // see "Bridging" below
+}
+```
+
+:::note Lua vs. JavaScript
+`mod_v8` also exposes a deprecated `session.originate(a_leg, dialstring)` method, but it logs a deprecation warning and the constructor form `new Session("<dial string>", a_leg)` is preferred (`fssession.cpp`).
+:::
+
+---
+
+## The Session Object {#the-session-object}
+
+Session methods map onto the `CoreSession` C++ class in `src/include/switch_cpp.h`. `mod_lua` binds that class almost verbatim through SWIG, so the Lua method names match the C++ declarations exactly. `mod_v8` registers an equivalent — but not identical — set of methods in its `session_proc` table (`fssession.cpp`).
+
+The table below lists the commonly used methods. The **Lua** column is the SWIG name; the **JavaScript** column is the `mod_v8` name. A dash means the method is not exposed in that language under the shared surface.
+
+| Purpose | Lua | JavaScript | Verified in |
+|---|---|---|---|
+| Answer the call | `session:answer()` | `session.answer()` | `switch_cpp.h` / `fssession.cpp` |
+| Pre-answer (early media) | `session:preAnswer()` | `session.preAnswer()` | `switch_cpp.h` / `fssession.cpp` |
+| Hang up | `session:hangup(cause)` | `session.hangup(cause)` | `switch_cpp.h` / `fssession.cpp` |
+| Play a file | `session:streamFile(file)` | `session.streamFile(file)` | `switch_cpp.h` / `fssession.cpp` |
+| Record to a file | `session:recordFile(name, limit, thresh, hits)` | `session.recordFile(name, cb, arg, limit, thresh, hits)` | `switch_cpp.h` / `fssession.cpp` |
+| Play prompt and collect DTMF | `session:playAndGetDigits(...)` | *(not exposed)* | `switch_cpp.h` |
+| Collect a fixed count of digits | `session:getDigits(max, terminators, timeout)` | `session.getDigits(max, terminators, timeout)` | `switch_cpp.h` / `fssession.cpp` |
+| Play prompt and read digits | `session:read(min, max, file, timeout, terminators)` | *(not exposed)* | `switch_cpp.h` |
+| Execute a dialplan app | `session:execute(app, data)` | `session.execute(app, data)` | `switch_cpp.h` / `fssession.cpp` |
+| Get a channel variable | `session:getVariable(name)` | `session.getVariable(name)` | `switch_cpp.h` / `fssession.cpp` |
+| Set a channel variable | `session:setVariable(name, val)` | `session.setVariable(name, val)` | `switch_cpp.h` / `fssession.cpp` |
+| Say a structured value (number, date, …) | `session:say(text, module, type, method, gender)` | *(use `sayPhrase` / `speak`)* | `switch_cpp.h` |
+| Play a phrase macro | `session:sayPhrase(name, data, lang)` | `session.sayPhrase(name, data, lang)` | `switch_cpp.h` / `fssession.cpp` |
+| Sleep (ms), serviced for DTMF | `session:sleep(ms)` | `session.sleep(ms)` | `switch_cpp.h` / `fssession.cpp` |
+| Is the channel still up? | `session:ready()` | `session.ready()` | `switch_cpp.h` / `fssession.cpp` |
+| Has the call been answered? | `session:answered()` | `session.answered()` | `switch_cpp.h` / `fssession.cpp` |
+| Bridge to another session | `session:bridge(other)` | `session.bridge(other)` | `switch_cpp.h` / `fssession.cpp` |
+| Set a hangup hook | `session:setHangupHook(func)` | `session.setHangupHook(func)` | `freeswitch.i` / `fssession.cpp` |
+| Set a DTMF/input callback | `session:setInputCallback(func, args)` | `session.collectInput(func, arg, timeout)` | `freeswitch.i` / `fssession.cpp` |
+
+A few of these warrant detail.
+
+### `streamFile` {#streamfile}
+
+`streamFile(file)` plays a file into the channel. In Lua a second integer argument is the starting sample offset (`switch_cpp.h`):
+
+```lua
+session:streamFile("ivr/ivr-welcome.wav")
+```
+
+In JavaScript the extra arguments are an optional input-callback function, a callback argument, and a sample offset (`fssession.cpp`, `StreamFile`):
+
+```javascript
+session.streamFile("ivr/ivr-welcome.wav");
+```
+
+### `playAndGetDigits` — Lua only {#playandgetdigits}
+
+`playAndGetDigits` plays a prompt, collects DTMF, validates them against a regex, and retries on bad input. It is declared on `CoreSession` (`switch_cpp.h`) and bound by SWIG, so it is available in **Lua** but is **not** in the `mod_v8` `session_proc` table:
+
+```lua
+-- min, max, tries, timeout, terminators, prompt, badInput, regex
+local digits = session:playAndGetDigits(
+  1, 1, 3, 5000, "#",
+  "ivr/ivr-enter_ext.wav",
+  "ivr/ivr-that_was_an_invalid_entry.wav",
+  "\\d+")
+```
+
+In JavaScript, achieve the same by combining `streamFile` and `getDigits`, or by calling the underlying `play_and_get_digits` application via `session.execute(...)`.
+
+### `getDigits` {#getdigits}
+
+`getDigits` collects up to a fixed number of digits, ending early on a terminator or timeout. The first three arguments — maximum digit count, terminator string, and overall timeout in milliseconds — are the same in both languages (`switch_cpp.h`, `fssession.cpp`):
+
+```lua
+local d = session:getDigits(4, "#", 5000)
+```
+
+```javascript
+var d = session.getDigits(4, "#", 5000);
+```
+
+### `execute` {#execute}
+
+`execute(app, data)` runs any dialplan application by name — the same applications you would write in the XML dialplan — in the context of the session (`switch_cpp.h`, `fssession.cpp`). This is the most general lever a script has:
+
+```lua
+session:execute("playback", "ivr/ivr-welcome.wav")
+session:execute("sleep", "1000")
+```
+
+### `getVariable` / `setVariable` {#getvariable-setvariable}
+
+These read and write channel variables (`switch_cpp.h`, `fssession.cpp`):
+
+```lua
+local cid = session:getVariable("caller_id_number")
+session:setVariable("my_flag", "1")
+```
+
+```javascript
+var cid = session.getVariable("caller_id_number");
+session.setVariable("my_flag", "1");
+```
+
+### `setHangupHook` and input callbacks {#hangup-hooks-and-input-callbacks}
+
+`setHangupHook(func)` registers a function to be called when the channel hangs up — useful for cleanup and logging. Both modules support it (`freeswitch.i` for Lua; `fssession.cpp` `SetHangupHook` for JavaScript).
+
+For DTMF and event callbacks during playback, the two modules diverge:
+
+- **Lua** uses `session:setInputCallback(func, args)` to register a persistent callback, paired with `session:unsetInputCallback()` (`freeswitch.i`). The callback also fires during `streamFile`, `collectDigits`, and similar blocking calls.
+- **JavaScript** passes the callback function directly to the playback method (`streamFile`, `recordFile`, `speak`), and exposes `session.collectInput(func, arg, timeout)` for standalone collection (`fssession.cpp`).
+
+:::warning Lua vs. JavaScript: input collection
+There is no `collectDigits` method in `mod_v8`; the JavaScript equivalent is `session.collectInput(...)`. The Lua `CoreSession::collectDigits(...)` method is bound by SWIG and available in Lua.
+:::
+
+---
+
+## `freeswitch.API` — Running API Commands {#freeswitch-api}
+
+Any FreeSWITCH API command — everything you can type at `fs_cli` or send over the Event Socket — can be run from a script. The C++ class is `API` in `switch_cpp.h`; its `execute` and `executeString` methods are implemented in `switch_cpp.cpp`.
+
+### Lua {#api-lua}
+
+In Lua, create an `API` object and call `execute(cmd, args)` or `executeString("cmd args")`:
+
+```lua
+local api = freeswitch.API()
+
+-- two-argument form: command and its arguments
+local result = api:execute("sofia", "status")
+
+-- single-string form: command and args in one string
+local uptime = api:executeString("uptime")
+```
+
+`execute(cmd, args)` and `executeString(cmd)` both return the command's output as a string (`switch_cpp.cpp`, `API::execute` / `API::executeString`).
+
+### JavaScript {#api-js}
+
+:::warning Lua vs. JavaScript: API access
+`mod_v8` does **not** expose an `API` class. Instead it provides a global function `apiExecute(cmd, arg)` (`fsglobal.cpp`, `ApiExecute`). There is no `executeString` in JavaScript; pass the command and its arguments as two parameters.
+:::
+
+```javascript
+// global function, not a class
+var result = apiExecute("sofia", "status");
+var uptime = apiExecute("uptime", "");
+```
+
+An optional third argument to `apiExecute` is a session object, which scopes the command to that channel (`fsglobal.cpp`).
+
+---
+
+## `freeswitch.Event` — Building and Firing Events {#freeswitch-event}
+
+Scripts can construct custom events and fire them onto the FreeSWITCH event bus, where any other subscriber (an Event Socket client, an event hook, another script) can receive them. The C++ class is `Event` in `switch_cpp.h`.
+
+### Lua {#event-lua}
+
+Construct with an event type and an optional subclass name, add headers and a body, then `fire()`:
+
+```lua
+local event = freeswitch.Event("CUSTOM", "my::namespace")
+event:addHeader("Action", "ping")
+event:addHeader("Caller-ID", session:getVariable("caller_id_number"))
+event:addBody("hello from lua")
+event:fire()
+```
+
+Verified methods (`switch_cpp.h`, `switch_cpp.cpp`): `addHeader(name, value)`, `getHeader(name)`, `delHeader(name)`, `addBody(value)`, `getBody()`, `getType()`, `serialize(format)`, `setPriority(priority)`, `fire()`, `merge(other)`, `chat_execute(app, data)`, `chat_send(proto)`.
+
+### JavaScript {#event-js}
+
+The JavaScript surface is the same, exposed through the `Event` class (`fsevent.cpp`, `event_proc`):
+
+```javascript
+var event = new Event("CUSTOM", "my::namespace");
+event.addHeader("Action", "ping");
+event.addHeader("Caller-ID", session.getVariable("caller_id_number"));
+event.addBody("hello from js");
+event.fire();
+```
+
+Verified JavaScript methods (`fsevent.cpp`): `addHeader`, `getHeader`, `addBody`, `getBody`, `getType`, `serialize`, `fire`, `chatExecute`.
+
+:::note Lua vs. JavaScript: chat methods
+The Lua binding spells the chat method `chat_execute` (the C++ name); `mod_v8` spells it `chatExecute`.
+:::
+
+---
+
+## Logging and Stream Output {#logging-and-stream-output}
+
+### `consoleLog` {#consolelog}
+
+`consoleLog(level, msg)` writes to the FreeSWITCH log at the given level (`debug`, `info`, `notice`, `warning`, `err`, `crit`, `alert`, `console`). It is implemented as the free function `consoleLog` in `switch_cpp.cpp`.
+
+```lua
+freeswitch.consoleLog("INFO", "script reached branch A\n")
+```
+
+In JavaScript the global function is `consoleLog(level, msg)`. `mod_v8` also registers `log(level, msg)` as a short alias and keeps `console_log` as a deprecated name (`fsglobal.cpp`):
+
+```javascript
+consoleLog("INFO", "script reached branch A\n");
+```
+
+:::warning Lua vs. JavaScript: log function name
+Both languages use `consoleLog`. In JavaScript, `console_log` still works but is deprecated, and `log` is an accepted short alias. Append your own newline — neither function adds one in Lua, and `mod_v8` only adds one if the message does not already end in `\n`.
+:::
+
+### `stream` output {#stream-output}
+
+When a script runs as an **API command** (for example via `luarun`, or when serving an HTTP request through `mod_xml_rpc` / the Event Socket `api` command), the module injects a global `stream` object. Writing to it sends data back to the caller. In Lua the module conjures it under the name `stream` (`mod_lua.cpp`, `mod_lua_conjure_stream`), and it exposes `write` (`switch_cpp.cpp`, `Stream::write`):
+
+```lua
+-- in an API/luarun context, 'stream' is available
+stream:write("OK\n")
+```
+
+The `Stream` class also exposes `get_data()` and `raw_write(data, len)` (`switch_cpp.h`). A script launched from the dialplan on a call leg has a `session` but no `stream`; a script launched as an API command has a `stream` but no call `session`.
+
+---
+
+## Worked Example: Answer, Play, Collect, Branch {#worked-example}
+
+The following two scripts are functionally identical: each answers the call, plays a prompt, collects a single digit, and branches on the result. They are presented side by side to make the Lua/JavaScript parity — and the few naming differences — concrete.
+
+### Lua {#worked-example-lua}
+
+```lua title="press1.lua — run with: lua press1.lua (from the dialplan)"
+-- 'session' is provided by the lua dialplan application
+session:answer()
+
+-- play a prompt and collect exactly one digit, '#' terminates, 5s timeout
+local digit = session:getDigits(1, "#", 5000)
+
+freeswitch.consoleLog("INFO", "caller pressed: '" .. digit .. "'\n")
+
+if digit == "1" then
+  session:execute("playback", "ivr/ivr-welcome.wav")
+elseif digit == "2" then
+  -- run any API command from the script
+  local api = freeswitch.API()
+  api:execute("uuid_broadcast", session:getVariable("uuid") .. " tone_stream://%(500,0,800)")
+else
+  -- build and fire a custom event for monitoring
+  local ev = freeswitch.Event("CUSTOM", "press1::no_input")
+  ev:addHeader("Caller", session:getVariable("caller_id_number"))
+  ev:fire()
+  session:execute("playback", "ivr/ivr-that_was_an_invalid_entry.wav")
+end
+
+session:hangup()
+```
+
+### JavaScript (mod_v8) {#worked-example-js}
+
+```javascript title="press1.js — run with: javascript press1.js (from the dialplan)"
+// 'session' is provided by the javascript dialplan application
+session.answer();
+
+// play a prompt and collect exactly one digit, '#' terminates, 5s timeout
+var digit = session.getDigits(1, "#", 5000);
+
+consoleLog("INFO", "caller pressed: '" + digit + "'\n");
+
+if (digit == "1") {
+  session.execute("playback", "ivr/ivr-welcome.wav");
+} else if (digit == "2") {
+  // run any API command from the script (global function, not a class)
+  apiExecute("uuid_broadcast",
+    session.getVariable("uuid") + " tone_stream://%(500,0,800)");
+} else {
+  // build and fire a custom event for monitoring
+  var ev = new Event("CUSTOM", "press1::no_input");
+  ev.addHeader("Caller", session.getVariable("caller_id_number"));
+  ev.fire();
+  session.execute("playback", "ivr/ivr-that_was_an_invalid_entry.wav");
+}
+
+session.hangup();
+```
+
+The only substantive differences between the two are the language-level syntax (`:` vs `.` for method calls, `local`/`var`, string concatenation) and **two naming differences flagged above**: API access is the global `apiExecute(...)` in JavaScript versus the `freeswitch.API()` object in Lua, and the constructor for events is `new Event(...)` in JavaScript versus `freeswitch.Event(...)` in Lua. Everything else — `answer`, `getDigits`, `execute`, `getVariable`, `hangup`, the `Event` methods — is spelled the same.
+
+---
+
+## Summary {#summary}
+
+- A script gets a call leg as the global `session` from the `lua`/`javascript` dialplan app, by wrapping a UUID with `freeswitch.Session("<uuid>")` / `new Session("<uuid>")`, or by originating with a dial string.
+- The session object wraps `CoreSession`; the method names are bound near-verbatim in Lua and re-registered in `mod_v8`. `playAndGetDigits`, `read`, and `say` are Lua-only on the shared surface; JavaScript uses `collectInput` where Lua uses `setInputCallback`/`collectDigits`.
+- API commands run from `freeswitch.API():execute(cmd, args)` in Lua and from the global `apiExecute(cmd, arg)` in JavaScript.
+- Events are built with `freeswitch.Event(type, subclass)` (Lua) / `new Event(type, subclass)` (JavaScript), then `addHeader`/`addBody`/`fire()`.
+- Logging is `consoleLog(level, msg)` in both; API-context scripts write results with `stream:write(...)`.
+
+For module configuration, the dialplan applications, the API commands, and the event-hook wiring, see [Chapter 28: Scripting Integration](/integration/scripting).

@@ -1,0 +1,295 @@
+---
+sidebar_position: 3
+id: esl-inbound
+slug: /programming/esl-inbound
+title: "The Inbound Event Socket"
+description: "Connect to FreeSWITCH's event_socket listener from your own program: the wire protocol, the ESL client library, and a worked event-consuming loop."
+sidebar_label: "ESL: Inbound"
+---
+
+# The Inbound Event Socket
+
+In **inbound** mode your program is the client: it opens a TCP connection *to*
+FreeSWITCH's `mod_event_socket` listener, authenticates, and then issues
+commands and consumes events for as long as it likes. This is the mode you use
+to build dashboards, click-to-call backends, dialers, billing collectors, and
+any out-of-band controller that talks to a running FreeSWITCH.
+
+Contrast this with **outbound** mode, covered in the sibling chapter
+[The Outbound Event Socket](/programming/esl-outbound), where the roles are
+reversed: the dialplan's `socket` application makes FreeSWITCH connect *out* to
+*your* listening server, handing you one call to control. Same wire protocol,
+opposite direction. Inbound is server-wide and persistent; outbound is per-call.
+
+The listener itself, its configuration parameters, and ACL restrictions are
+documented in the integration chapter
+[The Event Socket](/integration/event-socket). The events you will subscribe to
+are described in [The Event Model](./event-model.mdx) and the
+[events catalog](./events-catalog.mdx). This chapter is the programmer's
+companion: how to *write client code* against the socket.
+
+## The Connection Model {#the-connection-model}
+
+By default `mod_event_socket` listens on port `8021` with the password
+`ClueCon`. The shipped `event_socket.conf.xml` binds `listen-ip` to `::`
+(all interfaces, IPv6/IPv4), but the conventional and safe target for a local
+controller is `127.0.0.1:8021`.
+
+```
+listen-port = 8021
+password    = ClueCon
+```
+
+Source: `conf/vanilla/autoload_configs/event_socket.conf.xml`. The password is
+checked verbatim against the `auth` command in `mod_event_socket.c`
+(`parse_command`, `if (!strcmp(prefs.password, pass))`). Change it before
+exposing the socket to anything other than localhost.
+
+When a connection is accepted, FreeSWITCH speaks first. It sends an
+authentication challenge:
+
+```
+Content-Type: auth/request
+
+```
+
+(`switch_snprintf(buf, ..., "Content-Type: auth/request\n\n")` in
+`mod_event_socket.c`.) Your program must respond with `auth` before any other
+command is accepted.
+
+## The Wire Protocol {#the-wire-protocol}
+
+Every message on the socket is a block of `Name: Value` headers terminated by a
+blank line, optionally followed by a body whose length is given by a
+`Content-Length` header. This is the same framing FreeSWITCH events use, so the
+protocol is symmetric: commands you send and events you receive look alike.
+
+### Commands {#commands}
+
+The commands below are the ones `parse_command` recognizes in
+`mod_event_socket.c`. Send each as a single line terminated by a blank line. The
+argument to each comparison in the source is shown so you can trust the spelling.
+
+| Command | Purpose |
+| --- | --- |
+| `auth <password>` | Authenticate. Required first. Replies `+OK accepted` or `-ERR invalid`. |
+| `api <cmd> <args>` | Run an API command and **block** until it returns; the result comes back as `Content-Type: api/response`. |
+| `bgapi <cmd> <args>` | Run an API command in the **background**; returns a `Job-UUID` immediately, the result arrives later as a `BACKGROUND_JOB` event. |
+| `event <format> <types>` | Subscribe to events. Format is `plain`, `json`, or `xml`. Use `event plain ALL` for everything. |
+| `nixevent <types>` | Unsubscribe from specific event types while keeping the rest. |
+| `noevents` | Unsubscribe from all events. |
+| `filter <header> <value>` | Restrict delivered events to those whose header matches; `filter delete ...` removes a filter. |
+| `sendevent <event-name>` | Inject an event into FreeSWITCH's event system. |
+| `sendmsg <uuid>` | Send a message/command to a specific channel (used to control calls). |
+| `exit` | Close the connection cleanly (replies `+OK bye`). |
+
+These names are verified against the `strncasecmp(cmd, "...")` checks in
+`mod_event_socket.c`: `auth ` (line ~1739), `api ` (~2277), `bgapi ` (~2322),
+`event` (~2454), `nixevent` (~2536), `noevents` (~2590), `filter ` (~1950),
+`sendevent` (~2230), `sendmsg` (~2169), and `exit` (~1732). Additional commands
+exist for log streaming (`log`, `nolog`) and the linger/divert mechanics used by
+outbound mode.
+
+### Command and Reply {#command-and-reply}
+
+Most commands get a synchronous **Command/Reply**. FreeSWITCH answers with:
+
+```
+Content-Type: command/reply
+Reply-Text: +OK accepted
+
+```
+
+(`"Content-Type: command/reply\nReply-Text: %s\n\n"` in `mod_event_socket.c`.)
+A reply that starts with `+OK` succeeded; one that starts with `-ERR` failed and
+carries a reason, for example `-ERR invalid` or `-ERR command not found`.
+
+`api` is the exception: its result is not a `command/reply` but a separate
+framed block:
+
+```
+Content-Type: api/response
+Content-Length: 5
+
++OK 1
+```
+
+(`"Content-Type: api/response\nContent-Length: %ld\n\n"` in `api_exec`,
+`mod_event_socket.c`.) You must read exactly `Content-Length` bytes of body.
+
+### Blocking vs Background {#blocking-vs-background}
+
+`api uptime` blocks the socket until the command completes and returns the
+output inline. `bgapi originate ...` returns immediately:
+
+```
+Content-Type: command/reply
+Reply-Text: +OK Job-UUID: 1b9be1e2-...
+Job-UUID: 1b9be1e2-...
+
+```
+
+(`"~Reply-Text: +OK Job-UUID: %s\nJob-UUID: %s\n\n"` in the `bgapi` branch of
+`mod_event_socket.c`.) The actual result is delivered later, only if you are
+subscribed to events, as a `BACKGROUND_JOB` event carrying the matching
+`Job-UUID` header and the command output in its body. The event is built in
+`api_exec`:
+
+```c
+switch_event_create(&event, SWITCH_EVENT_BACKGROUND_JOB);
+switch_event_add_header_string(event, ..., "Job-UUID", acs->uuid_str);
+switch_event_add_header_string(event, ..., "Job-Command", acs->api_cmd);
+switch_event_add_body(event, "%s", reply);
+```
+
+Use `bgapi` for anything slow (notably `originate`) so a single long call does
+not stall your control connection.
+
+## The ESL Client Library {#the-esl-client-library}
+
+You rarely hand-roll this framing. FreeSWITCH ships **ESL** (Event Socket
+Library) under `libs/esl/`, a small C library wrapped by SWIG into Lua, Python,
+Perl, PHP, Ruby, Java, and .NET bindings. All bindings expose the same two
+objects, `ESLconnection` and `ESLevent`, declared in
+`libs/esl/src/include/esl_oop.h`.
+
+### ESLconnection {#eslconnection}
+
+For inbound use you construct an `ESLconnection` with a host, port, and
+password. The constructor connects and performs the `auth` handshake for you.
+The methods you will use most, all from `esl_oop.h`:
+
+| Method | What it does |
+| --- | --- |
+| `ESLconnection(host, port, password)` | Connect and authenticate (inbound). |
+| `connected()` | Returns nonzero while the socket is up. |
+| `api(cmd, arg)` | Send `api`, block, return an `ESLevent` whose body holds the result. |
+| `bgapi(cmd, arg, job_uuid)` | Send `bgapi`, return immediately; result arrives as a `BACKGROUND_JOB` event. |
+| `events(etype, value)` | Subscribe. `etype` is `plain`, `json`, or `xml`; `value` is the event list. |
+| `filter(header, value)` | Add a server-side event filter. |
+| `recvEvent()` | Block until the next event arrives; return it as an `ESLevent`. |
+| `recvEventTimed(ms)` | Like `recvEvent` but give up after `ms` milliseconds. |
+| `sendEvent(event)` | Send an `ESLevent` you built (the `sendevent` command). |
+| `sendMSG(event, uuid)` | Send a message to a channel (the `sendmsg` command). |
+| `disconnect()` | Close the connection. |
+
+Under the hood these build the wire commands shown above. For example
+`api(cmd, arg)` emits `api <cmd> <arg>` and `bgapi` emits
+`bgapi <cmd> <arg>` with a `Job-UUID:` header (see `esl.c`, `esl_oop.cpp`).
+`events` emits `event <type> <value>` and `filter` emits
+`filter <header> <value>`.
+
+### ESLevent {#eslevent}
+
+Every event and every API result comes back as an `ESLevent`. Its accessors,
+from `esl_oop.h`:
+
+| Method | What it returns |
+| --- | --- |
+| `getHeader(name)` | The value of a header, or null if absent. |
+| `getBody()` | The event body (the API output, or a message payload). |
+| `getType()` | The event name, e.g. `CHANNEL_ANSWER`. |
+| `serialize(format)` | The whole event as text (or `json`/`xml`). |
+| `addHeader(name, value)` | Set a header (when building an event to send). |
+| `addBody(value)` | Set the body (when building an event to send). |
+
+## A Worked Example {#a-worked-example}
+
+The example below uses the Lua binding (`libs/esl/lua`). The constructor,
+`con:api(...)`, and `e:getBody()` are exactly the pattern in the shipped
+`libs/esl/lua/single_command.lua`. The Python, Perl, and other bindings are
+identical method-for-method; only the dot-versus-colon syntax differs.
+
+```lua
+-- inbound ESL: connect, run an API command, then watch channel events
+require("ESL")
+
+-- ESLconnection(host, port, password) connects AND authenticates
+local con = ESL.ESLconnection("127.0.0.1", "8021", "ClueCon")
+
+if con:connected() == 0 then
+    print("could not connect to FreeSWITCH")
+    return
+end
+
+-- a blocking api call: result is the ESLevent body
+local info = con:api("status")
+print(info:getBody())
+
+-- kick off a call in the background; we get a Job-UUID back immediately
+con:bgapi("originate", "user/1000 &echo")
+
+-- subscribe to all events in plain format so we receive BACKGROUND_JOB
+-- and the CHANNEL_* lifecycle
+con:events("plain", "ALL")
+
+-- consume events forever
+while con:connected() == 1 do
+    -- recvEvent() blocks for the next event; recvEventTimed(ms) is the
+    -- timed variant
+    local e = con:recvEvent()
+    if e then
+        local name = e:getHeader("Event-Name")
+        if name == "CHANNEL_CREATE"
+            or name == "CHANNEL_ANSWER"
+            or name == "CHANNEL_HANGUP" then
+            print(string.format("%s  uuid=%s  number=%s",
+                name,
+                e:getHeader("Unique-ID"),
+                e:getHeader("Caller-Destination-Number")))
+        elseif name == "BACKGROUND_JOB" then
+            -- the deferred result of our bgapi originate
+            print("job " .. tostring(e:getHeader("Job-UUID"))
+                .. " -> " .. tostring(e:getBody()))
+        end
+    end
+end
+```
+
+The same program in Python is line-for-line equivalent (and matches the shipped
+`libs/esl/python3/events.py`):
+
+```python
+from ESL import ESLconnection
+
+con = ESLconnection("127.0.0.1", "8021", "ClueCon")
+if con.connected():
+    print(con.api("status").getBody())
+    con.events("plain", "ALL")
+    while con.connected():
+        e = con.recvEvent()
+        if e:
+            print(e.getType(), e.getHeader("Unique-ID"))
+```
+
+## Common Uses {#common-uses}
+
+**Monitoring channel lifecycle.** Subscribe with
+`con:events("plain", "CHANNEL_CREATE CHANNEL_ANSWER CHANNEL_HANGUP_COMPLETE")`
+and loop on `recvEvent()`. Each event's headers (`Unique-ID`,
+`Caller-Caller-ID-Number`, `Caller-Destination-Number`, `Hangup-Cause`) give you
+a complete picture of who is talking to whom. To reduce noise, subscribe only to
+the event types you need rather than `ALL`, or add a `filter` to narrow by
+header.
+
+**Placing and controlling calls.** Use `api`/`bgapi` to run any API command. The
+two you will reach for most:
+
+- `con:bgapi("originate", "user/1000 &park")` to start a call without blocking.
+- `con:api("uuid_kill", uuid)` or `con:api("uuid_transfer", uuid .. " 9999")`
+  to act on a live channel by its `Unique-ID`.
+
+Because `bgapi` returns a `Job-UUID` and the real answer arrives later as a
+`BACKGROUND_JOB` event, a robust dialer keeps an events loop running, records
+the `Job-UUID` it got back, and matches it against the `Job-UUID` header on each
+`BACKGROUND_JOB` to learn the outcome of each `originate`.
+
+**Injecting events.** Build an `ESLevent`, populate it with `addHeader`, and send
+it with `con:sendEvent(...)` (the `sendevent` command) to fire custom events or
+trigger behavior in other modules.
+
+For the listener-side configuration, ACLs, the `event_socket.conf.xml`
+parameters, and the raw protocol walkthrough, see
+[The Event Socket](/integration/event-socket). For the per-call,
+FreeSWITCH-connects-to-you variant, see
+[The Outbound Event Socket](/programming/esl-outbound).
