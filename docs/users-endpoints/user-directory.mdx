@@ -119,7 +119,7 @@ Each user is represented by a `<user>` element with a mandatory `id` attribute. 
 |---|---|---|
 | `id` | Unique user identifier within the domain. Corresponds to the SIP username. | Required |
 | `number-alias` | Alternate number string that resolves to this user record. Allows a phone number to map to an alphanumeric `id`. | Optional |
-| `cidr` | Restricts registration to requests arriving from the specified CIDR range. Enables IP-based authentication without a password challenge. | Optional |
+| `cidr` | Adds a `<user-id>@<domain>` token to any ACL whose node lists this domain (a `network-list` ACL), pairing the user with the given CIDR range. It does not by itself bypass digest auth; a SIP profile must reference that ACL via `apply-inbound-acl`/`apply-register-acl` for the IP-based allow to take effect. | Optional |
 
 Example using `cidr` and `number-alias`:
 
@@ -315,7 +315,7 @@ If `auth-acl` is set, the source IP of the request must pass the named ACL; fail
 
 Setting `sip-forbid-register` to `true` unconditionally rejects REGISTER for that user with a 403 response, regardless of credentials.
 
-The `cidr` attribute on the `<user>` element (see User Attributes above) bypasses digest authentication entirely for requests arriving from the specified IP range. A user with both `cidr` and `password` set will authenticate by CIDR for matching source IPs and fall back to digest for others.
+The `cidr` attribute on the `<user>` element (see User Attributes above) does not act in the digest-auth path on its own. When an ACL is built, FreeSWITCH walks the directory and, for each `<user>` carrying a `cidr`, adds a `<user-id>@<domain>` token bound to that range into any `network-list` ACL whose node names the domain. A SIP profile then enables IP-based authentication by referencing that ACL through `apply-inbound-acl` or `apply-register-acl`; without such a reference the `cidr` attribute has no effect and the request is still subject to the normal digest challenge.
 
 Which domain FreeSWITCH uses for the lookup depends on the `auth-calls` and related settings in the SIP profile. SIP profile configuration is covered in the chapter on SIP profiles.
 
@@ -346,4 +346,4 @@ This means arbitrary data can be stored on a user record and consumed by custom 
 <variable name="max_calls" value="5"/>
 ```
 
-These would appear as `$${department}` and `$${max_calls}` on any call leg for that user. There is no validation; any string is accepted.
+These would appear as the channel variables `${department}` and `${max_calls}` on any call leg for that user. (Directory `<variable>`s are channel variables, referenced with a single `$`; the `$${...}` form is reserved for preprocessor-global variables set in `vars.xml`.) There is no validation; any string is accepted.
