@@ -94,11 +94,33 @@ With an explicit profile:
 
 The `intrastate` channel variable (set to `true`) causes the lookup to use the `intrastate_rate` column instead of `rate`. The `lrn` variable, if set, supplies a ported (LRN) number for the digit-prefix expansion.
 
+## Endpoint and Custom Dialplan
+
+In addition to the `lcr` application, the module registers an `lcr` endpoint and an `lcr` dialplan parser. Both run the LCR lookup and dial the resulting routes directly, without an explicit `bridge` action.
+
+### `lcr://` endpoint
+
+The endpoint dial-string takes the form `lcr/<profile>/<destination>`, where `<profile>` is the LCR profile name and `<destination>` is the number to route. It can be used anywhere a dial-string is accepted, such as `bridge` or the `originate` API. If only a single token is given (no `/`), it is treated as the destination and the default profile is used.
+
+```xml
+<action application="bridge" data="lcr/default/15555551212"/>
+```
+
+```
+freeswitch@> originate lcr/default/15555551212 &echo
+```
+
+### `lcr` dialplan
+
+The module registers a custom dialplan named `lcr`. When a SIP profile (or other channel) is configured to use the `lcr` dialplan, the channel's **context** is used as the LCR profile name and the dialed destination number is looked up against that profile. Matching routes are added to the call's extension and dialed automatically, so no explicit extensions are needed in XML.
+
+For example, setting `context="default"` on a profile that uses the `lcr` dialplan routes all calls through the LCR profile named `default`.
+
 ## API Commands
 
 | Command | Purpose | Syntax |
 |---------|---------|--------|
-| `lcr` | Look up and display LCR routes for a number | `lcr <digits> [<lcr profile>] [caller_id] [intrastate] [as xml]` |
+| `lcr` | Look up and display LCR routes for a number | `lcr <digits> [<lcr profile>] [caller_id] [intrastate] [lrn <number>] [as xml]` |
 | `lcr_admin` | Display loaded LCR profiles | `lcr_admin show profiles` |
 
 ### `lcr`
@@ -108,10 +130,16 @@ Queries the database and prints a formatted table (or XML) of matching routes to
 ```
 freeswitch@> lcr 15555551212
 freeswitch@> lcr 15555551212 default 18005551212 intrastate
+freeswitch@> lcr 15555551212 default lrn 16175551212
 freeswitch@> lcr 15555551212 default as xml
 ```
 
-The optional `caller_id` argument overrides the caller-ID number used for CID-manipulation lookups. The `intrastate` keyword switches the rate column to `intrastate_rate`.
+Arguments after the profile may appear in any order:
+
+- `caller_id` — a bare numeric token overrides the caller-ID number used for CID-manipulation lookups (defaults to `18005551212`).
+- `intrastate` — switches the rate column to `intrastate_rate`.
+- `lrn <number>` — supplies a ported (LRN) number that is used alongside the dialed number in the digit-prefix expansion. The keyword `lrn` must be followed by the number as a separate token.
+- `as xml` — formats the route list as XML instead of the default console table.
 
 ### `lcr_admin`
 
