@@ -65,17 +65,18 @@ The `<settings>` section controls the cache and the HTTP client.
 
 ### Storage Profiles (S3 and Azure Blob)
 
-A `<profiles>` block defines named credential sets for object storage. Each `<profile>` contains either an `<aws-s3>` or an `<azure-blob>` element and an optional `<domains>` list. When a request targets a host listed under a profile's `<domains>`, that profile's credentials are applied automatically; otherwise a profile is selected explicitly with the `{profile=...}` parameter on the URL (see below).
+A `<profiles>` block defines named credential sets for object storage. Each `<profile>` contains one of three credential elements — `<aws-s3>`, `<azure-blob>`, or `<default>` — and an optional `<domains>` list. When a request targets a host listed under a profile's `<domains>`, that profile is applied automatically; otherwise a profile is selected explicitly with the `{profile=...}` parameter on the URL (see below).
 
 | Element | Purpose |
 |---|---|
-| `<aws-s3>` / `<access-key-id>` | AWS (or S3-compatible) access key identifier. |
-| `<aws-s3>` / `<secret-access-key>` | AWS secret access key. |
+| `<aws-s3>` / `<access-key-id>` | AWS (or S3-compatible) access key identifier. Overridden by the `AWS_ACCESS_KEY_ID` environment variable when set. |
+| `<aws-s3>` / `<secret-access-key>` | AWS secret access key. Overridden by the `AWS_SECRET_ACCESS_KEY` environment variable when set. |
 | `<aws-s3>` / `<region>` | Storage region. |
-| `<aws-s3>` / `<base-domain>` | Base domain for an S3-compatible (non-AWS) service. Required to target a custom endpoint. |
+| `<aws-s3>` / `<base-domain>` | Base domain for an S3-compatible (non-AWS) service. Required to target a custom endpoint. Defaults to `s3.<region>.amazonaws.com` when omitted. |
 | `<aws-s3>` / `<expires>` | Lifetime, in seconds, of the generated URL signature. Default `604800` (one week). |
-| `<azure-blob>` / `<secret-access-key>` | Azure storage account key. Can be overridden by the `AZURE_STORAGE_ACCESS_KEY` environment variable. |
-| `<domains>` / `<domain name="...">` | Hosts to which this profile's credentials are applied automatically. |
+| `<azure-blob>` / `<secret-access-key>` | Azure storage account key. Overridden by the `AZURE_STORAGE_ACCESS_KEY` environment variable when set. |
+| `<default>` / `<header name="...">value</header>` | A non-credential profile that injects one or more static HTTP request headers (repeat `<header>` per header) on requests to its `<domains>`. Useful for passing API keys or auth tokens to a plain web service. |
+| `<domains>` / `<domain name="...">` | Hosts to which this profile is applied automatically. |
 
 ```xml
 <profiles>
@@ -108,6 +109,7 @@ The optional `{param=val}` prefix accepts:
 
 - `profile` — select a named storage profile, e.g. `{profile=s3}`.
 - `refresh` — when `true`, ignore any cached copy and download a fresh one.
+- `prefetch` — when `true`, fetch in a background thread and return immediately (the same effect as `http_prefetch`).
 
 ```
 freeswitch@> http_get http://example.com/prompts/welcome.wav

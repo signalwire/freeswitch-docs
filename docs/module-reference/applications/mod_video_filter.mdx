@@ -48,7 +48,7 @@ Waits for `CF_VIDEO_READY` on the channel (up to 10 seconds), then installs a me
 |---|---|---|
 | 1 | `<color>[+thresh][:color[+thresh]...]` | Colon-separated list of colors to key out. Each entry is either an HTML hex color (`#RRGGBB`) or a shade name recognized by `switch_chromakey_str2shade`. Append `+N` to set a per-color threshold (integer). |
 | 2 | `<threshold>` | Global default threshold for chroma detection (integer, applied when per-color threshold is not set). The compiled default is `300`. |
-| 3 | `#bg_color` \| `path/to/image.png` \| `path/to/video` \| `uuid:<uuid>` | Background to display behind the keyed-out subject. A hex color fills a solid background; a `.png` path loads a static image; any other path opens it as a looping video file; `uuid:<uuid>` streams live video from another channel. |
+| 3 | `#bg_color` \| `path/to/image.png` \| `path/to/video` \| `uuid:<uuid>` | Background to display behind the keyed-out subject. A hex color fills a solid background; a `.png` path loads a static image; any other path opens it as a video file; `uuid:<uuid>` streams live video from another channel. A video-file background plays once and stops at EOF unless opened with `{loop=true}` (see below), which seeks back to the start instead of closing. |
 | 4+ | Keyword options | One or more of the options described below. |
 
 **Keyword options (position 4 and beyond):**
@@ -56,10 +56,14 @@ Waits for `CF_VIDEO_READY` on the channel (up to 10 seconds), then installs a me
 | Option | Purpose |
 |---|---|
 | `filter:<name>` | Apply a named video filter. Recognized values are parsed by `switch_core_video_parse_filter_string`; supported filters include `bg-sepia`, `bg-gray`, `fg-sepia`, `fg-gray`, and `fg-8bit`. |
-| `fgvid:<file>` | Path to a video file to composite on top of the foreground subject. |
+| `fgvid:<file>` | Path to a video file to composite on top of the foreground subject. Stops at EOF unless opened with `{loop=true}` (see below). |
 | `fg:<file.png>` | Path to a PNG to composite over the foreground subject (center-bottom aligned). |
 | `bg:<file.png>` | Path to a PNG to composite over the background (center-bottom aligned). |
 | `patch` | Switch the media bug to `SMBF_VIDEO_PATCH` mode (patches the video frame rather than pinging). |
+
+**Looping video-file inputs (`{loop=true}`):**
+
+Both the video-file background (position 3) and the `fgvid:` foreground video accept the `{loop=true}` file open parameter. By default, when one of these files reaches EOF its handle is closed. With `{loop=true}` the file seeks back to the start and keeps playing in a loop instead. Prefix the file path with the parameter, for example `{loop=true}/usr/local/freeswitch/videos/bg.mp4`.
 
 **Dialplan examples:**
 
@@ -99,16 +103,30 @@ Stop an active chromakey bug:
 
 Replaces the inbound (`read`) or outbound (`write`) video stream with frames read from a file. Audio from the file is discarded unless started via the API with the `:sound` direction suffix. Pass `stop` to remove an active bug.
 
+The argument is parsed positionally: when two or more tokens are given, the first is the direction and the second is the file. When only a single token is given it is treated as the file, and the direction defaults to `write`. So both `<file>` and `[read\|write] <file>` are accepted.
+
 **Arguments:**
 
 | Argument | Purpose |
 |---|---|
-| `read\|write` | Direction of the video stream to replace. Defaults to `write` when omitted. |
-| `<file>` | Path to a video file supported by the FreeSWITCH file-format subsystem. |
+| `read\|write` | Direction of the video stream to replace. Optional; defaults to `write` when only a file is given. |
+| `<file>` | Path to a video file supported by the FreeSWITCH file-format subsystem. The file plays once and the bug closes at EOF unless the path is opened with `{loop=true}`, which loops the file from the start instead. |
 | `stop` | Remove the active `video_replace` bug. |
 
 ```xml
 <action application="video_replace" data="write /usr/local/freeswitch/videos/hold.mp4"/>
+```
+
+Bare single-file form (direction defaults to `write`):
+
+```xml
+<action application="video_replace" data="/usr/local/freeswitch/videos/hold.mp4"/>
+```
+
+Loop the replacement file instead of stopping at EOF:
+
+```xml
+<action application="video_replace" data="write {loop=true}/usr/local/freeswitch/videos/hold.mp4"/>
 ```
 
 ```xml
