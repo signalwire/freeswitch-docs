@@ -1,0 +1,231 @@
+---
+sidebar_position: 1
+id: recipe-did-ivr-voicemail
+slug: /recipes/did-ivr-voicemail
+title: "Recipe: Inbound DID to IVR to Voicemail"
+description: "Route a PSTN DID through the public context into an auto-attendant IVR menu, then fall through unanswered options to a user's voicemail."
+sidebar_label: "DID to IVR to Voicemail"
+---
+
+# Recipe: Inbound DID to IVR to Voicemail
+
+## Goal
+
+Answer a PSTN number with an auto-attendant menu and route each option to the
+right place, sending unanswered calls to voicemail. A call arrives on the
+`external` SIP profile, is matched in the `public` context by its DID, and is
+transferred into an IVR menu. The menu offers "press 1 for sales, 2 for
+support," and so on. Each selection bridges to an internal extension; if that
+extension does not answer, the call lands in that user's voicemail box.
+
+The call flow is:
+
+```
+PSTN ──▶ external profile ──▶ public context ──▶ ivr (auto_attendant)
+                                                       │
+                          ┌────────────────────────────┼────────────────────────┐
+                          ▼                             ▼                         ▼
+                    1: Sales ext 1000           2: Support ext 1001        9: repeat menu
+                          │                             │
+                    no answer ──▶ voicemail       no answer ──▶ voicemail
+```
+
+## Prerequisites
+
+This recipe composes pieces documented in the reference chapters. Read those
+first if any step is unfamiliar:
+
+- [Chapter 13: Inbound Calls and the Public Context](../dialplan/inbound-public-context.mdx) — how unauthenticated PSTN calls reach the `public` context through the `external` profile.
+- [Chapter 12: The XML Dialplan](../dialplan/xml-dialplan.mdx) — how extensions, conditions, and actions are evaluated.
+- [Chapter 14: Dialplan Application Reference](../dialplan/dptools-reference.mdx) — the `transfer`, `bridge`, `set`, `export`, `answer`, and `sleep` applications used below.
+- [Chapter 21: IVR Menus](../applications/ivr-menus.mdx) — the `<menu>` schema, entry actions, and the `ivr` dialplan application.
+- [Chapter 19: Voicemail](../applications/voicemail.mdx) — the `voicemail` application and the per-user mailboxes it writes to.
+
+It also assumes the vanilla user directory: users `1000` and `1001` exist under
+`directory/default/` with a `vm-password`, exactly as shipped. The DID
+`+15551234567` is a placeholder; substitute the number your carrier delivers in
+the SIP Request-URI.
+
+## Build it
+
+### 1. Match the DID in the `public` context
+
+Add an extension to `conf/dialplan/public.xml` (or drop a file into
+`conf/dialplan/public/`, which the shipped `public.xml` already includes). It
+matches the inbound DID and transfers the call into the IVR menu by name, in the
+`default` context:
+
+```xml
+<extension name="did_auto_attendant">
+  <condition field="destination_number" expression="^(\+?1?5551234567)$">
+    <action application="set" data="domain_name=$${domain}"/>
+    <action application="answer"/>
+    <action application="sleep" data="500"/>
+    <action application="ivr" data="auto_attendant"/>
+  </condition>
+</extension>
+```
+
+Place this extension before the catch-all blocks near the bottom of
+`public.xml`. The leading `\+?1?` makes the match tolerant of carriers that
+deliver the number with or without a leading `+1`. `set domain_name` pins the
+domain so the later `voicemail` lookups resolve against your directory; `answer`
+brings the call up before prompts play.
+
+### 2. Define the IVR menu
+
+Create `conf/ivr_menus/auto_attendant.xml`. The shipped `ivr.conf.xml` already
+includes every file in that directory with
+`<X-PRE-PROCESS cmd="include" data="../ivr_menus/*.xml"/>`, so no other change is
+needed. This menu uses the `say:` prefix for prompts so it works without
+recording any audio; swap in `phrase:` or a `.wav` path once you have real
+greetings.
+
+```xml
+<include>
+  <menu name="auto_attendant"
+      greet-long="say:Thank you for calling. Press 1 for sales, 2 for support, or 0 for the operator."
+      greet-short="say:Press 1 for sales, 2 for support, or 0 for the operator."
+      invalid-sound="ivr/ivr-that_was_an_invalid_entry.wav"
+      exit-sound="voicemail/vm-goodbye.wav"
+      tts-engine="flite"
+      tts-voice="rms"
+      timeout="10000"
+      inter-digit-timeout="2000"
+      max-failures="3"
+      max-timeouts="3"
+      digit-len="1"
+      exec-on-max-failures="transfer 1001 XML default"
+      exec-on-max-timeouts="transfer 1001 XML default">
+
+    <entry action="menu-exec-app" digits="1" param="transfer 1000 XML default"/>
+    <entry action="menu-exec-app" digits="2" param="transfer 1001 XML default"/>
+    <entry action="menu-exec-app" digits="0" param="transfer 1001 XML default"/>
+    <entry action="menu-top"      digits="9"/>
+  </menu>
+</include>
+```
+
+The `say:` prompts need a TTS engine; the vanilla install ships `mod_flite`,
+which the `tts-engine`/`tts-voice` attributes select. A caller who presses
+nothing or only invalid keys falls out through `exec-on-max-timeouts` /
+`exec-on-max-failures`, which here forwards to support; point those at any
+extension you prefer.
+
+### 3. Route the menu options to extensions and voicemail
+
+The menu transfers digit 1 to `1000` and digits 2 and 0 to `1001`, both in the
+`default` context. The vanilla `default.xml` already ships a `Local_Extension`
+block matching `^(10[01][0-9])$` that bridges to the user and falls through to
+voicemail on no answer, so `1000` and `1001` work out of the box. If you want a
+self-contained, minimal version instead of relying on the shipped block, this is
+the essential pattern:
+
+```xml
+<extension name="ring_then_voicemail">
+  <condition field="destination_number" expression="^(10[01][0-9])$">
+    <action application="export" data="dialed_extension=$1"/>
+    <action application="set" data="call_timeout=30"/>
+    <action application="set" data="hangup_after_bridge=true"/>
+    <action application="set" data="continue_on_fail=true"/>
+    <action application="bridge" data="user/${dialed_extension}@${domain_name}"/>
+    <action application="answer"/>
+    <action application="sleep" data="1000"/>
+    <action application="voicemail" data="default ${domain_name} ${dialed_extension}"/>
+  </condition>
+</extension>
+```
+
+`continue_on_fail=true` lets the dialplan keep running when the `bridge` fails
+(no answer, busy, or timeout) instead of hanging up, so execution reaches the
+`voicemail` application. `voicemail default ${domain_name} ${dialed_extension}`
+runs the application in leave-message mode for that mailbox in the `default`
+voicemail profile.
+
+### 4. Apply the changes
+
+From `fs_cli`, reload the dialplan and IVR configuration:
+
+```
+reloadxml
+```
+
+`reloadxml` re-reads the dialplan and the IVR menus into the XML registry; no
+restart is required.
+
+## How it works
+
+1. **The DID enters the `public` context.** The carrier sends the call to the
+   `external` profile on port 5080, which is bound to the `public` context. As
+   covered in [Chapter 13](../dialplan/inbound-public-context.mdx), this context
+   is the security boundary for untrusted traffic — it must never route to
+   provider gateways. Our `did_auto_attendant` extension matches the DID in the
+   `destination_number` field and answers the call.
+
+2. **The dialplan invokes the IVR.** The `ivr` application
+   ([Chapter 14](../dialplan/dptools-reference.mdx)) looks up the menu named
+   `auto_attendant` in the loaded IVR configuration and runs it. The XML
+   dialplan engine that performed the DID match is described in
+   [Chapter 12](../dialplan/xml-dialplan.mdx).
+
+3. **The menu collects a digit.** The IVR engine
+   ([Chapter 21](../applications/ivr-menus.mdx)) plays `greet-long`, then waits
+   up to `timeout` milliseconds for a key. Because `digit-len="1"`, it matches
+   as soon as one digit arrives. A matching `<entry>` of action
+   `menu-exec-app` runs its `param` as a dialplan application and the caller
+   leaves the menu; `menu-top` replays the menu.
+
+4. **The option transfers to an extension.** Each `menu-exec-app` runs
+   `transfer <ext> XML default`, sending the caller back into the dialplan, this
+   time in the `default` context, at the chosen extension.
+
+5. **No answer falls through to voicemail.** The extension bridges to
+   `user/<ext>@domain`. With `continue_on_fail=true`, a failed bridge does not
+   end the call; execution continues to the `voicemail` application
+   ([Chapter 19](../applications/voicemail.mdx)), which records a message into
+   that user's mailbox in the `default` profile.
+
+6. **No interaction also routes somewhere.** If the caller never presses a valid
+   key, the menu's `exec-on-max-failures` and `exec-on-max-timeouts` hooks fire
+   and forward the call rather than dropping it.
+
+## Variations
+
+**Direct-to-voicemail option.** To let callers leave a message for a department
+without ringing a phone, add an entry that calls `voicemail` directly. Define a
+small `default`-context extension and point a digit at it:
+
+```xml
+<!-- in conf/ivr_menus/auto_attendant.xml -->
+<entry action="menu-exec-app" digits="3" param="transfer vm_sales XML default"/>
+```
+
+```xml
+<!-- in the default context -->
+<extension name="vm_sales">
+  <condition field="destination_number" expression="^vm_sales$">
+    <action application="answer"/>
+    <action application="sleep" data="500"/>
+    <action application="voicemail" data="default ${domain_name} 1000"/>
+  </condition>
+</extension>
+```
+
+**Dial-by-extension.** The `digits` attribute accepts a PCRE regex in `/`
+delimiters, with capture groups exposed as `$1` in the `param`. Let callers dial
+any four-digit extension directly:
+
+```xml
+<entry action="menu-exec-app" digits="/^(10[01][0-9])$/" param="transfer $1 XML default"/>
+```
+
+Keep single-digit menu options and this regex in the same menu only if they do
+not overlap; raise `digit-len` to the longest pattern so the engine waits for
+the full extension.
+
+**Business-hours gate.** Wrap the IVR transfer in a time condition so after-hours
+calls go straight to a closed-greeting or voicemail. The `public` extension can
+test `hour`, `wday`, or `minute-of-day` on the condition before running
+`ivr` — the same time fields shown in the shipped `default.xml`
+`tod_example`. Route the off-hours branch to a `voicemail` extension or a
+dedicated closed-greeting menu instead of `auto_attendant`.

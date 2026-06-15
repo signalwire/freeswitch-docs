@@ -1,0 +1,282 @@
+---
+sidebar_position: 4
+id: recipe-box-to-box
+slug: /recipes/box-to-box
+title: "Recipe: Connecting Two FreeSWITCH Servers"
+description: "Link two FreeSWITCH servers with a SIP gateway or IP-authenticated trunk so users on box A can dial users on box B."
+sidebar_label: "Box-to-Box Trunk"
+---
+
+# Recipe: Connecting Two FreeSWITCH Servers
+
+## Goal
+
+Link two independent FreeSWITCH servers so that a user registered on **Box A** can
+dial a user registered on **Box B** by dialing a four-digit extension. Calls leave
+Box A through a SIP gateway pointed at Box B, arrive on Box B's `external` profile,
+land in its `public` context, and are routed to the target extension.
+
+```
+                    SIP trunk (port 5080)
+  Box A  192.0.2.10  ───────────────────────►  Box B  192.0.2.20
+  ┌──────────────────┐                         ┌──────────────────┐
+  │ user 1001 (5060) │                         │ user 2001 (5060) │
+  │ external (5080)  │  INVITE 2001            │ external (5080)  │
+  │  gateway "boxB" ─┼────────────────────────►│  public context  │
+  └──────────────────┘                         └──────────────────┘
+```
+
+In this recipe Box A reaches users in the `2xxx` range on Box B. The same pattern
+works in reverse to make the link bidirectional (see [Variations](#variations)).
+The `192.0.2.0/24` and `203.0.113.0/24` blocks are
+[RFC 5737](https://datatracker.ietf.org/doc/html/rfc5737) documentation ranges;
+substitute your own server IP addresses.
+
+## Prerequisites
+
+- A working FreeSWITCH install on each box from the vanilla configuration, with at
+  least one registered user per box (`1001` on Box A, `2001` on Box B).
+- Network reachability between the two servers on the SIP signaling port (`5080`,
+  the `external` profile) and the RTP media port range.
+- Familiarity with these chapters:
+  - [Chapter 8: Gateways and Trunk Registration](../users-endpoints/gateways.mdx)
+  - [Chapter 5: SIP Profiles (Sofia)](../users-endpoints/sip-profiles-sofia.mdx)
+  - [Chapter 13: Inbound Calls and the Public Context](../dialplan/inbound-public-context.mdx)
+  - [Chapter 11: The XML Dialplan](../dialplan/xml-dialplan.mdx)
+
+The two boxes do not share a user directory. Each authenticates its own
+registered users; the trunk between them carries calls only, not registrations.
+
+---
+
+## Build It
+
+There are two ways for Box A to authenticate to Box B over the trunk:
+
+- **Registered gateway** — Box A sends SIP REGISTER to Box B and authenticates with
+  a username and password. Box B must have a user account that Box A can register
+  as. This is the simplest option when the two boxes are on dynamic IP addresses.
+- **IP-authenticated trunk** — neither side registers. Box B trusts Box A by source
+  IP address. This is the cleaner option when both boxes have static IP addresses.
+
+Both variants are shown below. Choose one.
+
+### Box A — outbound gateway to Box B
+
+Gateways for provider-facing trunks live in `conf/sip_profiles/external/`, which the
+`external` profile pulls in with `<X-PRE-PROCESS cmd="include" data="external/*.xml"/>`.
+Create a new file there for the trunk to Box B.
+
+#### Variant 1: registered gateway
+
+`conf/sip_profiles/external/boxB.xml`:
+
+```xml
+<include>
+  <gateway name="boxB">
+    <!-- Credentials for a user account that exists on Box B -->
+    <param name="username" value="trunkA"/>
+    <param name="password" value="s3cr3tpass"/>
+
+    <!-- Box B's external profile address; realm and proxy default to each other -->
+    <param name="realm"    value="192.0.2.20"/>
+    <param name="proxy"    value="192.0.2.20:5080"/>
+
+    <!-- Register with Box B and refresh hourly -->
+    <param name="register"         value="true"/>
+    <param name="expire-seconds"   value="3600"/>
+    <param name="retry-seconds"    value="30"/>
+
+    <!-- Detect a dead trunk: OPTIONS ping every 30s -->
+    <param name="ping"             value="30"/>
+  </gateway>
+</include>
+```
+
+#### Variant 2: IP-authenticated gateway (no registration)
+
+`conf/sip_profiles/external/boxB.xml`:
+
+```xml
+<include>
+  <gateway name="boxB">
+    <!-- proxy is the only required field for a non-registering gateway -->
+    <param name="proxy"    value="192.0.2.20:5080"/>
+    <param name="register" value="false"/>
+
+    <!-- OPTIONS ping confirms the peer is reachable -->
+    <param name="ping"     value="30"/>
+  </gateway>
+</include>
+```
+
+When `register` is `false`, FreeSWITCH does not send REGISTER and marks the gateway
+**UP** immediately at profile load. `username` and `password` may be omitted
+(`username` defaults to `FreeSWITCH`, `password` to an empty string).
+
+Load the gateway without restarting:
+
+```
+sofia profile external rescan
+sofia status gateway boxB
+```
+
+The gateway should report `Status: UP`.
+
+### Box A — dialplan to route 2xxx out the gateway
+
+Add an extension to Box A's `default` context (for example, a new file in
+`conf/dialplan/default/`) that bridges four-digit numbers starting with `2` out the
+`boxB` gateway. The endpoint string is `sofia/gateway/<gateway-name>/<number>`.
+
+```xml
+<include>
+  <extension name="to_boxB">
+    <condition field="destination_number" expression="^(2\d{3})$">
+      <action application="set"    data="effective_caller_id_number=${caller_id_number}"/>
+      <action application="bridge" data="sofia/gateway/boxB/$1"/>
+    </condition>
+  </extension>
+</include>
+```
+
+`$1` captures the full four-digit number (for example `2001`), and the call is sent
+to Box B as an INVITE whose Request-URI user part is `2001`. The `set` action carries
+the original caller's number into the `From` header that Box A presents to Box B; see
+[How It Works](#how-it-works).
+
+### Box B — accept and route the inbound call
+
+The call arrives on Box B's `external` profile (port `5080`), which is configured with
+`context="public"` and `auth-calls="false"`. The call therefore enters the `public`
+context. Add an extension there to route the `2xxx` range to local users.
+
+Create `conf/dialplan/public/01_from_boxA.xml` on Box B:
+
+```xml
+<include>
+  <extension name="from_boxA">
+    <condition field="destination_number" expression="^(2\d{3})$">
+      <action application="set"      data="domain_name=$${domain}"/>
+      <action application="transfer" data="$1 XML default"/>
+    </condition>
+  </extension>
+</include>
+```
+
+This matches the four-digit number, sets `domain_name` so the user resolves against
+the correct domain, and transfers the call into Box B's `default` context, where the
+vanilla `Local_Extension` dialplan rings the registered user.
+
+> **Note on the `public` context.** The `public` context is the security boundary
+> for unauthenticated inbound traffic. Only add extensions here that are safe to run
+> for any caller that can reach port `5080`. Match a **specific** range (`2\d{3}`),
+> never a catch-all, and never transfer arbitrary destinations into `default`. See
+> [Chapter 13](../dialplan/inbound-public-context.mdx).
+
+#### Restricting Box B's trunk by source IP (IP-auth variant)
+
+With the IP-authenticated variant, lock the `external` profile down so that only Box A
+may send unauthenticated calls into `public`. First define an ACL list naming Box A's
+IP address in `conf/autoload_configs/acl.conf.xml`:
+
+```xml
+<configuration name="acl.conf" description="Network Lists">
+  <network-lists>
+    <list name="trusted-peers" default="deny">
+      <node type="allow" cidr="192.0.2.10/32"/>
+    </list>
+  </network-lists>
+</configuration>
+```
+
+Then reference that list from Box B's `external` profile with `apply-inbound-acl`:
+
+```xml
+<param name="apply-inbound-acl" value="trusted-peers"/>
+```
+
+With this in place, an inbound SIP request whose source IP is not permitted by
+`trusted-peers` is rejected with a `403`. Reload both files for the change to take
+effect:
+
+```
+reloadacl
+sofia profile external restart
+```
+
+The registered-gateway variant does not need this ACL: Box A authenticates with a
+username and password against a user account on Box B, so the trunk is identified by
+its registration rather than by source IP.
+
+---
+
+## How It Works
+
+**Registered gateway.** Box A's `external` profile sends a SIP REGISTER to Box B
+using the `username`/`password` you configured. Box B authenticates that registration
+against a user account in its directory. When Box A dials `2001`, the dialplan bridges
+to `sofia/gateway/boxB/2001`; FreeSWITCH consults the `boxB` gateway, builds an INVITE
+to Box B's `proxy` (`192.0.2.20:5080`) with `2001` in the Request-URI, and sends it
+over the registered trunk.
+
+**IP-authenticated trunk.** Neither side registers. Box A's gateway is marked UP at
+load time and sends the same `sofia/gateway/boxB/2001` INVITE directly to Box B's
+proxy. Box B trusts the call because the source IP matches the `trusted-peers` ACL
+applied with `apply-inbound-acl` (and because `auth-calls` is `false` on the `external`
+profile, no digest challenge is issued).
+
+**Entering Box B's `public` context.** Either way, the INVITE lands on Box B's
+`external` profile on port `5080`, which sets `context="public"`. The vanilla `public`
+context runs its built-in extensions (`outside_call`, etc.), then your `from_boxA`
+extension matches `2\d{3}` and `transfer`s the call into `default`, where the user's
+extension rings. The `public` context is the trust boundary between the two servers —
+calls from Box A reach only what `public` explicitly routes.
+
+**Caller-ID handling.** Box A presents a caller ID to Box B in the SIP `From` header.
+By default the gateway uses its own `username` (or `from-user`) as the `From` user. To
+pass the *original* caller's number across the trunk, either set
+`effective_caller_id_number` before the bridge (as the Box A dialplan above does) or
+set the gateway parameter `caller-id-in-from` to `true`, which uses the inbound caller
+ID as the `From` user on calls bridged out through that gateway. On Box B, the standard
+inbound caller-ID variables (`${caller_id_number}`, `${sip_from_user}`) are populated
+from that `From` header; see the
+[caller-ID table in Chapter 13](../dialplan/inbound-public-context.mdx#caller-id-on-inbound-calls).
+
+For the full gateway parameter reference see
+[Chapter 8](../users-endpoints/gateways.mdx); for ACL lists and the
+`apply-inbound-acl` semantics see the
+[Access Control Lists chapter](../integration/access-control-lists.mdx).
+
+---
+
+## Variations
+
+### Bidirectional linking
+
+To let Box B dial Box A's `1xxx` users, repeat the recipe with the roles reversed:
+define a `boxA` gateway in Box B's `external/` directory (pointed at `192.0.2.10:5080`),
+add a `to_boxA` dialplan extension on Box B that bridges `^(1\d{3})$` to
+`sofia/gateway/boxA/$1`, and add a `from_boxB` extension to Box A's `public` context
+(plus a `trusted-peers` ACL listing `192.0.2.20/32` if you use the IP-auth variant).
+Each box then has one gateway *to* the other and one `public` extension *from* the
+other.
+
+### Shared dialplan prefix
+
+When extension ranges might overlap between boxes, route by a dialed prefix instead of
+by range. For example, dial `8` + extension to reach Box B, stripping the prefix before
+it leaves Box A:
+
+```xml
+<extension name="to_boxB_prefix">
+  <condition field="destination_number" expression="^8(\d{4})$">
+    <action application="bridge" data="sofia/gateway/boxB/$1"/>
+  </condition>
+</extension>
+```
+
+Here `$1` is the captured four-digit number without the `8`, so Box A dials `82001` and
+Box B receives `2001`. This keeps each box's local numbering plan independent and makes
+the inter-box link explicit in the dialed string. To preserve the prefix on the wire
+instead, capture it inside the group (`^(8\d{4})$`) and match the full string on Box B.
