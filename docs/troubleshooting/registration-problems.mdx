@@ -1,0 +1,312 @@
+---
+sidebar_position: 2
+id: registration-problems
+slug: /troubleshooting/registration
+title: "Registration Problems"
+description: "Diagnose why SIP endpoints fail to register with FreeSWITCH: confirm registration state with sofia status and show registrations, then read the common causes — bad credentials, NAT, expiry flapping, and transport mismatch — symptom by symptom."
+sidebar_label: "Registration Problems"
+---
+
+# Registration Problems
+
+A SIP phone or softphone that cannot register is the single most common failure
+operators report. The symptoms vary — the device shows "registration failed,"
+calls to the extension go straight to voicemail, or a phone that worked yesterday
+quietly drops off the network — but the diagnostic path is the same. FreeSWITCH
+already knows what it saw: it records every successful registration in its
+database and logs every rejected attempt. This chapter shows how to read that
+state, then walks the four causes that account for nearly every registration
+failure: wrong credentials, NAT, expiry flapping, and transport mismatch.
+
+Registration is handled by [`mod_sofia`](../users-endpoints/sip-profiles-sofia.mdx),
+and the credentials it checks come from the
+[user directory](../users-endpoints/user-directory.mdx). Keep both chapters within
+reach — most fixes here are a one-line change in a profile or a directory user.
+
+## Confirming Registration State {#confirming-registration-state}
+
+Before changing anything, find out whether FreeSWITCH currently has a
+registration for the user. There are two views.
+
+### Per-profile: `sofia status profile <name> reg` {#sofia-status-reg}
+
+The Sofia view shows registrations as the SIP stack sees them, per profile. Run
+it against the profile the phone targets (the bundled internal-phone profile is
+`internal`):
+
+```
+sofia status profile internal reg
+```
+
+This lists every registration on that profile. For each one FreeSWITCH prints
+the fields it stored at registration time:
+
+```
+Registrations:
+===============================================================================
+Call-ID:        a1b2c3d4-....
+User:           1000@192.168.1.10
+Contact:        sip:1000@192.168.1.50:5060;...
+Agent:          Yealink SIP-T46G ...
+Status:         Registered(UDP)(unknown) EXP(2026-06-15 12:34:56) EXPSECS(295)
+Ping-Status:    Reachable
+Ping-Time:      0.00
+Host:           192.168.1.10
+IP:             192.168.1.50
+Port:           5060
+Auth-User:      1000
+Auth-Realm:     192.168.1.10
+MWI-Account:    1000@192.168.1.10
+===============================================================================
+Total items returned: 1
+```
+
+The fields that matter most when diagnosing:
+
+- **Contact** — the address FreeSWITCH will send INVITEs to. If this is a private
+  address (`192.168.x.x`, `10.x.x.x`) but **IP** shows a public address, the device
+  is behind NAT and the Contact was *not* rewritten. See [NAT](#cause-nat).
+- **Status** shows the transport in parentheses, e.g. `Registered(UDP)`. A
+  mismatch here against what the phone is configured to use points to
+  [transport problems](#cause-transport).
+- **EXPSECS** is the seconds until this registration expires. A value that is
+  always small and resets constantly is a sign of [flapping](#cause-expiry).
+
+You can narrow the list. Pass a substring to match against the **Contact** column:
+
+```
+sofia status profile internal reg 192.168.1.50
+```
+
+To look up a specific user, use the `user` keyword with a `user@domain` argument
+(either part may be omitted to match on just the user or just the host):
+
+```
+sofia status profile internal user 1000@192.168.1.10
+```
+
+:::note
+`reg <string>` filters on the Contact column, not the user. To find a
+registration by extension, use `user 1000@domain` (or `user 1000`), not
+`reg 1000`.
+:::
+
+If the command prints `Total items returned: 0`, FreeSWITCH has no registration
+for that user — the REGISTER never succeeded. Move to the causes below.
+
+### Across the box: `show registrations` {#show-registrations}
+
+The core `show` command queries the shared registration table across all profiles
+and is convenient for a quick global count:
+
+```
+show registrations
+show registrations as xml
+```
+
+```
+show registrations count
+```
+
+The `count` form returns just the number of rows, which is the fastest way to
+confirm whether *anything* is registered.
+
+---
+
+## Cause: Wrong Credentials {#cause-credentials}
+
+**Symptom.** The phone reports authentication failure, or it challenges, retries,
+and gives up. `sofia status ... reg` shows nothing for the user.
+
+**Likely cause.** A REGISTER must pass digest authentication when the profile has
+`auth-calls` set to `true` (the default on the bundled internal profile). The
+credentials are checked against the matching user in the
+[directory](../users-endpoints/user-directory.mdx). Two different rejections look
+very different on the wire, and the difference tells you where the problem is:
+
+- **A `401 Unauthorized` that repeats.** FreeSWITCH challenged, the phone answered,
+  and the digest did not verify — wrong password, or the device computed the digest
+  against a different realm than the one FreeSWITCH expects. FreeSWITCH simply
+  re-challenges. A phone that loops on 401s has a credential or realm mismatch.
+- **A `403 Forbidden`.** FreeSWITCH found a hard reason to reject. The most common
+  is *no matching user in the directory at all* — the username/domain pair the
+  phone presented does not exist. When this happens FreeSWITCH logs a very specific
+  warning:
+
+  ```
+  Can't find user [1000@example.com] from 192.168.1.50
+  You must define a domain called 'example.com' in your directory and add a user
+  with the id="1000" attribute ...
+  ```
+
+  A 403 is also returned for an empty password when the user has neither a
+  `password` nor an `a1-hash` (unless `allow-empty-password` is set on the user),
+  and for a user explicitly disabled with `sip-forbid-register`.
+
+**How to confirm.**
+
+1. Watch the registration attempt in the log while the phone retries. The
+   `Can't find user` warning pins it to a directory miss; a repeated 401 with no
+   such warning pins it to a bad password or realm.
+2. Check the **realm**. The realm the phone authenticates against must equal the
+   domain it is registering to. In the `reg` output, **Auth-Realm** is the realm
+   FreeSWITCH used. If the phone is configured with one domain but presents
+   credentials for another realm, the digest will never verify.
+3. Confirm the directory has the user. The `id` attribute and the domain in the
+   directory must match the username and domain the phone sends.
+
+**Fix.**
+
+- Correct the `password` (or `a1-hash`) `param` in the directory user record. The
+  `a1-hash` is the precomputed MD5 of `user:realm:password`; if you set it, it must
+  be computed against the *same* realm the phone uses.
+- Make sure a `<domain>` matching the phone's domain exists and contains a user
+  whose `id` matches the phone's username. The directory chapter covers
+  [directory structure and user records](../users-endpoints/user-directory.mdx).
+- If you intend the profile to authenticate by IP instead of credentials (a
+  trunk, not a phone), that is a different setup — registrations from phones still
+  need `auth-calls` and valid directory credentials.
+
+---
+
+## Cause: NAT {#cause-nat}
+
+**Symptom.** The phone registers (it appears in `reg`), but calls to it never
+arrive — they ring nowhere or fail to set up — and the **Contact** in the `reg`
+output is a private address while **IP** is the device's public address.
+
+**Likely cause.** A device behind NAT puts its *private* LAN address in the SIP
+Contact header. If FreeSWITCH stores that Contact verbatim, every INVITE it later
+sends to the phone goes to an unroutable private address. FreeSWITCH has to detect
+the NAT and rewrite the Contact to the public address and port it actually saw the
+packet arrive from.
+
+**How to confirm.** Compare the **Contact** and **IP** fields in
+`sofia status profile internal reg`. If Contact contains a private address but IP
+is a public one, the Contact was not rewritten and inbound calls will fail.
+
+**Fix.** These are all `<param>` settings on the Sofia
+[profile](../users-endpoints/sip-profiles-sofia.mdx):
+
+- **`apply-nat-acl`** — names an ACL of networks to treat as "behind NAT." The
+  bundled internal profile ships with `apply-nat-acl` set to `nat.auto`, which
+  matches RFC 1918 private ranges automatically. Devices whose source IP matches
+  this ACL get NAT handling. This is the first thing to confirm is present.
+- **`aggressive-nat-detection`** — when `true`, FreeSWITCH uses additional cues
+  (such as a private address in the Contact or Via) to decide a device is NATed,
+  beyond what `apply-nat-acl` matches. Whether it is on is reported as
+  `AGGRESSIVENAT` in `sofia status profile <name>`. It is commented out in the
+  bundled internal profile; enable it when phones behind NAT are still not being
+  detected.
+- **`ext-sip-ip`** — the public IP FreeSWITCH advertises in its own SIP signaling.
+  Set this when FreeSWITCH itself sits behind NAT (for example, a cloud box with a
+  1:1 NAT), so it tells phones to reach it at the public address. It accepts an
+  explicit IP, `auto` (resolve via STUN), or `auto-nat` (use the router's
+  UPnP/NAT-PMP mapping).
+- **`NDLB-*`** "No Device Left Behind" workarounds for misbehaving clients.
+  Relevant ones here are **`NDLB-received-in-nat-reg-contact`**, which appends the
+  source IP and port (the `received`/`rport` the packet actually came from) into
+  the stored registration Contact, and **`NDLB-force-rport`**, which forces use of
+  the rport source address. Enable these only for specific clients that need them;
+  they are not on by default.
+
+After changing NAT params, restart or rescan the profile
+(`sofia profile internal rescan`) and have the phone re-register, then re-check
+the Contact in `reg`.
+
+---
+
+## Cause: Expiry and Flapping {#cause-expiry}
+
+**Symptom.** A phone registers, drops, and re-registers in a tight loop, or its
+registration disappears between calls. **EXPSECS** in the `reg` output is always a
+small number, or the registration vanishes and reappears in the log repeatedly.
+
+**Likely cause.** Each REGISTER carries an `Expires` value — how long the binding
+should last. FreeSWITCH honors the value the client asks for; if the phone requests
+a very short expiry, it must re-register that often, and any lost packet drops it.
+Separately, if many phones request the *same* expiry they all re-register in
+lockstep, producing a synchronized "thundering herd" of REGISTERs.
+
+**How to confirm.** Read **EXPSECS** in `sofia status profile internal reg` right
+after a registration. A value of, say, 60 means the phone asked for a 60-second
+expiry and will re-register every minute. Watch the log: regular REGISTERs at that
+interval are normal re-registration; REGISTERs *between* the expected times,
+combined with `expire` events, indicate true flapping (usually packet loss or a
+NAT binding that times out faster than the registration).
+
+**Fix.** On the Sofia [profile](../users-endpoints/sip-profiles-sofia.mdx):
+
+- **`sip-expires-max-deviation`** — when set to N (seconds), FreeSWITCH jitters each
+  registration's effective expiry by a random amount up to N. This de-synchronizes
+  phones that all asked for the same expiry, smoothing the re-registration load.
+  It defaults to `0` (no jitter); set it to spread out a fleet that re-registers in
+  lockstep. There is a matching `sip-subscription-max-deviation` for SUBSCRIBE.
+- **Registration pings** — instead of relying on short client expiries to detect
+  dead phones, have FreeSWITCH probe them with SIP OPTIONS. **`nat-options-ping`**
+  pings registrations that were detected as behind NAT (keeping the NAT pinhole
+  open); **`all-reg-options-ping`** pings *every* registration. The cadence is
+  governed by **`ping-mean-interval`** (target seconds between pings to a given
+  registration) and **`ping-thread-frequency`** (how often the ping thread wakes).
+  The result shows up as **Ping-Status** (`Reachable` / `Unreachable`) and
+  **Ping-Time** in the `reg` output. Use these to let phones keep a longer expiry
+  while FreeSWITCH still tracks reachability.
+
+The expiry a phone asks for is set on the *device*, not in FreeSWITCH; if a phone
+re-registers far too often, raise its registration interval in the phone's own
+configuration and let `sip-expires-max-deviation` plus pings handle the rest.
+
+:::note
+The `expire-seconds` `param` controls the expiry FreeSWITCH *requests* when it acts
+as a registering client toward a gateway — it is a gateway/outbound setting, not
+the lifetime of an inbound phone registration. See the
+[gateways chapter](../users-endpoints/gateways.mdx).
+:::
+
+---
+
+## Cause: Transport Mismatch {#cause-transport}
+
+**Symptom.** The phone sends REGISTERs but FreeSWITCH never answers, or answers on
+a transport the phone is not listening on. Nothing appears in `reg`, and a packet
+capture shows REGISTERs arriving (or not) on an unexpected port or protocol.
+
+**Likely cause.** A profile binds specific transports on specific ports. If the
+phone is configured for TCP but the profile only listens on UDP, or it points at
+the wrong port, the REGISTER never reaches a listener that will process it.
+
+**How to confirm.**
+
+1. Check what the profile actually binds. `sofia status` lists each profile's URL
+   and the transports it offers; `sofia status profile internal` shows its bound
+   addresses. The transport of an existing registration appears in the **Status**
+   field, e.g. `Registered(UDP)` versus `Registered(TCP)`.
+2. Confirm the port. The bundled internal profile binds **`sip-port`** 5060 by
+   default. If the phone targets a different port, it will not reach this profile.
+
+**Fix.** On the Sofia [profile](../users-endpoints/sip-profiles-sofia.mdx):
+
+- Match the phone's transport to a transport the profile binds. UDP and TCP are
+  available by SIP port; TLS requires TLS to be enabled on the profile with the
+  **`tls`** `param` (and optionally **`tls-only`** to refuse plaintext, with
+  **`tls-sip-port`** for its port). WebSocket transports for WebRTC clients are
+  enabled with **`ws-binding`** (and **`wss-binding`** for secure WebSocket).
+- Verify the phone targets the profile's **`sip-port`**. If you run multiple
+  profiles, each binds its own port — point the phone at the right one.
+- After changing transport or TLS settings, restart the profile so it rebinds:
+  `sofia profile internal restart`.
+
+---
+
+## Reading the REGISTER on the Wire {#reading-the-register}
+
+When state and config both look correct but registration still fails, read the
+actual SIP exchange. Enable Sofia's tracing with `sofia global siptrace on` (or
+the per-profile `sip-trace` `param`) and watch the REGISTER, the `401` challenge,
+the authenticated REGISTER, and the final `200 OK` — or the `403` — go by. The
+challenge/response pair tells you the realm and whether the digest verified; the
+Contact and Via headers tell you what the device claims its address is versus where
+the packet actually came from.
+
+Reading a SIP trace end to end — what each header means and how to follow a
+transaction — is covered in the [trace-reading chapter](./reading-traces-cdr.mdx).

@@ -1,0 +1,294 @@
+---
+sidebar_position: 5
+id: reading-traces-cdr
+slug: /troubleshooting/traces
+title: "Reading a SIP Trace and a CDR"
+description: "Capture a Sofia SIP trace, read the SIP transaction at an operator level, and read a cdr_csv record to localize which leg failed and when."
+sidebar_label: "Reading Traces & CDRs"
+---
+
+# Reading a SIP Trace and a CDR
+
+When a call misbehaves, two artifacts tell you almost everything you need: the
+**SIP trace** (the signaling messages that set the call up and tear it down)
+and the **CDR** (the Call Detail Record written when the call ends). The trace
+shows you *what the two endpoints said to each other*; the CDR shows you *how
+the call ended and how long each phase lasted*. Read together, they localize a
+fault to a specific leg and a specific moment.
+
+This chapter is a diagnostic read, not a protocol tutorial. It covers how to
+turn tracing on in `mod_sofia`, how to follow a normal SIP transaction and spot
+the common deviations, how to read a `mod_cdr_csv` line, and how to tie the two
+together by `Call-ID` and UUID.
+
+## Capture {#capture}
+
+SIP tracing is a function of the Sofia stack, so you enable it from the console
+with the `sofia` API command. There are three controls, from coarsest to
+finest.
+
+**Trace every profile at once:**
+
+```
+sofia global siptrace on
+```
+
+**Trace a single profile** (replace `<profile>` with the profile name, e.g.
+`internal` or `external`):
+
+```
+sofia profile <profile> siptrace on
+```
+
+Turn either off again with `off`. Per-profile tracing is usually what you want:
+it keeps the log readable by limiting output to the profile carrying the call
+under investigation.
+
+For deeper visibility into the Sofia-SIP transport and transaction layers — for
+example when messages appear to be sent but never acknowledged — raise the
+sofia-sip library log level:
+
+```
+sofia loglevel all 9
+```
+
+`loglevel` takes a component and a level from `0` (silent) to `9` (most
+verbose). Valid components are `all`, `default`, `tport`, `iptsec`, `nea`,
+`nta`, `nth_client`, `nth_server`, `nua`, `soa`, `sresolv`, and `stun`. Use
+`all` to set every component at once, or name a single component (for instance
+`sofia loglevel tport 9` for transport-level detail). A related command,
+`sofia tracelevel <level>`, sets the FreeSWITCH log level at which trace lines
+are emitted.
+
+:::tip
+Tracing is verbose. Enable it just before you reproduce the problem, capture the
+call, then turn it back off with `sofia profile <profile> siptrace off`. The
+`internal` profile's siptrace toggles are bound to the F10/F11 console hot keys
+in the vanilla configuration.
+:::
+
+Trace output appears **in the FreeSWITCH log** alongside everything else, so
+filter it. At the `fs_cli` console, `/log info` (or higher) ensures the lines
+are shown; capturing the console to a file, or reading `log/freeswitch.log`,
+lets you grep the call out afterward. Each traced message is prefixed with its
+direction — a line indicating a message was *sent to* or *received from* a peer
+address — followed by the full SIP message. That send/receive direction is the
+first thing to read: it tells you whether FreeSWITCH originated a message or
+merely received it.
+
+## Read the Trace {#read-the-trace}
+
+### The shape of a normal call {#the-shape-of-a-normal-call}
+
+A successful call is a small, predictable sequence of messages. Reading a trace
+is mostly a matter of confirming that this sequence happened and, if it did not,
+noticing where it stopped. A normal answered call looks like this:
+
+```
+  caller (or upstream)            FreeSWITCH
+        |  INVITE  ----------------->  |   request: caller wants to set up a call
+        |  <----------------  100 Trying    provisional: request received, working on it
+        |  <----------------  180 Ringing   provisional: remote end is alerting
+        |  <----------------  200 OK         final: call answered, SDP for media included
+        |  ACK  ------------------->  |   caller confirms the 200 OK; media flows
+        |            ... talk ...        |
+        |  BYE  ------------------->  |   either side hangs up
+        |  <----------------  200 OK         confirms the BYE; call torn down
+```
+
+Read it top to bottom:
+
+- **`INVITE`** opens the call and carries the caller's media offer (SDP).
+- **`100 Trying`** means the request was received. Its absence on an outbound
+  leg suggests the next hop never got the INVITE — a routing or network
+  problem, not a call-logic problem.
+- **`180 Ringing`** (or `183 Session Progress`) means the far end is alerting.
+  Reaching `180` but never `200` is a call that rang and was never answered.
+- **`200 OK`** is the answer and carries the answering side's SDP. This is the
+  point at which media negotiation completes.
+- **`ACK`** completes the three-way handshake. A `200 OK` with no following
+  `ACK` is a classic NAT symptom: the answer was sent but could not reach the
+  originator.
+- **`BYE` / `200 OK`** is the normal teardown. Which side sent the `BYE` tells
+  you who hung up.
+
+### Authentication: the 401/407 challenge {#authentication-the-challenge}
+
+A registered endpoint or an authenticating trunk does not get a call through on
+the first INVITE. FreeSWITCH challenges it, and the endpoint resends the request
+with credentials:
+
+```
+        |  INVITE (no credentials)  ----------->  |
+        |  <-------------  407 Proxy Authentication Required
+        |  ACK  ------------------------------>  |   acknowledges the 407
+        |  INVITE (with Proxy-Authorization)  -->  |   same request, now signed
+        |  <--------------------------  100 Trying / 200 OK
+```
+
+This challenge-then-resend is **normal and expected** — do not mistake the
+`401 Unauthorized` or `407 Proxy Authentication Required` for a failure. The
+failure case is when the *second* INVITE is also rejected (a repeated `401`/`407`,
+or a `403 Forbidden`): that means the credentials were wrong or the user is not
+provisioned. A `401` is used by user agents that are being challenged directly;
+a `407` is used when a proxy issues the challenge. Functionally you read them the
+same way.
+
+### Re-INVITE {#re-invite}
+
+A **re-INVITE** is a second INVITE sent *inside an established dialog* — same
+`Call-ID`, same `From`/`To` tags, a higher `CSeq`. It renegotiates media
+mid-call: putting a call on hold, resuming it, or switching codecs. If audio
+drops partway through a call, look for a re-INVITE around that moment and read
+its SDP — a media change is often the cause.
+
+### The headers and SDP lines that matter {#the-headers-and-sdp-lines-that-matter}
+
+You do not need to read every header. For operator-level diagnosis, four headers
+and three SDP lines carry most of the signal:
+
+| Field | What it tells you |
+|---|---|
+| `Via` | The path the request took. Look for a `received=` / `rport=` added by FreeSWITCH — it reveals the sender's real public address behind NAT. |
+| `From` / `To` | The logical parties. The `tag=` parameters identify the dialog; matching tags across messages confirm they belong to the same call. |
+| `Contact` | The address the peer wants follow-up requests sent to. A private address (e.g. `10.x` / `192.168.x`) here on a call coming from the public internet is a NAT misconfiguration — replies will be unroutable. |
+| `Call-ID` | The unique dialog identifier. This is your key for correlating every message of one leg, and for tying the trace to the CDR (see [Correlate](#correlate)). |
+
+Inside the SDP body (carried by the INVITE and the `200 OK`), three line types
+localize media problems:
+
+| SDP line | What it tells you |
+|---|---|
+| `c=` | The **connection address** — the IP the peer expects media on. A `c=` pointing at a private address on a call from the internet is the signature of one-way or no audio caused by NAT. |
+| `m=` | The **media line**: media type, port, and the list of payload numbers offered, e.g. `m=audio 16384 RTP/AVP 0 8 101`. A port of `0` means that stream is disabled. |
+| `a=rtpmap:` | Maps each payload number to a codec name, e.g. `a=rtpmap:0 PCMU/8000`. Compare the offer's `a=rtpmap` set against the answer's. If they share no common codec, negotiation fails — a codec mismatch rather than a network fault. |
+
+A worked, illustrative SDP body (the kind you would see inside an INVITE):
+
+```
+v=0
+o=FreeSWITCH 1632858000 1632858001 IN IP4 198.51.100.10
+s=FreeSWITCH
+c=IN IP4 198.51.100.10
+t=0 0
+m=audio 16384 RTP/AVP 0 8 101
+a=rtpmap:0 PCMU/8000
+a=rtpmap:8 PCMA/8000
+a=rtpmap:101 telephone-event/8000
+a=fmtp:101 0-16
+a=ptime:20
+```
+
+Reading this: the peer expects audio at `198.51.100.10:16384`; it offers PCMU
+(`0`), PCMA (`8`), and DTMF events (`101`). If the answering side's SDP comes
+back with, say, only `m=audio ... RTP/AVP 9` (G.722), there is no overlap with
+PCMU/PCMA and the call will fail to negotiate audio. If instead the `c=` line in
+either body holds a `10.x` or `192.168.x` address while the signaling came over
+the public internet, expect one-way or no audio — the classic NAT read covered
+in the [Audio Problems](./audio-problems.mdx) chapter of this part.
+
+## Read the CDR {#read-the-cdr}
+
+When the call ends, `mod_cdr_csv` writes one line per logged leg. The vanilla
+configuration logs the **A leg** only (`<param name="legs" value="a"/>`) and
+selects the **`example`** template (`<param name="default-template" value="example"/>`),
+so by default every record lands in `log/cdr-csv/Master.csv`. (See
+[Chapter 27: Call Detail Records](/integration/cdr) for full configuration of the
+CDR backends.)
+
+The `example` template renders these fields, in order:
+
+```
+"${caller_id_name}","${caller_id_number}","${destination_number}","${context}","${start_stamp}","${answer_stamp}","${end_stamp}","${duration}","${billsec}","${hangup_cause}","${uuid}","${bleg_uuid}","${accountcode}","${read_codec}","${write_codec}"
+```
+
+| Field | Meaning |
+|---|---|
+| `caller_id_name`, `caller_id_number` | The calling party's display name and number. |
+| `destination_number` | The dialed number / request target. |
+| `context` | The dialplan context the call was processed in. |
+| `start_stamp` | When the call leg began (the INVITE was received / the channel was created). |
+| `answer_stamp` | When the call was answered (the `200 OK`). **Empty if the call was never answered.** |
+| `end_stamp` | When the call ended (hangup). |
+| `duration` | Total seconds from `start_stamp` to `end_stamp`. |
+| `billsec` | Billable seconds from `answer_stamp` to `end_stamp` — the talk time. |
+| `hangup_cause` | Why the call ended (see below). |
+| `uuid` | This leg's channel UUID. |
+| `bleg_uuid` | The UUID of the bridged (other) leg, if the call was bridged. |
+| `accountcode` | Billing/account tag, if set on the channel. |
+| `read_codec`, `write_codec` | The negotiated inbound and outbound audio codecs. |
+
+### Localizing a fault from one line {#localizing-a-fault-from-one-line}
+
+Read the three timestamps and `billsec` together — they tell you *how far the
+call got*:
+
+- **`answer_stamp` empty and `billsec` = `0`:** the call never connected. The
+  caller dialed, but the destination never answered. Whether it rang depends on
+  the trace (did you see a `180`?). The `hangup_cause` says why — typically
+  `NO_ANSWER`, `USER_BUSY`, `CALL_REJECTED`, or `NO_ROUTE_DESTINATION`.
+- **`answer_stamp` present, `billsec` very small:** the call answered and dropped
+  almost immediately — frequently a media failure (no agreed codec, or no audio
+  so a watchdog tore it down) or an endpoint hanging up on a one-way-audio call.
+  Cross-check the `read_codec`/`write_codec` fields and the SDP in the trace.
+- **`answer_stamp` present, `billsec` reasonable, `hangup_cause` = `NORMAL_CLEARING`:**
+  a normal, completed call. Nothing to chase here.
+
+The **`hangup_cause`** is the single most useful CDR field for triage. Common
+values and the direction they point:
+
+| `hangup_cause` | Typical read |
+|---|---|
+| `NORMAL_CLEARING` | Call completed and one side hung up normally. |
+| `USER_BUSY` | Destination was busy. |
+| `NO_ANSWER` | Rang but was never answered. |
+| `CALL_REJECTED` | Far end actively refused (often a `403`/`603`). |
+| `NO_ROUTE_DESTINATION` | No dialplan route or next hop matched — a routing problem, covered in the [Call-Setup Failures](./call-setup-failures.mdx) chapter of this part. |
+| `INCOMPATIBLE_DESTINATION` | Negotiation failed, commonly a codec mismatch. |
+| `RECOVERY_ON_TIMER_EXPIRE` | A timer (e.g. session or no-answer) expired. |
+
+The **`bleg_uuid`** field tells you whether — and to what — the call was
+bridged. If `bleg_uuid` is empty, this leg was never bridged to another leg, so
+the fault is on the inbound side (routing, auth, or the originator). If it is
+populated, the call reached a second leg, and you can pull that leg's own record
+or channel data to see how the *other* side fared. Pairing the A-leg's
+`hangup_cause` with the B-leg's narrows the fault to one side of the bridge.
+
+## Correlate {#correlate}
+
+A trace and a CDR describe the same call from two angles. Tie them together so a
+symptom in one points to evidence in the other.
+
+**By `Call-ID` ↔ UUID.** Every SIP message of one leg carries the same `Call-ID`
+header; the CDR for that leg carries the channel `uuid`. FreeSWITCH does not
+make the SIP `Call-ID` *identical* to the internal `uuid`, but it stores the
+inbound SIP `Call-ID` as the channel variable `sip_call_id`, so you can pivot
+between them:
+
+1. Find the failing leg in the CDR — say a row with `hangup_cause` of
+   `INCOMPATIBLE_DESTINATION` and an empty `billsec`. Note its `uuid`.
+2. In the trace, that call's messages share one `Call-ID`. Add `sip_call_id` to
+   your CDR template (or read it from `uuid_dump <uuid>` while the call is live)
+   to map the `uuid` to the `Call-ID` and pull exactly that leg's messages out of
+   the log.
+3. With both in hand: the CDR's `hangup_cause` and timestamps tell you *what
+   went wrong and when*; the trace's INVITE/`200 OK` SDP tells you *why* — the
+   `c=` address (NAT) or the `a=rtpmap` overlap (codec).
+
+**By UUID across legs.** For a bridged call, the A-leg CDR's `bleg_uuid` is the
+B-leg's `uuid`. That single field walks you from one leg's record to the other's,
+and from there to the other leg's `Call-ID` and its own slice of the trace. This
+is how you decide, for a call that "failed," which of the two legs actually
+failed — the question every troubleshooting session ultimately has to answer.
+
+## See Also {#see-also}
+
+- [Chapter 27: Call Detail Records](/integration/cdr) — full configuration of
+  `mod_cdr_csv`, `mod_xml_cdr`, and `mod_cdr_sqlite`, including templates and
+  field expansion.
+- [Chapter 7: SIP Profiles with Sofia](/users-and-endpoints/sip-profiles) — the
+  profiles whose traffic you are tracing.
+- [Audio Problems](./audio-problems.mdx) (this part) — reading the SDP `c=`/`m=`/`a=rtpmap`
+  lines to diagnose one-way and no audio.
+- [Call-Setup Failures](./call-setup-failures.mdx) (this part) — using `hangup_cause` and
+  the trace to diagnose calls that never connect.
