@@ -29,6 +29,15 @@ FreeSWITCH multi-party audio and video conferencing is provided by `mod_conferen
   - [20.5.2 Member Flags at Join Time](#member-flags-at-join-time)
   - [20.5.3 Bridge Mode](#bridge-mode)
 - [20.6 Default Dialplan Conference Extensions](#default-dialplan-conference-extensions)
+- [20.7 The conference API](#the-conference-api)
+  - [20.7.1 Membership, Mute, and State](#api-membership-mute)
+  - [20.7.2 Audio: Energy, AGC, and Volume](#api-audio-energy)
+  - [20.7.3 Sounds and Playback](#api-sounds-playback)
+  - [20.7.4 Video](#api-video)
+  - [20.7.5 Recording](#api-recording)
+  - [20.7.6 Outbound Dial](#api-outbound-dial)
+  - [20.7.7 Locking, PIN, and Vars](#api-locking-pin-vars)
+  - [20.7.8 Listing and Status](#api-listing-status)
 
 ---
 
@@ -147,6 +156,11 @@ A `<profile>` element contains `<param name="..." value="..."/>` child elements.
 | `auto-gain-margin` | AGC adjustment margin (dead band). | Integer. | None |
 | `auto-gain-change-factor` | AGC step size per adjustment period. | Integer. | None |
 | `auto-gain-period-len` | Number of frames per AGC adjustment period. | Integer. | None |
+| `auto-energy-level` | Target energy level for automatic energy threshold tracking. When set, the energy threshold floats to keep talk detection adaptive. If `energy-level` is unset, it is initialized to half of this value. | Integer. Negative values clamp to `0`. | None (disabled) |
+| `auto-energy-seconds` | Averaging window, in seconds, used by the automatic energy tracker. | Integer seconds. `0` or unset falls back to the default. | `5` |
+| `max-energy-level` | Upper energy bound. Audio above this level can trigger a member mute (used to suppress excessively loud or noisy members). `0` disables. If set below `energy-level`, it is disabled. | Integer. Negative values clamp to `0`. | `0` (disabled) |
+| `max-energy-hit-trigger` | Number of consecutive over-`max-energy-level` frames required before the member is acted upon. Only applied when `max-energy-level` is set. | Integer. Negative values clamp to `0`. | `5` |
+| `max-energy-level-mute-ms` | Duration, in milliseconds, a member is muted after exceeding `max-energy-level`. Internally converted to a frame count using `interval`. | Integer ms. | None |
 | `timer-name` | Internal timer module to use for mixing. | Module name string (for example, `soft`). | `soft` |
 
 **Sound file parameters:**
@@ -208,6 +222,7 @@ A `<profile>` element contains `<param name="..." value="..."/>` child elements.
 | `broadcast-chat-messages` | Relay SIP MESSAGE chat messages from members to all other members. | `true`, `false`. | `true` |
 | `heartbeat-period-sec` | Interval in seconds at which a `conference-heartbeat` event is fired. `0` disables. | Integer seconds. | `0` |
 | `description` | Human-readable description string for the conference (included in CDR and events). | String. | None |
+| `outcall-templ` | Template dial string used when the conference originates outbound calls (for example, via the `dial`/`bgdial` API or call-list features). Channel variables in the template are expanded per outbound call. | Dial-string template with variable expansion. | None |
 
 **Recording parameters:**
 
@@ -233,6 +248,10 @@ A `<profile>` element contains `<param name="..." value="..."/>` child elements.
 | `video-codec-bandwidth` | Target output bandwidth for the MCU video encoder. | Value with unit suffix, for example, `3mb`. | None |
 | `video-auto-floor-msec` | Milliseconds a member must hold the audio floor before automatically receiving the video floor. `0` disables automatic promotion. | Integer ms. | `0` |
 | `video-canvas-count` | Number of simultaneous MCU canvases (for super-canvas / multi-canvas deployments). | Integer. | `1` |
+| `video-layout-conf` | Name of the layout configuration file from which this conference loads its video layouts. | Config file name string. | `conference_layouts.conf` |
+| `video-super-canvas-label-layers` | When non-zero, draw the canvas/layer label text on each layer of the super-canvas (the composite view of all canvases). | Integer (`0` off, non-zero on). | `0` |
+| `video-super-canvas-show-all-layers` | When non-zero, the super-canvas shows all layers from every canvas rather than only active ones. | Integer (`0` off, non-zero on). | `0` |
+| `video-super-canvas-bgcolor` | Background color of the super-canvas in hex RGB. | `#RRGGBB` string. | `#068df3` |
 | `video-quality` | Encoder quality preset for MCU output. | Integer `0`-`4`. | `1` |
 | `video-kps-debounce` | Milliseconds to wait before adjusting the MCU encoder bitrate in response to bandwidth changes. | Integer ms. | `5000` |
 | `video-no-video-avatar` | Image file used as a placeholder for members without a camera. | File path. | None |
@@ -529,3 +548,160 @@ The vanilla `default` dialplan context (`dialplan/default.xml`) provides pre-bui
 ```
 
 Note that the video MCU extensions (`35xx`-`38xx`) do not append `${domain_name}` to the room name, so the room name is the bare extension number. The audio-only extensions (`30xx`-`33xx`) append `-${domain_name}` to namespace rooms per domain.
+
+---
+
+## 20.7 The conference API {#the-conference-api}
+
+`mod_conference` registers a single `conference` API command. It is invoked from the FreeSWITCH CLI (`fs_cli`), from `mod_event_socket`, or from the dialplan (via `api`/`bgapi`) to inspect and control running conferences. All control actions take the form:
+
+```
+conference <conf_name> <subcommand> [args]
+```
+
+where `<conf_name>` is the room name. A few global sub-commands (`list`, `xml_list`, `json_list`) can be issued without a conference name to operate across all rooms. The sub-commands below are the complete set registered in `conference_api_sub_commands[]`.
+
+Many member-targeted sub-commands accept a member selector in place of a numeric member ID:
+
+| Selector | Meaning |
+|----------|---------|
+| `<member_id>` | A specific member by numeric ID. |
+| `all` | Every member in the conference. |
+| `last` | The most recently joined member. |
+| `non_moderator` | Every member that is not a moderator. |
+
+In the argument columns below, `\|` separates alternatives, `[ ]` marks optional arguments, and `< >` marks a placeholder.
+
+### 20.7.1 Membership, Mute, and State {#api-membership-mute}
+
+| Sub-command | Purpose | Arguments |
+|-------------|---------|-----------|
+| `mute` | Mute a member (stop their audio from being mixed). | `<member_id\|all\|last\|non_moderator> [quiet]` |
+| `unmute` | Unmute a member. | `<member_id\|all\|last\|non_moderator> [quiet]` |
+| `tmute` | Toggle a member's mute state. | `<member_id\|all\|last\|non_moderator> [quiet]` |
+| `vmute` | Video-mute a member (stop their camera from being mixed onto the canvas). | `<member_id\|all\|last\|non_moderator> [quiet]` |
+| `unvmute` | Remove a member's video mute. | `<member_id\|all\|last\|non_moderator> [quiet]` |
+| `tvmute` | Toggle a member's video-mute state. | `<member_id\|all\|last\|non_moderator> [quiet]` |
+| `vmute-snap` | Capture a still image of the member's video to use as their video-mute placeholder. | `<member_id\|all\|last\|non_moderator>` |
+| `vblind` | Make a member video-blind (they receive no video). | `<member_id\|all\|last\|non_moderator> [quiet]` |
+| `unvblind` | Remove a member's video-blind state. | `<member_id\|all\|last\|non_moderator> [quiet]` |
+| `tvblind` | Toggle a member's video-blind state. | `<member_id\|all\|last\|non_moderator> [quiet]` |
+| `deaf` | Make a member deaf (they stop hearing the conference). | `<member_id\|all\|last\|non_moderator>` |
+| `undeaf` | Remove a member's deaf state. | `<member_id\|all\|last\|non_moderator>` |
+| `hold` | Place a member on hold, optionally playing a file to them. | `<member_id\|all\|last\|non_moderator> [file]` |
+| `unhold` | Take a member off hold. | `<member_id\|all\|last\|non_moderator>` |
+| `kick` | Remove a member from the conference, optionally playing a goodbye sound. | `<member_id\|all\|last\|non_moderator> [sound_file]` |
+| `hup` | Hang up a member's channel (disconnect the call entirely). | `<member_id\|all\|last\|non_moderator>` |
+| `dtmf` | Send DTMF digits to a member's channel. | `<member_id\|all\|last\|non_moderator> <digits>` |
+| `relate` | Set a relationship between members (one-way mute/deaf, or clear). | `<member_id[,...]> <other_member_id[,...]> [nospeak\|nohear\|clear]` |
+| `transfer` | Move one or more members to another conference. | `<conference_name> <member_id> [<member_id> ...]` |
+| `floor` | Grant the audio floor to a member. | `<member_id\|last>` |
+
+### 20.7.2 Audio: Energy, AGC, and Volume {#api-audio-energy}
+
+| Sub-command | Purpose | Arguments |
+|-------------|---------|-----------|
+| `energy` | Get or set the energy (talk-detection) threshold for a member. | `<member_id\|all\|last\|non_moderator> [<newval>]` |
+| `auto-energy` | Get or set the automatic energy-tracking level for a member. | `<member_id\|all\|last\|non_moderator> [<newval>]` |
+| `max-energy` | Get or set the maximum energy level (loud-member suppression) for a member. | `<member_id\|all\|last\|non_moderator> [<newval>]` |
+| `agc` | Get or set automatic gain control for a member. | `<member_id\|all\|last\|non_moderator> [<newval>]` |
+| `volume_in` | Get or set a member's input (transmit) volume. | `<member_id\|all\|last\|non_moderator> [<newval>]` |
+| `volume_out` | Get or set a member's output (receive) volume. | `<member_id\|all\|last\|non_moderator> [<newval>]` |
+| `position` | Set a member's 3D audio position (requires positional audio). | `<member_id> <x>:<y>:<z>` |
+| `auto-3d-position` | Toggle or set automatic 3D positioning for the conference. | `[on\|off]` |
+| `file-vol` | Set the playback volume of currently playing files. | `<vol#>` |
+
+### 20.7.3 Sounds and Playback {#api-sounds-playback}
+
+| Sub-command | Purpose | Arguments |
+|-------------|---------|-----------|
+| `play` | Play a file into the conference (to all, async, or to one member). | `<file_path> [async\|<member_id> [nomux]]` |
+| `pause_play` | Pause or resume the currently playing file. Registered under the name `pause`. | `[<member_id>]` |
+| `play_status` | Report playback status of the current file. | `[<member_id>]` |
+| `file_seek` | Seek within the currently playing file. | `[+-]<val> [<member_id>]` |
+| `stop` | Stop file playback. | `<current\|all\|async\|last> [<member_id>]` |
+| `moh` | Control music-on-hold playback. | `<file_path>\|toggle\|[on\|off]` |
+| `say` | Speak text into the conference (TTS). | `<text>` |
+| `saymember` | Speak text privately to one member (TTS). | `<member_id> <text>` |
+| `enter_sound` | Control the per-member enter sound. | `on\|off\|none\|file <filename>` |
+| `exit_sound` | Control the per-member exit sound. | `on\|off\|none\|file <filename>` |
+
+### 20.7.4 Video {#api-video}
+
+| Sub-command | Purpose | Arguments |
+|-------------|---------|-----------|
+| `vid-floor` | Grant the video floor to a member, optionally forcing it. | `<member_id\|last> [force]` |
+| `clear-vid-floor` | Clear the current video floor holder. | (none) |
+| `vid-layout` | Set the video layout (or a layout group) for a canvas. | `<layout_name>\|group <group_name> [<canvas_id>]` |
+| `vid-canvas` | Get or set which canvas a member is rendered on. | `<member_id\|all\|last\|non_moderator> [<newval>]` |
+| `vid-watching-canvas` | Get or set which canvas a member watches. | `<member_id\|all\|last\|non_moderator> [<newval>]` |
+| `vid-layer` | Get or set which canvas layer a member occupies. | `<member_id\|all\|last\|non_moderator> [<newval>]` |
+| `vid-res-id` | Assign a member to a reservation ID slot (named layout position). | `<member_id>\|all <val>\|clear [force]` |
+| `vid-role-id` | Assign a video role ID to a member. | `<member_id\|last> <val>\|clear` |
+| `vid-flip` | Flip a member's inbound video vertically. | `<member_id\|all\|last\|non_moderator>` |
+| `vid-filter` | Apply a video filter string to a member. | `<member_id\|all\|last\|non_moderator> <string>` |
+| `vid-border` | Cycle/toggle the video border on a member's slot. | `<member_id\|all\|last\|non_moderator>` |
+| `vid-banner` | Set overlay banner text on a member's slot. | `<member_id\|last> <text>` |
+| `vid-mute-img` | Set or clear the member's video-mute placeholder image. | `<member_id\|last> [<path>\|clear]` |
+| `vid-logo-img` | Set or clear a logo image overlaid on the member's slot. | `<member_id\|last> [<path>\|clear]` |
+| `vid-codec-group` | Set or clear the member's video codec group. | `<member_id\|last> [<group>\|clear]` |
+| `vid-fps` | Set the canvas output frame rate. | `<fps>` |
+| `vid-res` | Set the canvas output resolution. | `<WxH>` |
+| `vid-bandwidth` | Set the video encoder bandwidth target. | `<BW>` |
+| `vid-fgimg` | Set or clear the canvas foreground image. | `<file>\|clear [<canvas_id>]` |
+| `vid-bgimg` | Set or clear the canvas background image. | `<file>\|clear [<canvas_id>]` |
+| `vid-write-png` | Write the current canvas to a PNG file. | `<path>` |
+| `vid-personal` | Toggle personal-canvas (per-member) mode for the conference. | `[on\|off]` |
+| `cam` | Adjust per-layer camera settings (zoom/pan and related layer attributes). | `<canvas_id> <layer_id> <attr>=<val> [...]` |
+| `canvas-auto-clear` | Enable or disable automatic clearing of a canvas. | `<canvas_id> <true\|false>` |
+| `get-uuid` | Return the channel UUID of a member. | `<member_id\|last>` |
+
+### 20.7.5 Recording {#api-recording}
+
+| Sub-command | Purpose | Arguments |
+|-------------|---------|-----------|
+| `record` | Start recording the conference to a file. | `<filename>` |
+| `norecord` | Stop a named recording, or all recordings. | `<filename\|all>` |
+| `chkrecord` | Check the recording status of a conference. | `<confname>` |
+| `pause` | Pause an active recording. | `<filename>` |
+| `resume` | Resume a paused recording. | `<filename>` |
+| `recording` | Combined recording control (start/stop/check/pause/resume). | `[start\|stop\|check\|pause\|resume] [<filename>\|all]` |
+
+### 20.7.6 Outbound Dial {#api-outbound-dial}
+
+| Sub-command | Purpose | Arguments |
+|-------------|---------|-----------|
+| `dial` | Originate an outbound call and join the answered party to the conference (blocking). | `<endpoint_module>/<destination> <callerid_number> <callerid_name>` |
+| `bgdial` | Same as `dial` but originates in the background (non-blocking). | `<endpoint_module>/<destination> <callerid_number> <callerid_name>` |
+
+### 20.7.7 Locking, PIN, and Vars {#api-locking-pin-vars}
+
+| Sub-command | Purpose | Arguments |
+|-------------|---------|-----------|
+| `lock` | Lock the conference (reject new members). | (none) |
+| `unlock` | Unlock the conference. | (none) |
+| `pin` | Set the conference entry PIN. | `<pin#>` |
+| `nopin` | Clear the conference entry PIN. | (none) |
+| `getvar` | Read a conference variable. | `<varname>` |
+| `setvar` | Set a conference variable. | `<varname> <value>` |
+| `get` | Read a built-in conference parameter. | `<parameter-name>` |
+| `set` | Set a built-in conference parameter. | `<max_members\|sound_prefix\|caller_id_name\|caller_id_number\|endconference_grace_time> <value>` |
+
+### 20.7.8 Listing and Status {#api-listing-status}
+
+| Sub-command | Purpose | Arguments |
+|-------------|---------|-----------|
+| `list` | List conferences and members (text). May run without a conference name. | `[delim <string>]\|[count]` |
+| `xml_list` | List conferences and members as XML. | (none) |
+| `json_list` | List conferences and members as JSON. | `[compact]` |
+| `count` | Report the member count of the conference. | (none) |
+
+**Example invocations:**
+
+```
+conference 3001-example.com mute all
+conference 3001-example.com play conference/welcome.wav async
+conference 3001-example.com vid-layout group:grid
+conference 3001-example.com bgdial sofia/internal/2000@example.com 2000 "Conf Dial"
+conference list
+```

@@ -26,6 +26,8 @@ FreeSWITCH selects codecs through a standard SDP offer/answer exchange and appli
 - [16.8 Opus Configuration](#168-opus-configuration)
 - [16.9 AMR Configuration](#169-amr-configuration)
 - [16.10 AMR-WB Configuration](#1610-amr-wb-configuration)
+- [16.11 H.264/H.263 (mod_av) Configuration](#1611-h264h263-mod_av-configuration)
+- [16.12 VP8/VP9 (mod_vpx) Configuration](#1612-vp8vp9-mod_vpx-configuration)
 
 ---
 
@@ -177,7 +179,9 @@ Suites are separated by `|` and offered in left-to-right order (strongest first)
 
 | Suite | Key length | Auth tag | Notes |
 |---|---|---|---|
+| `AEAD_AES_256_GCM` | 256-bit | 128-bit | GCM authenticated encryption; full 16-octet tag (RFC 7714) |
 | `AEAD_AES_256_GCM_8` | 256-bit | 64-bit | GCM authenticated encryption; 8-octet tag (RFC 7714) |
+| `AEAD_AES_128_GCM` | 128-bit | 128-bit | GCM authenticated encryption; full 16-octet tag (RFC 7714) |
 | `AEAD_AES_128_GCM_8` | 128-bit | 64-bit | GCM authenticated encryption; 8-octet tag (RFC 7714) |
 | `AES_CM_256_HMAC_SHA1_80` | 256-bit | 80-bit | AES counter mode, HMAC-SHA1 |
 | `AES_CM_192_HMAC_SHA1_80` | 192-bit | 80-bit | AES counter mode, HMAC-SHA1 |
@@ -186,6 +190,8 @@ Suites are separated by `|` and offered in left-to-right order (strongest first)
 | `AES_CM_192_HMAC_SHA1_32` | 192-bit | 32-bit | Short tag |
 | `AES_CM_128_HMAC_SHA1_32` | 128-bit | 32-bit | Short tag |
 | `AES_CM_128_NULL_AUTH` | 128-bit | None | No authentication; not recommended (RFC 3711 section 7.5) |
+
+The full-tag GCM suites `AEAD_AES_256_GCM` and `AEAD_AES_128_GCM` (16-octet authentication tag) are recognized by FreeSWITCH but are not part of the default `rtp_sdes_suites` list shown above, which uses only the 8-octet (`_8`) GCM variants. To offer the full-tag suites, add them explicitly to `rtp_sdes_suites`.
 
 The `rtp_secure_media` variable controls SRTP negotiation mode. Its accepted values are:
 
@@ -249,11 +255,11 @@ Audio codecs whose module column shows "Built-in" are registered by the FreeSWIT
 | `BV32` | `mod_bv` | 16000 Hz | BroadVoice 32 wideband (32 kbit/s). |
 | `CODEC2` | `mod_codec2` | 8000 Hz | Low-bitrate open codec (3200/2400/1400/1200 bps). Requires libcodec2. |
 | `b64` | `mod_b64` | 8000, 16000, 32000 Hz | Base64-encoded audio; primarily for testing. |
-| `H264` | `mod_av` | Video | H.264 via libavcodec. See `av.conf.xml`. Also available via `mod_openh264` (Cisco OpenH264). |
-| `H263` | `mod_av` | Video | H.263 via libavcodec. |
-| `H263-1998` | `mod_av` | Video | H.263+ (RFC 2429) via libavcodec. |
-| `VP8` | Built-in (`switch_vpx.c`) | Video | VP8 via libvpx. See `vpx.conf.xml`. |
-| `VP9` | Built-in (`switch_vpx.c`) | Video | VP9 via libvpx. See `vpx.conf.xml`. |
+| `H264` | `mod_av` | Video | H.264 via libavcodec. See `av.conf.xml` (section 16.11). Also available via `mod_openh264` (Cisco OpenH264). |
+| `H263` | `mod_av` | Video | H.263 via libavcodec. See `av.conf.xml` (section 16.11). |
+| `H263-1998` | `mod_av` | Video | H.263+ (RFC 2429) via libavcodec. See `av.conf.xml` (section 16.11). |
+| `VP8` | Built-in (`switch_vpx.c`) | Video | VP8 via libvpx. See `vpx.conf.xml` (section 16.12). |
+| `VP9` | Built-in (`switch_vpx.c`) | Video | VP9 via libvpx. See `vpx.conf.xml` (section 16.12). |
 
 Note: `mod_com_g729` (in `src/mod/codecs/mod_com_g729/`) is a separate commercial G.729 module with full encode/decode support, distinct from the pass-through `mod_g729`.
 
@@ -389,3 +395,142 @@ AMR-WB mode index to bitrate mapping:
 | `6` | 19.85 kbit/s |
 | `7` | 23.05 kbit/s |
 | `8` | 23.85 kbit/s |
+
+---
+
+## 16.11 H.264/H.263 (mod_av) Configuration
+
+`mod_av` provides the H.264, H.263, and H.263+ video codecs through libavcodec (FFmpeg). The codec side of the module is configured in `conf/vanilla/autoload_configs/av.conf.xml`, which contains two configuration blocks: `avcodec.conf` (the encoder/decoder settings and per-profile parameters documented here) and `avformat.conf` (used by the recording/playback side of `mod_av`, with a single `colorspace` setting). The vanilla file ships `avformat.conf` with `colorspace=1` (BT.709).
+
+### 16.11.1 avcodec.conf settings
+
+The `<settings>` block applies module-wide. The shipped vanilla `av.conf.xml` sets only `dec-threads` and `enc-threads`; the others are present as commented examples. Defaults shown are the effective values applied after the config is loaded (out-of-range or unset values are clamped to these).
+
+| Parameter | Purpose | Accepted Values | Default |
+|---|---|---|---|
+| `max-bitrate` | Maximum bitrate the system will encode at; the encoder bandwidth is truncated to this value. A bandwidth string such as `5mb` is parsed. | Bandwidth string (e.g. `5mb`, `2000k`) | calculated for 1920x1080 @ 5 fps (used when unset or `<= 0`) |
+| `rtp-slice-size` | Maximum RTP payload size (before encryption) for packetized video. Values outside the valid range are reset to the default. | `500` to `1500` | `1200` |
+| `key-frame-min-freq` | Minimum interval between generated key frames, in milliseconds. Values outside the valid range are reset to the default. | `10` to `3000` (ms) | `250` |
+| `dec-threads` | Decoder thread count. Accepts an integer, `auto`, or a `cpu` expression. | integer, `auto`, or `cpu/<divisor>/<max>` | `1` |
+| `enc-threads` | Encoder thread count. Accepts an integer, `auto`, or a `cpu` expression. | integer, `auto`, or `cpu/<divisor>/<max>` | `cpu/2/4` |
+
+### 16.11.2 Per-profile H.264/H.263 parameters
+
+Profiles are defined under `<profiles>` as `<profile name="...">` elements. The vanilla file ships profiles named `H263`, `H263+`, `H264`, `H265`, `conference`, and `conference-H264`. The `conference` profile maps codec names to profiles for conference video via a `<codecs>` block. Each profile accepts the following `<param>` entries, which map to libavcodec `AVCodecContext` fields:
+
+| Parameter | Purpose | Accepted Values | Default |
+|---|---|---|---|
+| `dec-threads` | Decoder thread count for this profile | integer, `auto`, or `cpu/<divisor>/<max>` | inherits settings `dec-threads` |
+| `enc-threads` | Encoder thread count for this profile | integer, `auto`, or `cpu/<divisor>/<max>` | inherits settings `enc-threads` |
+| `profile` | Codec profile. For H.264, the names `baseline`, `main`, `high` are accepted, or a numeric libavcodec profile id. | `baseline` \| `main` \| `high` \| integer | `baseline` (FF_PROFILE_H264_BASELINE) |
+| `level` | Codec level (e.g. H.264 level 3.1 = `31`, 4.1 = `41`) | integer | `31` |
+| `timebase` | Encoder time base as `num/den` | `<num>/<den>` (e.g. `1/90`) | unset (libavcodec default) |
+| `flags` | libavcodec encoder flags; pipe-delimited list of flag tokens (see vocabulary below) | pipe-delimited tokens, e.g. `LOOP_FILTER\|PSNR` | unset |
+| `me-cmp` | Motion-estimation comparison function | integer | libavcodec default |
+| `me-range` | Motion-estimation search range | integer | libavcodec default |
+| `max-b-frames` | Maximum number of B-frames between non-B-frames | integer | libavcodec default |
+| `refs` | Number of reference frames | integer | libavcodec default |
+| `gop-size` | Group-of-pictures size (key-frame interval in frames) | integer | libavcodec default |
+| `keyint-min` | Minimum GOP size | integer | libavcodec default |
+| `i-quant-factor` | I-frame quantizer factor relative to P-frames | float | libavcodec default |
+| `b-quant-factor` | B-frame quantizer factor relative to P-frames | float | libavcodec default |
+| `qcompress` | Quantizer curve compression factor | float (`0.0` to `1.0`) | libavcodec default |
+| `qmin` | Minimum quantizer | integer | libavcodec default |
+| `qmax` | Maximum quantizer | integer | libavcodec default |
+| `max-qdiff` | Maximum quantizer difference between frames | integer | libavcodec default |
+| `colorspace` | YUV colorspace (`AVColorSpace` enum value); values above the supported maximum fall back to RGB | integer (e.g. `0` = RGB/GBR, `1` = BT.709, `5` = BT.470BG, `6` = SMPTE170M) | `0` in vanilla H264 profile |
+| `color-range` | Color range (`AVColorRange` enum value); out-of-range values reset to `0` | `0` (unspecified) \| `1` (MPEG/limited) \| `2` (JPEG/full) | `2` in vanilla H264 profile |
+
+The vanilla `H264` profile additionally ships `flags="LOOP_FILTER|PSNR"`.
+
+### 16.11.3 Encoder flags vocabulary
+
+The `flags` parameter takes a pipe-delimited (`|`) list. Each token is matched case-insensitively and OR-ed into the libavcodec flag set (only applied if the corresponding `AV_CODEC_FLAG_*` is defined in the linked FFmpeg):
+
+`UNALIGNED`, `QSCALE`, `4MV`, `CORRUPT`, `QPEL`, `PASS1`, `PASS2`, `LOOP_FILTER`, `GRAY`, `PSNR`, `TRUNCATED`, `INTERLACED_DCT`, `LOW_DELAY`, `HEADER` (global header), `BITEXACT`, `AC_PRED`, `INTERLACED_ME`, `CLOSED_GOP`.
+
+### 16.11.4 x264 private options passthrough
+
+A profile may include an `<options>` block whose `<option>` entries are passed verbatim to the underlying encoder's private option dictionary (for H.264 this is x264). These are not validated by FreeSWITCH; any libx264 option name and value may be supplied.
+
+```xml
+<profile name="H264">
+  <param name="flags" value="LOOP_FILTER|PSNR"/>
+  <options>
+    <option name="preset" value="veryfast"/>
+    <option name="intra_refresh" value="1"/>
+    <option name="tune" value="animation+zerolatency"/>
+    <option name="sc_threshold" value="40"/>
+    <option name="b_strategy" value="1"/>
+    <option name="crf" value="18"/>
+  </options>
+</profile>
+```
+
+The vanilla `H264` profile ships the options above (`crf=18`); the `conference-H264` profile ships the same set with `crf=10` for higher conference quality.
+
+---
+
+## 16.12 VP8/VP9 (mod_vpx) Configuration
+
+The VP8 and VP9 video codecs are provided by the built-in VPX implementation (`src/switch_vpx.c`) using libvpx, not a separately loaded module. They are configured in `conf/vanilla/autoload_configs/vpx.conf.xml`.
+
+### 16.12.1 vpx.conf settings
+
+The `<settings>` block applies to both VP8 and VP9. In the vanilla file every setting is shipped commented out, so the effective defaults below apply. Out-of-range or unset values are clamped to these defaults after the config is loaded.
+
+| Parameter | Purpose | Accepted Values | Default |
+|---|---|---|---|
+| `debug` | Enable VPX debug logging | integer (`0` = off, non-zero = on) | `0` |
+| `max-bitrate` | Maximum bitrate the system will encode at; the encoder bandwidth is truncated to this value. A bandwidth string is parsed. | Bandwidth string (e.g. `5mb`) | calculated for 1920x1080 @ 5 fps (used when unset or `<= 0`) |
+| `rtp-slice-size` | Maximum RTP payload size before encryption | `500` to `1500` | `1200` |
+| `key-frame-min-freq` | Minimum interval between generated key frames, in milliseconds | `10` to `3000` (ms) | `250` |
+| `dec-threads` | Default decoder thread count (per-profile fallback) | integer, `auto`, or `cpu/<divisor>/<max>` | `cpu/2/4` (per-profile effective default) |
+| `enc-threads` | Default encoder thread count (per-profile fallback) | integer, `auto`, or `cpu/<divisor>/<max>` | `1` (per-profile effective default) |
+
+### 16.12.2 Per-profile VP8/VP9 parameters
+
+Profiles are defined under `<profiles>` as `<profile name="...">` elements. The vanilla file ships profiles named `vp8`, `vp9`, `conference`, and `conference-vp8`. Most parameters map directly to libvpx `vpx_codec_enc_cfg_t` (`enc_cfg`) or `vpx_codec_dec_cfg_t` (`dec_cfg`) fields and are range-checked; an out-of-range value is rejected and the libvpx default is kept. Some parameters apply only to one codec, as noted.
+
+| Parameter | Purpose | Accepted Values | Default |
+|---|---|---|---|
+| `dec-threads` | Decoder thread count | integer, `auto`, or `cpu/<divisor>/<max>` (min `1`) | `cpu/2/4` |
+| `enc-threads` | Encoder thread count (`g_threads`) | integer, `auto`, or `cpu/<divisor>/<max>` (min `1`) | `1` |
+| `g-profile` | libvpx bitstream profile (`g_profile`) | `0` to `3` | libvpx default (vanilla `vp9` profile sets `0`) |
+| `g-error-resilient` | Error-resilience flags (`g_error_resilient`); pipe-delimited | `DEFAULT` \| `PARTITIONS` (pipe-delimited) | libvpx default |
+| `g-pass` | Encoding pass (`g_pass`) | `ONE_PASS` \| `FIRST_PASS` \| `LAST_PASS` | libvpx default |
+| `g-lag-in-frames` | Frames the encoder may consume before producing output (`g_lag_in_frames`) | `0` to `25` | libvpx default |
+| `rc_dropframe_thresh` | Frame-drop threshold for rate control (`rc_dropframe_thresh`). Note: the code matches this name with underscores. | `0` to `100` | libvpx default |
+| `rc-resize-allowed` | Allow spatial resampling (`rc_resize_allowed`) | `0` or `1` | libvpx default |
+| `rc-scaled-width` | Internal scaled width (`rc_scaled_width`) | `0` or greater | libvpx default |
+| `rc-scaled-height` | Internal scaled height (`rc_scaled_height`) | `0` or greater | libvpx default |
+| `rc-resize-up-thresh` | Upscale trigger threshold (`rc_resize_up_thresh`) | `0` to `100` | libvpx default |
+| `rc-resize-down-thresh` | Downscale trigger threshold (`rc_resize_down_thresh`) | `0` to `100` | libvpx default |
+| `rc-end-usage` | Rate-control mode (`rc_end_usage`) | `VBR` \| `CBR` \| `CQ` \| `Q` | libvpx default |
+| `rc-target-bitrate` | Target bitrate (`rc_target_bitrate`); bandwidth string parsed | Bandwidth string (e.g. `1mb`), min `1` | libvpx default |
+| `rc-min-quantizer` | Minimum quantizer (`rc_min_quantizer`) | `0` to `63` | libvpx default |
+| `rc-max-quantizer` | Maximum quantizer (`rc_max_quantizer`) | `0` to `63` | libvpx default |
+| `rc-undershoot-pct` | Undershoot percentage (`rc_undershoot_pct`) | `0` to `100` (VP9) / `0` to `1000` (VP8) | libvpx default |
+| `rc-overshoot-pct` | Overshoot percentage (`rc_overshoot_pct`) | `0` to `100` (VP9) / `0` to `1000` (VP8) | libvpx default |
+| `rc-buf-sz` | Decoder buffer size in ms (`rc_buf_sz`) | `1` or greater | libvpx default |
+| `rc-buf-initial-sz` | Initial decoder buffer size in ms (`rc_buf_initial_sz`) | `1` or greater | libvpx default |
+| `rc-buf-optimal-sz` | Optimal decoder buffer size in ms (`rc_buf_optimal_sz`) | `1` or greater | libvpx default |
+| `rc-2pass-vbr-bias-pct` | Two-pass VBR bias (`rc_2pass_vbr_bias_pct`) | `0` to `100` | libvpx default |
+| `rc-2pass-vbr-minsection-pct` | Two-pass VBR min section (`rc_2pass_vbr_minsection_pct`) | `1` or greater | libvpx default |
+| `rc-2pass-vbr-maxsection-pct` | Two-pass VBR max section (`rc_2pass_vbr_maxsection_pct`) | `1` or greater | libvpx default |
+| `kf-mode` | Key-frame placement mode (`kf_mode`) | `AUTO` \| `DISABLED` | libvpx default |
+| `kf-min-dist` | Minimum key-frame interval (`kf_min_dist`) | `0` or greater | libvpx default |
+| `kf-max-dist` | Maximum key-frame interval (`kf_max_dist`) | `0` or greater | libvpx default |
+| `ss-number-layers` | Number of spatial layers (`ss_number_layers`) | `0` to `VPX_SS_MAX_LAYERS` | libvpx default |
+| `ts-number-layers` | Number of temporal layers (`ts_number_layers`); locked for VP9 | `0` to `VPX_SS_MAX_LAYERS` (VP8); locked (VP9) | libvpx default |
+| `ts-periodicity` | Temporal layering periodicity (`ts_periodicity`); locked for VP9 | `0` to `16` (VP8); locked (VP9) | libvpx default |
+| `temporal-layering-mode` | Temporal layering mode (`temporal_layering_mode`); locked for VP9 | `0` to `3` (VP8); locked (VP9) | libvpx default |
+| `lossless` | VP9 lossless mode (set via codec_control). VP9 only. | `0` or `1` | `0` |
+| `cpuused` | Encoder speed/quality trade-off (set via codec_control) | `-16` to `16` (VP8) / `-8` to `8` (VP9) | libvpx default |
+| `token-parts` | Token partition count (set via codec_control) | `cpu` expression or integer, `1` to `8` partitions | libvpx default |
+| `static-thresh` | Static-content threshold (set via codec_control) | `0` or greater | libvpx default |
+| `noise-sensitivity` | Temporal denoising level (set via codec_control). VP8 only. | `0` to `6` | libvpx default |
+| `max-intra-bitrate-pct` | Maximum intra-frame bitrate as a percentage (set via codec_control). VP8 only. | `0` or greater | libvpx default |
+| `vp9e-tune-content` | VP9 content tuning (set via codec_control). VP9 only. | `DEFAULT` \| `SCREEN` | libvpx default |
+
+Parameters marked "set via codec_control" are applied to the live encoder through libvpx control calls rather than the initial `enc_cfg`. The `conference` profile uses a `<codecs>` block to bind codec names (`vp8`, `vp9`) to the profiles applied for conference video; the vanilla `conference-vp8` profile demonstrates an explicit CBR configuration tuned for conferencing.

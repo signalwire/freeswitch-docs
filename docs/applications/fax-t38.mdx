@@ -25,6 +25,7 @@ FreeSWITCH delivers fax functionality through `mod_spandsp`, a module built on t
 - [6. Channel Variable Reference](#6-channel-variable-reference)
   - [6.1 Input Variables](#61-input-variables)
   - [6.2 Result Variables](#62-result-variables)
+  - [6.3 Completion Hooks](#63-completion-hooks)
 - [7. Default Dialplan Examples](#7-default-dialplan-examples)
 
 ---
@@ -187,7 +188,7 @@ t38_gateway [self|peer] [nocng]
 
 When `nocng` is not specified, `t38_gateway` listens for CED (2100 Hz) or V.21 preamble before activating gateway mode. The timeout for tone detection is controlled by the channel variable `t38_gateway_detect_timeout` (integer, seconds; default `20`).
 
-The channel variable `t38_gateway_redundancy` sets the UDPTL redundancy level used by the gateway (integer; affects both FEC span and FEC entries).
+The channel variable `t38_gateway_redundancy` sets the UDPTL redundancy level used by the gateway (integer; default `3`). The single value is applied to both the FEC span and the FEC entries count.
 
 **Example: inline gateway on a bridged call:**
 
@@ -230,7 +231,10 @@ Channel variables override the global defaults from `spandsp.conf.xml` on a per-
 | `fax_verbose_log_level` | FreeSWITCH log level for per-session verbose output |
 | `fax_trace_dir` | Directory path for writing a per-session SpanDSP trace log |
 | `t38_gateway_detect_timeout` | Seconds to wait for fax tone before activating `t38_gateway` (integer; default `20`) |
-| `t38_gateway_redundancy` | UDPTL redundancy level for `t38_gateway` mode (integer) |
+| `t38_leg` | Set by `t38_gateway` to record which leg gateway processing is applied to (`self` or `peer`, defaulting to `peer`). |
+| `t38_gateway_redundancy` | UDPTL redundancy level for `t38_gateway` mode (integer; default `3`). The value is applied to both the FEC span and the FEC entries count. |
+| `t38_peer` | UUID of the peer leg used to pair the two sides of a `t38_gateway` session. Set automatically on both legs by `t38_gateway`. |
+| `t38_trace` | When `true`, traces the raw audio of a `t38_gateway` session to `<temp_dir>/<uuid>_read.raw` and `<uuid>_write.raw`. |
 
 ### 6.2 Result Variables
 
@@ -264,6 +268,23 @@ The following variables are set on the channel when `rxfax` or `txfax` completes
 | `fax_remote_vendor` | Vendor string reported by the remote fax device (set at T.30 phase B negotiation; empty string if not provided) |
 | `fax_remote_model` | Model string reported by the remote fax device (set at T.30 phase B negotiation; empty string if not provided) |
 | `fax_trace_file` | Full path to the per-session SpanDSP trace log file; set only when `fax_trace_dir` input variable is provided |
+
+### 6.3 Completion Hooks
+
+`mod_spandsp` honors the standard `execute_on_*` and `system_on_*` channel-variable hooks at several points in the fax life cycle. The `execute_on_*` variables run a dialplan application (for example `lua fax_result.lua`); the `system_on_*` variables run a host command through `system()` after expanding channel variables. Set these as channel variables before invoking `rxfax` or `txfax`.
+
+| Variable | When it fires | Action type |
+|---|---|---|
+| `execute_on_fax_phase_b` | At T.30 phase B (after the initial transport negotiation, when station identifiers are exchanged) | Dialplan app |
+| `execute_on_fax_phase_d` | At T.30 phase D (after each page completes) | Dialplan app |
+| `system_on_fax_result` | When the fax session ends, regardless of outcome | `system()` command |
+| `execute_on_fax_result` | When the fax session ends, regardless of outcome (after `system_on_fax_result`) | Dialplan app |
+| `system_on_fax_success` | When the fax session ends with a successful result | `system()` command |
+| `execute_on_fax_success` | When the fax session ends with a successful result (after `system_on_fax_success`) | Dialplan app |
+| `system_on_fax_failure` | When the fax session ends with an error result | `system()` command |
+| `execute_on_fax_failure` | When the fax session ends with an error result (after `system_on_fax_failure`) | Dialplan app |
+
+The result variables in section 6.2 are populated before these hooks run, so an `execute_on_fax_result` handler can read `fax_success`, `fax_result_code`, `fax_document_transferred_pages`, and `fax_filename` directly.
 
 ---
 

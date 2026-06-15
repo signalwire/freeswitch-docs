@@ -33,7 +33,8 @@ The module requires that `FreeSWITCH.Managed.dll` be present in the FreeSWITCH m
 
 - **Plugin directory:** `{modules_dir}/managed/` — the loader scans every file in this directory at startup and watches it for changes at runtime.
 - **Shadow copy directory:** `{modules_dir}/managed/shadow/` — if this directory already exists at load time, the loader deletes and re-creates it; it is used by the .NET AppDomain shadow-copy mechanism to stage assemblies.
-- **Per-plugin config:** a `.config` file alongside a `.dll` or `.exe` (e.g. `MyPlugin.dll.config`) is read as the `AppDomain` configuration for that plugin's isolated domain.
+- **Per-plugin config:** a `.config` file alongside a `.dll` or `.exe` (e.g. `MyPlugin.dll.config`) is read as the `AppDomain` configuration for that plugin's isolated domain. Editing this `.config` file while the switch is running triggers an automatic reload of the associated plugin.
+- **Per-plugin reference directory:** `{modules_dir}/managed/<modulename>/` — for a plugin file named `<modulename>.<ext>`, this directory is added to the plugin's AppDomain `PrivateBinPath` (alongside `managed` itself), so private dependency assemblies can be kept in a per-plugin subdirectory rather than the shared `managed/` directory.
 
 ## Dialplan Applications
 
@@ -42,6 +43,8 @@ The module requires that `FreeSWITCH.Managed.dll` be present in the FreeSWITCH m
 | `managed` | Run a .NET `IAppPlugin` implementation (or script) on an active channel | `<plugin-name> [<args>]` |
 
 `<plugin-name>` is either the fully-qualified type name (`Namespace.ClassName`) or the short class name (`ClassName`) for compiled assemblies, or the filename (e.g. `Demo.csx`) for script files.
+
+The loader recognizes compiled assemblies by the `.dll` extension and dispatches the following extensions to the script plugin manager (compiled on the fly via the CodeDOM providers): `.csx` (C#), `.fsx` (F#), `.vbx` (VB.NET), `.jsx` (JScript), and `.exe`. A file whose extension is none of these is ignored.
 
 ```xml
 <action application="managed" data="AppDemo"/>

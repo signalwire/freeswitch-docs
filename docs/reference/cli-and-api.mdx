@@ -17,12 +17,16 @@ This chapter covers the operator-facing command set. FreeSWITCH registers over 1
 
 - [Connecting with fs\_cli](#connecting-with-fs_cli)
 - [Status and Inspection](#status-and-inspection)
+- [Directory and Interface Lookups](#directory-and-interface-lookups)
 - [Call Control](#call-control)
 - [Configuration Control](#configuration-control)
 - [System Control](#system-control)
+- [Process and Shell Execution](#process-and-shell-execution)
+- [NAT Mapping](#nat-mapping)
 - [Variables and Evaluation](#variables-and-evaluation)
 - [Scheduling](#scheduling)
 - [Background Execution](#background-execution)
+- [CLI Aliases and ACLs](#cli-aliases-and-acls)
 - [Sofia Command Tree](#sofia-command-tree)
 - [Example fs\_cli Session](#example-fs_cli-session)
 
@@ -95,6 +99,31 @@ nat_map|say|interfaces|interface_types|tasks|limits|status
 
 ---
 
+## Directory and Interface Lookups {#directory-and-interface-lookups}
+
+These commands query the XML user directory, check for the existence of modules and files, and resolve interface addresses. They are commonly used from scripts and the dialplan to make routing decisions.
+
+| Command | Purpose | Syntax |
+|---------|---------|--------|
+| `list_users` | List users configured in the directory, optionally filtered by group, domain, user, or context | `list_users [group <group>] [domain <domain>] [user <user>] [context <context>]` |
+| `user_exists` | Test whether a user matches a directory key/value (returns `true`/`false`) | `user_exists <key> <user> <domain>` |
+| `user_data` | Return a variable, parameter, or attribute value for a directory user | `user_data <user>@<domain> [var\|param\|attr] <name>` |
+| `domain_exists` | Test whether a domain is configured in the directory (returns `true`/`false`) | `domain_exists <domain>` |
+| `domain_data` | Return a variable, parameter, or attribute value for a directory domain | `domain_data <domain> [var\|param\|attr] <name>` |
+| `module_exists` | Test whether a module is loaded (returns `true`/`false`) | `module_exists <module>` |
+| `file_exists` | Test whether a file exists on the server filesystem (returns `true`/`false`) | `file_exists <file>` |
+| `interface_ip` | Return the primary IP address of a named network interface | `interface_ip [auto\|ipv4\|ipv6] <ifname>` |
+
+**Notes on `user_exists`:**
+
+The `<key>` argument selects which directory field is matched against `<user>`, for example `id` to match on the user ID.
+
+**Notes on `interface_ip`:**
+
+`ipv4` and `ipv6` force the address family; `auto` returns whichever family is available for the interface named by `<ifname>`.
+
+---
+
 ## Call Control {#call-control}
 
 These commands act on active channels, identified by their UUID. Obtain UUIDs from `show channels` or `show calls`.
@@ -126,6 +155,7 @@ These commands act on active channels, identified by their UUID. Obtain UUIDs fr
 | `uuid_recv_dtmf` | Inject received DTMF digits into a channel | `uuid_recv_dtmf <uuid> <dtmf_data>` |
 | `uuid_flush_dtmf` | Flush buffered DTMF from a channel | `uuid_flush_dtmf <uuid>` |
 | `uuid_media` | Reinvite FreeSWITCH in or out of the media path | `uuid_media [off] <uuid>` |
+| `uuid_media_3p` | Reinvite FreeSWITCH in or out of the media path using 3PCC (third-party call control) | `uuid_media_3p [off] <uuid>` |
 | `uuid_media_reneg` | Trigger a media renegotiation on a channel | `uuid_media_reneg <uuid>[ <codec_string>]` |
 | `uuid_deflect` | Send a SIP REFER to redirect a call | `uuid_deflect <uuid> <uri>` |
 | `uuid_redirect` | Send a SIP redirect response | `uuid_redirect <uuid> <uri>` |
@@ -135,6 +165,11 @@ These commands act on active channels, identified by their UUID. Obtain UUIDs fr
 | `uuid_session_heartbeat` | Enable or set a heartbeat interval on a channel | `uuid_session_heartbeat <uuid> [sched] [0\|<seconds>]` |
 | `uuid_simplify` | Attempt to cut FreeSWITCH out of the media path | `uuid_simplify <uuid>` |
 | `uuid_fileman` | Control file playback on a channel | `uuid_fileman <uuid> <cmd>:<val>` |
+| `uuid_send_message` | Send a SIP MESSAGE to the endpoint on a channel | `uuid_send_message <uuid> <message>` |
+| `uuid_send_info` | Send a SIP INFO request to the endpoint on a channel | `uuid_send_info <uuid> [<mime_type> <mime_subtype>] <message>` |
+| `uuid_limit` | Apply a usage-limit resource against a channel through a limit backend | `uuid_limit <uuid> <backend> <realm> <resource> [<max>[/interval]] [number [dialplan [context]]]` |
+| `uuid_limit_release` | Release a limit resource previously applied to a channel | `uuid_limit_release <uuid> <backend> [realm] [resource]` |
+| `tone_detect` | Start tone detection on a channel, optionally firing an application on match | `tone_detect <uuid> <key> <tone_spec> [<flags> <timeout> <app> <args> <hits>]` |
 | `hupall` | Hang up all channels, optionally filtered by variable value | `hupall <cause> [<var> <value>] [<var2> <value2>]` |
 
 **Notes on `originate`:**
@@ -203,11 +238,24 @@ The `fsctl` command sends control messages to the FreeSWITCH core. All subcomman
 | `fsctl api_expansion` | Enable or disable API expansion in dialplan | `fsctl api_expansion [on\|off]` |
 | `fsctl reclaim_mem` | Reclaim unused memory from core memory pools | `fsctl reclaim_mem` |
 | `fsctl mdns_resolve` | Enable or disable mDNS resolution | `fsctl mdns_resolve [enable\|disable]` |
+| `fsctl flush_db_handles` | Flush idle core database connection handles from the pool | `fsctl flush_db_handles` |
+| `fsctl calibrate_clock` | Recalibrate the internal monotonic clock | `fsctl calibrate_clock` |
+| `fsctl crash` | Force an immediate process crash (for debugging core dumps) | `fsctl crash` |
+| `fsctl verbose_events` | Enable or disable verbose event generation globally | `fsctl verbose_events [on\|off]` |
+| `fsctl threaded_system_exec` | Toggle whether `system`/`bg_system` shell commands run in a dedicated thread | `fsctl threaded_system_exec [on\|off]` |
+| `fsctl save_history` | Persist the CLI command history to disk | `fsctl save_history` |
+| `fsctl pause_check` | Report whether call processing is paused (returns `true`/`false`) | `fsctl pause_check [inbound\|outbound]` |
+| `fsctl ready_check` | Report whether the system is ready (returns `true`/`false`) | `fsctl ready_check` |
+| `fsctl shutdown_check` | Report whether a shutdown is in progress (returns `true`/`false`) | `fsctl shutdown_check` |
+| `fsctl debug_pool` | Print core memory pool debug statistics | `fsctl debug_pool` |
+| `fsctl debug_sql` | Toggle SQL debug logging | `fsctl debug_sql` |
+| `fsctl sql` | Start or stop the core SQL queue thread | `fsctl sql [start\|stop]` |
+| `fsctl last_sps` | Report the last sessions-per-second value | `fsctl last_sps` |
 | `shutdown` | Initiate immediate shutdown (no modifier flags) | `shutdown` |
 
 FreeSWITCH log levels, from least to most verbose: `console`, `alert`, `crit`, `err`, `warning`, `notice`, `info`, `debug`.
 
-The full `fsctl` syntax string from source:
+The `CTL_SYNTAX` usage string published by `mod_commands` lists the most common subcommands:
 
 ```
 fsctl [api_expansion [on|off]|recover|send_sighup|hupall|
@@ -221,9 +269,55 @@ fsctl [api_expansion [on|off]|recover|send_sighup|hupall|
        mdns_resolve [enable|disable]]
 ```
 
+The handler accepts additional subcommands beyond this string, documented in the table above: `flush_db_handles`, `calibrate_clock`, `crash`, `verbose_events`, `threaded_system_exec`, `save_history`, `pause_check`, `ready_check`, `shutdown_check`, `debug_pool`, `debug_sql`, `sql`, and `last_sps`.
+
 **Notes on `fsctl shutdown`:**
 
-`cancel` aborts a pending shutdown. `elegant` waits for all active sessions to complete. `asap` waits only until no sessions are active (does not wait for existing sessions to finish). `now` terminates immediately. Adding `restart` to `elegant`, `asap`, or `now` causes a restart after shutdown.
+`cancel` aborts a pending shutdown. `elegant` waits for all active sessions to complete. `asap` waits only until no sessions are active (does not wait for existing sessions to finish). `now` terminates immediately. Adding `restart` to `elegant`, `asap`, or `now` causes a restart after shutdown. The `reincarnate now` modifier (`fsctl shutdown reincarnate now`) terminates the process immediately and relaunches it, equivalent to a restart with the watchdog/reincarnate path.
+
+**Diagnostic subcommands:**
+
+`pause_check`, `ready_check`, and `shutdown_check` return a bare `true`/`false` for use in scripts. `crash` deliberately aborts the process and is intended only for generating a core dump during debugging.
+
+---
+
+## Process and Shell Execution {#process-and-shell-execution}
+
+These commands run external programs from the FreeSWITCH process. They are disabled when the core is started with the command execution restriction (the `-nonat`/restricted modes or `switch.conf.xml` `<param name="enable-use-system-commands" value="false"/>` policy), so confirm they are permitted before relying on them in production.
+
+| Command | Purpose | Syntax |
+|---------|---------|--------|
+| `system` | Run a shell command in the foreground and write its output to the stream | `system <command>` |
+| `bg_system` | Run a shell command in the background; returns `+OK` immediately without capturing output | `bg_system <command>` |
+| `spawn` | Run an external program directly (no shell) without capturing its output | `spawn <command>` |
+| `bg_spawn` | Run an external program directly in the background; returns `+OK` immediately | `bg_spawn <command>` |
+| `spawn_stream` | Run an external program directly and capture its output to the stream | `spawn_stream <command>` |
+| `log` | Write a message to the FreeSWITCH log at a given level | `log <level> <message>` |
+| `memory` | Report core memory usage statistics | `memory` |
+| `pool_stats` | Report core memory pool usage statistics | `pool_stats` |
+| `unsched_api` | Unschedule a task previously created with `sched_api`, by task ID | `unsched_api <task_id>` |
+
+**Notes on `system` versus `spawn`:**
+
+`system` and `bg_system` pass the command to a shell (`/bin/sh -c`), so shell features such as pipes and redirection work. The `spawn` family invokes the target program directly without a shell, which avoids shell-injection and quoting issues but does not interpret shell metacharacters. Use `spawn_stream` when you need the program's standard output returned to the caller.
+
+**Notes on `log`:**
+
+`<level>` accepts any FreeSWITCH log level name (`console`, `alert`, `crit`, `err`, `warning`, `notice`, `info`, `debug`); an unrecognized level defaults to `debug`.
+
+---
+
+## NAT Mapping {#nat-mapping}
+
+The `nat_map` command manages UPnP/NAT-PMP port mappings on an upstream router when NAT traversal is initialized.
+
+| Command | Purpose | Syntax |
+|---------|---------|--------|
+| `nat_map` | Inspect or modify NAT port mappings | `nat_map [status\|republish\|reinit] \| [add\|del] <port> [tcp\|udp] [static]` |
+
+**Notes on `nat_map`:**
+
+`status` prints the current NAT status. `republish` re-announces existing mappings to the router. `reinit` re-detects the NAT device and re-publishes. `add` and `del` create or remove a single mapping for the given `<port>`; the protocol defaults to UDP when neither `tcp` nor `udp` is given, and `static` marks the mapping as sticky. The command returns an error if NAT traversal is not initialized.
 
 ---
 
@@ -281,6 +375,8 @@ These commands schedule API calls or call events at a future time.
 
 A leading `+` means relative seconds from now. A leading `@` means recurring: the command re-schedules itself every `<N>` seconds. A plain numeric value is an absolute Unix timestamp. Appending `&` runs the scheduled command in its own thread.
 
+To cancel a task created with `sched_api`, use `unsched_api <task_id>` (documented under [Process and Shell Execution](#process-and-shell-execution)); the task ID is the value returned when the task was scheduled. `sched_del` removes scheduled hangup, transfer, and broadcast tasks by ID or group.
+
 ---
 
 ## Background Execution {#background-execution}
@@ -298,6 +394,25 @@ bgapi uuid:my-job-id status
 ```
 
 `bgapi` is registered as an API command in `mod_commands` and is available at the `fs_cli` prompt as well as over the Event Socket. When used over the Event Socket as the ESL `bgapi` method, the transport layer handles the `Background-Job` event header directly; the behavior is otherwise identical.
+
+---
+
+## CLI Aliases and ACLs {#cli-aliases-and-acls}
+
+These commands define shorthand aliases for longer command strings and test IP addresses against named access control lists.
+
+| Command | Purpose | Syntax |
+|---------|---------|--------|
+| `alias` | Add, update, or delete a CLI/API command alias | `alias [add\|stickyadd] <alias> <command> \| del [<alias>\|*]` |
+| `acl` | Test an IP address against a named ACL (returns `true`/`false`) | `acl <ip> <list_name>` |
+
+**Notes on `alias`:**
+
+`add` creates an alias that maps `<alias>` to a full `<command>` string. `stickyadd` does the same but persists the alias across reloads. `del <alias>` removes a single alias; `del *` removes all aliases.
+
+**Notes on `acl`:**
+
+The ACL named by `<list_name>` is defined in `acl.conf.xml`. The command returns `true` when `<ip>` matches the list and `false` otherwise, making it useful for dialplan or script-driven access decisions. Reload ACL definitions with `reloadacl`.
 
 ---
 

@@ -251,4 +251,117 @@ Each module registers two distinct API commands that mirror the behavior of Lua'
 
 `mod_v8` additionally registers `jsmon on|off` to enable or disable its runtime performance monitor, and `jsps` to display running script process status. These have no equivalent in the other language modules.
 
-The XML handler and event hook wiring for `mod_perl`, `mod_python3`, and `mod_v8` follows the same conceptual model as Lua: a `xml-handler-script` parameter points to the handler script, and `xml-handler-bindings` registers it for one or more XML sections. Consult each module's configuration file for the exact parameter names and syntax, as they differ from the Lua parameter names in some respects.
+### 9.1 Per-Engine Configuration
+
+The XML handler wiring for `mod_perl`, `mod_python3`, and `mod_v8` uses the **same parameter names as Lua** -- `xml-handler-script` followed by `xml-handler-bindings` -- and the same ordering rule applies: the script must be set before the binding that consumes it. `startup-script` also behaves identically across these three engines. The engines differ in which *additional* knobs they recognize and in whether they support `<hook>`.
+
+`mod_java` is the exception: it does not use `<param>` elements at all and has its own configuration schema described below.
+
+| Engine | Config file | `<param>` names recognized | `<hook>` support |
+|---|---|---|---|
+| Lua | `lua.conf.xml` | `script-directory`, `module-directory`, `xml-handler-script`, `xml-handler-bindings`, `startup-script` | Yes |
+| Perl | `perl.conf.xml` | `xml-handler-script`, `xml-handler-bindings`, `startup-script` | No |
+| Python 3 | `python.conf.xml` | `xml-handler-script`, `xml-handler-bindings`, `startup-script` | No |
+| V8 | `v8.conf.xml` | `xml-handler-script`, `xml-handler-bindings`, `startup-script`, `script-caching`, `cache-expires-sec` | Yes |
+| Java | `java.conf.xml` | none (uses `<javavm>`, `<options>`, `<startup>`, `<shutdown>` -- see [9.5](#mod-java)) | No |
+
+Note that Perl and Python 3 recognize **only** the three shared parameters. They do not implement `script-directory` or `module-directory`, and they do not parse a `<hook>` element -- only Lua and V8 bind event hooks from configuration.
+
+### 9.2 mod_perl (`perl.conf.xml`)
+
+`mod_perl` parses exactly three parameters, with the same names and semantics as their Lua counterparts:
+
+| Parameter | Purpose |
+|---|---|
+| `xml-handler-script` | Perl script invoked to serve XML for the bound section. Set before `xml-handler-bindings`. |
+| `xml-handler-bindings` | XML section(s) to bind the handler to (`dialplan`, `directory`, `configuration`, `phrases`). |
+| `startup-script` | Perl script launched in a background thread at module load. Multiple entries allowed. |
+
+```xml
+<configuration name="perl.conf" description="PERL Configuration">
+  <settings>
+    <param name="xml-handler-script" value="$${temp_dir}/xml.pl"/>
+    <param name="xml-handler-bindings" value="dialplan"/>
+    <param name="startup-script" value="startup_script_1.pl"/>
+  </settings>
+</configuration>
+```
+
+There is no `<hook>` support and no script- or module-directory parameter.
+
+### 9.3 mod_python3 (`python.conf.xml`)
+
+`mod_python3` recognizes the same three parameters as `mod_perl`. The `xml-handler-script` and `startup-script` values name Python *modules* (importable on the interpreter path), not file paths.
+
+```xml
+<configuration name="python.conf" description="PYTHON Configuration">
+  <settings>
+    <param name="xml-handler-script" value="dp"/>
+    <param name="xml-handler-bindings" value="dialplan"/>
+    <param name="startup-script" value="startup_script_1"/>
+  </settings>
+</configuration>
+```
+
+As with Perl, there is no `<hook>` support.
+
+### 9.4 mod_v8 (`v8.conf.xml`)
+
+`mod_v8` shares the three Lua parameters and adds two V8-only caching knobs, a `<modules>` block for loading native V8 extension modules, and `<hook>` support.
+
+| Parameter | Purpose | Default |
+|---|---|---|
+| `xml-handler-script` | JavaScript handler for the bound section. | None |
+| `xml-handler-bindings` | XML section(s) to bind (`dialplan`, `directory`, `configuration`, `phrases`). | None |
+| `startup-script` | JavaScript launched in a background thread at load. Multiple entries allowed. | None |
+| `script-caching` | Enables compiled-script caching (`enabled` / `disabled`). | `disabled` |
+| `cache-expires-sec` | Seconds before a cached compiled script expires; `0` means never. Only parsed when built against V8 major version 5 or newer. | `0` |
+
+The `script-caching` and `cache-expires-sec` parameters are compiled in only when `mod_v8` is built against V8 major version 5 or later; on older V8 builds they are ignored.
+
+The `<modules>` block (a sibling of `<settings>`) loads native extension modules into the V8 runtime:
+
+```xml
+<configuration name="v8.conf" description="Google V8 JavaScript Plug-Ins">
+  <settings>
+    <param name="script-caching" value="enabled"/>
+    <param name="cache-expires-sec" value="3600"/>
+    <param name="startup-script" value="startup1.js"/>
+    <param name="xml-handler-script" value="directory.js"/>
+    <param name="xml-handler-bindings" value="directory"/>
+    <hook event="CUSTOM" subclass="sofia::register" script="catch-event.js"/>
+    <hook event="CHANNEL_HANGUP" script="hangup-event.js"/>
+  </settings>
+  <modules>
+    <load module="mod_v8_skel"/>
+  </modules>
+</configuration>
+```
+
+The `<hook>` element works the same way as in Lua -- `event`, optional `subclass`, and `script` attributes -- and binds the named script to fire on each matching event. Inside the script, the event is available as the global `event` object.
+
+### 9.5 mod_java (`java.conf.xml`) {#mod-java}
+
+`mod_java` does **not** use `<param>` elements. Its configuration is a set of dedicated child elements directly under `<configuration>`:
+
+| Element | Attributes | Purpose |
+|---|---|---|
+| `<javavm>` | `path` | Filesystem path to the JVM shared library (`libjvm.so`). Required; the module fails to load if absent. |
+| `<options>` / `<option>` | `value` | Repeatable JVM options (e.g. `-Djava.class.path=...`). Each `<option value="..."/>` is passed verbatim to `JNI_CreateJavaVM`. |
+| `<startup>` | `class`, `method`, `arg` | A static Java method invoked when the module loads. `class` is a JVM-style slash-separated class name. |
+| `<shutdown>` | `class`, `method`, `arg` | A static Java method invoked when the module unloads. |
+
+```xml
+<configuration name="java.conf" description="Java Plug-Ins">
+  <javavm path="/opt/jdk1.6.0_04/jre/lib/amd64/server/libjvm.so"/>
+  <options>
+    <option value="-Djava.class.path=$${script_dir}/freeswitch.jar:$${script_dir}/example.jar"/>
+    <option value="-agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=0.0.0.0:8000"/>
+  </options>
+  <startup class="org/freeswitch/example/ApplicationLauncher" method="startup"/>
+</configuration>
+```
+
+The module always appends `-Djava.library.path=<mod_dir>` to the supplied JVM options so the native JNI bridge can be located.
+
+The `org.freeswitch.Launcher` class is **hardcoded in the module's C source** -- it is loaded directly by `FindClass` so that its static initializer loads the JNI library, and it is not a configuration knob. The class you configure through `<startup>` (for example `org.freeswitch.example.ApplicationLauncher` above) is your own bootstrap class and is independent of the internal `Launcher`. There is no `<hook>` support in `mod_java`.

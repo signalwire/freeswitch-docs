@@ -241,7 +241,14 @@ Deprecated channel variables `rtp_timeout_sec` and `rtp_hold_timeout_sec` also e
 
 ### 17.5.3 execute_on_media_timeout
 
-By default, a media timeout causes FreeSWITCH to hang up the call with `SWITCH_CAUSE_MEDIA_TIMEOUT`. Setting the `execute_on_media_timeout` channel variable to a dialplan application name causes FreeSWITCH to execute that application instead of immediately hanging up, allowing custom handling.
+A media timeout causes FreeSWITCH to hang up the call with `SWITCH_CAUSE_MEDIA_TIMEOUT`. Setting the `execute_on_media_timeout` channel variable to a dialplan application name causes FreeSWITCH to execute that application when the timeout fires, allowing custom handling such as logging or notification.
+
+The behavior depends on which code path detects the timeout:
+
+- **Read-frame path:** when the timeout is detected while the channel is reading frames, FreeSWITCH executes the `execute_on_media_timeout` application as the timeout handler.
+- **RTP-thread timeout path** (`switch_rtp.c`): the dedicated RTP timeout check (`check_timeout`) executes the `execute_on_media_timeout` application **and then still hangs up the call** with `SWITCH_CAUSE_MEDIA_TIMEOUT`. On this path the application runs first, but the hangup is unconditional.
+
+So `execute_on_media_timeout` is best treated as a hook that runs alongside the timeout rather than a guaranteed replacement for the hangup.
 
 ```xml
 <action application="set" data="execute_on_media_timeout=hangup"/>
@@ -255,9 +262,11 @@ The software jitter buffer is activated per channel via the `jitterbuffer_msec` 
 
 | Variable | Purpose | Format | Range |
 |----------|---------|--------|-------|
-| `jitterbuffer_msec` | Target buffer depth and optional maximum depth | `N` or `N:M` (milliseconds); suffix `p` treats `N`/`M` as packet counts | 10 to 10000 ms |
+| `jitterbuffer_msec` | Target buffer depth and optional maximum depth | `N` or `N:M` (milliseconds); suffix `p` treats `N`/`M` as packet counts | 10 to 10000 ms (see note) |
 
 When `jitterbuffer_msec` is set to a value with a `p` suffix (for example, `4p`), the number is treated as a packet count rather than milliseconds and multiplied by the codec packet duration. The optional `:M` component sets the maximum buffer depth; if omitted, the maximum defaults to 50 times the target value.
+
+The supported range is 10 to 10000 ms, but FreeSWITCH does not clamp out-of-range values to those bounds. If the resolved target falls below 10 ms or above 10000 ms, the value is discarded and reset to a single-packet default (the codec packet duration multiplied by 1), with the maximum recomputed as 100 times that one-packet target. A value such as `5` or `20000` therefore does not become `10` or `10000`; it collapses to roughly one packet of buffering.
 
 ```xml
 <!-- 60 ms target, default maximum -->
@@ -367,7 +376,9 @@ The supported crypto suites are listed in the table below.
 | Suite Name | Description |
 |------------|-------------|
 | `AEAD_AES_256_GCM_8` | AES-256 GCM with 8-octet authentication tag (RFC 5116) |
+| `AEAD_AES_256_GCM` | AES-256 GCM with full 16-octet authentication tag (RFC 7714) |
 | `AEAD_AES_128_GCM_8` | AES-128 GCM with 8-octet authentication tag (RFC 5116) |
+| `AEAD_AES_128_GCM` | AES-128 GCM with full 16-octet authentication tag (RFC 7714) |
 | `AES_CM_256_HMAC_SHA1_80` | AES-256 Counter Mode with 80-bit HMAC-SHA1 authentication tag |
 | `AES_CM_192_HMAC_SHA1_80` | AES-192 Counter Mode with 80-bit HMAC-SHA1 authentication tag |
 | `AES_CM_128_HMAC_SHA1_80` | AES-128 Counter Mode with 80-bit HMAC-SHA1 authentication tag (SRTP default) |

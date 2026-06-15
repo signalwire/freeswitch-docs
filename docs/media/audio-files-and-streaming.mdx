@@ -202,12 +202,12 @@ The `path` attribute specifies the filesystem directory from which audio files a
 | `rate` | Sample rate of the stream. Files are opened at this rate. | `8000`, `12000`, `16000`, `24000`, `32000`, `48000` | `8000` |
 | `shuffle` | Randomize playback order across the directory. When `true`, the stream starts at a random position in the file list. | `true`, `false` | `false` |
 | `channels` | Number of audio channels. | `1` (mono), `2` (stereo) | `1` |
-| `interval` | Packetization interval in milliseconds. Must be a multiple of 10 and within the platform maximum interval. | Integer (multiples of 10, typically 10, 20, 30) | `20` |
+| `interval` | Packetization interval in milliseconds. Must be a multiple of 10 and no greater than 120 ms; out-of-range values fall back to the default. | Integer, multiple of 10, `10`-`120` | `20` |
 | `timer-name` | Timer used to pace audio output. `soft` is the software timer; `posix` uses the POSIX timer. | `soft`, `posix` | `soft` |
 | `chime-list` | Comma-separated list of audio files to interject periodically. Files are played in rotation. | Comma-separated file paths | _(none)_ |
 | `chime-freq` | How often (in seconds) a chime file is played. Must be greater than 1. | Integer `> 1` | `30` |
 | `chime-max` | Maximum number of seconds the chime file plays before cutting back to the main stream. Must be greater than 1. | Integer `> 1` | _(unlimited)_ |
-| `volume` | Adjusts output volume. Granular volume control; the value is normalized to the allowed range internally. | Integer | `0` (no change) |
+| `volume` | Adjusts output volume. Granular volume control; the value is clamped to the allowed range internally. | Integer `-50`-`50` | `0` (no change) |
 | `auto-volume` | Target energy average for automatic gain control. `0` disables AGC. | Integer `0`-`20000` | `0` |
 | `auto-volume-low-point` | Low-energy threshold for the AGC. Used alongside `auto-volume`. | Integer `0`-`20000` | `0` |
 | `prebuf` | Pre-buffer size in bytes. Controls how much audio is buffered before distribution to listeners. | Integer (bytes) | `65536` |
@@ -223,7 +223,7 @@ The `path` attribute specifies the filesystem directory from which audio files a
 `mod_local_stream` exposes an API command for runtime control:
 
 ```
-local_stream <show|start|reload|stop|hup> <stream-name>
+local_stream <show|start|reload|stop|hup|vol> <stream-name> [<args>]
 ```
 
 | Subcommand | Effect |
@@ -233,6 +233,7 @@ local_stream <show|start|reload|stop|hup> <stream-name>
 | `stop` | Stops the named stream. Attached listeners receive silence. |
 | `reload` | Reloads the stream's configuration and restarts playback. If the stream is in use, a partial reload applies the subset of parameters that can change without restarting the thread. |
 | `hup` | Skips the current file and begins the next one immediately. |
+| `vol` | Adjusts the stream volume at runtime. Form: `local_stream vol <name> <level\|auto:avg[:low]>`. A plain integer level (clamped to `-50`-`50`) sets a fixed gain and disables AGC. The `auto:` form enables automatic gain control: `avg` is the target energy average and the optional `:low` is the low-energy point (each `0`-`20000`). With no argument it reports the current setting. |
 
 Example:
 
@@ -397,7 +398,7 @@ The vanilla configuration ships `conf/autoload_configs/shout.conf.xml` with all 
 | `decoder` | Force a specific mpg123 decoder architecture (e.g., `i586`). When empty, mpg123 selects the optimal decoder automatically. | _(empty, auto-select)_ |
 | `volume` | mpg123 playback volume as a floating-point multiplier (e.g., `0.1`). Applied only when `decoder` or `outscale` is also set. | _(unset)_ |
 | `outscale` | mpg123 output scale factor (integer). On 64-bit builds, FreeSWITCH applies a default of `8192` when no explicit globals are configured; set this param to override. | _(unset; 8192 applied on 64-bit when no other globals are set)_ |
-| `encode-brate` | Default encoding bit rate in kbps for the LAME encoder when writing MP3 or broadcasting to Icecast. | _(LAME default, scaled to session rate and channels)_ |
+| `encode-brate` | Encoding bit rate in kbps for the LAME encoder when writing MP3 or broadcasting to Icecast. | `16 * (samplerate/8000) * channels` kbps (16 kbps at 8 kHz mono) |
 | `encode-resample` | Output sample rate for the LAME encoder in Hz. | _(unset, LAME uses session rate)_ |
 | `encode-quality` | LAME encoding quality (integer; lower is higher quality). When unset, FreeSWITCH uses quality `2` (high). | `2` |
 

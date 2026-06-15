@@ -20,6 +20,8 @@ FreeSWITCH provides two distinct mechanisms for queuing inbound calls: `mod_fifo
   - [2.3 Outbound Members](#23-outbound-members)
   - [2.4 The fifo Dialplan Application](#24-the-fifo-dialplan-application)
   - [2.5 FIFO Channel Variables](#25-fifo-channel-variables)
+  - [2.6 The fifo_track_call Application](#26-the-fifo_track_call-application)
+  - [2.7 mod_fifo API Commands](#27-mod_fifo-api-commands)
 - [3. mod_callcenter: Concepts and Loading](#3-mod_callcenter-concepts-and-loading)
 - [4. Call Center Queue Configuration](#4-call-center-queue-configuration)
   - [4.1 Queue Parameter Reference](#41-queue-parameter-reference)
@@ -29,6 +31,11 @@ FreeSWITCH provides two distinct mechanisms for queuing inbound calls: `mod_fifo
   - [6.1 Tier Parameter Reference](#61-tier-parameter-reference)
 - [7. The callcenter Dialplan Application](#7-the-callcenter-dialplan-application)
 - [8. Global Settings for mod_callcenter](#8-global-settings-for-mod_callcenter)
+- [9. mod_callcenter API Commands](#9-mod_callcenter-api-commands)
+  - [9.1 callcenter_config agent](#91-callcenter_config-agent)
+  - [9.2 callcenter_config tier](#92-callcenter_config-tier)
+  - [9.3 callcenter_config queue](#93-callcenter_config-queue)
+  - [9.4 callcenter_break](#94-callcenter_break)
 
 ---
 
@@ -72,6 +79,10 @@ The `<settings>` block contains global options for the module.
 | `dbname` | Name or path of the SQLite database file. | File path | `fifo` |
 | `allow-transcoding` | When `true`, allows transcoding between the caller and consumer legs. | `true`, `false` | `false` |
 | `disable-dtmf-moh-key` | When `true`, disables the `0` DTMF soft-hold feature for consumers. | `true`, `false` | `false` |
+| `db-pre-trans-execute` | SQL statement run by the database queue manager immediately before the outer transaction begins. Used to apply per-connection pragmas or tuning. | SQL string | None |
+| `db-post-trans-execute` | SQL statement run immediately after the outer transaction completes. | SQL string | None |
+| `db-inner-pre-trans-execute` | SQL statement run immediately before each inner (batched) transaction begins. | SQL string | None |
+| `db-inner-post-trans-execute` | SQL statement run immediately after each inner (batched) transaction completes. | SQL string | None |
 
 ### 2.2 Declaring a FIFO Node
 
@@ -116,6 +127,7 @@ Static outbound members are defined as `<member>` children of a `<fifo>` node. T
 | `timeout` | Ring timeout in seconds for this member. Minimum 10; values below 10 fall back to the node `outbound_ring_timeout`. | Integer | Node `outbound_ring_timeout` (default `60`) |
 | `simo` | Maximum simultaneous calls to this member. | Integer `>= 1` | `1` |
 | `lag` | Seconds before the member is available again after a call ends. Negative values fall back to the node `outbound_default_lag`. | Integer | `10` (node `outbound_default_lag` used only when a negative value is given) |
+| `taking_calls` | Whether this member currently accepts calls. Values below `1` are clamped to `1`. Set to a higher value or toggle at runtime to control whether the member is dialed. | Integer `>= 1` | `1` |
 
 The member text body is the originate string. The channel variable `member_wait` (set as a channel pre-dial variable in the originate string) controls what the member does after answering: `wait` holds the call until a caller is available; `nowait` bridges immediately if a caller is already waiting and hangs up otherwise.
 
@@ -194,6 +206,88 @@ Channel variables control per-call behavior within `mod_fifo`. Set them on the c
 | `fifo_record_template` | Path template for recording a bridged call. Supports channel variables and `strftime` tokens. | String | Not set by default. |
 | `fifo_outbound_announce` | Audio file played to the consumer before bridging to a caller that was an outbound callback (dial-url mode). | File path | Not set by default. |
 | `fifo_override_announce` | Set on the caller's channel. When present, overrides the consumer's announce file for that specific bridge. | File path | Not set by default. |
+
+---
+
+### 2.6 The fifo_track_call Application
+
+The `fifo_track_call` application registers a call against an outbound member record so that a bridge established outside of `mod_fifo` is still counted in the module's manual-call statistics. The call is added to the internal `manual_calls` queue and the member's use count is incremented; the count is decremented automatically when the channel hangs up.
+
+**Syntax:**
+
+```
+fifo_track_call <fifo_outbound_uuid>
+```
+
+The single argument is the outbound member UUID (the `fifo_outbound_uuid` value, the same identifier returned for static and dynamically added outbound members). Outbound channels increment `manual_calls_in_count`; inbound channels increment `manual_calls_out_count`. Calling the application twice on the same channel is a no-op and logs a warning.
+
+```xml
+<action application="fifo_track_call" data="$${outbound_member_uuid}"/>
+```
+
+---
+
+### 2.7 mod_fifo API Commands
+
+`mod_fifo` registers four API commands, usable from `fs_cli`, the event socket, or `api`/`bgapi` dialplan applications.
+
+**`fifo`** — Inspect FIFO node state.
+
+**Syntax:**
+
+```
+fifo list|list_verbose|count|debug|status|has_outbound|importance [<fifo name>]|reparse [del_all]
+```
+
+| Sub-command | Purpose |
+|---|---|
+| `list [<fifo name>]` | XML report of one node, or all nodes when no name is given. |
+| `list_verbose [<fifo name>]` | As `list` but includes per-caller and per-consumer detail. |
+| `count [<fifo name>]` | Counters for one or all nodes, formatted `name:consumer_count:caller_count:member_count:ring_consumer_count:idle_consumers`. |
+| `debug [<level>]` | Show or set the module debug level. A negative level is clamped to `0`. |
+| `status` | Dump full module state, including the caller-originate, consumer-originate, and bridge hashes. |
+| `has_outbound [<fifo name>]` | Report whether one or all nodes have outbound members, formatted `name:0\|1`. |
+| `importance <fifo name> [<value>]` | Show or set the importance of a node. A negative value is clamped to `0`. |
+| `reparse [del_all]` | Reload the configuration. With `del_all`, also deletes all outbound member records first. |
+
+**`fifo_member`** — Add or remove a dynamic outbound member at runtime.
+
+**Syntax:**
+
+```
+fifo_member add <fifo_name> <originate_string> [<simo_count>] [<timeout>] [<lag>] [<expires>] [<taking_calls>]
+fifo_member del <fifo_name> <originate_string>
+```
+
+| Argument | Purpose | Default |
+|---|---|---|
+| `<fifo_name>` | Target FIFO node. | Required |
+| `<originate_string>` | Member dial string. | Required |
+| `<simo_count>` | Maximum simultaneous calls; values below `0` reset to `1`. | `1` |
+| `<timeout>` | Ring timeout in seconds; values below `0` reset to `60`. | `60` |
+| `<lag>` | Seconds before the member is available again; values below `0` reset to `5`. | `5` |
+| `<expires>` | Seconds from now after which the dynamic member record expires. | `0` (no expiry) |
+| `<taking_calls>` | Whether the member accepts calls; values below `1` are clamped to `1`. | `1` |
+
+**`fifo_add_outbound`** — Push a one-shot outbound call request onto a node at the given priority slot.
+
+**Syntax:**
+
+```
+fifo_add_outbound <node> <url> [<priority>]
+```
+
+The `<url>` is dialed as a `dial-url` outbound request. `<priority>` is a slot number; values at or above the maximum are clamped to the highest valid slot, and a non-positive or absent value uses slot `0`. The command returns the resulting queue depth of that priority slot (`0` on failure).
+
+**`fifo_check_bridge`** — Test whether a UUID or outbound member ID is currently in a FIFO bridge.
+
+**Syntax:**
+
+```
+fifo_check_bridge <uuid>|<outbound_id>
+```
+
+Returns `true` if the given channel UUID or outbound member ID is part of an active bridge, otherwise `false`.
 
 ---
 
@@ -398,3 +492,82 @@ The `<settings>` block in `callcenter.conf.xml` configures module-wide options.
 | `odbc-dsn` | ODBC connection string for external database storage. When set, the module uses ODBC instead of the internal SQLite database. Format: `dsn:user:pass`. | String | None (SQLite used) |
 | `dbname` | Path or name of the SQLite database file. | File path | `callcenter` |
 | `cc-instance-id` | Instance identifier used to namespace database rows. Relevant in deployments where multiple FreeSWITCH instances share a database. | String | `single_box` |
+| `debug` | Debug verbosity level. Higher values log more detail. | Integer | `0` |
+| `reserve-agents` | When `true`, an agent is reserved (state set to `Reserved`) before a call is offered, preventing the same agent from being offered to two callers simultaneously. | `true`, `false` | `false` |
+| `truncate-tiers-on-load` | When `true`, the `tiers` table is emptied on module load before XML tiers are applied. | `true`, `false` | `false` |
+| `truncate-agents-on-load` | When `true`, the `agents` table is emptied on module load before XML agents are applied. | `true`, `false` | `false` |
+| `global-database-lock` | When `true`, the module serializes database access with a global lock. Set to `false` to allow finer-grained locking. | `true`, `false` | `true` |
+| `agent-originate-timeout` | Seconds to wait for an agent's `Callback`-type leg to answer when originating. A value of `0` falls back to the default. | Integer (seconds) | `60` |
+
+---
+
+## 9. mod_callcenter API Commands
+
+`mod_callcenter` exposes runtime management through the `callcenter_config` API and a separate `callcenter_break` API. Both are usable from `fs_cli`, the event socket, and `api`/`bgapi` dialplan applications. `callcenter_config` is also registered as a JSON API. Commands return `+OK` on success or a `-ERR <reason>` line on failure; `get`, `list`, and `count` commands return data instead.
+
+The general form is:
+
+```
+callcenter_config <section> <action> <args>
+```
+
+Sections are `agent`, `tier`, and `queue`.
+
+### 9.1 callcenter_config agent
+
+| Command | Purpose |
+|---|---|
+| `agent add <name> <type>` | Create an agent. `type` is `callback` or `uuid-standby`. |
+| `agent del <name>` | Delete an agent. |
+| `agent reload <name>` | Reload the agent's definition from XML. |
+| `agent set status <agent_name> <status>` | Set agent status (`Logged Out`, `Available`, `Available (On Demand)`, `On Break`). Setting `Available` resets talk time, answered-call count, and no-answer count. |
+| `agent set state <agent_name> <state>` | Set agent state (`Waiting`, `Receiving`, `In a queue call`, `Idle`, `Reserved`). |
+| `agent set contact <agent_name> <contact>` | Set the agent's originate string or standby UUID. |
+| `agent set ready_time <agent_name> <epoch>` | Hold the agent unavailable until the given Unix epoch time. |
+| `agent set reject_delay_time <agent_name> <seconds>` | Set the delay before re-offering after a rejected call. |
+| `agent set busy_delay_time <agent_name> <seconds>` | Set the delay before re-offering after a busy result. |
+| `agent set no_answer_delay_time <agent_name> <seconds>` | Set the delay before re-offering after a no-answer. |
+| `agent get status <agent_name>` | Return the agent's current status. |
+| `agent get state <agent_name>` | Return the agent's current state. |
+| `agent get uuid <agent_name>` | Return the agent's current channel UUID. |
+| `agent list [<agent_name>]` | List all agents, or one named agent, as pipe-delimited rows. |
+
+### 9.2 callcenter_config tier
+
+| Command | Purpose |
+|---|---|
+| `tier add <queue_name> <agent_name> [<level>] [<position>]` | Assign an agent to a queue. `level` and `position` default to `1`. |
+| `tier set state <queue_name> <agent_name> <state>` | Set the tier state (`Ready`, `No Answer`, `Offering`, `Active Inbound`, `Standby`). |
+| `tier set level <queue_name> <agent_name> <level>` | Set the tier's priority level. |
+| `tier set position <queue_name> <agent_name> <position>` | Set the tier's position within its level. |
+| `tier del <queue_name> <agent_name>` | Remove the agent from the queue. |
+| `tier reload <queue_name> <agent_name>` | Reload the tier from XML. Pass `all` as the queue name to reload every tier. |
+| `tier list` | List all tiers ordered by level then position. |
+
+### 9.3 callcenter_config queue
+
+| Command | Purpose |
+|---|---|
+| `queue load <queue_name>` | Load a queue definition into memory. |
+| `queue unload <queue_name>` | Remove a queue from memory. |
+| `queue reload <queue_name>` | Unload then reload a queue. |
+| `queue list` | List all loaded queues as pipe-delimited rows. |
+| `queue list agents <queue_name> [<status>] [<state>]` | List agents in a queue, optionally filtered by status and then state. |
+| `queue list members <queue_name>` | List waiting callers in a queue, ordered by score (longest-waiting first). |
+| `queue list tiers <queue_name>` | List the tiers configured for a queue. |
+| `queue count` | Return the number of loaded queues. |
+| `queue count agents <queue_name> [<status>] [<state>]` | Count agents in a queue, optionally filtered by status and then state. |
+| `queue count members <queue_name>` | Count waiting callers in a queue. |
+| `queue count tiers <queue_name>` | Count the tiers in a queue. |
+
+### 9.4 callcenter_break
+
+`callcenter_break` stops the module from watching a channel UUID and releases the associated agent. It is used to break an agent out of a call that the module is tracking.
+
+**Syntax:**
+
+```
+callcenter_break agent <uuid>
+```
+
+The `<uuid>` is the channel UUID to stop watching. The command flags the channel so that `mod_callcenter` ends its supervision on the next pass, freeing the agent.
