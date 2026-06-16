@@ -5,8 +5,9 @@ and the authoritative source files used to verify it. Paths under `conf/vanilla/
 and `src/` are relative to the FreeSWITCH repository root. Paths inside chapters
 are written relative to the FreeSWITCH configuration root.
 
-Scope and method are defined in [`README.md`](./README.md). Anything touching
-internals, troubleshooting, or operations is excluded.
+Scope and method are defined in [`README.md`](./README.md). Source-level
+internals and deployment/operations are excluded; troubleshooting and
+programming are covered (Parts XI–XII).
 
 ---
 
@@ -348,3 +349,133 @@ Concise definitions of the terms used in the manual (channel, leg, bridge,
 profile, context, gateway, registration, SDP, transcoding, proxy media).
 
 - Sources: derived from the chapters above.
+
+
+---
+
+## Part IX: Module Reference
+
+A per-module reference index for the bundled modules, grouped by `src/mod/`
+category: Applications, Endpoints, Dialplan Engines, Codecs, File Formats and
+Streaming, Speech (ASR/TTS), Events/CDR/Logging, Caching and Data Stores, XML
+Interfaces and Directories, and Embedded Languages, plus consolidated Timers and
+Say pages. Each module has a page covering its purpose, configuration file and
+parameters, the applications and API commands it registers, and the channel
+variables it uses. Modules documented in depth by a topical chapter carry a short
+pointer page that links to that chapter. Module entries are reference-index
+entries and are not chapter-numbered.
+
+- Sources: `src/mod/` (all categories) and each module's shipped
+  `conf/vanilla/autoload_configs/*.conf.xml`.
+
+---
+
+## Part X: Recipes
+
+End-to-end worked examples that compose the configuration, dialplan, and
+applications from the reference chapters into complete call flows. Each recipe is
+verified against `conf/vanilla/` and the registered applications.
+
+### Chapter 33: Inbound DID to IVR to Voicemail
+A PSTN DID arriving on the external profile, routed through the public context to
+an auto-attendant IVR, with unanswered options falling through to voicemail.
+
+- Sources: `conf/vanilla/dialplan/public.xml`, `conf/vanilla/ivr_menus/`,
+  `src/mod/applications/{mod_dptools,mod_voicemail}`.
+
+### Chapter 34: Ring Group and Hunt Group
+Simultaneous ring and sequential hunt built with the `bridge` dial-string
+operators (`,` for parallel, `|` for failover), with voicemail fallback.
+
+- Sources: `src/switch_ivr_originate.c`, `src/mod/applications/mod_dptools`.
+
+### Chapter 35: Business-Hours and Time-of-Day Routing
+Open-hours, after-hours, and holiday routing using dialplan time conditions.
+
+- Sources: `src/switch_xml.c` (time checks), `src/mod/dialplans/mod_dialplan_xml`.
+
+### Chapter 36: Connecting Two FreeSWITCH Servers
+Linking two instances with a registered SIP gateway and an IP-auth (no-register)
+trunk, including the receiving box's ACL and public-context routing.
+
+- Sources: `src/mod/endpoints/mod_sofia`, `conf/vanilla/sip_profiles/external/`.
+
+### Chapter 37: A Conference Bridge with a PIN
+A PIN-protected, moderated conference using the conference profile `pin` and the
+dialplan `play_and_get_digits`.
+
+- Sources: `src/mod/applications/mod_conference`, `src/mod/applications/mod_dptools`.
+
+### Chapter 38: Click-to-Call with originate
+Originating a call from `fs_cli`/ESL that rings a party and bridges them on answer.
+
+- Sources: `src/mod/applications/mod_commands`, `src/switch_ivr_originate.c`.
+
+---
+
+## Part XI: Troubleshooting
+
+Diagnosing the failures operators hit most, using FreeSWITCH's own console,
+status, and tracing tools. Diagnostics and the supported reads, not internals.
+
+### Chapter 39: The Diagnostic Toolbox
+`fs_cli`, log levels, `show`/`status`, `sofia status`, SIP tracing, and the
+external capture tools.
+
+- Sources: `src/mod/applications/mod_commands`, `src/mod/endpoints/mod_sofia`,
+  `src/mod/loggers/mod_console`.
+
+### Chapter 40: Registration Problems
+Auth (401/403), NAT, expiry, and transport issues, read via
+`sofia status profile … reg`.
+
+- Sources: `src/mod/endpoints/mod_sofia` (`sofia_reg.c`).
+
+### Chapter 41: No Audio and One-Way Audio
+The RTP path: advertised IPs, NAT, proxy/bypass media, and codec mismatch.
+
+- Sources: `src/mod/endpoints/mod_sofia`, `src/switch_core_media.c`.
+
+### Chapter 42: Call-Setup Failures
+Reading Q.850 hangup causes, the SIP→cause mapping, and gateway state.
+
+- Sources: `src/switch_channel.c`, `src/mod/endpoints/mod_sofia/sofia_glue.c`.
+
+### Chapter 43: Reading a SIP Trace and a CDR
+Capturing and reading a SIP transaction and a CDR to localize a fault.
+
+- Sources: `src/mod/endpoints/mod_sofia`, `src/mod/event_handlers/mod_cdr_csv`.
+
+---
+
+## Part XII: Programming with the Event Socket and Scripting
+
+The programmable surface: the event model, the inbound and outbound Event Socket,
+and the embedded scripting APIs.
+
+### Chapter 44: The Event Model
+Event types, subclasses, headers, and the channel lifecycle as a sequence of events.
+
+- Sources: `src/include/switch_types.h`, `src/switch_event.c`.
+
+### Chapter 45: Events Catalog
+A reference catalog of the key events and their notable headers (companion to the
+channel variables catalog).
+
+- Sources: `src/switch_event.c`, `src/switch_channel.c`, module event sources.
+
+### Chapter 46: The Inbound Event Socket
+Your program connecting to FreeSWITCH: the wire protocol and the ESL library.
+
+- Sources: `src/mod/event_handlers/mod_event_socket`, `libs/esl/`.
+
+### Chapter 47: The Outbound Event Socket
+FreeSWITCH connecting to your program via the `socket` application.
+
+- Sources: `src/mod/event_handlers/mod_event_socket`, `libs/esl/`.
+
+### Chapter 48: Embedded Scripting APIs
+The Session object, `freeswitch.API`/`Event`, and `consoleLog`, with Lua and
+JavaScript examples.
+
+- Sources: `src/switch_cpp.cpp`, `src/mod/languages/{mod_lua,mod_v8}`.
