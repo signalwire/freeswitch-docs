@@ -1,0 +1,253 @@
+---
+sidebar_position: 3
+id: audio-problems
+slug: /troubleshooting/audio
+title: "No Audio and One-Way Audio"
+description: "Diagnose silent and one-way calls in FreeSWITCH: NAT and firewall RTP failures, advertised media addresses, codec mismatches, and media timeouts, using SIP traces and session variables."
+sidebar_label: "Audio Problems"
+---
+
+# No Audio and One-Way Audio
+
+A call that connects but carries no audio, or audio in only one direction, almost
+always means SIP signaling succeeded while RTP media did not. The two paths are
+independent: SIP can negotiate a session end to end while the RTP packets that
+carry the actual audio are blackholed by a firewall, sent to an unreachable
+private address, or never agreed on a common codec.
+
+This chapter is diagnostic. It does not re-document the media subsystem — for the
+parameter reference see [Chapter 17: Media Handling](../media/media-handling.mdx)
+and [Chapter 16: Codecs and Negotiation](../media/codecs-and-negotiation.mdx), and
+for the profile model see [Chapter 7: SIP Profiles with Sofia](../users-endpoints/sip-profiles-sofia.mdx).
+Here the focus is the read: given a silent call, where do you look, what confirms
+the cause, and what is the corrective change.
+
+The single most useful diagnostic is a SIP trace of the call, because the
+advertised media address and the offered/answered codecs are all carried in the
+SDP body of the INVITE and its answer. Enable tracing per profile before placing
+the test call:
+
+```
+sofia profile internal siptrace on
+```
+
+or globally with `sofia global siptrace on`. Turn it off again with `off`. Each
+SDP block in the trace contains a connection line (`c=`) giving the IP address the
+far end will send RTP to, and one or more media lines (`m=`) giving the port and
+the offered codec payload types. Reading those two lines on both legs is the core
+skill for every symptom below.
+
+## The Usual Root Cause: RTP Cannot Flow {#rtp-cannot-flow}
+
+When FreeSWITCH and an endpoint exchange SDP, each side advertises an IP address
+and port where it expects to receive RTP. If that advertised address is a private
+address behind NAT, or if a firewall blocks the UDP port range, signaling still
+completes and the call appears answered, but no media arrives.
+
+**Symptom.** The call connects and both parties hear silence, or one party hears
+the other but not vice versa.
+
+**Cause.** FreeSWITCH advertised an address the far end cannot reach, the far end
+advertised an address FreeSWITCH cannot reach, or a firewall drops the RTP UDP
+flow. Behind NAT, the address FreeSWITCH binds RTP to (its private `rtp-ip`) is
+not the address remote endpoints must send to (its public IP). FreeSWITCH resolves
+this with separate "external" parameters that control what goes into the SDP `c=`
+line.
+
+The relevant Sofia profile parameters, all verified in `mod_sofia`:
+
+| Parameter | Role | Vanilla default |
+| --- | --- | --- |
+| `rtp-ip` | Local IP address RTP sockets bind to | `$${local_ip_v4}` |
+| `sip-ip` | Local IP address the SIP transport binds to | `$${local_ip_v4}` |
+| `ext-rtp-ip` | Public IP advertised in the SDP `c=` line for media | `$${external_rtp_ip}` (external profile) |
+| `ext-sip-ip` | Public IP advertised in SIP `Contact`/`Via` | `$${external_sip_ip}` (external profile) |
+| `apply-nat-acl` | ACL that marks a remote contact as being behind NAT | `nat.auto` (internal profile) |
+| `local-network-acl` | ACL defining which networks are "local" (no NAT treatment) | `localnet.auto` |
+
+`ext-rtp-ip` accepts a literal IP address, `auto` (use the guessed local IP),
+`auto-nat` (use an address learned from NAT-PMP or UPnP), `stun:<server>` (resolve
+the public IP by STUN), or `host:<name>` (resolve by DNS). The vanilla
+`external.xml` profile points `ext-rtp-ip` and `ext-sip-ip` at the
+`$${external_rtp_ip}` and `$${external_sip_ip}` preprocessor variables, which
+`conf/vanilla/vars.xml` resolves by STUN against `stun.freeswitch.org` by default.
+The `internal.xml` profile does the same on its TLS/alternate binding.
+
+**Confirm.** In the SIP trace, read the `c=` line in the SDP that FreeSWITCH sends.
+If it shows a private (RFC 1918) address while the call crosses the public
+internet, FreeSWITCH is advertising an unroutable media address. Then read the
+running profile's actual values:
+
+```
+sofia status profile internal
+```
+
+The XML/status output prints the live `rtp-ip`, `ext-rtp-ip`, `sip-ip`, and
+`ext-sip-ip` for the profile, which is what FreeSWITCH will actually advertise —
+useful when a preprocessor variable or STUN lookup resolved to something
+unexpected.
+
+**Fix.** Set `ext-rtp-ip` (and usually `ext-sip-ip`) to the public address, by
+literal IP for a static deployment or by `stun:` when the public IP is dynamic.
+Open the RTP UDP port range on the firewall (the range is governed by the global
+`rtp-start-port`/`rtp-end-port`, separate from the SIP signaling port). Confirm
+that `local-network-acl` correctly classifies your LAN so that local calls are not
+given external NAT treatment.
+
+## One-Way Audio Specifically {#one-way-audio}
+
+One-way audio is the asymmetric case of the problem above: RTP flows in one
+direction but not the other. It is most common when one endpoint is behind NAT and
+the other is not.
+
+**Symptom.** Caller hears callee but callee hears silence (or the reverse). SIP is
+fully established; only one RTP direction is dead.
+
+**Cause.** Typically a NATed endpoint advertises its private address in SDP, so
+FreeSWITCH sends RTP into a void, while the endpoint's own outbound RTP reaches
+FreeSWITCH normally. Other causes: `ext-rtp-ip` configured on only one of two
+profiles so one leg advertises a public address and the other a private one; or
+auto-adjust/timing correction disabled when an endpoint needs it.
+
+By default FreeSWITCH learns the real source address of incoming RTP and adjusts
+where it sends return media — this is what makes most symmetric-NAT phones work
+without per-device configuration. Two profile parameters govern this behavior
+(both documented with their defaults and per-call channel-variable overrides in
+[Chapter 17](../media/media-handling.mdx)):
+
+- `disable-rtp-auto-adjust` — when `true`, stops FreeSWITCH from re-pointing the
+  outbound RTP stream at the observed packet source. Auto-adjust is **enabled by
+  default**; disabling it breaks one direction for many NATed endpoints. The
+  per-call override is `disable_rtp_auto_adjust`.
+- `rtp-autofix-timing` — corrects RTP from endpoints that send at irregular packet
+  rates. **Enabled by default.** The per-call override is
+  `rtp_media_autofix_timing`.
+
+The media mode also matters. With **bypass media** the two endpoints exchange RTP
+directly and FreeSWITCH cannot help either side traverse NAT; with **proxy media**
+or full media-path mode FreeSWITCH terminates RTP and can apply auto-adjust. See
+the media modes in [Chapter 17](../media/media-handling.mdx). A one-way call that
+uses `bypass_media=true` is a strong hint that the two endpoints simply cannot
+reach each other's advertised addresses directly.
+
+**Confirm.** Compare the `c=`/`m=` lines from both legs in the trace. The dead
+direction is the leg whose advertised RTP address is unreachable from the other
+side. Check whether the channel is in bypass media (the `bypass_media` channel
+variable) and check the profile's auto-adjust/autofix settings against the
+defaults.
+
+**Fix.** Ensure FreeSWITCH is in the media path for cross-NAT calls (do not set
+`bypass_media`), keep auto-adjust enabled, and set `ext-rtp-ip` consistently on
+*every* profile that faces the public internet — not just one.
+
+## Codec Mismatch: No Common Codec {#codec-mismatch}
+
+If the two sides share no codec, negotiation either fails outright or, after
+transcoding constraints, leaves a leg with no usable media format and the audio is
+silent.
+
+**Symptom.** No audio, sometimes with the call failing at answer, sometimes
+connecting silently. The far end offered only codecs FreeSWITCH's profile does not
+list, or vice versa.
+
+**Cause.** The intersection of the offered codecs and the profile's preference
+list is empty, or a forced codec string excluded the only common format. The
+controlling parameters:
+
+| Setting | Where | Role |
+| --- | --- | --- |
+| `inbound-codec-prefs` | Sofia profile param | Ordered codec list applied to inbound INVITEs |
+| `outbound-codec-prefs` | Sofia profile param | Ordered codec list used to build outbound offers |
+| `absolute_codec_string` | Channel variable | Forces an exact codec list, ignoring profile prefs |
+| `codec_string` | Channel variable | Sets a preferred codec list (lower precedence than `absolute_codec_string`) |
+
+In vanilla both profiles set `inbound-codec-prefs` and `outbound-codec-prefs` from
+the `$${global_codec_prefs}` variable, which `vars.xml` defines as
+`OPUS,G722,PCMU,PCMA,H264,VP8`. The full negotiation logic — preference ordering,
+inbound policy, and the offer/answer exchange — is in
+[Chapter 16](../media/codecs-and-negotiation.mdx).
+
+**Confirm.** Read the `m=` line and the `a=rtpmap` attributes in the offer SDP from
+the trace and compare them to the profile's `inbound-codec-prefs`. If there is no
+overlap, that is the cause. On an established call, dump the session and read the
+negotiated codec variables FreeSWITCH sets on the channel:
+
+```
+uuid_dump <uuid>
+```
+
+The relevant variables include `rtp_use_codec_name` (the negotiated audio codec,
+e.g. `PCMU`), `rtp_use_codec_rate`, `rtp_use_codec_ptime`, and
+`rtp_use_codec_string`. If the call answered with a codec neither side actually
+wanted, or one of these is empty, negotiation is where to look.
+
+**Fix.** Add the needed codec to `inbound-codec-prefs`/`outbound-codec-prefs`, or
+load the codec module that provides it. To force a specific codec for a route, set
+`absolute_codec_string` in the dialplan; remember it overrides the profile lists
+entirely, so an over-restrictive value can itself cause the mismatch.
+
+## RTP and Media Timeouts {#media-timeouts}
+
+When media stops arriving mid-call, FreeSWITCH can tear the call down after a
+configured period of RTP inactivity. A call that connects with audio and then goes
+silent and drops after a fixed interval is the classic media-timeout signature.
+
+**Symptom.** Audio works, then cuts out and the call clears after a consistent
+number of seconds with hangup cause `MEDIA_TIMEOUT`.
+
+**Cause.** RTP stopped flowing — often the same NAT/firewall issue as above, but
+triggered partway through a call (for example after a re-INVITE moves media) — and
+the inactivity timer fired. The controlling settings:
+
+- `media_timeout` — channel variable, milliseconds of RTP inactivity on an active
+  call before hangup. This is the current mechanism.
+- `media_hold_timeout` — channel variable, milliseconds of inactivity while on
+  hold; if unset it defaults to 10× `media_timeout`.
+- `rtp_timeout_sec` / `rtp_hold_timeout_sec` — **deprecated** channel variables (in
+  *seconds*). FreeSWITCH logs `rtp_timeout_sec deprecated use media_timeout
+  variable.` when they are used. The profile parameters `rtp-timeout-sec` /
+  `rtp-hold-timeout-sec` are likewise deprecated (vanilla still ships
+  `rtp-timeout-sec` at `300`).
+
+The exact precedence, the millisecond-vs-second distinction, and the
+`execute_on_media_timeout` hook are documented in
+[Chapter 17](../media/media-handling.mdx). For diagnosis the key fact is that a
+`MEDIA_TIMEOUT` hangup means media genuinely stopped — the timer is reporting the
+real problem, not causing it.
+
+**Confirm.** Check the hangup cause in the logs or CDR for `MEDIA_TIMEOUT`. If the
+call ran for exactly the timeout duration, the timer fired on an inactive stream.
+
+**Fix.** Treat the timeout as a symptom and fix the underlying RTP path (NAT,
+firewall, re-INVITE handling) as in the sections above. Adjust `media_timeout`
+only if the threshold itself is wrong for your traffic; do not raise it to mask a
+real media failure.
+
+## Confirming Whether RTP Is Flowing {#confirming-rtp-flow}
+
+Two independent reads tell you whether media is actually moving and where it is
+being sent.
+
+**Read the SDP in a SIP trace.** With `siptrace` enabled, each SDP body shows:
+
+- `c=IN IP4 <address>` — the address the far end will send RTP to. If this is a
+  private address on a public call, RTP cannot arrive.
+- `m=audio <port> RTP/AVP <payload-types>` — the receiving port and offered codec
+  payload types. Compare the offered payload types against the answered ones to see
+  the negotiated codec.
+
+Reading these lines on **both** legs locates a one-way problem to the specific leg
+with the unreachable address.
+
+**Read the session variables.** On a live call, `uuid_dump <uuid>` prints the
+channel variables. Useful ones for media diagnosis:
+
+- `rtp_use_codec_name`, `rtp_use_codec_string`, `rtp_use_codec_rate`,
+  `rtp_use_codec_ptime` — the negotiated audio codec and parameters.
+- `rtp_local_sdp_str` — the full local SDP FreeSWITCH generated, including the very
+  `c=`/`m=` lines it advertised, which you can compare directly against the trace.
+
+Between the trace and these variables you can establish, for any silent or one-way
+call, exactly which address each side is sending to and which codec was agreed —
+which is enough to assign the problem to NAT/firewall, asymmetric advertising, or
+codec negotiation.

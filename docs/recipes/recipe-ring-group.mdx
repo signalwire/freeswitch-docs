@@ -1,0 +1,253 @@
+---
+sidebar_position: 2
+id: recipe-ring-group
+slug: /recipes/ring-group
+title: "Recipe: Ring Group and Hunt Group"
+description: "Ring several phones at once (ring group) or one after another on no-answer (hunt group) using the bridge application's comma and pipe dial-string operators, with per-leg timeouts and voicemail fallback."
+sidebar_label: "Ring Group / Hunt Group"
+---
+
+# Recipe: Ring Group and Hunt Group
+
+## Goal
+
+A small office wants a single number that reaches a team of phones. Two
+behaviors are common:
+
+- **Ring group (simultaneous ring):** dial `3000` and every phone in the
+  group rings at the same time. The first person to pick up takes the call;
+  the other phones stop ringing.
+- **Hunt group (sequential hunt):** dial `3001` and the phones ring one after
+  another. The first phone rings; if nobody answers within the per-leg
+  timeout, the next phone rings, and so on down the list. Whoever answers
+  first takes the call.
+
+Both are built from a single `bridge` action whose dial string lists the
+member endpoints. Two separators control the dialing behavior:
+
+- A **comma** (`,`) dials the legs around it **simultaneously**.
+- A **pipe** (`\|`) dials the groups around it **sequentially** -- the next
+  group is attempted only after the previous group fails or times out.
+
+When nobody answers, the call falls through to voicemail.
+
+**Call flow:**
+
+1. An internal caller dials the group number (`3000` or `3001`).
+2. A dialplan extension matches the number and sets the failover and timeout
+   variables.
+3. `bridge` originates the member legs -- in parallel, in series, or a mix.
+4. The first member to answer is bridged to the caller; the remaining legs
+   are cancelled.
+5. If no member answers before the timeout, `continue_on_fail` lets the
+   dialplan proceed to a voicemail fallback.
+
+## Prerequisites
+
+- The [`bridge` application and dial-string syntax](../dialplan/dptools-reference.mdx)
+  -- the comma, pipe, per-leg variable, and global variable operators.
+- A working [XML dialplan](../dialplan/xml-dialplan.mdx) -- this recipe adds
+  extensions to the `default` context that ships in `conf/vanilla/`.
+- Member phones registered in the [user directory](../users-endpoints/user-directory.mdx)
+  -- this recipe assumes users `1001`, `1002`, and `1003` exist in the default
+  domain (the vanilla configuration ships users `1000`-`1019`).
+- For the find-me/follow-me variation, an outbound
+  [gateway](../users-endpoints/gateways.mdx).
+
+## Build it
+
+Add the following extensions to `conf/dialplan/default.xml`, **above** the
+catch-all `Local_Extension` extension so the group numbers match first. Run
+`reloadxml` from the FreeSWITCH console (or `fs_cli`) after saving.
+
+### Simultaneous ring group
+
+Extension `3000` rings users `1001`, `1002`, and `1003` at the same time. The
+commas between the legs make `bridge` originate all three in parallel; the
+first to answer wins and the others are hung up automatically.
+
+```xml
+<extension name="ring_group_simultaneous">
+  <condition field="destination_number" expression="^3000$">
+    <action application="set" data="hangup_after_bridge=true"/>
+    <action application="set" data="continue_on_fail=true"/>
+    <!-- Give the whole group 25 seconds to answer, then fall through. -->
+    <action application="set" data="call_timeout=25"/>
+    <action application="bridge"
+      data="user/1001@${domain_name},user/1002@${domain_name},user/1003@${domain_name}"/>
+    <!-- Reached only if no member answered (continue_on_fail=true). -->
+    <action application="answer"/>
+    <action application="sleep" data="1000"/>
+    <action application="voicemail" data="default ${domain_name} 1001"/>
+  </condition>
+</extension>
+```
+
+`call_timeout` is a global ceiling for the originate. Because the legs ring in
+parallel, a single timeout for the whole group is usually what you want.
+
+### Sequential hunt group
+
+Extension `3001` rings the members in order. Each pipe-separated group is a
+separate originate attempt; FreeSWITCH tries the next group only after the
+current one fails or times out. A per-leg `[leg_timeout=N]` on each group
+controls how long that phone rings before moving on.
+
+```xml
+<extension name="hunt_group_sequential">
+  <condition field="destination_number" expression="^3001$">
+    <action application="set" data="hangup_after_bridge=true"/>
+    <action application="set" data="continue_on_fail=true"/>
+    <action application="bridge"
+      data="[leg_timeout=15]user/1001@${domain_name}|[leg_timeout=15]user/1002@${domain_name}|[leg_timeout=15]user/1003@${domain_name}"/>
+    <!-- Reached only if no member answered any group. -->
+    <action application="answer"/>
+    <action application="sleep" data="1000"/>
+    <action application="voicemail" data="default ${domain_name} 1001"/>
+  </condition>
+</extension>
+```
+
+Each leg here rings for 15 seconds. If `1001` does not answer, `bridge` moves
+to `1002`, then `1003`, then -- because no group answered -- the action fails
+and the dialplan continues to voicemail.
+
+:::note
+With sequential hunting, prefer the per-leg `[leg_timeout=N]` shown above over
+a single global `call_timeout`. `call_timeout` caps the total originate, so a
+30-second `call_timeout` across three 15-second legs would expire before the
+third phone ever rings. Setting `leg_timeout` per group makes each step
+independent.
+:::
+
+### Mixing the two: groups that ring in parallel, in sequence
+
+The comma and pipe operators combine. Within a pipe group, commas dial those
+members at once; the pipe advances to the next group on failure. This rings
+the front desk pair simultaneously, then the manager, then voicemail:
+
+```xml
+<extension name="ring_group_then_manager">
+  <condition field="destination_number" expression="^3002$">
+    <action application="set" data="hangup_after_bridge=true"/>
+    <action application="set" data="continue_on_fail=true"/>
+    <action application="bridge"
+      data="[leg_timeout=20]user/1001@${domain_name},[leg_timeout=20]user/1002@${domain_name}|[leg_timeout=20]user/1003@${domain_name}"/>
+    <action application="answer"/>
+    <action application="sleep" data="1000"/>
+    <action application="voicemail" data="default ${domain_name} 1003"/>
+  </condition>
+</extension>
+```
+
+## How it works
+
+The argument you pass to `bridge` is a **dial string**, parsed by
+`switch_ivr_originate.c`. The two multi-leg separators have precise,
+distinct meanings, verified in the originate source:
+
+- **Comma (`,`) -- simultaneous (parallel).** Within a single group, every
+  comma-separated leg is dialed at the same time. The dial string is split on
+  the comma into a set of "and" peers that are all originated together; the
+  first leg to answer is bridged to the caller and the rest are cancelled.
+  This is the ring-group behavior.
+- **Pipe (`\|`) -- sequential (failover).** The dial string is first split on
+  the pipe into ordered groups. FreeSWITCH tries the groups one at a time, in
+  left-to-right order, and only advances to the next group when **every leg in
+  the current group** has failed or timed out. This is the hunt-group
+  behavior.
+
+**Precedence:** the string is split by the pipe first, then each pipe group is
+split by commas. So `A,B|C,D` means "ring A and B together; if both fail, ring
+C and D together." A bare comma list with no pipe is a pure ring group; a list
+of single legs joined by pipes is a pure hunt group.
+
+**Timeouts.** `call_timeout` (set as a channel variable or as a `{call_timeout=N}`
+global brace on the dial string) caps the entire originate. `leg_timeout`,
+applied per leg with `[leg_timeout=N]`, caps an individual leg. For sequential
+hunting you want per-leg timeouts so each phone gets its own ring window; for a
+parallel group a single `call_timeout` is simpler.
+
+**`ignore_early_media`.** By default an outbound leg that sends early media
+(ringback or an announcement before answering) can satisfy the originate and
+suppress further progress. Setting `ignore_early_media=true` -- globally with
+`{ignore_early_media=true}` or per leg -- tells `bridge` to wait for a real
+answer (SIP `200 OK`) rather than treating early media as the win. This matters
+for hunt groups whose legs route to gateways or devices that play early media,
+because without it the first leg's ringback can stop the hunt prematurely. The
+vanilla `conf/dialplan/default.xml` uses this on its group-dial extensions
+(`{leg_timeout=15,ignore_early_media=true}`).
+
+**Answer and bridge behavior.** `bridge` does **not** pre-answer the caller; it
+bridges audio once a member answers, so the caller hears natural ringback while
+the group rings. Set `hangup_after_bridge=true` so the caller's channel hangs up
+when the bridged call ends instead of returning to the dialplan. The voicemail
+fallback after the `bridge` action runs only when no member answered, which is
+why `continue_on_fail=true` is required -- without it, a failed `bridge` would
+hang up the caller instead of continuing to the next action.
+
+For the full dial-string grammar -- endpoint prefixes, the `:_:` enterprise
+delimiter, and global/per-leg variable braces -- see the
+[Dialplan Application Reference](../dialplan/dptools-reference.mdx).
+
+## Variations
+
+### Enterprise ring group, then a shared voicemail box
+
+A department number rings everyone at once for 30 seconds, then drops the
+caller into the department's shared mailbox (`2000`):
+
+```xml
+<extension name="sales_ring_group">
+  <condition field="destination_number" expression="^3010$">
+    <action application="set" data="hangup_after_bridge=true"/>
+    <action application="set" data="continue_on_fail=true"/>
+    <action application="bridge"
+      data="{call_timeout=30,ignore_early_media=true}user/1001@${domain_name},user/1002@${domain_name},user/1003@${domain_name}"/>
+    <action application="answer"/>
+    <action application="sleep" data="1000"/>
+    <action application="voicemail" data="default ${domain_name} 2000"/>
+  </condition>
+</extension>
+```
+
+Here the timeout and early-media settings are carried inline as a global
+`{...}` brace on the dial string instead of separate `set` actions -- either
+style works.
+
+If you maintain the team membership in the directory rather than hard-coding
+extensions, replace the comma list with a directory **group**:
+`bridge` accepts `group/<name>@<domain>` to ring every member of a directory
+group at once using each member's `dial-string` (see the
+[user directory](../users-endpoints/user-directory.mdx) for defining groups).
+
+### Find me / follow me to an external number
+
+A hunt sequence that rings the user's desk phone, then their cell phone via an
+outbound gateway, then voicemail. The pipe makes each step sequential; the
+external leg is a gateway dial string (see
+[Gateways and Trunk Registration](../users-endpoints/gateways.mdx)):
+
+```xml
+<extension name="follow_me_1001">
+  <condition field="destination_number" expression="^3020$">
+    <action application="set" data="hangup_after_bridge=true"/>
+    <action application="set" data="continue_on_fail=true"/>
+    <action application="bridge"
+      data="[leg_timeout=20]user/1001@${domain_name}|[leg_timeout=25,ignore_early_media=true]sofia/gateway/mycarrier/15551234567"/>
+    <action application="answer"/>
+    <action application="sleep" data="1000"/>
+    <action application="voicemail" data="default ${domain_name} 1001"/>
+  </condition>
+</extension>
+```
+
+The desk phone rings for 20 seconds; if unanswered, the call is sent out the
+`mycarrier` gateway to the cell number for 25 seconds. `ignore_early_media=true`
+on the gateway leg is important here -- PSTN carriers frequently send early
+media (ringback, network announcements) that would otherwise be treated as an
+answer and stop the hunt. If both legs fail, the caller lands in voicemail.
+
+Replace `mycarrier` with the name of a gateway you have defined and registered.
+The gateway must be configured under a loaded Sofia profile before this
+extension will work.

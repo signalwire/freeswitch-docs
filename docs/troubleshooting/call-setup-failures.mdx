@@ -1,0 +1,295 @@
+---
+sidebar_position: 4
+id: call-setup-failures
+slug: /troubleshooting/call-setup
+title: "Call-Setup Failures"
+description: "Diagnose calls that never connect: read Q.850 hangup causes, trace dialplan misroutes, and resolve gateway and originate failures using the FreeSWITCH console."
+sidebar_label: "Call-Setup Failures"
+---
+
+# Call-Setup Failures
+
+A call-setup failure is any attempt that never reaches the talking state: the
+caller hears a fast busy or a SIP error, an outbound leg returns immediately, or
+an `originate` from the console comes back with an error. Almost every one of
+these leaves a single, decisive piece of evidence behind — a *hangup cause* — and
+the fastest path to a fix is to read that cause first and only then look at where
+it came from.
+
+This chapter is diagnostic. It assumes you can already place a call and watch the
+console; it does not re-explain dialplan or gateway configuration. For the
+configuration side, see the
+[Dialplan Application Reference](/dialplan/dptools),
+the [Inbound Public Context](/dialplan/public-context) chapter,
+[Gateways](/users-and-endpoints/gateways), and the
+[Channel Variables](/reference/channel-variables) reference.
+
+## Reading a hangup cause {#reading-a-hangup-cause}
+
+FreeSWITCH terminates every channel with a Q.850 call cause. The cause is exposed
+three ways, all of which carry the same uppercase name:
+
+- The channel variable `hangup_cause`, available in the dialplan, in events, and
+  in the CDR.
+- The `Hangup-Cause` header on the `CHANNEL_HANGUP` event.
+- The log line printed when the channel hangs up.
+
+The names come from a fixed table in the core (`CAUSE_CHART` in
+`src/switch_channel.c`), and `switch_channel_cause2str()` is what turns the
+numeric cause into the string you see. The most common call-setup causes are:
+
+| Cause | Q.850 | What it means at setup time |
+|---|---|---|
+| `NORMAL_CLEARING` | 16 | The call ended cleanly. At *setup* this usually means the far end answered then hung up, or a `200 OK` was followed by a normal teardown. |
+| `USER_BUSY` | 17 | Destination is busy — a SIP `486` or `600`, or a registered endpoint returning busy. |
+| `NO_USER_RESPONSE` | 18 | No response from the destination within the protocol timer; maps from SIP `480`. |
+| `NO_ANSWER` | 19 | The destination rang but no one answered before the timeout. |
+| `SUBSCRIBER_ABSENT` | 20 | The user exists but is currently unreachable. |
+| `CALL_REJECTED` | 21 | The far end actively refused — SIP `401`, `402`, `403`, `407`, `603`, or `608`. |
+| `NUMBER_CHANGED` | 22 | SIP `410 Gone`. |
+| `INVALID_NUMBER_FORMAT` | 28 | The dialed number was malformed for the route; SIP `484 Address Incomplete`. |
+| `NORMAL_TEMPORARY_FAILURE` | 41 | A transient upstream failure — SIP `400`, `481`, `500`, or `503`. Retry-worthy. |
+| `NETWORK_OUT_OF_ORDER` | 38 | SIP `502 Bad Gateway`. |
+| `SERVICE_UNAVAILABLE` | 63 | Service not available on this route; SIP `405`. |
+| `INCOMPATIBLE_DESTINATION` | 88 | Codec or media negotiation failed; SIP `488` or `606`. |
+| `RECOVERY_ON_TIMER_EXPIRE` | 102 | A timer expired with no answer at all; SIP `408 Request Timeout` or `504`. |
+| `UNALLOCATED_NUMBER` | 1 | The number is not assigned; SIP `404 Not Found`. |
+| `NO_ROUTE_DESTINATION` | 3 | No route to the destination; SIP `485 Ambiguous` or `604`. |
+
+The non-Q.850 causes FreeSWITCH adds for its own conditions are equally useful at
+setup time:
+
+| Cause | What it means |
+|---|---|
+| `USER_NOT_REGISTERED` | You tried to reach a `user/` or registered endpoint that has no live registration. |
+| `GATEWAY_DOWN` | The named gateway exists but is not usable (not registered, or marked down). |
+| `INVALID_GATEWAY` | The gateway name in the dial string does not exist. |
+| `INVALID_URL` | The dial string could not be parsed into a valid URL. |
+| `INVALID_PROFILE` | The Sofia profile named in the dial string does not exist or is not running. |
+| `ORIGINATOR_CANCEL` | The originator (A-leg or the `originate` caller) cancelled before answer; SIP `487`. |
+| `PROGRESS_TIMEOUT` | The call got media/progress but never advanced; controlled by the progress timeout. |
+| `ALLOTTED_TIMEOUT` | The originate-wide timeout elapsed before any leg answered. |
+
+:::tip
+Two extra variables sharpen the picture for SIP legs. `sip_term_status` holds the
+bare SIP response number (for example `480`), and `proto_specific_hangup_cause`
+holds it as `sip:480`. Both are set from the actual response code before it is
+folded into the Q.850 cause, so they tell you the *wire* reason even when several
+SIP codes collapse to one cause. On a bridge, the B-leg's cause is copied to the
+A-leg as `last_bridge_hangup_cause`, and `originate_disposition` records the
+outcome of an originate (`success`, `failure`, or the cause string itself).
+:::
+
+## Symptom: the call never matched an extension {#dialplan-no-match}
+
+**Symptom.** The call arrives but nothing happens, or it is rejected outright,
+and no dialplan action you expected runs.
+
+**Cause.** The destination number, context, or dialplan name FreeSWITCH used does
+not match the extension you wrote. The single most common version is an inbound
+call landing in the wrong context — calls from an unauthenticated source arrive
+in `public`, not `default`.
+
+**Confirm.** Raise the console to at least `INFO` and place the call. The XML
+dialplan prints exactly what it is routing, from `mod_dialplan_xml`:
+
+```text
+Processing Caller Name <1001>->18005551212 in context public
+```
+
+That one line gives you the caller-ID name, the caller-ID number, the
+*destination number* it will try to match, and the *context* it is matching in.
+If the context reads `public` when you expected `default`, the call came in
+unauthenticated and is being handled by your public dialplan — which by design
+should not reach your internal extensions. Raise the verbosity further with
+`console loglevel debug` to see each condition evaluated:
+
+```text
+Dialplan: Processing recursive conditions level:0 ...
+Dialplan: sofia/internal/... Regex (FAIL) [my_ext] destination_number(18005551212) =~ /^(1\d{10})$/ match=false
+Dialplan: sofia/internal/... Action set(...)
+```
+
+`Regex (PASS)` / `Regex (FAIL)` shows precisely which condition matched and which
+did not, so you can see whether the problem is your pattern or the destination
+number itself.
+
+**Fix.** Match the context, dialplan name, and destination shown in the
+`Processing ...` line against your XML. If the context is `public`, decide
+whether the call *should* be authenticated (fix the source so it registers or
+falls inside your ACL) or whether the public context should explicitly route it
+into `default` with a `transfer`. The
+[Inbound Public Context](/dialplan/public-context) chapter covers that handoff;
+the conditions and the `transfer` application are documented in the
+[Dialplan Application Reference](/dialplan/dptools).
+
+## Symptom: outbound call fails through a gateway {#gateway-down}
+
+**Symptom.** Calls to an external number fail instantly with `GATEWAY_DOWN`,
+`USER_NOT_REGISTERED`, or `NORMAL_TEMPORARY_FAILURE`, and the B-leg never even
+sends an INVITE you can trace.
+
+**Cause.** The gateway is not in a usable state. A gateway you expect to be
+registered may be retrying, failed, or expired.
+
+**Confirm.** Ask Sofia directly:
+
+```text
+sofia status gateway my_gateway
+```
+
+The output has two state fields that you must read together. The `State` line is
+the registration state machine, and the `Status` line is the up/down summary:
+
+```text
+State   	REGED
+Status  	UP
+```
+
+`State` is one of the values from `sofia_state_names` in `mod_sofia.c`:
+
+| State | Meaning |
+|---|---|
+| `REGED` | Registered and current — the healthy state for a registering gateway. |
+| `TRYING` | A REGISTER is in flight. |
+| `REGISTER` | Queued to send a REGISTER. |
+| `UNREGED` | Not registered (the starting / reset state). |
+| `UNREGISTER` | Queued to send an un-REGISTER. |
+| `FAILED` | The last REGISTER attempt failed. |
+| `FAIL_WAIT` | Backing off after a failure before retrying. |
+| `EXPIRED` | The registration lapsed and has not yet been renewed. |
+| `NOREG` | Configured *not* to register (`register=false`) — normal for IP-auth trunks. |
+| `DOWN` | The gateway is down / unregistered. |
+| `TIMEOUT` | The REGISTER timed out with no response. |
+
+`Status` is simpler — it is only ever `DOWN` or `UP` (with a trailing `(ping)`
+when an OPTIONS ping is in flight), from the `status_names` table in `mod_sofia.c`.
+
+The combinations that explain a failed outbound call:
+
+- `State NOREG / Status UP` — an IP-authenticated trunk that does not register.
+  This is healthy; the problem is elsewhere (dialplan, codecs, or the upstream).
+- `State NOREG / Status DOWN` — a non-registering gateway whose OPTIONS ping is
+  failing; the far end is unreachable.
+- `State FAILED`, `FAIL_WAIT`, `EXPIRED`, or `TIMEOUT` — registration is broken.
+  This is a credentials, network, or far-end problem, and any call routed through
+  it returns `GATEWAY_DOWN`.
+
+**Fix.** Bring the gateway back to a usable state. For a registering gateway,
+correct the credentials or realm and re-register; for a non-registering trunk,
+fix the network path or the ping target. Gateway parameters and the OPTIONS-ping
+keepalive are covered in [Gateways](/users-and-endpoints/gateways).
+
+## Symptom: upstream returns 403, 404, 480, or 503 {#sip-response-mapping}
+
+**Symptom.** A SIP trace shows the far end answering your INVITE with an error
+response, and the leg ends with a Q.850 cause rather than the raw SIP number.
+
+**Cause.** `mod_sofia` maps every final SIP response onto a Q.850 cause
+(`sofia_glue_sip_cause_to_freeswitch` in `sofia_glue.c`). Several SIP codes can
+collapse onto one cause, which is why the cause alone can be ambiguous — read the
+SIP code too.
+
+**Confirm.** Turn on SIP tracing for the profile and re-run the call:
+
+```text
+sofia profile internal siptrace on
+```
+
+(or `sofia global siptrace on` for every profile). Then read the response code in
+the trace and check `proto_specific_hangup_cause` / `sip_term_status` on the leg.
+The mappings you will hit most:
+
+| SIP response | Maps to cause |
+|---|---|
+| `403 Forbidden` (also `401`, `402`, `407`, `603`, `608`) | `CALL_REJECTED` |
+| `404 Not Found` | `UNALLOCATED_NUMBER` |
+| `480 Temporarily Unavailable` | `NO_USER_RESPONSE` |
+| `486 Busy Here` (also `600`) | `USER_BUSY` |
+| `484 Address Incomplete` | `INVALID_NUMBER_FORMAT` |
+| `488 Not Acceptable Here` (also `606`) | `INCOMPATIBLE_DESTINATION` |
+| `408` / `504` | `RECOVERY_ON_TIMER_EXPIRE` |
+| `485` / `604` | `NO_ROUTE_DESTINATION` |
+| `502 Bad Gateway` | `NETWORK_OUT_OF_ORDER` |
+| `400` / `481` / `500` / `503` | `NORMAL_TEMPORARY_FAILURE` |
+| `487 Request Terminated` | `ORIGINATOR_CANCEL` |
+
+Note the non-obvious ones: a `404` becomes `UNALLOCATED_NUMBER` (not
+`NO_ROUTE_DESTINATION`), and a `480` becomes `NO_USER_RESPONSE` (not `NO_ANSWER`).
+Any SIP code with no explicit mapping falls through to `NORMAL_UNSPECIFIED`.
+
+**Fix.** The fix lives upstream, not in FreeSWITCH: a `403` is the provider
+rejecting your credentials or caller-ID, a `404` is a number the provider does
+not recognize, a `480`/`503` is the destination temporarily down. Correct the
+outbound identity or route and retry.
+
+## Symptom: a bridge ends instead of trying the next leg {#continue-on-fail}
+
+**Symptom.** A `bridge` to multiple destinations stops at the first failure, or
+conversely keeps going when you wanted it to stop, and the dialplan continues (or
+hangs up) unexpectedly.
+
+**Cause.** Whether the dialplan continues after a failed outbound leg is governed
+by `continue_on_fail` and `failure_causes` (read in `switch_channel.c`). By
+default, with neither variable set, only `NO_ANSWER`, `NO_USER_RESPONSE`, and
+`ORIGINATOR_CANCEL` are treated as "keep going" — every other cause hangs up the
+A-leg.
+
+**Confirm.** Inspect the cause of the failed B-leg (`hangup_cause`, or
+`last_bridge_hangup_cause` on the A-leg) and check which variables are set:
+
+- `continue_on_fail=true` — continue the dialplan on *any* failure cause.
+- `continue_on_fail=false` — do not continue (only the listed causes, if any, let
+  it through).
+- `continue_on_fail=user_busy,no_route_destination,603` — continue only when the
+  cause matches one of these names or numbers (case-insensitive; numeric Q.850
+  values are accepted).
+- `failure_causes=...` — the inverse filter: only the listed causes are treated
+  as failures that stop processing; everything else continues.
+
+`ATTENDED_TRANSFER` is always treated as a non-failure and never triggers
+continuation logic.
+
+For parallel originate (the `,` and `|` operators), `fail_on_single_reject`
+controls whether one rejected leg aborts the whole set. Set
+`fail_on_single_reject=true` to abort on the first reject, or give it a
+comma-list of causes to abort only on those; prefix with `!` to invert. Use
+`originate_continue_on_timeout` to keep trying remaining legs after the timeout.
+
+**Fix.** Set `continue_on_fail` (or `failure_causes`) to match the routing you
+want before the `bridge`. These are ordinary channel variables — see
+[Channel Variables](/reference/channel-variables) — and the `bridge` application
+is in the [Dialplan Application Reference](/dialplan/dptools).
+
+## Symptom: originate from the CLI returns -ERR {#originate-cli}
+
+**Symptom.** You run `originate` from `fs_cli` and it returns an error rather than
+connecting.
+
+**Cause.** The `originate` API command reports its result directly. On success it
+prints the new session UUID; on failure it prints the Q.850 cause of the failed
+attempt (from `originate_function` in `mod_commands.c`).
+
+**Confirm.** Read the response:
+
+```text
+freeswitch@host> originate sofia/gateway/my_gateway/18005551212 &echo
+-ERR GATEWAY_DOWN
+```
+
+A success looks like:
+
+```text
++OK 4f8c9a10-...-uuid
+```
+
+The string after `-ERR` is exactly the cause name from the table above, so the
+same reasoning applies: `-ERR USER_NOT_REGISTERED` means the destination has no
+live registration, `-ERR INVALID_GATEWAY` means the gateway name is wrong,
+`-ERR NO_ROUTE_DESTINATION` means there was no usable route, and
+`-ERR RECOVERY_ON_TIMER_EXPIRE` means it timed out with no response.
+
+**Fix.** Map the `-ERR` cause back to its section above and fix the underlying
+condition — the gateway state, the registration, the dial string, or the
+upstream. Re-run the same `originate` with `sofia profile <name> siptrace on` if
+the cause points at the SIP exchange and you need to see the wire response.

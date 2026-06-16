@@ -1,0 +1,320 @@
+---
+sidebar_position: 3
+id: recipe-time-routing
+slug: /recipes/time-routing
+title: "Recipe: Business-Hours and Time-of-Day Routing"
+description: "Route calls to the operator or IVR during open hours and to a closed greeting plus voicemail after hours and on holidays, using XML dialplan time conditions."
+sidebar_label: "Time-of-Day Routing"
+---
+
+# Recipe: Business-Hours and Time-of-Day Routing
+
+## Goal
+
+Send callers to a live destination when you are open and to a recorded closed
+greeting plus voicemail when you are not. During business hours (Monday to
+Friday, 9 AM to 5 PM) the call reaches the operator or an IVR auto-attendant.
+Outside those hours, on weekends, and on holidays the call hears a "we are
+closed" greeting and is offered voicemail.
+
+The decision is made entirely in the XML dialplan with `<condition>` time
+attributes, so it needs no scripting and re-evaluates on every call. A single
+channel variable, `open`, carries the open/closed decision; the routing
+extension reads it and dispatches accordingly.
+
+The call flow is:
+
+```
+Inbound call ──▶ holiday check ──┬─ holiday today? ──▶ set open=false
+                                 │
+                 business-hours check ──┬─ Mon-Fri 9-17 & not a holiday? ──▶ open=true
+                                        │
+                          route on ${open} ──┬─ open=true  ──▶ operator / ivr
+                                             └─ open=false ──▶ closed greeting ──▶ voicemail
+```
+
+## Prerequisites
+
+This recipe composes pieces documented in the reference chapters. Read those
+first if any step is unfamiliar:
+
+- [Chapter 15: Time and Condition Routing](../dialplan/time-and-condition-routing.mdx) — the full reference for `<condition>` time attributes, value ranges, and timezone handling.
+- [Chapter 12: The XML Dialplan](../dialplan/xml-dialplan.mdx) — how extensions, conditions, actions, and the `continue` / `break` flags are evaluated.
+- [Chapter 21: IVR Menus](../applications/ivr-menus.mdx) — the `<menu>` schema and the `ivr` dialplan application used for the open-hours destination.
+- [Chapter 19: Voicemail](../applications/voicemail.mdx) — the `voicemail` application and the per-user mailboxes the closed branch writes to.
+
+It assumes the vanilla configuration: an `ivr_menus` directory included by
+`ivr.conf.xml`, the `default` voicemail profile, and the `default` dialplan
+context. The examples mirror the shipped `default.xml` `tod_example` and
+`holiday_example` blocks, so you can paste them alongside the existing config.
+
+## Build it
+
+The pattern uses three cooperating extensions, all with `continue="true"` so
+evaluation flows from one to the next:
+
+1. **Holiday override** — runs first; if today is a holiday it forces
+   `open=false`.
+2. **Business-hours window** — sets `open=true` only inside the open window.
+3. **Router** — reads `${open}` and sends the call to the operator/IVR or to the
+   closed greeting and voicemail.
+
+Add all three to the `default` context in `conf/dialplan/default.xml` (or a file
+under `conf/dialplan/default/`, which the shipped `default.xml` includes), in
+this order.
+
+### 1. Default to closed, then open during business hours
+
+Start by establishing a safe default and the open window. The first extension
+sets `open=false` unconditionally so that any path that does not explicitly open
+the business stays closed. The second matches the business-hours window and flips
+`open` to `true`:
+
+```xml
+<extension name="set_closed_default" continue="true">
+  <condition>
+    <action application="set" data="open=false"/>
+  </condition>
+</extension>
+
+<extension name="business_hours" continue="true">
+  <condition wday="2-6" hour="9-17">
+    <action application="set" data="open=true"/>
+  </condition>
+</extension>
+```
+
+`wday="2-6"` matches Monday through Friday (`wday` is `1`-`7` with Sunday = 1),
+and `hour="9-17"` matches the hours 9 through 17 inclusive — that is, from
+9:00:00 up to 17:59:59. If you need the window to end exactly at 5:00 PM, use
+`time-of-day="09:00-17:00"` instead, which compares to the second. Both
+attributes take comma-separated lists and ranges, so `wday="2-6"` and
+`hour="9-17"` are ranges; `hour="9,13,14"` would be a list.
+
+### 2. Override for holidays (matched first)
+
+Holidays must be decided *before* the business-hours check can open the
+business, so place this extension **above** `business_hours` in the file. Each
+`<condition>` matches one holiday and forces `open=false`; because the holiday
+extension runs first, a holiday that lands on a weekday cannot be re-opened by
+the later business-hours rule. These conditions are copied from the shipped
+`default.xml` `holiday_example`:
+
+```xml
+<extension name="holiday_override" continue="true">
+  <condition mday="1" mon="1">
+    <!-- New Year's Day -->
+    <action application="set" data="open=false"/>
+  </condition>
+  <condition wday="2" mweek="3" mon="1">
+    <!-- Martin Luther King Jr. Day: 3rd Monday in January -->
+    <action application="set" data="open=false"/>
+  </condition>
+  <condition mday="4" mon="7">
+    <!-- Independence Day -->
+    <action application="set" data="open=false"/>
+  </condition>
+  <condition wday="5-6" mweek="4" mon="11">
+    <!-- Thanksgiving: 4th Thursday in November (plus the Friday after) -->
+    <action application="set" data="open=false"/>
+  </condition>
+  <condition mday="25" mon="12">
+    <!-- Christmas Day -->
+    <action application="set" data="open=false"/>
+  </condition>
+</extension>
+```
+
+Each holiday is its own `<condition>` so they are evaluated independently rather
+than as one combined test. `mday="1" mon="1"` is a fixed-date holiday;
+`wday="2" mweek="3" mon="1"` matches a relative one — the 3rd Monday in January —
+by combining day-of-week (`wday="2"` = Monday) with week-of-month
+(`mweek="3"`). Add or remove holidays to match your calendar.
+
+Order in the file matters. The full sequence is:
+
+```xml
+<!-- 1. holiday_override  (forces open=false on holidays) -->
+<!-- 2. set_closed_default (open=false unless a later rule opens) -->
+<!-- 3. business_hours     (open=true only inside the window) -->
+```
+
+Putting `set_closed_default` after `holiday_override` is harmless because both
+set `open=false`; what matters is that `business_hours` comes last so it is the
+only thing that can set `open=true`, and that on a holiday the business-hours
+window never runs against a `true` value that survives. If you prefer to make
+the precedence explicit, gate the business-hours rule on the holiday result —
+see the variation below.
+
+### 3. Route on the open/closed decision
+
+The router reads `${open}` and dispatches. When open, it transfers to the
+operator extension or invokes the IVR; when closed, it plays a greeting and
+drops the caller into a voicemail box:
+
+```xml
+<extension name="time_router">
+  <condition field="${open}" expression="^true$" break="never">
+    <!-- OPEN: send to the operator IVR (or transfer to a live extension) -->
+    <action application="answer"/>
+    <action application="sleep" data="500"/>
+    <action application="ivr" data="demo_ivr"/>
+  </condition>
+  <condition field="${open}" expression="^false$">
+    <!-- CLOSED: play the closed greeting, then take a message -->
+    <action application="answer"/>
+    <action application="sleep" data="500"/>
+    <action application="playback" data="ivr/ivr-thank_you_for_calling.wav"/>
+    <action application="playback" data="voicemail/vm-not_available_no_voicemail.wav"/>
+    <action application="voicemail" data="default ${domain_name} 1000"/>
+  </condition>
+</extension>
+```
+
+The open branch uses `break="never"` so that, after the `open=true` actions run,
+evaluation still falls through and the `open=false` condition is tested — which
+fails and is skipped — keeping both branches in one extension without one
+swallowing the other. Replace `ivr demo_ivr` with `transfer 1000 XML default`
+to ring a live operator instead, and replace the closed-branch `playback` files
+with your own recorded greeting. `voicemail default ${domain_name} 1000` runs the
+`voicemail` application in leave-message mode for mailbox `1000` in the `default`
+profile; point it at whichever mailbox should collect after-hours messages.
+
+### 4. Apply the changes
+
+From `fs_cli`, reload the dialplan:
+
+```
+reloadxml
+```
+
+No restart is required. You can confirm which branch a call would take by
+watching the dialplan log: with the time-condition debug enabled, each
+`<condition>` logs a `Date/Time Match (PASS)` or `(FAIL)` line as it is
+evaluated.
+
+## How it works
+
+1. **Conditions are evaluated top to bottom.** Within an extension, the dialplan
+   tests each `<condition>` in order. A time condition with no `field`/`expression`
+   is a pure date/time test: it passes when the current time matches every time
+   attribute present on the tag and fails otherwise. See
+   [Chapter 15](../dialplan/time-and-condition-routing.mdx) for the full
+   evaluation model.
+
+2. **`continue="true"` chains the extensions.** Each of the three setup
+   extensions has `continue="true"`, so after one finishes the engine moves on
+   to the next instead of stopping at the first match. That is what lets the
+   holiday, business-hours, and router extensions cooperate through the shared
+   `open` variable.
+
+3. **`break` controls fall-through inside an extension.** For a time
+   `<condition>`, the default `break` behavior is `on-false`: a *failing* time
+   condition stops evaluating the rest of that extension. That is exactly what
+   you want for the holiday and business-hours rules — when today is not a
+   holiday, the holiday condition fails and its `set` action is correctly
+   skipped. In the router, the open branch uses `break="never"` so that a
+   *passing* open branch does not stop the extension before the closed branch is
+   even tested; the closed branch then fails its own `^false$` check and is
+   skipped.
+
+4. **The holiday check goes first on purpose.** Because the extensions run in
+   file order, the holiday override sets `open=false` before `business_hours`
+   has a chance to set `open=true`. With the explicit-gate variation below, the
+   business-hours rule additionally refuses to open on a day already marked
+   closed, so a holiday falling on a weekday stays closed even though it is
+   inside the 9-to-5 weekday window.
+
+5. **The router dispatches on a plain field condition.** `time_router` no longer
+   tests time at all — it tests the `${open}` variable that the earlier
+   extensions computed. This separates the *schedule* (when are we open) from the
+   *routing* (what to do when open or closed), so you can change either
+   independently.
+
+## Timezone handling
+
+Time attributes are evaluated against the server's local time unless the channel
+provides a timezone. To route by a specific zone regardless of where the server
+runs, set the `timezone` channel variable (a zone name from
+`timezones.conf.xml`) before the time conditions are evaluated:
+
+```xml
+<extension name="set_tz" continue="true">
+  <condition>
+    <action application="set" data="timezone=America/New_York"/>
+  </condition>
+</extension>
+```
+
+Place this above the holiday and business-hours extensions so the schedule is
+computed in that zone. The dialplan also honors a numeric `tod_tz_offset`
+channel variable (hours from UTC) as an alternative to a named zone. Daylight
+Saving Time is handled automatically when you use a named `timezone`; a fixed
+`tod_tz_offset` does not shift with DST. See
+[Timezone Selection](../dialplan/time-routing#timezone-selection) in the
+time-routing chapter.
+
+## Variations
+
+### Explicit holiday gate
+
+To make the precedence between holidays and business hours unmistakable, set a
+separate `holiday` flag and require it to be unset before opening. The holiday
+extension sets `holiday=true`; the business-hours condition then adds a field
+test so it only opens on a non-holiday weekday:
+
+```xml
+<!-- holiday extension sets: <action application="set" data="holiday=true"/> -->
+
+<extension name="business_hours" continue="true">
+  <condition field="${holiday}" expression="^true$" break="on-true">
+    <!-- a holiday: do nothing, leave open=false -->
+  </condition>
+  <condition wday="2-6" hour="9-17">
+    <action application="set" data="open=true"/>
+  </condition>
+</extension>
+```
+
+Here `break="on-true"` stops the extension when `holiday` is `true`, so the
+business-hours time condition is never reached on a holiday.
+
+### A separate lunch-hour break
+
+To close the line over lunch, add a condition that re-closes the business during
+a midday window. Because it runs after `business_hours`, it overrides the open
+decision for that hour only:
+
+```xml
+<extension name="lunch_break" continue="true">
+  <condition wday="2-6" time-of-day="12:00-13:00">
+    <action application="set" data="open=false"/>
+  </condition>
+</extension>
+```
+
+Place this **after** `business_hours` so its `open=false` wins inside the lunch
+window. `time-of-day` compares to the second, so `12:00-13:00` reopens exactly at
+1:00:00 PM.
+
+### Per-DID schedules
+
+To give each inbound number its own schedule, branch on the DID first and route
+to a per-DID router. Match `destination_number` in the `public` context, set a
+variable identifying the line, and use it to select the destination in the
+closed and open branches:
+
+```xml
+<extension name="did_sales" continue="true">
+  <condition field="destination_number" expression="^(\+?1?5551112222)$">
+    <action application="set" data="vm_box=2000"/>
+    <action application="set" data="open_dest=sales_ivr"/>
+  </condition>
+</extension>
+```
+
+Then in the time router, transfer the open branch to `${open_dest}` and use
+`${vm_box}` in the closed branch's `voicemail` data, so one schedule serves many
+numbers while each keeps its own operator menu and mailbox. Different lines can
+also carry different `timezone` values, giving each DID a schedule in its own
+zone.

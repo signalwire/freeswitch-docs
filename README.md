@@ -54,19 +54,27 @@ and it does not teach programming.
 - Integration surfaces configured by the operator: Event Socket, XML Curl,
   CDR, scripting wiring, and SignalWire connectivity.
 - A channel variables reference.
+- Worked end-to-end examples (recipes) that compose the documented configuration,
+  dialplan, and applications into complete call flows.
+- Operator troubleshooting and diagnostics: the console, `sofia status`, SIP
+  tracing, logs, and CDRs, and the common registration, audio, and call-setup
+  failures — diagnosed with FreeSWITCH's own tools, not by reading the codebase.
+- The programmable surfaces: the Event Socket protocol (inbound and outbound) and
+  the embedded scripting APIs (the runtime objects a script or ESL client uses).
 
 ### Out of scope (never include)
 
 - The FreeSWITCH codebase itself: internal implementation, code structure,
-  functions, data flow, or source-level behavior.
-- Troubleshooting, debugging, or diagnostics of any kind.
+  functions, data flow, or source-level behavior. (Operator-level troubleshooting
+  using the supported tools is in scope; source-level debugging is not.)
 - Deployment, provisioning, scaling, hardening, or operations guidance.
 - High availability, performance tuning, and enterprise deployment topics.
 
-Some legacy topics sit on a boundary. ACLs, authentication, and TLS/WSS are
-documented strictly as configuration surface (what the parameters are and what
-values they accept), never as security hardening guidance. Where a topic crosses
-into operations, the manual documents the configuration and stops.
+Some topics sit on a boundary. ACLs, authentication, and TLS/WSS are documented
+strictly as configuration surface (what the parameters are and what values they
+accept), never as security hardening guidance. Troubleshooting documents the
+diagnostic tools and the reads, not internals. Where a topic crosses into
+deployment or operations, the manual documents the configuration and stops.
 
 ## 3. Source of Truth Method
 

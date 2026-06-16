@@ -1,0 +1,271 @@
+---
+sidebar_position: 5
+id: recipe-conference-pin
+slug: /recipes/conference-pin
+title: "Recipe: A Conference Bridge with a PIN"
+description: "Callers dial an extension, are prompted for a PIN, and join a moderated conference room. Built on the conference application's own PIN and member-flag handling, with a dialplan play_and_get_digits variation."
+sidebar_label: "Conference with PIN"
+---
+
+# Recipe: A Conference Bridge with a PIN
+
+## Goal
+
+A team wants a single conference number that is protected by a PIN. Callers
+dial an extension, are prompted to enter a PIN, and -- if it matches -- join a
+shared room. One PIN admits ordinary participants; a second PIN admits
+**moderators**, who get the moderator key map and `non_moderator` control over
+everyone else.
+
+`mod_conference` already knows how to collect and validate a PIN, so the
+simplest build needs no digit-collection logic in the dialplan at all: the
+profile carries a `pin` and a `moderator-pin`, and the `conference` application
+prompts the caller and checks what they enter. This recipe shows that
+profile-driven approach first, then a variation that collects the PIN in the
+dialplan with `play_and_get_digits` when you want full control over the prompt.
+
+**Call flow:**
+
+1. An internal caller dials the conference extension (`3500`).
+2. A dialplan extension answers the call and runs the `conference` application
+   with a room name and profile.
+3. The room is created on the first caller's entry from the named profile; later
+   callers join the existing room.
+4. Because the profile defines a `pin` (and a `moderator-pin`), `conference`
+   plays the `pin-sound` prompt and collects digits.
+5. If the digits match the moderator PIN, the caller joins with the `moderator`
+   flag; if they match the entry PIN, they join as an ordinary member; otherwise
+   they are re-prompted up to `pin-retries` times and then rejected.
+
+## Prerequisites
+
+- [Conferencing](../applications/conferencing.mdx) with `mod_conference` -- the
+  conference model, profiles, the `conference` application argument syntax, and
+  member flags.
+- [IVR Menus](../applications/ivr-menus.mdx) -- background on prompt-driven
+  digit collection (used by the dialplan-PIN variation below).
+- The [Dialplan Application Reference](../dialplan/dptools-reference.mdx) -- the
+  `answer`, `play_and_get_digits`, and `conference` applications.
+- A working [XML dialplan](../dialplan/xml-dialplan.mdx) -- this recipe adds an
+  extension to the `default` context that ships in `conf/vanilla/`.
+
+## Build it
+
+There are two pieces: a **profile** in `conference.conf.xml` that defines the
+PINs, and a **dialplan extension** that answers the call and enters the room.
+
+### 1. A conference profile with PINs
+
+The vanilla `conference.conf.xml` ships a `default` profile but leaves its `pin`
+and `moderator-pin` commented out. Rather than edit `default` (which the bundled
+`30xx` extensions reuse), add a dedicated profile. Place it inside the
+`<profiles>` block of `conf/autoload_configs/conference.conf.xml`:
+
+```xml
+<profile name="secure">
+  <param name="domain" value="$${domain}"/>
+  <param name="rate" value="8000"/>
+  <param name="interval" value="20"/>
+  <param name="energy-level" value="100"/>
+
+  <!-- Entry PIN for ordinary participants. -->
+  <param name="pin" value="12345"/>
+  <!-- A different PIN that grants moderator status on entry. -->
+  <param name="moderator-pin" value="54321"/>
+  <!-- Attempts allowed before the caller is rejected. -->
+  <param name="pin-retries" value="3"/>
+
+  <!-- Prompt and error files used while collecting the PIN. -->
+  <param name="pin-sound" value="conference/conf-pin.wav"/>
+  <param name="bad-pin-sound" value="conference/conf-bad-pin.wav"/>
+
+  <!-- Announce the member count once the room reaches one member. -->
+  <param name="announce-count" value="1"/>
+
+  <!-- Sounds and behaviors carried over from the default profile. -->
+  <param name="muted-sound" value="conference/conf-muted.wav"/>
+  <param name="unmuted-sound" value="conference/conf-unmuted.wav"/>
+  <param name="alone-sound" value="conference/conf-alone.wav"/>
+  <param name="moh-sound" value="$${hold_music}"/>
+  <param name="enter-sound" value="tone_stream://%(200,0,500,600,700)"/>
+  <param name="exit-sound" value="tone_stream://%(500,0,300,200,100,50,25)"/>
+  <param name="caller-id-name" value="$${outbound_caller_name}"/>
+  <param name="caller-id-number" value="$${outbound_caller_id}"/>
+  <param name="comfort-noise" value="true"/>
+</profile>
+```
+
+Run `reloadxml` from the FreeSWITCH console (or `fs_cli`) after saving so the new
+profile is picked up.
+
+### 2. A dialplan extension that enters the room
+
+Add this extension to `conf/dialplan/default.xml`, **above** the catch-all
+`Local_Extension`, so `3500` matches first. It answers the call and runs the
+`conference` application with the room name and the `secure` profile. No PIN
+logic is needed here -- the profile's `pin`/`moderator-pin` make `conference`
+prompt and validate on its own:
+
+```xml
+<extension name="secure_conference">
+  <condition field="destination_number" expression="^3500$">
+    <action application="answer"/>
+    <action application="conference" data="secure-${domain_name}@secure"/>
+  </condition>
+</extension>
+```
+
+Run `reloadxml` again. Dial `3500` from two registered phones: each is asked for
+a PIN. Enter `12345` to join as a participant or `54321` to join as a moderator.
+
+### Moderator vs. participant
+
+The two PINs produce two roles **on the same room**:
+
+- Entering `12345` (the `pin`) joins as an ordinary member.
+- Entering `54321` (the `moderator-pin`) sets the caller's `moderator` member
+  flag automatically. Moderators are matched by the `non_moderator` target in
+  the [conference API](../applications/conferencing.mdx#the-conference-api), so a
+  moderator can, for example, mute everyone else with
+  `conference secure-${domain_name} mute non_moderator`.
+
+You can also assign member flags explicitly at join time with the
+`+flags{...}` suffix on the `conference` argument. To force a caller into the
+room muted, append `+flags{mute}`; to grant moderator status without a PIN,
+append `+flags{moderator}` (`mute` and `moderator` are the verified flag names
+parsed from the dial string). The argument grammar is:
+
+```text
+conference <room>[@<profile>][+<pin>][+flags{<flag>|<flag>...}]
+```
+
+For example, a separate "listener" extension that joins the same room muted:
+
+```xml
+<extension name="secure_conference_listener">
+  <condition field="destination_number" expression="^3501$">
+    <action application="answer"/>
+    <action application="conference" data="secure-${domain_name}@secure+flags{mute}"/>
+  </condition>
+</extension>
+```
+
+## How it works
+
+**Room creation and profile lookup.** A conference room is identified by its
+name string. When `conference` runs with `room@profile`, FreeSWITCH looks up
+`profile` in `conference.conf.xml`; if the room does not already exist it is
+created from that profile, and later callers who dial the same name join the
+existing instance. Here the room name is `secure-${domain_name}`, which
+namespaces the room per domain, and the profile is `secure`. See the
+[conference model](../applications/conferencing.mdx#conference-model).
+
+**PIN handling.** When the resolved profile (or the dial-string `+<pin>` suffix)
+supplies an entry or moderator PIN, `conference` answers the channel, plays the
+`pin-sound`, and collects digits. The entered value is compared against the
+entry `pin` first, then the `moderator-pin`. A mismatch plays `bad-pin-sound`
+and re-prompts; after `pin-retries` failures the caller is rejected and the call
+is logged as a PIN-rejected CDR. A caller can also supply the PIN ahead of the
+prompt via the `supplied_pin` channel variable (or an `X-ConfPin=` SIP URL
+parameter), which skips the audio prompt when it already matches.
+
+**Moderator flag from the moderator PIN.** When the entered digits match the
+`moderator-pin` rather than the entry `pin`, `mod_conference` records the match
+and sets the member's `moderator` flag (`MFLAG_MOD`) as it joins. That is the
+only difference between the two PINs at the protocol level: same room, same
+profile, one bit of member state. Moderator members receive the
+`moderator-controls` key map (if the profile defines one) and are excluded from
+the `non_moderator` API target.
+
+**Member flags at join time.** Flags can come from three places, all merged: the
+profile's `member-flags` parameter, the `conference_member_flags` channel
+variable, and the `+flags{...}` suffix on the `conference` argument. The
+`mute`, `deaf`, and `moderator` names used above are taken verbatim from the
+dial-string flag parser. See
+[member flags at join time](../applications/conferencing.mdx#member-flags-at-join-time)
+and the full [conference application syntax](../applications/conferencing.mdx#the-conference-dialplan-application).
+
+For the complete profile parameter table -- including `pin`, `moderator-pin`,
+`pin-retries`, `announce-count`, and the sound files -- see
+[profile parameters](../applications/conferencing.mdx#profile-parameters).
+
+## Variations
+
+### Collect the PIN in the dialplan instead
+
+If you want to design the prompt yourself -- a custom greeting, a regex on the
+digits, or a transfer on failure -- collect the PIN before entering the room
+with `play_and_get_digits`, then pass it through as the dial-string `+<pin>`.
+Leave the profile's `pin`/`moderator-pin` defined so `conference` still
+validates the value you forward:
+
+```xml
+<extension name="secure_conference_dp_pin">
+  <condition field="destination_number" expression="^3502$">
+    <action application="answer"/>
+    <action application="sleep" data="500"/>
+    <!-- min max tries timeout(ms) terminators prompt invalid_file var regexp -->
+    <action application="play_and_get_digits"
+      data="4 6 3 7000 # conference/conf-pin.wav conference/conf-bad-pin.wav conf_pin \d+"/>
+    <action application="conference" data="secure-${domain_name}@secure+${conf_pin}"/>
+  </condition>
+</extension>
+```
+
+The `play_and_get_digits` arguments are positional, in this exact order:
+`<min> <max> <tries> <timeout_ms> <terminators> <file> <invalid_file> <var_name> <regexp>`.
+Above it collects 4 to 6 digits, allows 3 tries, waits 7 seconds, accepts `#` as
+a terminator, plays `conf-pin.wav`, replays `conf-bad-pin.wav` on a bad regex
+match, stores the result in `conf_pin`, and validates against `\d+`. The
+collected `${conf_pin}` is appended as the `+<pin>` suffix, so `conference`
+checks it against both the entry and moderator PINs -- preserving the
+moderator-by-PIN behavior. The full argument list (including the optional
+`digit_timeout` and `failure_ext`) is documented in the
+[Dialplan Application Reference](../dialplan/dptools-reference.mdx).
+
+### Separate moderator and listener entry points
+
+Instead of one extension that branches on the PIN, expose distinct numbers and
+set the role with the `+flags{...}` suffix -- no PIN prompt at all on these
+internal-only extensions. A moderator extension and a muted-listener extension
+that share the same room:
+
+```xml
+<extension name="conf_moderator_entry">
+  <condition field="destination_number" expression="^3510$">
+    <action application="answer"/>
+    <action application="conference" data="secure-${domain_name}@secure+flags{moderator}"/>
+  </condition>
+</extension>
+
+<extension name="conf_listener_entry">
+  <condition field="destination_number" expression="^3511$">
+    <action application="answer"/>
+    <action application="conference" data="secure-${domain_name}@secure+flags{mute|deaf}"/>
+  </condition>
+</extension>
+```
+
+Dialing `3510` joins as a moderator; `3511` joins muted and deaf (a pure
+listener, hearing nothing and contributing no audio -- useful for a monitor
+feed). Because these grant roles by extension rather than by PIN, restrict
+access to them in your dialplan or directory rather than publishing them
+externally.
+
+### Play custom entry and exit sounds
+
+The `enter-sound` and `exit-sound` profile parameters play to the room when a
+member joins or leaves. The vanilla profiles use short `tone_stream://` chirps;
+point them at recorded files (relative to the conference `sound-prefix`) for a
+spoken announcement instead:
+
+```xml
+<param name="enter-sound" value="conference/conf-has-joined.wav"/>
+<param name="exit-sound" value="conference/conf-has-left.wav"/>
+```
+
+To announce the running member count as people arrive, set
+`announce-count` to the threshold at which counting begins (`1` announces from
+the first member). See the
+[profile parameters](../applications/conferencing.mdx#profile-parameters) for
+the related sound and announcement options.

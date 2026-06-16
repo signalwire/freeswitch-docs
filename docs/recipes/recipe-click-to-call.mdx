@@ -1,0 +1,203 @@
+---
+sidebar_position: 6
+id: recipe-click-to-call
+slug: /recipes/click-to-call
+title: "Recipe: Click-to-Call with originate"
+description: "Trigger an outbound call from fs_cli or the Event Socket that rings a user and, on answer, bridges them to another extension, an IVR, or a PSTN number using the originate API command."
+sidebar_label: "Click-to-Call (originate)"
+---
+
+# Recipe: Click-to-Call with originate
+
+## Goal
+
+Place a call to one party from outside any existing call -- from the `fs_cli`
+console, a script, or the Event Socket -- and, the moment that party answers,
+connect them to a second destination. This is the building block behind
+"click-to-call" buttons, callback services, and operator-initiated dialing.
+
+The `originate` API command drives the whole flow:
+
+1. FreeSWITCH originates an outbound leg to **party A** (the person you want to
+   ring first -- typically the agent or the user who clicked the button).
+2. When party A answers, FreeSWITCH runs whatever you told it to run on that
+   answered leg: an inline application such as `bridge` (to reach **party B**),
+   or a transfer into the dialplan that decides what happens next.
+
+Because the answered A-leg becomes a normal session, "party B" can be another
+extension, an IVR, a conference, or a PSTN number through a gateway.
+
+## Prerequisites
+
+This recipe composes features documented in the reference chapters. Read those
+first if a piece is unfamiliar:
+
+- [CLI &amp; API / `originate`](/reference/cli-and-api) -- the command syntax,
+  positional arguments, and how it shares the command set between `fs_cli` and
+  the Event Socket.
+- [dptools / `bridge`](/dialplan/dptools) -- the application that joins two
+  legs, plus the dial-string grammar (endpoint prefixes, multi-leg separators,
+  and channel-variable syntax) shared by `originate`.
+- [The XML dialplan](/dialplan/xml) -- needed for the form that routes party A
+  into a dialplan extension instead of an inline application.
+- [User directory](/users-and-endpoints/user-directory) -- defines the
+  `user/<ext>` users and their `dial-string`, which `originate` resolves when
+  you dial a `user/...` URL.
+
+The examples below assume the bundled `conf/vanilla/` configuration, where users
+`1000`-`1019` are defined in the directory and conference extensions `30XX` are
+present in the `default` context.
+
+## Build it
+
+All commands run at the `fs_cli` prompt (or over the Event Socket as the `api`
+method). The general form, from the command's own usage string, is:
+
+```
+originate <call url> <exten>|&<application_name>(<app_args>) [<dialplan>] [<context>] [<cid_name>] [<cid_num>] [<timeout_sec>]
+```
+
+The first argument is the dial string for **party A**. The second argument is
+**one of**:
+
+- `&<application>(<args>)` -- run this application inline on the A-leg after it
+  answers, **or**
+- `<exten>` -- transfer the answered A-leg to dialplan extension `<exten>`
+  (using the optional `<dialplan>` and `<context>`, which default to `XML` and
+  `default`).
+
+### Bridge two parties directly
+
+Ring user `1001`; when they answer, bridge them to user `1002`. The `&bridge(...)`
+inline form runs the `bridge` application on the answered A-leg, with party B's
+dial string as its argument.
+
+```console
+freeswitch@fs> originate user/1001 &bridge(user/1002)
++OK 4a3e6c1e-...-uuid
+```
+
+A successful `originate` prints `+OK` followed by the UUID of the A-leg. A
+failure prints `-ERR` followed by the hangup cause, for example `-ERR
+NO_ANSWER` or `-ERR USER_BUSY`.
+
+To reach a PSTN number for party B, point the inline `bridge` at a gateway dial
+string instead:
+
+```console
+freeswitch@fs> originate user/1001 &bridge(sofia/gateway/mycarrier/15551234567)
+```
+
+### Send party A into the dialplan
+
+Instead of an inline application, transfer the answered A-leg to a dialplan
+extension. Here party A (user `1001`) is sent to extension `9999` in dialplan
+`XML`, context `default`, where your routing decides what happens next (an IVR,
+a hunt group, voicemail, and so on):
+
+```console
+freeswitch@fs> originate user/1001 9999 XML default
+```
+
+`XML` and `default` are the defaults, so `originate user/1001 9999` is
+equivalent. Use this form when the post-answer behavior is more than a single
+application -- the dialplan can run conditions, set variables, and chain
+applications.
+
+### Add origination variables
+
+Prefix the party-A dial string with `{key=value,...}` to set channel variables
+on the originating leg. These are parsed before the leg is created. Common ones:
+
+```console
+freeswitch@fs> originate {origination_caller_id_name='Front Desk',origination_caller_id_number=5550100,ignore_early_media=true}user/1001 &bridge(user/1002)
+```
+
+- `origination_caller_id_name` / `origination_caller_id_number` -- set the
+  caller ID presented to party A.
+- `ignore_early_media=true` -- treat the call as answered only on a real answer,
+  ignoring early media (ringback, "the number you dialed..." announcements) so
+  the bridge does not connect prematurely.
+- `originate_timeout=20` -- give up on party A after 20 seconds. (This is the
+  per-`originate` timeout; you can also pass a timeout as the final positional
+  argument.)
+
+Variables in `{...}` apply to every leg in the dial string. To vary a value per
+leg, use the per-leg `[...]` form documented with the
+[dial-string grammar](/dialplan/dptools).
+
+### Run it non-blocking with bgapi
+
+`originate` **blocks** until party A answers, fails, or times out -- up to the
+timeout (60 seconds by default). At the `fs_cli` prompt or over the Event Socket
+that ties up the connection for the duration. Use `bgapi` to launch it in a
+background thread and return immediately:
+
+```console
+freeswitch@fs> bgapi originate user/1001 &bridge(user/1002)
++OK Job-UUID: 7c9f2a40-...-uuid
+```
+
+`bgapi` returns a Job-UUID right away; the eventual `+OK`/`-ERR` result is
+delivered later as a `BACKGROUND_JOB` event. This is the form a click-to-call
+web backend should use so the HTTP request is not held open while the phone
+rings.
+
+## How it works
+
+**Two legs.** `originate` first calls the core originate engine to create the
+A-leg toward your `<call url>`. That call returns only once the leg reaches a
+final state. If the A-leg answers, FreeSWITCH then acts on the second argument:
+
+- If it begins with `&`, the text inside is parsed as `application` and
+  `(args)`, and that application is queued to execute on the answered A-leg. So
+  `&bridge(user/1002)` makes the answered party A run `bridge user/1002`, which
+  originates the **B-leg** and joins the two.
+- Otherwise the argument is treated as an extension and the A-leg is transferred
+  into the dialplan at that extension, in the given dialplan and context.
+
+**Origination channel variables.** The `{key=value,...}` block at the front of
+the dial string seeds channel variables on the A-leg before it is created.
+`origination_caller_id_name` and `origination_caller_id_number` override the
+presented caller ID; `ignore_early_media` controls whether ringback or media
+before answer counts as a connect; `originate_timeout` caps how long to wait for
+A to answer.
+
+**Early media.** Without `ignore_early_media=true`, audio that arrives before a
+real answer (ringback, gateway announcements) can be treated as the call being
+up, which may bridge party B too soon. Setting `ignore_early_media=true` defers
+the bridge until party A truly answers -- usually what you want for
+click-to-call.
+
+**Inline `&application` vs the dialplan.** The `&app(args)` form is compact and
+self-contained: everything the call needs is on the command line, ideal for a
+one-shot bridge. Routing into the dialplan (`<exten> [<dialplan>] [<context>]`)
+trades that brevity for the full power of XML routing -- conditions, variable
+manipulation, and multi-step flows -- when the answered leg needs more than a
+single application.
+
+For the full command reference, positional arguments, and the shared
+`fs_cli`/Event Socket command set, see the
+[CLI &amp; API chapter](/reference/cli-and-api).
+
+## Variations
+
+**Originate into a conference.** Use the inline `&conference(...)` application to
+drop party A into a conference room on answer. With the bundled config, room
+names follow the `<name>@<profile>` pattern (the `30XX` extensions map to the
+`default` profile):
+
+```console
+freeswitch@fs> originate user/1001 &conference(3001@default)
+```
+
+Originate several parties into the same room (each as its own `originate`) to
+build an operator-assembled conference.
+
+**Trigger it from the Event Socket.** Everything here works verbatim over the
+Event Socket: send the same string with the ESL `api` method (blocking) or
+`bgapi` method (non-blocking, result via `BACKGROUND_JOB`). A web click-to-call
+button typically posts to a backend that opens an ESL connection and issues
+`bgapi originate ...`. See the
+[Event Socket chapter](/integration/event-socket) for connecting, the inbound
+vs outbound modes, and consuming the job-result event.

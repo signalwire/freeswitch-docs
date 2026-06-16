@@ -1,0 +1,330 @@
+---
+sidebar_position: 1
+id: diagnostic-toolbox
+slug: /troubleshooting/toolbox
+title: "The Diagnostic Toolbox"
+description: "Connect with fs_cli, set log levels, inspect channel and SIP-profile state, and trace SIP with the diagnostic commands FreeSWITCH ships with."
+sidebar_label: "Diagnostic Toolbox"
+---
+
+# The Diagnostic Toolbox
+
+Before you can fix a call that misbehaves, you have to *see* what FreeSWITCH is
+doing. This chapter is a tour of the diagnostic surface that ships in the box:
+the interactive console, the log-level controls, the state-inspection commands,
+and SIP tracing. Every command shown here is a real API command — the same set
+documented in the [CLI and API Command
+Reference](../reference/cli-and-api.mdx) — so anything you type at the console
+can also be sent over the Event Socket with `api` or `bgapi`.
+
+Nothing here changes how FreeSWITCH routes calls; these are read-and-observe
+tools. Reach for them first when something is wrong, then use the
+configuration chapters to apply a fix.
+
+## Connecting with fs_cli
+
+`fs_cli` is the interactive client that attaches to a running FreeSWITCH over
+the Event Socket. On the same host you can usually just run it:
+
+```bash
+fs_cli
+```
+
+To reach a remote instance, point it at the host, port, and Event Socket
+password:
+
+```bash
+fs_cli -H 192.0.2.10 -P 8021 -p ClueCon
+```
+
+Once connected you get the `freeswitch@host>` prompt. Type `/help` to list the
+client-side commands the console understands:
+
+```text
+Command                    	Description
+-----------------------------------------------
+/help                      	Help
+/exit, /quit, /bye, ...    	Exit the program.
+/event, /noevents, /nixevent	Event commands.
+/log, /nolog               	Log commands.
+/uuid                      	Filter logs for a single call uuid
+/filter                    	Filter commands.
+/logfilter                 	Filter Log for a single string.
+/debug [0-7]               	Set debug level.
+```
+
+Anything that does *not* begin with `/` is sent to FreeSWITCH as an API command.
+So `status` at the prompt runs the `status` API; `/help` is handled by the
+client itself.
+
+### Controlling the log stream from the console
+
+Three slash-commands shape what scrolls past you while you watch a call:
+
+| Command | What it does |
+| --- | --- |
+| `/log <level>` | Subscribe this console to log events at `<level>` and above (for example `/log debug`). Sent to the server as a `log` command. |
+| `/nolog` | Stop streaming log events to this console. |
+| `/logfilter <string>` | Show only log lines that contain `<string>`; run `/logfilter` with no argument to clear it. The filter is applied client-side. |
+| `/uuid <uuid>` | Show only log lines tagged with one call's UUID; run with no argument to clear. |
+
+`/log` controls *which* log events the server sends you; `/logfilter` and
+`/uuid` narrow what the client prints from that stream. A common pattern is
+`/log debug` to open the firehose, then `/logfilter 1001` or `/uuid <uuid>` to
+follow a single user or call.
+
+:::note
+`/log debug` only affects the events streamed to *your* console session. It does
+not change the system-wide console verbosity — that is the next section.
+:::
+
+## Log levels
+
+FreeSWITCH log levels, from most to least severe, are:
+
+```text
+CONSOLE  ALERT  CRIT  ERR  WARNING  NOTICE  INFO  DEBUG
+```
+
+A given level includes everything more severe than it, so `DEBUG` is the most
+verbose and `CONSOLE` the quietest. (`CONSOLE` is a special always-shown level,
+not "console output in general.") Note the names are `ERR` (not `ERROR`) and
+`WARNING`.
+
+There are three places these levels are set, and they do different things.
+
+### console loglevel — the console logger's verbosity
+
+The `console` logger (`mod_console`) prints to the terminal where FreeSWITCH is
+running. Its verbosity is set with the `console loglevel` API command:
+
+```text
+console loglevel debug
+console loglevel 7
+```
+
+You can give a level name or its numeric index `0`–`7`. Run `console loglevel`
+with no argument to see usage. The matching startup default lives in
+`autoload_configs/console.conf.xml`:
+
+```xml
+<settings>
+  <param name="colorize" value="true"/>
+  <param name="loglevel" value="$${console_loglevel}"/>
+</settings>
+```
+
+In the vanilla config that variable is set in `vars.xml`:
+
+```xml
+<X-PRE-PROCESS cmd="set" data="console_loglevel=info"/>
+```
+
+so a fresh install logs at `info` until you raise it. The `<mappings>` section
+of `console.conf.xml` can further scope which files or functions emit which
+levels — useful when you want `debug` from `sofia.c` only, without drowning in
+the rest.
+
+### fsctl loglevel — the core's global log level
+
+`fsctl loglevel` sets the level on the core logging engine itself — the gate
+every logger sits behind:
+
+```text
+fsctl loglevel debug
++OK log level: DEBUG [7]
+```
+
+Like `console loglevel` it accepts a name or `0`–`7`. Because it operates on the
+core, it affects every attached logger, not just the console. The full `fsctl`
+command surface is large; `loglevel` and `debug_level` are the parts relevant to
+diagnostics.
+
+### Which one do I use?
+
+- Watching one console session? Use `/log <level>`.
+- Changing what the terminal logger prints? Use `console loglevel <level>`.
+- Need everything louder, including files and Event Socket subscribers? Use
+  `fsctl loglevel <level>`.
+
+## Inspecting state
+
+These commands answer "what does FreeSWITCH think is going on right now?"
+
+### status
+
+`status` is the one-line health check: uptime, version, session counts, and
+sessions-per-second:
+
+```text
+UP 0 years, 2 days, 4 hours, 17 minutes, 9 seconds, 31 milliseconds, 502 microseconds
+FreeSWITCH (Version 1.10.x ...) is ready
+1234 session(s) since startup
+3 session(s) - peak 27, last 5min 5
+0 session(s) per Sec out of max 30, peak 12, last 5min 4
+1000 session(s) max
+min idle cpu 0.00/98.70
+```
+
+Look at "is ready" first — if it says "not ready", the system is still starting
+or shutting down. The session counts tell you whether you are near a configured
+ceiling.
+
+### show — live tables of channels, calls, and registrations
+
+The `show` command dumps the core's internal tables. The subcommands you reach
+for most:
+
+```text
+show channels
+show channels count
+show calls
+show registrations
+```
+
+- `show channels` lists every active channel (leg). Add `count` for just the
+  number, or `like <match string>` to filter.
+- `show calls` lists bridged calls (two legs joined).
+- `show registrations` lists SIP endpoints currently registered to FreeSWITCH —
+  the first thing to check when a phone "can't be reached."
+
+`show` accepts many other reports (`show modules`, `show codec`, `show api`,
+`show dialplan`, and more); run `show` with no argument to see the full list.
+Output is CSV-style, so `show channels` over the Event Socket is easy to parse.
+
+### sofia status — SIP profile and gateway health
+
+For anything SIP, `mod_sofia` exposes its own `sofia` command tree. Start with
+the summary:
+
+```text
+sofia status
+```
+
+```text
+                     Name	   Type	                                      Data	State
+=================================================================================================
+                 internal	profile	          sip:mod_sofia@192.0.2.10:5060	RUNNING (0)
+                 external	profile	          sip:mod_sofia@192.0.2.10:5080	RUNNING (0)
+            example.com::gw	gateway	          sip:user@example.com	         NOREG
+=================================================================================================
+```
+
+`State` is the column to read: a profile should be `RUNNING`; a gateway should be
+`REGED` (registered) when it is meant to register upstream.
+
+Drill into one profile to see its bindings, codecs, and counters:
+
+```text
+sofia status profile internal
+```
+
+Drill into a single gateway to see its registration state and call counters:
+
+```text
+sofia status gateway example.com::gw
+```
+
+The exact subcommand syntax is `sofia status profile <name>` and `sofia status
+gateway <name>`; an `xmlstatus` variant produces the same data as XML for
+tooling. The Sofia configuration these reflect is covered in the [SIP Profiles
+with Sofia](../users-endpoints/sip-profiles-sofia.mdx) chapter.
+
+## SIP tracing
+
+When a call fails at the SIP layer, you want to see the messages on the wire.
+Sofia can print them to the log without an external sniffer.
+
+Turn tracing on for **every** profile at once:
+
+```text
+sofia global siptrace on
+sofia global siptrace off
+```
+
+Or scope it to a single profile, which is far quieter on a busy box:
+
+```text
+sofia profile internal siptrace on
+sofia profile internal siptrace off
+```
+
+With tracing on, every SIP request and response on that profile is written to
+the log (at the console level you have set), prefixed with `send`/`recv` and the
+peer address — so you can watch a `REGISTER` get a `401` then a `200 OK`, or see
+exactly which `INVITE` earns a `403 Forbidden`.
+
+For deeper stack-level detail there is `sofia loglevel`, which sets the
+verbosity of individual Sofia-SIP components on a `0`–`9` scale:
+
+```text
+sofia loglevel all 9
+sofia loglevel tport 9
+```
+
+The components you can target are
+`all|default|tport|iptsec|nea|nta|nth_client|nth_server|nua|soa|sresolv|stun`.
+`tport` (transport) is the useful one for connection-level problems. This is
+noisy — turn it back down (`sofia loglevel all 0`) when you are done. Run `sofia`
+with no argument to print the full usage block.
+
+## Per-call inspection
+
+Once you have a call's UUID — from `show channels`, the logs, or `/uuid`
+filtering — you can interrogate that one channel.
+
+`uuid_dump` prints every channel variable for the session:
+
+```text
+uuid_dump <uuid>
+```
+
+This is the single richest view of a leg: caller ID, the matched gateway, codec
+in use, the dialplan context, hangup cause if it has ended, and hundreds more.
+It is the go-to when "the call connected but something is wrong."
+
+When you only need one variable, `uuid_getvar` fetches it directly instead of
+scrolling the whole dump:
+
+```text
+uuid_getvar <uuid> read_codec
+uuid_getvar <uuid> sip_gateway_name
+```
+
+To raise the log verbosity of one live call without touching the rest of the
+system, `uuid_loglevel` sets a per-session level:
+
+```text
+uuid_loglevel <uuid> debug
+```
+
+## External capture tools
+
+The commands above are enough for most diagnosis, but sometimes you need a
+packet-level view — for example to inspect SDP that never reached the log, or to
+hand a capture to a vendor. These tools are **not part of FreeSWITCH**; install
+them from your OS package manager.
+
+| Tool | Use |
+| --- | --- |
+| `sngrep` | Interactive ncurses SIP viewer. Shows call flows as ladder diagrams live on the wire — the fastest way to see a dialog. |
+| `tcpdump` | Capture raw packets to a `.pcap` file for later analysis. |
+| `tshark` | The command-line Wireshark; filter and decode SIP/RTP from a live interface or a `.pcap`. |
+
+A typical capture of SIP on the default ports:
+
+```bash
+sudo tcpdump -i any -s 0 -w /tmp/sip.pcap 'port 5060 or port 5080'
+```
+
+Open the resulting file in Wireshark (or `tshark -r /tmp/sip.pcap`) and use its
+*Telephony → VoIP Calls* view to reconstruct the dialog. For one-way-audio
+problems, follow the RTP streams to confirm media is flowing in both directions
+and to the addresses the SDP advertised.
+
+:::tip
+Start inside FreeSWITCH with `sofia profile <name> siptrace on`. It costs
+nothing to enable, needs no second process, and answers most "what did the other
+side send?" questions on its own. Reach for `sngrep` or a packet capture only
+when you need to see media or traffic the log cannot show you.
+:::
