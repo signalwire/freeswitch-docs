@@ -60,6 +60,11 @@ const config = {
         },
         items: [
           {
+            to: "/releases",
+            label: "Releases",
+            position: "left",
+          },
+          {
             href: "https://github.com/signalwire/freeswitch",
             label: "GitHub",
             position: "right",
