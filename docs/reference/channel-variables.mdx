@@ -47,6 +47,23 @@ These variables govern what FreeSWITCH does before, during, and after a bridge.
 
 ---
 
+### Routing and Recovery Controls {#routing-and-recovery-controls}
+
+These variables steer dialplan transfer/redirect behavior and call recovery.
+
+| Variable | Purpose |
+|---|---|
+| `force_transfer_context` | Forces the dialplan context used by the `transfer` application when no context is given in the transfer arguments. |
+| `force_transfer_dialplan` | Forces the dialplan engine used by the `transfer` application when none is given in the transfer arguments. |
+| `inbound_dialplan` | Overrides the dialplan engine used for inbound calls on the endpoint. |
+| `group_context` | Dialplan context applied to channels created by the `group` dialer. |
+| `inline_destination` | Destination used for inline dialplan execution on a redirected or hung-up leg. |
+| `disable_q850_reason` | When `true`, suppresses the Q.850 `Reason` header in SIP hangup signaling. |
+| `ignore_completed_elsewhere` | When `true`, ignores the SIP "completed elsewhere" indication on CANCEL so the call is not flagged as answered elsewhere. |
+| `enum_nameserver` | DNS nameserver(s) used for ENUM lookups by `mod_enum`. |
+| `recovery_profile_name` | Overrides the SIP profile name stored and used for call recovery. |
+| `secondary_recovery_module` | Name of a secondary endpoint module consulted when recovering a call. |
+
 ## Bridge and Transfer {#bridge-and-transfer}
 
 These variables are set by the core when a bridge or transfer is active or has just completed. Most are read-only at runtime; a few are also operator-settable to influence behavior.
@@ -75,6 +92,38 @@ These variables are set by the core when a bridge or transfer is active or has j
 | `audio_spool_path` | Directory path where audio files are spooled before being written to their final location. When set, the core writes audio to this path first and then moves it. Corresponds to `SWITCH_AUDIO_SPOOL_PATH_VARIABLE`. |
 
 ---
+
+### Bridge Behavior and Pre-Execution {#bridge-behavior-and-pre-execution}
+
+These variables tune the `bridge` and `uuid_bridge` applications, attended/blind transfer, and the `intercept` application.
+
+| Variable | Purpose |
+|---|---|
+| `bridge_answer_timeout` | Seconds to wait for the A-leg to answer during a bridge before bailing out. Integer seconds. |
+| `bridge_terminate_key` | DTMF digit that, when received, terminates the bridge. Single-key string. |
+| `bridge_filter_dtmf` | When `true`, DTMF is filtered (not passed) across the bridge. |
+| `bridge_generate_comfort_noise` | Generates comfort-noise toward the far leg during the bridge. `true` uses level 1400, or supply an integer level (values below `-1` disable). |
+| `continue_on_answer_timeout` | When `true`, the bridge continues rather than failing when the answer timeout is reached. |
+| `answer_delay` | Milliseconds to sleep immediately after a channel is answered. Integer ms; ignored in proxy/text mode. |
+| `answer_flags` | Default flags for the `answer` application when called with no arguments. Substring-matched values `is_conference`, `decode_video`, and `debug_video` set the corresponding channel flags. |
+| `bridge_pre_execute_app` | Dialplan application executed on the A-leg before the bridge loop begins. |
+| `bridge_pre_execute_data` | Argument data passed to `bridge_pre_execute_app`. |
+| `bridge_pre_execute_aleg_app` | Application executed on the caller (A) leg just before a multi-threaded bridge. |
+| `bridge_pre_execute_aleg_data` | Argument data for `bridge_pre_execute_aleg_app`. |
+| `bridge_pre_execute_bleg_app` | Application executed on the callee (B) leg just before a multi-threaded bridge. |
+| `bridge_pre_execute_bleg_data` | Argument data for `bridge_pre_execute_bleg_app`. |
+| `campon` | When `true`, enables camp-on (retry) behavior on `bridge`. |
+| `attended_transfer_no_copy` | Comma-separated list of variable names NOT to copy across legs during an attended transfer. |
+| `blind_transfer_uuid` | UUID of the leg to hang up or transfer when performing a blind transfer. |
+| `confirm_blind_transfer` | When `true`, requires confirmation handling for blind transfers. |
+| `deny_refer_requests` | When `true` on a bridged leg, rejects incoming SIP REFER (transfer) requests. |
+| `hold_hangup_xfer_exten` | When a held leg's bridge ends, transfer the other leg to this extension instead of hanging it up. |
+| `xfer_uuids` | Supplies the pair of leg UUIDs for an `att_xfer` operation. |
+| `intercept_pre_bond` | When `true`, allows `intercept` to grab a leg that is in a pre-bond state. |
+| `intercept_unanswered_only` | When `true`, restricts `intercept` to unanswered legs only. |
+| `intercept_unbridged_only` | When `true`, restricts `intercept` to unbridged legs only. |
+| `uuid_bridge_continue_on_cancel` | When `true`, a `uuid_bridge` parks the surviving leg rather than hanging up when a leg cancels. |
+| `uuid_bridge_park_on_cancel` | When `true`, parks the surviving leg on a `uuid_bridge` cancel. |
 
 ## Origination {#origination}
 
@@ -106,6 +155,24 @@ These variables are set inside the `{}` global block or `[]` per-leg block of an
 
 ---
 
+### Originated-Leg Controls {#originated-leg-controls}
+
+These variables are set on the A-leg (or in the dial string) to shape the outbound leg created by `bridge`/`originate`.
+
+| Variable | Purpose |
+|---|---|
+| `origination_uuid` | Forces the originated session to use this UUID instead of an auto-generated one. |
+| `origination_channel_name` | Sets the display name of the originated peer channel. |
+| `origination_callee_id_name` | Sets the originated peer channel's `callee_id_name`. |
+| `origination_callee_id_number` | Sets the originated peer channel's `callee_id_number`. |
+| `origination_audio_mode` | Overrides the outbound SDP audio direction for the originated leg: `sendrecv`, `sendonly`, `recvonly`, or `inactive` (consumed once, then cleared). |
+| `origination_nested_vars` | When `true`, allows nested/recursive `${var}` expansion during origination by disabling variable-existence checking. |
+| `call_uuid` | Logical call-group UUID. Used as the channel's `Channel-Call-UUID` in events and propagated from caller to originated peer legs so multiple legs share one call UUID. |
+| `inherit_codec` | When `true`, an outbound/B-leg inherits the codec of the originating leg. |
+| `leg_required` | When `true` on an originated leg, marks that leg as required in the dial. |
+| `preserve_originated_vars` | When `false`, originated-leg variables are not preserved onto the caller leg. |
+| `push_channel_name` | When `true`, derives and pushes the B-leg channel name (`X-FS-Channel-Name`) from the caller leg. |
+
 ## Caller Identity {#caller-identity}
 
 FreeSWITCH maintains several caller-ID variables with distinct scopes and precedence.
@@ -122,6 +189,19 @@ FreeSWITCH maintains several caller-ID variables with distinct scopes and preced
 | `origination_caller_id_number` | Caller ID number to use when originating a new call (A-leg). Specified inside the `{}` origination variable block. |
 
 ---
+
+### Effective and Initial Callee Identity {#effective-callee-identity}
+
+These override the caller/callee identity presented in outbound signaling.
+
+| Variable | Purpose |
+|---|---|
+| `effective_callee_id_name` | Overrides the callee ID name presented in outbound signaling. |
+| `effective_callee_id_number` | Overrides the callee ID number presented in outbound signaling. |
+| `initial_callee_id_name` | Sets the initial (pre-update) callee ID name for outbound signaling. |
+| `initial_callee_id_number` | Sets the initial (pre-update) callee ID number for outbound signaling. |
+| `effective_ani` | Overrides the ANI used for the call's effective caller profile. |
+| `effective_aniii` | Overrides the ANI II digits for the call's effective caller profile. |
 
 ## SIP {#sip}
 
@@ -201,6 +281,80 @@ These parsed variables are convenient aliases; the raw header is still accessibl
 
 ---
 
+### Outbound Header Control {#sip-outbound-header-control}
+
+Set on the originating leg, these shape the headers and routing of the outbound INVITE generated by `mod_sofia`.
+
+| Variable | Purpose |
+|---|---|
+| `sip_force_full_from` | Forces the From header of the outbound INVITE to this full value. |
+| `sip_force_full_to` | Forces the To header of the outbound INVITE to this full value. |
+| `sip_invite_from_params` | Extra parameters appended to the From header of the outbound INVITE. |
+| `sip_invite_to_params` | Extra parameters appended to the To header of the outbound INVITE. |
+| `sip_invite_params` | Extra parameters appended to the request-URI of the outbound INVITE. |
+| `sip_invite_contact_params` | Extra parameters appended to the Contact header of the outbound INVITE. |
+| `sip_invite_pid_params` | Extra parameters appended to the P-Asserted/P-Preferred-Identity header of the outbound INVITE. |
+| `sip_invite_tel_params` | Extra tel-URI parameters appended to the outbound INVITE. |
+| `sip_invite_cseq` | Forces a specific numeric CSeq value on the outbound INVITE. |
+| `sip_invite_route_uri` | Sets the Route header URI for the outbound INVITE. |
+| `sip_route_uri` | Overrides the outbound proxy/Route URI used to send the INVITE (and subsequent requests), bypassing normal routing. |
+| `sip_contact_uri` | Overrides the Contact URI used as the redirect/target for inbound legs. |
+| `sip_content_encoding` | Sets the Content-Encoding header on the outbound INVITE's SDP body. |
+| `sip_h_date` | Supplies an explicit `Date` header for the outbound INVITE. |
+| `sip_h_identity` | Supplies an explicit STIR/SHAKEN `Identity` (PASSporT) header on the outbound INVITE. |
+| `sip_allow` | Value used to build the `Allow` header on UPDATE-based callee-ID/display updates; if it contains `UPDATE`, UPDATE is treated as allowed. |
+| `sip_transport` | Forces the SIP transport (`udp`/`tcp`/`tls`/…) for the outbound request when not set in the URI. |
+| `sip_require_timer` | When `false`, disables advertising/requiring the SIP session timer on the outbound INVITE. |
+| `sip_cid_in_1xx` | When `false`, disables sending callee ID in 1xx provisional responses even if the profile enables it. |
+| `sip_cid_suppress_privacy_none` | When `true`, suppresses the explicit `Privacy: none` indication that FreeSWITCH otherwise adds. |
+| `sip_reason` | Overrides the SIP `Reason` header sent on outbound BYE/CANCEL (full Reason-header string), unless `disable_q850_reason` suppresses it. |
+
+### Behavior Controls {#sip-behavior-controls}
+
+| Variable | Purpose |
+|---|---|
+| `sip_auto_simplify` | When `true`, FreeSWITCH attempts to refer/transfer itself out of the call path (call simplification) on bridge. |
+| `sip_copy_custom_headers` | When `false`, stops `sip_h_*` custom headers from being copied across bridged/transferred legs (default on). |
+| `sip_copy_multipart` | When `false`, disables copying the `sip_multipart` body to the new leg on transfer (default on). |
+| `sip_disable_recording` | When `true`, rejects an inbound SIPREC/record request with 488 instead of starting recording. |
+| `sip_enable_soa` | `true`/`false` to enable or disable Sofia SOA (offer/answer) processing for the channel. |
+| `sip_force_nat_mode` | When `true`, forces NAT mode on the channel (sets the NAT flag and `sip_nat_detected`). |
+| `sip_sticky_contact` | When `true`, forces "sticky" NAT contact behavior (record-route plus a NAT session timeout). |
+| `sip_ignore_reinvites` | When `true`, answers re-INVITEs with 200 OK without renegotiating media. |
+| `sip_ignore_remote_cause` | When `true`, uses FreeSWITCH's own hangup cause rather than the bridged leg's SIP cause. |
+| `sip_wait_for_aleg_ack` | When `true`, defers sending ACK on the B-leg until the A-leg's ACK arrives (3PCC-style coordination). |
+| `sip_watch_headers` | Comma-separated list (up to 10) of SIP header names to watch; matching inbound headers are surfaced as events. |
+| `sip_gateway_name` | Names a configured gateway to associate with the channel at hangup so its failure statistics are updated. |
+| `sip_use_gateway` | Names a gateway whose credentials are used to answer an auth challenge on the outbound call. |
+| `sip_challenge_realm` | Sets the realm used when responding to a call with a 401/407 challenge; falls back to `sip_to_host`. |
+| `sip_exclude_contact` | Contact value to exclude when the `sofia_contact` function resolves a registration's contact. |
+| `sip_match_user_agent` | User-Agent substring to match when `sofia_contact` resolves a registration's contact. |
+| `sip_refer_reply` | The sipfrag reply string returned to a REFER before the transferred leg is hung up. |
+| `sip_invite_failure_status` | Custom SIP status used in the sipfrag of a blind-transfer-failure NOTIFY. |
+| `sip_blind_transfer_event` | The SIP `Event` header value used in the sipfrag NOTIFY that completes a blind transfer. |
+| `sip_call_tls_orq_connect_timeout` | Numeric TLS outgoing-request connect timeout for the outbound INVITE (when supported by the linked sofia-sip). |
+| `sip_603plus_passthrough` | When `true`, restores the 603+ `Reason` (from `sip_603plus_reason`) on outbound decline even when `disable_q850_reason` would suppress it. |
+| `sip_603plus_reason` | The Reason-header string used with `sip_603plus_passthrough` on a 603 response. |
+
+### STIR/SHAKEN {#sip-stir-shaken}
+
+| Variable | Purpose |
+|---|---|
+| `sip_stir_shaken_attest` | Attestation level (`A`/`B`/`C`) that triggers generation of a STIR/SHAKEN Identity (PASSporT) header on the outbound INVITE. |
+| `sip_stir_shaken_vs_hangup_on_fail` | When `true`, the inbound verification service hangs up the call on missing/invalid Identity instead of only setting verstat. |
+| `sip_stir_shaken_vs_max_age` | Maximum allowed PASSporT age in seconds for inbound verification (default 60). |
+| `sip_stir_shaken_vs_require_date` | When `true`, requires a valid SIP `Date` within the freshness window for inbound verification. |
+
+### Auto-Answer and MSRP {#sip-auto-answer-msrp}
+
+| Variable | Purpose |
+|---|---|
+| `sip_auto_answer` | When `true` on an outbound leg, sends an `Event: talk` auto-answer NOTIFY on 180/183 (Polycom-style auto-answer). |
+| `sip_auto_answer_suppress_notify` | When `true`, suppresses the auto-answer NOTIFY that `sip_auto_answer` would send. |
+| `sip_msrp_file_name` | Filename used by MSRP file transfer to name the sent/received file. |
+| `sip_msrp_local_file_selector` | Local file selector advertised for an MSRP file-transfer offer. |
+| `sip_msrp_offer_active` | Controls the MSRP setup direction (active offer) in the generated SDP for MSRP. |
+
 ## Media Endpoints and SDP {#media-endpoints-and-sdp}
 
 These variables expose the negotiated media addresses and SDP bodies. They are set by the core media engine (`switch_core_media.c`) and are read-only during a live call.
@@ -225,6 +379,27 @@ These variables expose the negotiated media addresses and SDP bodies. They are s
 
 ---
 
+### SDP and Negotiation Controls {#sdp-and-negotiation-controls}
+
+These influence the generated SDP, codec filtering, and early-media/redirect signaling.
+
+| Variable | Purpose |
+|---|---|
+| `alert_info` | Sets the SIP `Alert-Info` header value on outbound signaling. |
+| `early_use_180` | When `true`, sends SIP 180 instead of 183 for early media/ringing. |
+| `outbound_redirect_info` | Supplies the SIP `Diversion`/redirect info for outbound calls (presence suppresses the default). |
+| `ep_codec_prefer_sdp` | When `true`, prefers the codec ordering from the received SDP over local preference. |
+| `filter_codec_string` | Codec string used to filter the negotiated/proxied codec list. |
+| `sdp_m_per_ptime` | Multiplier controlling `m=`/ptime grouping in the generated SDP. |
+| `verbose_sdp` | When `true`, generates more verbose SDP output. |
+| `ndlb_sendrecv_in_session` | No-default-lazy-behavior flag forcing `a=sendrecv` at the SDP session level. |
+| `exclude_outgoing_extra_header` | Regex of `sip_h_`/extra header names to exclude from outbound SIP requests. |
+| `fs_send_unsupported_info` | When `true`, sends SIP INFO even with unsupported content. |
+| `fs_send_unsupported_message` | When `true`, sends SIP MESSAGE even with unsupported content. |
+| `ignore_sdp_ice` | When `true`, ignores ICE candidates present in the received SDP. |
+| `add_ice_candidates` | When `true`, adds ICE candidates to the generated SDP for the session. |
+| `disable_udptl_auto_adjust` | When `true`, disables automatic UDPTL (T.38) remote-address auto-adjust. |
+
 ## Media and RTP {#media-and-rtp}
 
 These variables control codec selection, RTP security, and media path behavior.
@@ -233,6 +408,7 @@ These variables control codec selection, RTP security, and media path behavior.
 |---|---|
 | `codec_string` | Comma-separated list of codec names to offer or accept during negotiation. FreeSWITCH intersects this list with the endpoint's capabilities. Example: `PCMU,PCMA,G722`. If unset, the profile default applies. |
 | `absolute_codec_string` | Comma-separated list of codecs to use exactly as specified, with no intersection or modification by FreeSWITCH. Overrides `codec_string` when set. Useful to force a specific codec regardless of what the remote party offers. |
+| `media_mix_inbound_outbound_codecs` | Boolean controlling which codecs are offered on the outbound B-leg. By default FreeSWITCH offers the B-leg exactly the codecs that were offered on the inbound A-leg. Set to `true` to instead offer the A-leg codecs *mixed* with the configured outbound codec list (the pre-`FS-8321` behavior). Mixing can produce large codec lists that exceed the UDP MTU and cause call-setup failures, which is why the unmixed behavior is the default. Read in `switch_core_media.c`. |
 | `bypass_media` | When `true`, RTP media flows directly between the two endpoints (peer-to-peer). FreeSWITCH continues to handle signaling but does not process media packets. Both endpoints must be reachable by each other. |
 | `bypass_media_after_bridge` | When `true`, FreeSWITCH switches to bypass media mode after the bridge is established. Corresponds to `SWITCH_BYPASS_MEDIA_AFTER_BRIDGE_VARIABLE` in `switch_types.h`. |
 | `proxy_media` | When `true`, RTP packets are forwarded through FreeSWITCH without parsing or processing. Lighter than full media handling but heavier than `bypass_media`. Requires late negotiation to be enabled in the SIP profile. |
@@ -254,6 +430,104 @@ FreeSWITCH populates a family of `rtp_*` channel variables with per-stream stati
 These variables are written by `switch_rtp.c` and `switch_core_media.c` and are available for CDR templates and post-call reporting via `api_hangup_hook` or `api_reporting_hook`.
 
 ---
+
+### RTP and RTCP Tuning {#rtp-and-rtcp-tuning}
+
+Set before media is established, these tune RTP/RTCP transport, SSRC, payload types, and bug workarounds.
+
+| Variable | Purpose |
+|---|---|
+| `rtcp_audio_interval_msec` | RTCP sender-report interval (ms) for the audio stream; enables RTCP when set. |
+| `rtcp_video_interval_msec` | RTCP sender-report interval (ms) for the video stream; enables RTCP when set. |
+| `rtcp_text_interval_msec` | RTCP interval (ms) for the real-time text (T.140) stream. |
+| `rtcp_mux` | When `false`, disables RTCP multiplexing on the RTP port (rtcp-mux is otherwise offered). |
+| `rtp_assume_rtcp` | When `true`, assumes/auto-detects RTCP for audio and video even when not signaled. |
+| `rtp_remote_audio_rtcp_port` | Overrides the remote RTCP port for the audio stream. |
+| `rtp_remote_video_rtcp_port` | Overrides the remote RTCP port for the video stream. |
+| `rtp_remote_text_rtcp_port` | Overrides the remote RTCP port for the text stream. |
+| `rtp_auto_adjust_threshold` | Consecutive packets (1–65535) from a new source before RTP auto-adjust re-points the send address. |
+| `rtp_autoflush` | When `true`, enables the RTP autoflush flag so buffered inbound audio is flushed. |
+| `rtp_autoflush_during_bridge` | Overrides whether RTP autoflush is active while bridged. |
+| `rtp_rewrite_timestamps` | When `true`, regenerates contiguous outbound RTP timestamps. |
+| `rtp_timer_name` | Selects the soft-timer used for the RTP session, overriding the profile default. |
+| `rtp_use_ssrc` | Forces a specific audio RTP SSRC (decimal). |
+| `rtp_use_video_ssrc` | Forces a specific video RTP SSRC (decimal). |
+| `rtp_use_text_ssrc` | Forces a specific text RTP SSRC (decimal). |
+| `rtp_nack_buffer_size` | Video NACK retransmission buffer size in packets (1–499; default 100) when NACK is enabled. |
+| `rtp_2833_send_payload` | Forces the outbound RFC 2833 (telephone-event) DTMF payload type (must be >64 in the Sofia path). |
+| `rtp_2833_recv_payload` | Forces the inbound RFC 2833 DTMF payload type (must be >64 in the Sofia path). |
+| `rtp_info_when_no_2833` | When not `false` (default `true`), if no telephone-event is in the SDP, DTMF switches to SIP INFO. |
+| `rtp_liberal_dtmf` | When `true`, accepts DTMF more permissively (liberal-DTMF flag). |
+| `rtp_manual_rtp_bugs` | Manually sets the audio RTP bug-workaround bitmask (bug-name list). |
+| `rtp_manual_video_rtp_bugs` | Manually sets the video RTP bug-workaround list. |
+| `rtp_manual_text_rtp_bugs` | Manually sets the text RTP bug-workaround list. |
+
+### Jitter Buffer and Bridge Timing {#jitter-buffer-and-bridge-timing}
+
+| Variable | Purpose |
+|---|---|
+| `rtp_jitter_buffer_during_bridge` | When `true`, keeps the jitter buffer active during a bridge (paused by default). |
+| `rtp_notimer_during_bridge` | Overrides whether the RTP soft-timer is disabled while bridged. |
+| `jb_av_sync_msec` | Target audio/video sync offset (ms) for the jitter buffer. |
+| `jb_use_timestamps` | When `true`, the jitter buffer orders by RTP timestamps instead of sequence numbers. |
+| `jb_video_low_bitrate` | Low-bitrate threshold (kbps) governing video jitter-buffer behavior. |
+
+### Codec, fmtp, and Bandwidth Forcing {#codec-fmtp-and-bandwidth-forcing}
+
+| Variable | Purpose |
+|---|---|
+| `rtp_codec_negotiation` | Codec-negotiation strategy: `generous`, `greedy`, or `scrooge` (invalid values ignored). |
+| `rtp_force_audio_fmtp` | Overrides the fmtp attribute emitted for the audio codec in the local SDP. |
+| `rtp_force_video_fmtp` | Overrides the fmtp attribute emitted for the video codec in the local SDP. |
+| `rtp_mirror_fmtp` | When `true` (and no forced fmtp), mirrors the configured video fmtp into the outbound SDP. |
+| `rtp_append_audio_sdp` | Appends raw text to the generated audio `m=` section of the local SDP. |
+| `rtp_append_video_sdp` | Appends raw text to the generated video `m=` section of the local SDP. |
+| `rtp_disable_byteswap` | When `true`, disables automatic L16 byte-swapping on little-endian hosts. |
+| `rtp_video_max_bandwidth` | Maximum video bandwidth (e.g. `1mb`/`256kb`; default 1mb); falls back to `rtp_video_max_bandwidth_out`. |
+| `rtp_video_max_bandwidth_in` | Maximum inbound video bandwidth advertised/applied for the video stream. |
+| `rtp_video_max_bandwidth_out` | Maximum outbound video bandwidth for the video encoder. |
+
+### SRTP, DTLS, and Secure Media {#srtp-dtls-and-secure-media}
+
+| Variable | Purpose |
+|---|---|
+| `rtp_use_dtls` | When `true`, forces DTLS-SRTP on the audio engine even without AVPF. |
+| `rtp_dtls_mtu` | DTLS handshake MTU in bytes (1 to max; default 1200). |
+| `rtp_allow_crypto_in_avp` | When `true`, accepts `a=crypto` offered under RTP/AVP (instead of RTP/SAVP), contrary to RFC 3711. |
+| `srtp_allow_idle_gaps` | When `true`, allows idle/silence gaps in the SRTP stream rather than forcing continuous send. |
+| `webrtc_enable_dtls` | When explicitly `false`, disables DTLS for WebRTC media. |
+| `uuid_media_secure_media` | Secure-media (SRTP) setting applied when re-establishing media via `uuid_media`. |
+| `media_webrtc` | When `true`, treats the media session as WebRTC (enables WebRTC media defaults). |
+| `NDLB_support_asterisk_missing_srtp_auth` | When `true`, tolerates Asterisk peers that omit SRTP auth parameters. |
+
+### Bypass and Proxy Media {#bypass-and-proxy-media}
+
+| Variable | Purpose |
+|---|---|
+| `bypass_keep_codec` | When `true`, copies the current `ep_codec_string` to `absolute_codec_string` on entering bypass/proxy media to preserve the negotiated codec. |
+| `bypass_media_resume_on_hold` | When `true`, gates `bypass_media_after_hold` so bypass-media behavior is re-evaluated on (un)hold. |
+| `bypass_media_after_hold` | When `true` (with `bypass_media_resume_on_hold`), attempts to leave the media path after a hold/unhold. |
+| `bypass_media_after_bridge_oldschool` | When `true`, uses the legacy code path for switching to bypass media after a bridge. |
+| `bypass_media_sdp_filter` | SDP filter expression applied to the bypassed/proxied SDP before it is relayed to the other leg. |
+
+### Voice Activity, Fax Tone, and Misc Media {#voice-activity-fax-tone-misc-media}
+
+| Variable | Purpose |
+|---|---|
+| `rtp_enable_vad_in` | When `true`, enables inbound voice-activity detection. |
+| `rtp_enable_vad_out` | When `true`, enables outbound voice-activity detection. |
+| `rtp_disable_vad_in` | When `true`, disables inbound voice-activity detection. |
+| `rtp_disable_vad_out` | When `true`, disables outbound voice-activity detection. |
+| `vad_thresh` | VAD energy threshold for the `vad` detector. |
+| `vad_voice_ms` | Minimum voice duration (ms) before the VAD detector declares speech. |
+| `suppress_cng` | When `true`, suppresses generation/use of comfort noise (CNG). |
+| `rtp_disable_hold` | When `true`, disables hold handling (suppresses sendonly/hold toggling) for the channel. |
+| `fax_tone_detect_expires` | Expiry time (seconds) for inband fax (CNG/CED) tone detection. |
+| `fax_tone_detect_sleep` | Quiet interval (seconds) between fax tone-detection attempts. |
+| `v18_mode` | Selects V.18 TDD/text-telephone mode (e.g. `5BIT_45`/`baudot`, `5BIT_50`, `DTMF`, `EDT`, `BELL103`/`ascii`). |
+| `core_video_blank_image` | Path to an image used as the blank/placeholder video frame. |
+| `stream_prebuffer` | Prebuffer size (bytes) applied when opening a streaming file for playback. |
+| `media_reneg_after_broadcast` | Controls media renegotiation after a broadcast (displace) ends. |
 
 ## Recording {#recording}
 
@@ -282,6 +556,19 @@ These variables control the behavior of the `record_session` application and the
 | `record_post_process_exec_api` | API command to execute after a recording completes. Defined in `switch_types.h` as `SWITCH_RECORD_POST_PROCESS_EXEC_API_VARIABLE`. |
 
 ---
+
+### Additional Recording Controls {#additional-recording-controls}
+
+| Variable | Purpose |
+|---|---|
+| `record_rate` | Sample rate (Hz) for the `record` application's output file. |
+| `record_indication` | Path to an indication/comfort file played into the recording read stream. |
+| `recording_follow_attxfer` | When `true`, an active recording follows the leg through an attended transfer. |
+| `flip_record_on_hold` | When `true`, swaps the recording channels when the call is placed on hold. |
+| `RECORD_TOGGLE_ON_REPEAT` | When `true`, a repeated record DTMF binding toggles recording instead of restarting it. |
+| `native_backup_extension` | Fallback file extension for the backup file in native-format playback/record (default `wav`). |
+| `failed_xml_cdr_prefix` | Variable-name prefix for XML CDR data attached to failed origination legs. |
+| `failed_json_cdr_prefix` | Variable-name prefix for JSON CDR data attached to failed origination legs. |
 
 ## Hangup and CDR {#hangup-and-cdr}
 
@@ -333,6 +620,32 @@ These variables control per-channel application logging and speech handle cachin
 
 ---
 
+### Playback, TTS, and Application Controls {#playback-tts-and-application-controls}
+
+These tune `playback`, `speak`/TTS, and assorted dialplan applications.
+
+| Variable | Purpose |
+|---|---|
+| `tts_engine` | Default TTS engine used by `speak`/playback when none is specified. |
+| `tts_voice` | Default TTS voice used by `speak`/playback when none is specified. |
+| `playback_timeout_sec` | Per-file playback timeout in seconds. |
+| `playback_timeout_sec_cumulative` | Cumulative playback timeout in seconds across files. |
+| `playback_timeout_as_success` | When `true`, a playback timeout is treated as success rather than failure. |
+| `playback_delimiter` | Delimiter character separating multiple files in a playback string. |
+| `playback_sleep_val` | Sleep (ms) inserted between files when using `playback_delimiter`. |
+| `app_disable_expand_variables` | When `true`, disables `${var}` expansion in application argument strings. |
+| `ivr_menu_terminator` | Terminator digit for IVR menu digit collection. |
+| `DISPLACE_HANGUP_ON_ERROR` | Controls whether `displace_session` hangs up the channel on error. |
+| `hangup_after_conference` | When `false`, the channel is not hung up after leaving a conference (default hangs up). |
+| `outcall_flags` | Conference flags applied to legs dialed out via `conference dial`. |
+| `valet_ticket` | Ticket/slot identifier used by `mod_valet_parking`. |
+| `python_script_path` | Extra path appended to the Python module search path for `mod_python3`. |
+| `mutex_timeout` | Timeout (seconds) a channel waits to acquire a `mutex`. |
+| `mutex_feedback` | Audio/file (or `silence`) played to a channel waiting on a `mutex`. |
+| `mutex_orbit_exten` | Extension to send a waiting `mutex` channel to on timeout (sets a default 60s timeout). |
+| `mutex_orbit_context` | Dialplan context for the `mutex` orbit on timeout. |
+| `mutex_orbit_dialplan` | Dialplan engine for the `mutex` orbit on timeout. |
+
 ## DTMF {#dtmf}
 
 These variables control DTMF handling for a channel.
@@ -346,6 +659,26 @@ These variables control DTMF handling for a channel.
 | `sensitive_dtmf` | When `true`, DTMF events are not logged in the application log. Useful for channels handling PIN entry. Corresponds to `SWITCH_SENSITIVE_DTMF_VARIABLE`. |
 
 ---
+
+### DTMF Binding and Tone Detection {#dtmf-binding-and-tone-detection}
+
+| Variable | Purpose |
+|---|---|
+| `bind_meta_key` | DTMF digit used as the meta/trigger key for `bind_meta_app` (default `*`). |
+| `bind_digit_digit_timeout` | Inter-digit timeout (ms) for the `bind_digit_action` dmachine (default 1500). |
+| `bind_digit_input_timeout` | Overall input timeout (ms) for the `bind_digit_action` dmachine. |
+| `bda_terminators` | Terminator digits for the dmachine created by `bind_digit_action`. |
+| `asr_intercept_dtmf` | When `true`, DTMF detected by the ASR engine is intercepted/queued rather than passed through. |
+| `pass_rfc2833` | When `true`, passes RFC 2833 (telephone-event) DTMF through transparently. |
+| `digits_dialed_filter` | Regex; matching dialed digits are masked in the `digits_dialed` history. |
+| `sleep_eat_digits` | When `true`, the `sleep` application consumes DTMF received during the sleep. |
+| `min_dup_digit_spacing_ms` | Minimum spacing (ms) before a duplicate inband DTMF digit is accepted. |
+| `dtmf_verbose` | When `true`, enables verbose logging of detected inband DTMF. |
+| `pound_replace` | Digit string that replaces `#` in say/spell playback. |
+| `star_replace` | Digit string that replaces `*` in say/spell playback. |
+| `tone_detect_expires` | Expiry time (seconds) for a `tone_detect` detector. |
+| `tone_detect_hits` | Number of hits required before `tone_detect` fires. |
+| `tone_detect_sleep` | Quiet interval (seconds) between `tone_detect` evaluations. |
 
 ## Directory and Account {#directory-and-account}
 
@@ -390,6 +723,20 @@ These variables trigger dialplan applications or API commands automatically at d
 | `session_in_hangup_hook` | When `true`, the session remains available during `api_hangup_hook` execution, allowing the API command to access channel variables. Corresponds to `SWITCH_SESSION_IN_HANGUP_HOOK_VARIABLE`. |
 
 ---
+
+### Event and Logging Hooks {#event-and-logging-hooks}
+
+| Variable | Purpose |
+|---|---|
+| `fire_talk_events` | When `true`, fires "talking" events from RTP VAD. |
+| `fire_not_talk_events` | When `true`, fires "not talking" events from RTP VAD. |
+| `fire_asr_events` | When `true`, fires ASR detection events to the event system. |
+| `verbose_presence` | When `true`, enables verbose presence event generation for the session. |
+| `heartbeat_fire_on_set` | When `true`, fires a session heartbeat event immediately when the heartbeat is (re)set. |
+| `heartbeat_use_scheduler` | When `true`, drives the session heartbeat via the scheduler instead of inline. |
+| `session_copy_loglevel` | When `true`, copies the session log level to a newly originated child session. |
+| `log_audio_stats_on_hangup` | When `true`, logs RTP audio statistics on hangup. |
+| `hangup_complete_with_xml` | When `true`, includes the channel XML CDR in hangup-complete handling. |
 
 ## Module Reference Variables {#module-reference-variables}
 
