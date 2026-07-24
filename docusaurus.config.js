@@ -140,7 +140,9 @@ const config = {
       // Footer modeled on signalwire.com: a brand column (logo + tagline)
       // followed by link columns. Always renders on the dark surface.
       footer: {
-        style: "dark",
+        // Colors come from the design tokens in custom.scss so the footer
+        // follows the active theme (dark / light / auto).
+        style: "light",
         links: [
           {
             // Title is required by Docusaurus but visually hidden (sr-only) so
@@ -150,7 +152,8 @@ const config = {
               {
                 html: `
                   <div class="footer__brand">
-                    <img src="/freeswitch/img/logo-white.svg" alt="FreeSWITCH" class="footer__brand-logo" />
+                    <img src="/freeswitch/img/logo.svg" alt="FreeSWITCH" class="footer__brand-logo footer__brand-logo--light" />
+                    <img src="/freeswitch/img/logo-white.svg" alt="FreeSWITCH" class="footer__brand-logo footer__brand-logo--dark" />
                     <p class="footer__brand-tagline">The open source platform for voice, video, and messaging.</p>
                     <p class="footer__brand-note">Maintained by SignalWire</p>
                   </div>
