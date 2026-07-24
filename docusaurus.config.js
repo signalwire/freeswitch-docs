@@ -111,6 +111,9 @@ const config = {
         logo: {
           alt: "FreeSWITCH Users Manual",
           src: "img/logo.svg",
+          // White variant for dark mode - the navy mark is unreadable on the
+          // dark surface. Docusaurus swaps this automatically with the theme.
+          srcDark: "img/logo-white.svg",
         },
         items: [
           {
