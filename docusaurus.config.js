@@ -137,41 +137,82 @@ const config = {
         content:
           '<a target="_blank" class="banner-link" href="https://info.signalwire.com/freeswitch-office-hours-signup">FreeSWITCH Office Hours</a>Talk to the experts on the first and third Tuesday of every month. <a class="button button--primary button--sm" href="https://info.signalwire.com/freeswitch-office-hours-signup">Sign up</a>',
       },
+      // Footer modeled on signalwire.com: a brand column (logo + tagline)
+      // followed by link columns. Always renders on the dark surface.
       footer: {
         style: "dark",
         links: [
           {
-            title: "Video",
+            // Title is required by Docusaurus but visually hidden (sr-only) so
+            // the brand column reads as a logo block, as on signalwire.com.
+            title: "FreeSWITCH",
             items: [
               {
-                label: "Youtube",
-                href: "https://www.youtube.com/freeswitch",
+                html: `
+                  <div class="footer__brand">
+                    <img src="/freeswitch/img/logo-white.svg" alt="FreeSWITCH" class="footer__brand-logo" />
+                    <p class="footer__brand-tagline">The open source platform for voice, video, and messaging.</p>
+                    <p class="footer__brand-note">Maintained by SignalWire</p>
+                  </div>
+                `,
+              },
+            ],
+          },
+          {
+            title: "Documentation",
+            items: [
+              { label: "Getting Started", to: "/foundations/getting-started" },
+              { label: "Module Reference", to: "/module-reference" },
+              { label: "Recipes", to: "/recipes" },
+              { label: "Troubleshooting", to: "/troubleshooting" },
+              { label: "Programming (ESL)", to: "/programming" },
+            ],
+          },
+          {
+            title: "Reference",
+            items: [
+              { label: "CLI and API", to: "/reference/cli-and-api" },
+              { label: "Channel Variables", to: "/reference/channel-variables" },
+              { label: "Core Concepts", to: "/foundations/introduction" },
+            ],
+          },
+          {
+            title: "Downloads",
+            items: [
+              {
+                label: "Open Source FreeSWITCH",
+                href: "https://github.com/signalwire/freeswitch/releases",
+              },
+              {
+                label: "FreeSWITCH Enterprise",
+                href: "https://github.com/signalwire/stack/releases",
+              },
+              {
+                label: "GitHub",
+                href: "https://github.com/signalwire/freeswitch",
               },
             ],
           },
           {
             title: "Community",
             items: [
-              {
-                label: "Forums",
-                href: "https://forum.signalwire.community/",
-              },
-              {
-                label: "Twitter",
-                href: "https://twitter.com/freeswitch",
-              },
+              { label: "Forums", href: "https://forum.signalwire.community/" },
+              { label: "YouTube", href: "https://www.youtube.com/freeswitch" },
+              { label: "X (Twitter)", href: "https://twitter.com/freeswitch" },
+              { label: "ClueCon", href: "https://www.cluecon.com/" },
             ],
           },
           {
-            title: "More",
+            title: "SignalWire",
             items: [
+              { label: "SignalWire.com", href: "https://signalwire.com" },
               {
-                label: "Cluecon",
-                href: "https://www.cluecon.com/",
+                label: "Office Hours",
+                href: "https://info.signalwire.com/freeswitch-office-hours-signup",
               },
               {
-                label: "GitHub",
-                href: "https://github.com/signalwire/freeswitch",
+                label: "Contact Sales",
+                href: "mailto:sales@signalwire.com",
               },
             ],
           },
