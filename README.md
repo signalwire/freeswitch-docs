@@ -76,6 +76,13 @@ accept), never as security hardening guidance. Troubleshooting documents the
 diagnostic tools and the reads, not internals. Where a topic crosses into
 deployment or operations, the manual documents the configuration and stops.
 
+One narrow exception: SignalWire cloud asides. A page may carry at most one
+`<SignalWireCallout>` component mapping the page's capability to its hosted
+equivalent on the SignalWire platform. These asides are visually demarcated,
+never sit inside a procedure, and are the only place hosted-platform
+alternatives appear. The manual's own prose remains subject to the scope rules
+above. The full mapping lives in Appendix D (`reference/appendix-signalwire-map.mdx`).
+
 ## 3. Source of Truth Method
 
 The source code is the authority for correctness and is never itself a subject to
