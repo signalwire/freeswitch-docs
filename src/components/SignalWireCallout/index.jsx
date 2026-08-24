@@ -1,5 +1,6 @@
 import React from "react";
 import Link from "@docusaurus/Link";
+import useBaseUrl from "@docusaurus/useBaseUrl";
 
 const UTM = {
   utm_source: "freeswitch-docs",
@@ -24,7 +25,16 @@ export default function SignalWireCallout({ title, href, page, linkText, anchor,
   const className = variant ? `sw-callout sw-callout--${variant}` : "sw-callout";
   return (
     <aside className={className} id={id}>
-      <p className="sw-callout__eyebrow">SignalWire Cloud</p>
+      <p className="sw-callout__eyebrow">
+        <img
+          className="sw-callout__logo"
+          src={useBaseUrl("/img/signalwire-mark.svg")}
+          alt=""
+          width="16"
+          height="16"
+        />
+        SignalWire Cloud
+      </p>
       {title && (
         <p className="sw-callout__title">
           {title}
