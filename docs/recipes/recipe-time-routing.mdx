@@ -321,20 +321,31 @@ zone.
 
 <SignalWireCallout
   title="The same build on SignalWire"
-  href="https://signalwire.com/docs/swml"
+  href="https://signalwire.com/docs/server-sdks"
   page="recipe-time-routing"
-  linkText="See SWML served per call">
+  linkText="See the Server SDK">
 
-On SignalWire the per-call decision lives in the server that returns the document. Your number fetches its SWML (a JSON/YAML call-control markup) on every call, the `mod_xml_curl` pattern, so business hours become ordinary code:
+On SignalWire the per-call decision lives in code. The Server SDK's `SWMLService` builds and serves the call-control document on every call, the `mod_xml_curl` pattern, so business hours become ordinary Python:
 
 ```python
-@app.route("/swml", methods=["POST"])
-def route_call():
-    if open_now():           # Mon-Fri 9-5, holidays, all in code you can test
-        return open_swml     # connect to the operator or IVR
-    return closed_swml       # closed greeting, then record a message
+from signalwire import SWMLService
+
+class BusinessHours(SWMLService):
+    def on_request(self, request_data=None, callback_path=None):
+        if open_now():  # Mon-Fri 9-5, holidays: plain Python you can unit test
+            return {"sections": {"main": [
+                {"answer": {}},
+                {"connect": {"to": "+15550100"}},
+            ]}}
+        return {"sections": {"main": [
+            {"answer": {}},
+            {"play": {"url": "say:We are closed. Please leave a message."}},
+            {"record": {"beep": True}},
+        ]}}
+
+BusinessHours(name="business-hours").run()
 ```
 
-No `strftime` condition syntax to memorize, and the holiday list is a data structure instead of a dialplan edit.
+`on_request` runs per call, so the holiday list is a data structure and the open/closed rule is a function with tests, not `strftime` condition syntax. The same SDK ships for TypeScript.
 
 </SignalWireCallout>
