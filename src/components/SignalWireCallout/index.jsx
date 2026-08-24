@@ -12,7 +12,8 @@ const UTM = {
  * equivalent. Scope rules: maximum one per page, never inside a procedure.
  * Outbound links carry UTM parameters; utm_content is the page id.
  */
-export default function SignalWireCallout({ title, href, page, linkText, children }) {
+export default function SignalWireCallout({ title, href, page, linkText, anchor, children }) {
+  const id = anchor || "signalwire";
   const url = new URL(href);
   for (const [key, value] of Object.entries(UTM)) {
     url.searchParams.set(key, value);
@@ -21,9 +22,21 @@ export default function SignalWireCallout({ title, href, page, linkText, childre
     url.searchParams.set("utm_content", page);
   }
   return (
-    <aside className="sw-callout">
+    <aside className="sw-callout" id={id}>
       <p className="sw-callout__eyebrow">SignalWire Cloud</p>
-      {title && <p className="sw-callout__title">{title}</p>}
+      {title && (
+        <p className="sw-callout__title">
+          {title}
+          <a
+            className="sw-callout__hash"
+            href={`#${id}`}
+            aria-label="Direct link to this callout"
+            title="Direct link to this callout"
+          >
+            #
+          </a>
+        </p>
+      )}
       <div className="sw-callout__body">{children}</div>
       <p className="sw-callout__links">
         <a href={url.toString()} target="_blank" rel="noopener noreferrer">
