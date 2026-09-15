@@ -1,0 +1,322 @@
+---
+sidebar_position: 5.5
+id: mod_com_amd
+slug: /module-reference/applications/mod_com_amd
+title: "mod_com_amd — Answering Machine Detection (Commercial)"
+description: "The licensed answering machine detection module: classifies an answered call as a person or a machine from the talk and silence pattern of the greeting."
+sidebar_label: "mod_com_amd"
+---
+
+# mod_com_amd — Answering Machine Detection (Commercial)
+
+`mod_com_amd` is the commercial answering machine detection (AMD) module. When detection starts on a channel, the module listens to the audio arriving from the far end and classifies the greeting by its pattern of speech and silence. A short greeting followed by silence, or no greeting at all, is classified as a person. A long unbroken greeting, or one with many words, is classified as a machine. The result is written to channel variables, can trigger a dialplan action, and is reported as an event.
+
+Outbound dialers use it to connect live answers to agents and to route machine answers to a recorded message or a hangup. Detection is a timing heuristic, so no setting classifies every call correctly; tune the thresholds against real answers from the numbers you dial.
+
+`mod_com_amd` is licensed per channel and is not part of the open-source tree. Purchasing, package installation, licence activation, and the license server are covered in [Commercial Modules and Licensing](../commercial-modules.mdx). It complements [`mod_avmd`](./mod_avmd.mdx), which detects the beep tone at the end of a voicemail greeting rather than classifying who answered.
+
+<SignalWireCallout
+  title="Machine detection without a licence server"
+  href="https://signalwire.com/docs/swml/reference/calling/detect-machine"
+  page="mod-com-amd"
+  linkText="See detect_machine in SWML">
+
+Hosted SignalWire runs this commercial AMD engine behind the `detect_machine` method of SWML, a JSON/YAML call-control markup, with no licences to activate and no module to load. It adds fax detection and, with `detect_message_end: true`, waits for the end of the greeting. Results post to your `status_url` webhook, with `wait` selecting blocking or asynchronous detection.
+
+</SignalWireCallout>
+
+## Loading the Module
+
+Install the `freeswitch-mod-com-amd` package and activate AMD licences as described in [Commercial Modules and Licensing](../commercial-modules.mdx). The module is **not** in the vanilla `modules.conf.xml`; add it to `autoload_configs/modules.conf.xml`:
+
+```xml
+<load module="mod_com_amd"/>
+```
+
+At load time the module logs its licensed channel count (`AMD license count => <N>`) and registers three dialplan applications, three API commands, and the `AMD::EVENT` custom event subclass. The module reads `amd.conf.xml` only when it loads. After editing the file, apply the change with `reload mod_com_amd` or a FreeSWITCH restart; `reloadxml` alone does not.
+
+## How Detection Classifies a Call {#how-detection-classifies-a-call}
+
+Detection runs on the audio FreeSWITCH receives on the channel (the read direction), frame by frame. Each frame's average sample amplitude is compared with `silent_threshold`: at or above it the frame is speech, below it the frame is silence. A burst of speech that lasts `noise_min_length` milliseconds counts as a word. The first word ends the initial phase and starts the intro phase.
+
+Detection stops at the first rule that matches:
+
+| `amd_status` | `amd_result` | Rule |
+|---|---|---|
+| `person` | `silent-initial` | No word has been heard yet, and the line stays silent for `silent_initial` ms. |
+| `person` | `silent-after-intro` | After the first word, `silent_after_intro` ms pass without another word. Bursts shorter than `noise_min_length` do not restart the timer. |
+| `machine` | `max-count` | The word count reaches `noise_max_count`, **or**, once the first word has started, a single unbroken burst of speech lasts `noise_max_intro` ms. |
+| `unsure` | `too-long` | The analysis budget in `total_analysis_time` runs out before any other rule matches. |
+| `undefined` | `media-bug-failed` | Detection could not start. See [Detection Failures](#detection-failures). |
+
+The module also defines the result `max-intro`, but the long-greeting rule reports `max-count`, so `max-intro` does not appear in practice.
+
+When a rule matches, the module sets `amd_status` and `amd_result`, logs `AMD Status: <status> (<result>)` at `INFO` level (or, with `debug` on, a detailed result line at `debug_loglevel`), sends the `DETECTED_SPEECH` completion event, runs the matching `amd_execute_on_*` action, and then detaches. Detaching releases the AMD licence channel, so a licence is held only while detection is running, not for the rest of the call.
+
+Because detection reads the channel's incoming audio, run it on the leg whose answerer you want to classify. For a call placed with `originate` into the dialplan, that is the channel running the dialplan. Set `media_bug_answer_req=true` before `voice_start` if detection may start before the call is answered, so that early media is not analyzed.
+
+## Configuration: `amd.conf.xml` {#configuration-amdconfxml}
+
+The package installs `autoload_configs/amd.conf.xml`. All parameters live in a single `<settings>` block. Every parameter can also be overridden for one call through the arguments of [`voice_start`](#voice_start).
+
+### Parameter Reference
+
+The **Module default** column is the value used when a parameter is absent from both the file and the `voice_start` arguments. The **Packaged value** column is what the installed `amd.conf.xml` sets; several differ from the module defaults.
+
+| Parameter | Purpose | Values | Module default | Packaged value |
+|---|---|---|---|---|
+| `silent_threshold` | Frame energy that separates speech from silence: the average absolute sample value of a frame of 16-bit audio. Frames at or above it are speech. | Integer (0 to 32767) | `256` | `256` |
+| `silent_initial` | Silence, in ms, before the first word, that classifies the call as `person` / `silent-initial`. | Integer, ms | `4500` | `4500` |
+| `silent_after_intro` | Time, in ms, after a word with no further word, that classifies the call as `person` / `silent-after-intro`. | Integer, ms | `1000` | `500` |
+| `noise_max_intro` | Length, in ms, of one unbroken speech burst, once the first word has started, that classifies the call as `machine` / `max-count`. | Integer, ms | `1250` | `1250` |
+| `noise_min_length` | Length, in ms, a speech burst must last to count as a word. | Integer, ms | `120` | `120` |
+| `noise_inter_silence` | Word-count gate. When a burst reaches `noise_min_length`, it counts as a word only if at least this many ms have passed since the last silent frame. That time already exceeds `noise_min_length` by about one frame, so a value at or below `noise_min_length` never blocks a count, and a value more than one frame above it stops words from being counted at all. | Integer, ms | `30` | `50` |
+| `noise_max_count` | Number of words that classifies the call as `machine` / `max-count`. | Integer | `6` | `3` |
+| `total_analysis_time` | Analysis budget before the call is classified as `unsure` / `too-long`. **Not milliseconds:** see [Analysis Budget Units](#analysis-budget-units). | Integer | `5000` | `5000` |
+| `hangup_on_bug_fail` | Hang up the call with `DESTINATION_OUT_OF_ORDER` when detection cannot start. | `true` / `false` | `true` | Not set |
+| `event_fire` | Send the `DETECTED_SPEECH` completion event to the event system with the channel's headers, instead of queuing it to the channel. See [Events](#events). | `true` / `false` | `false` | Not set |
+| `debug` | Log a trace of detection at `debug_loglevel`: a line for every silent frame, a line at each rule checkpoint, and a result line listing every setting and counter. | `true` / `false` | `false` | `true` |
+| `debug_loglevel` | Log level for `debug` output. Values outside the range are ignored. | `1` (ALERT) to `7` (DEBUG) | `7` | Not set |
+
+The packaged file enables `debug`, which logs a line for every silent frame at `DEBUG` level. Set it to `false` to reduce logging to the single `INFO` result line per call.
+
+The packaged file also contains `silent_max_session`, `ring_timeout`, and `break_digit`. The module does not read these three; `silent_max_session` is a fixed internal value, and the other two have no effect.
+
+### Packaged Configuration
+
+```xml
+<configuration name="amd.conf" description="AMD Configuration">
+  <!-- AMD -->
+  <settings>
+    <param name="silent_threshold" value="256"/>
+    <param name="silent_initial" value="4500"/>
+    <param name="silent_after_intro" value="500"/>
+    <param name="silent_max_session" value="200"/>
+    <param name="noise_max_intro" value="1250"/>
+    <param name="noise_min_length" value="120"/>
+    <param name="noise_inter_silence" value="50"/>
+    <param name="noise_max_count" value="3"/>
+    <param name="total_analysis_time" value="5000"/>
+    <param name="ring_timeout" value="36"/>
+    <param name="break_digit" value="#"/>
+    <param name="debug" value="1"/>
+  </settings>
+</configuration>
+```
+
+### Analysis Budget Units {#analysis-budget-units}
+
+`total_analysis_time` is compared against the amount of decoded audio the module has analyzed, counted in units of 1,000 bytes of 16-bit audio. The time one unit represents depends on the channel's sample rate:
+
+| Channel sample rate | Time per unit | Budget with the value `5000` | Value for a 5-second budget |
+|---|---|---|---|
+| 8000 Hz | 62.5 ms | about 312 seconds | `80` |
+| 16000 Hz | 31.25 ms | about 156 seconds | `160` |
+| 48000 Hz | 10.4 ms | about 52 seconds | `480` |
+
+For a mono channel, the value for a budget of *S* seconds is *S* × sample rate × 2 ÷ 1000. With the default value, the `silent-initial`, `silent-after-intro`, and `max-count` rules nearly always decide a call long before the budget runs out. To bound detection time, lower `total_analysis_time` using the table above.
+
+## Dialplan Applications
+
+| Application | Purpose | Arguments |
+|---|---|---|
+| `voice_start` | Start detection on the channel. Returns immediately; the dialplan continues while detection runs. | Optional comma-separated `key=value` overrides |
+| `voice_stop` | Stop detection on the channel and release its licence channel. | None |
+| `waitforresult` | Block until detection produces a result, playing a file while waiting. | Optional file to play |
+
+### `voice_start` {#voice_start}
+
+Starts detection. With no arguments, the values from `amd.conf.xml` apply. Arguments are comma-separated `key=value` pairs using the parameter names from the [Parameter Reference](#parameter-reference) (for example `noise_max_count` or `hangup_on_bug_fail`); names are case-insensitive, and at most 20 pairs are read. The overrides apply to this detection only.
+
+Starting detection clears any previous `amd_status` and `amd_result` on the channel and takes one AMD licence channel. A channel runs one detection at a time: calling `voice_start` while detection is already running logs `Only 1 AMD per channel please!` and changes nothing.
+
+```xml
+<action application="voice_start"/>
+```
+
+```xml
+<action application="voice_start" data="silent_after_intro=800,noise_max_count=4,total_analysis_time=80,debug=false"/>
+```
+
+If the channel variable `amd_debug` is true when `voice_start` runs, `debug` is turned on for that detection.
+
+### `voice_stop`
+
+Stops detection and releases its licence channel. If detection had not yet produced a result, `amd_status` and `amd_result` stay unset and no `amd_execute_on_*` action runs. Calling it on a channel without detection does nothing.
+
+```xml
+<action application="voice_stop"/>
+```
+
+### `waitforresult`
+
+Answers the channel if it is not already answered, then waits for detection to finish. While waiting it plays the file given as its argument, starting it again each time it ends; with no argument, or the word `silence`, it plays silence. It returns as soon as detection produces a result, or when the channel hangs up.
+
+```xml
+<action application="waitforresult"/>
+<action application="waitforresult" data="ivr/ivr-one_moment_please.wav"/>
+```
+
+- If a result is already set, it logs `AMD RESULT FOUND: <result>` and returns at once.
+- If detection is not running on the channel, it logs `<channel> Channel is not running AMD` at `WARNING` level and returns.
+- If the channel hangs up while waiting, it sets `amd_wait_status` and `amd_wait_result` to `hangup`.
+
+`waitforresult` has no timeout of its own. The wait ends when a detection rule matches, so bound it with `total_analysis_time` (see [Analysis Budget Units](#analysis-budget-units)).
+
+## API Commands
+
+The module registers three API commands that report AMD licence usage. They take no arguments. Their output and use in dialplan conditions are documented in [Commercial Modules and Licensing: Checking Licence Usage](../commercial-modules.mdx#checking-licence-usage).
+
+| Command | Returns |
+|---|---|
+| `amd_info` | `AMD license available => <free>` and `AMD license allocated => <in use>`, or `Can't contact licence server.` |
+| `amd_available` | `true` if at least one AMD channel is free, otherwise `false` |
+| `amd_count` | The number of free AMD channels |
+
+There is no API command to start detection on a channel by UUID. From the Event Socket, start it with a channel variable such as `execute_on_answer` (see [Event Socket Dialer](#event-socket-dialer)) or run the `voice_start` application on the channel.
+
+## Channel Variables
+
+| Variable | Set / Read | Purpose |
+|---|---|---|
+| `amd_status` | Set | The classification: `person`, `machine`, `unsure`, or `undefined` when detection could not start. Cleared when detection starts. |
+| `amd_result` | Set | The rule that decided the call: `silent-initial`, `silent-after-intro`, `max-count`, `too-long`, or `media-bug-failed`. Cleared when detection starts. |
+| `amd_wait_status` | Set | `hangup` when the channel hung up during `waitforresult`. |
+| `amd_wait_result` | Set | `hangup` when the channel hung up during `waitforresult`. |
+| `amd_execute_on_machine` | Read | Dialplan application to run when the result is `machine`. |
+| `amd_execute_on_person` | Read | Dialplan application to run when the result is `person`. |
+| `amd_execute_on_unsure` | Read | Dialplan application to run when the result is `unsure`. |
+| `amd_debug` | Read | When true at `voice_start`, enables `debug` for that detection. |
+
+The value of an `amd_execute_on_*` variable is an application name, a space, and its arguments, for example `transfer amd_machine XML default`. Variables in the arguments are expanded when the action runs. The module matches by prefix, so every channel variable whose name begins with `amd_execute_on_machine` (such as `amd_execute_on_machine_1` and `amd_execute_on_machine_2`) runs when a machine is detected. The actions run when detection completes, while the channel is still in whatever application it was executing, so a `transfer` action interrupts that application.
+
+No `amd_execute_on_*` action runs when detection fails to start or is stopped with `voice_stop` before a result.
+
+## Events {#events}
+
+| Event | Fired when | Headers |
+|---|---|---|
+| `CUSTOM` with `Event-Subclass: AMD::EVENT` | Each time the audio changes between speech and silence during detection | `Action` (`start-talking` or `stop-talking`), plus the channel's headers |
+| `DETECTED_SPEECH` | Detection produces a result | `amd_result`, `amd_status`; body `amd_complete` |
+| `MEDIA_BUG_START` / `MEDIA_BUG_STOP` | Detection attaches to and detaches from the channel (FreeSWITCH core events) | `Media-Bug-Function: amd`, `Media-Bug-Target: amd`, plus the channel's headers |
+
+`AMD::EVENT` fires on every transition, so expect many per call.
+
+Delivery of the `DETECTED_SPEECH` completion event depends on `event_fire`:
+
+- **`event_fire=false` (default):** the event is queued to the channel, without the channel's headers. It reaches a script that is playing audio on the channel with an input callback registered, or an outbound Event Socket connection that has enabled `divert_events`. It does not reach the global event system, so an inbound Event Socket subscription does not see it. If the channel's queue rejects it, the event is instead sent to the event system with the header `delivery-failure: true`.
+- **`event_fire=true`:** the event is sent to the event system with the channel's headers, including `Unique-ID`. Inbound Event Socket clients receive it with `event plain DETECTED_SPEECH`.
+
+## Detection Failures {#detection-failures}
+
+`voice_start` cannot start detection when no AMD licence channel is free, when the license server cannot be reached, or when the media bug cannot attach to the channel. In each case the module:
+
+1. Logs `Bug Failure!` at `ERROR` level.
+2. Sets `amd_status` to `undefined` and `amd_result` to `media-bug-failed`.
+3. If `hangup_on_bug_fail` is `true` (the default), hangs up the call with the cause `DESTINATION_OUT_OF_ORDER`.
+
+Checking `${amd_available()}` before `voice_start` avoids most failures, but another call can take the last free channel between the check and the start. To keep a call up when detection cannot start, pass `hangup_on_bug_fail=false` and route on `amd_status`:
+
+```xml
+<action application="voice_start" data="hangup_on_bug_fail=false"/>
+```
+
+## Examples
+
+### Outbound Call with a Blocking Wait
+
+Place the call with `originate` so the answered leg runs the `amd_outbound` extension. `ignore_early_media=true` makes `originate` wait for a real answer instead of treating early media as one.
+
+```text
+bgapi originate {ignore_early_media=true}sofia/gateway/mygw/15551234567 amd_outbound XML default
+```
+
+The extension checks for a free AMD channel, waits for the result, and transfers to an extension named after the status. Actions expand variables when they run, so `${amd_status}` in the `transfer` holds the result that `waitforresult` waited for.
+
+```xml
+<extension name="amd_outbound">
+  <condition field="destination_number" expression="^amd_outbound$"/>
+  <condition field="${amd_available()}" expression="^true$">
+    <action application="voice_start"/>
+    <action application="waitforresult"/>
+    <action application="transfer" data="amd_${amd_status} XML default"/>
+    <anti-action application="hangup" data="NORMAL_TEMPORARY_FAILURE"/>
+  </condition>
+</extension>
+
+<extension name="amd_person">
+  <condition field="destination_number" expression="^amd_(person|unsure)$">
+    <action application="bridge" data="user/1000"/>
+  </condition>
+</extension>
+
+<extension name="amd_machine">
+  <condition field="destination_number" expression="^amd_machine$">
+    <action application="wait_for_silence" data="300 30 5 25000"/>
+    <action application="playback" data="$${recordings_dir}/campaign-message.wav"/>
+    <action application="hangup"/>
+  </condition>
+</extension>
+```
+
+In `amd_machine`, [`wait_for_silence`](../../dialplan/dptools-reference.mdx) waits for the greeting to end before the message plays.
+
+### Detection While the Call Proceeds
+
+With an `amd_execute_on_machine` action, the dialplan does not need to wait. The call proceeds while detection runs, and a machine result transfers it away:
+
+```xml
+<extension name="amd_proceed">
+  <condition field="destination_number" expression="^amd_proceed$">
+    <action application="set" data="amd_execute_on_machine=transfer amd_machine XML default"/>
+    <action application="voice_start"/>
+    <action application="playback" data="$${recordings_dir}/live-greeting.wav"/>
+    <action application="bridge" data="user/1000"/>
+  </condition>
+</extension>
+```
+
+### Event Socket Dialer {#event-socket-dialer}
+
+An Event Socket application can start detection on answer with `execute_on_answer`, park the call, and act on the completion event. `event_fire=true` sends the event to the event system so an inbound connection receives it:
+
+```text
+event plain DETECTED_SPEECH
+event plain CUSTOM AMD::EVENT
+bgapi originate {ignore_early_media=true,execute_on_answer='voice_start event_fire=true'}sofia/gateway/mygw/15551234567 &park()
+```
+
+When the `DETECTED_SPEECH` event arrives, read `amd_status` and `Unique-ID` from its headers and continue with commands such as `uuid_transfer` or `uuid_kill`.
+
+### Lua
+
+A script that places the call itself can use the same applications:
+
+```lua
+local number = argv[1]
+local api = freeswitch.API()
+
+if api:executeString("amd_available") ~= "true" then
+  freeswitch.consoleLog("WARNING", "No free AMD channel\n")
+  return
+end
+
+local session = freeswitch.Session("{ignore_early_media=true}sofia/gateway/mygw/" .. number)
+
+if session:ready() then
+  session:execute("voice_start")
+  session:execute("waitforresult")
+
+  if session:getVariable("amd_status") == "machine" then
+    session:execute("wait_for_silence", "300 30 5 25000")
+    session:execute("playback", "/var/lib/freeswitch/recordings/campaign-message.wav")
+    session:hangup()
+  else
+    session:execute("bridge", "user/1000")
+  end
+end
+```
+
+Run it with `luarun dialer.lua 15551234567`.
+
+**Source:** `mod_com_amd.c` (commercial module source, not in the public FreeSWITCH tree) and the `amd.conf.xml` installed by the `freeswitch-mod-com-amd` package.
