@@ -39,6 +39,15 @@ const signalwireCodeTheme = {
   ],
 };
 
+const rehypeLlmsCleanup = require("./plugins/rehype-llms-cleanup");
+
+// The llms-txt plugin matches every section and exclude glob against
+// Docusaurus' FINAL route paths, which include baseUrl. With baseUrl
+// "/freeswitch" and docs routeBasePath "/", every route is "/freeswitch/<slug>",
+// so every glob below carries the prefix -- including the plugin's own default
+// exclusions, which are written as "/search" etc. and never fire here.
+const B = "/freeswitch";
+
 /** @type {import('@docusaurus/types').Config} */
 const config = {
   themes: ["docusaurus-theme-search-typesense"],
@@ -245,6 +254,182 @@ const config = {
       "@docusaurus/plugin-google-tag-manager",
       {
         containerId: "GTM-MSSDFRQM",
+      },
+    ],
+    [
+      "@signalwire/docusaurus-plugin-llms-txt",
+      {
+        // A route we cannot convert, or a section whose glob matches nothing,
+        // is a config bug we want to see -- both default to dropping content
+        // silently. This matches the site's onBrokenLinks/onBrokenAnchors
+        // posture. logLevel 2 because the route-filtering summary that makes
+        // those failures diagnosable is info-level and hidden at the default 1.
+        onRouteError: "throw",
+        onSectionError: "throw",
+        logLevel: 2,
+
+        markdown: {
+          enableFiles: true,
+          // Absolute URLs. This manual is one of several doc sets under
+          // developer.signalwire.com and llms.txt is read out of context.
+          relativePaths: false,
+          includeDocs: true,
+          includeBlog: false,
+          includePages: false,
+          includeVersionedDocs: false,
+          includeGeneratedIndex: true,
+          // /freeswitch/search is the Typesense route: classified as a doc, so
+          // without this it becomes search.md. The debug routes only exist when
+          // DOCUSAURUS_DEBUG is set; excluded as cheap insurance.
+          excludeRoutes: [`${B}/search`, `${B}/__docusaurus/**`],
+          beforeDefaultRehypePlugins: [rehypeLlmsCleanup],
+        },
+
+        llmsTxt: {
+          enableLlmsFullTxt: false,
+          includeDocs: true,
+          includeBlog: false,
+          includePages: false,
+          includeVersionedDocs: false,
+          includeGeneratedIndex: true,
+          excludeRoutes: [`${B}/search`, `${B}/__docusaurus/**`],
+
+          siteTitle: "FreeSWITCH Users Manual",
+          siteDescription:
+            "Configure, set up, and use FreeSWITCH: the open source platform for voice, video, and messaging.",
+          enableDescriptions: true,
+
+          // Only a safety net -- the sections below cover every existing route. A
+          // new top-level folder nobody sectioned shows up on its own at the
+          // bottom rather than collapsing into a section named "Freeswitch".
+          autoSectionDepth: 2,
+          autoSectionPosition: 99,
+
+          // Names and descriptions track each Part's index.mdx frontmatter.
+          // NOTE the three globs that differ from their folder name:
+          // configuration-system -> /configuration, users-endpoints ->
+          // /users-and-endpoints, media -> /media-and-codecs.
+          sections: [
+            {
+              id: "overview",
+              name: "Overview",
+              description: "The manual's front page and reading path.",
+              position: 0,
+              // Trailing slash required: the route is "/freeswitch/" and the
+              // glob "/freeswitch" does not match it.
+              routes: [{ route: `${B}/` }],
+            },
+            {
+              id: "foundations",
+              name: "Part 1: Foundations",
+              description:
+                "Core concepts and how to get a FreeSWITCH instance running.",
+              position: 1,
+              routes: [{ route: `${B}/foundations/**` }],
+            },
+            {
+              id: "configuration-system",
+              name: "Part 2: The Configuration System",
+              description:
+                "How FreeSWITCH is configured through its XML configuration system.",
+              position: 2,
+              routes: [{ route: `${B}/configuration/**` }],
+            },
+            {
+              id: "users-endpoints",
+              name: "Part 3: Users and Endpoints",
+              description:
+                "Define users and connect SIP, WebRTC, and gateway endpoints.",
+              position: 3,
+              routes: [{ route: `${B}/users-and-endpoints/**` }],
+            },
+            {
+              id: "dialplan",
+              name: "Part 4: Call Routing and the Dialplan",
+              description:
+                "Route calls with the XML dialplan, contexts, and dptools.",
+              position: 4,
+              routes: [{ route: `${B}/dialplan/**` }],
+            },
+            {
+              id: "media",
+              name: "Part 5: Media and Codecs",
+              description:
+                "Codec negotiation, media handling, and audio playback.",
+              position: 5,
+              routes: [{ route: `${B}/media-and-codecs/**` }],
+            },
+            {
+              id: "applications",
+              name: "Part 6: Applications and Features",
+              description: "The bundled dialplan applications and features.",
+              position: 6,
+              routes: [{ route: `${B}/applications/**` }],
+            },
+            {
+              id: "integration",
+              name: "Part 7: Integration and Control",
+              description:
+                "Control and integrate FreeSWITCH with external systems.",
+              position: 7,
+              routes: [{ route: `${B}/integration/**` }],
+            },
+            {
+              id: "reference",
+              name: "Part 8: Reference",
+              description:
+                "CLI and API reference, channel variables, and appendices.",
+              position: 8,
+              routes: [{ route: `${B}/reference/**` }],
+            },
+            {
+              id: "module-reference",
+              name: "Part 9: Module Reference",
+              description:
+                "A per-module reference for the bundled FreeSWITCH modules not covered in the topical chapters: purpose, configuration, the applications and API commands they register, and the channel variables they use.",
+              position: 9,
+              routes: [{ route: `${B}/module-reference/**` }],
+            },
+            {
+              id: "recipes",
+              name: "Part 10: Recipes",
+              description:
+                "End-to-end worked examples that compose the configuration, dialplan, and applications from the reference chapters into complete, working call flows.",
+              position: 10,
+              routes: [{ route: `${B}/recipes/**` }],
+            },
+            {
+              id: "troubleshooting",
+              name: "Part 11: Troubleshooting",
+              description:
+                "Diagnose the common failures operators hit — registration, audio, and call-setup problems — using FreeSWITCH's own console, status, and tracing tools.",
+              position: 11,
+              routes: [{ route: `${B}/troubleshooting/**` }],
+            },
+            {
+              id: "programming",
+              name: "Part 12: Programming with the Event Socket and Scripting",
+              description:
+                "Drive FreeSWITCH from code: the event model, an events catalog, the inbound and outbound Event Socket, and the embedded scripting APIs.",
+              position: 12,
+              routes: [{ route: `${B}/programming/**` }],
+            },
+          ],
+
+          optionalLinks: [
+            {
+              title: "FreeSWITCH source",
+              url: "https://github.com/signalwire/freeswitch",
+              description: "Source code, releases, and issue tracking",
+            },
+            {
+              title: "SignalWire capability map",
+              url: "https://developer.signalwire.com/freeswitch/reference/signalwire-map.md",
+              description:
+                "How each FreeSWITCH capability maps to SignalWire Cloud",
+            },
+          ],
+        },
       },
     ],
   ],

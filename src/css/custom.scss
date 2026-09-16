@@ -1,8 +1,12 @@
 /**
  * SignalWire Design System v2.0 applied to Docusaurus/Infima.
  *
- * Token source: signalwire-tokens.dtcg.json (brand / dark / light layers).
- *   1. SignalWire tokens  (--sw-*, --bg-*, --fg-*, --border-*, --tok-*)
+ * Token source: signalwire-tokens.dtcg.json (brand / dark / light layers),
+ * which lives in the docs repo at fern/signalwire-tokens.dtcg.json and is
+ * emitted there as fern/brand-tokens.css. Values below are copied from it -
+ * check against that file before inventing a color, tint, or tracking value.
+ *   1. SignalWire tokens  (--sw-*, --bg-*, --fg-*, --border-*, --badge-*,
+ *                          --tok-*)
  *   2. Infima mapping     (--ifm-*)
  *   3. Component rules    (code, tables, admonitions, navbar, sidebar, footer)
  *
@@ -25,6 +29,13 @@
   --sw-turquoise: #40e0d0;
   --sw-gold: #ffd700;
 
+  /* RGB channels, for alpha compositing (tints, glows). */
+  --sw-blue-rgb: 4, 78, 244;
+  --sw-fuchsia-rgb: 247, 42, 114;
+  --sw-purple-rgb: 96, 27, 230;
+  --sw-turquoise-rgb: 64, 224, 208;
+  --sw-gold-rgb: 255, 215, 0;
+
   /* Light theme surfaces / foreground */
   --bg-page: #fafbfc;
   --bg-surface: #f3f4f6;
@@ -45,6 +56,12 @@
   --role-table-head-fg: #ffffff;
   --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.08);
   --shadow-glow-fuchsia: 0 0 20px rgba(247, 42, 114, 0.15);
+
+  /* Badge (dtcg light/badge/*): neutral chip + hairline border + accent text.
+     The source also defines text-blue / -turquoise / -gold variants. */
+  --badge-bg: #ececea;
+  --badge-border: rgba(0, 0, 0, 0.12);
+  --badge-text-fuchsia: #be1758;
 
   /* Status */
   --status-success: #16a34a;
@@ -90,6 +107,10 @@
   --role-table-head-fg: var(--sw-fuchsia);
   --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.5);
   --shadow-glow-fuchsia: 0 0 20px rgba(247, 42, 114, 0.25);
+
+  --badge-bg: rgb(23, 14, 23);
+  --badge-border: rgba(255, 255, 255, 0.2);
+  --badge-text-fuchsia: #ff5a9e;
 
   --status-success: #22c55e;
   --status-warning: var(--sw-gold);
@@ -396,30 +417,130 @@ button:focus-visible,
   }
 }
 
-/* --- Announcement bar --- */
-div[class^="announcementBar_"] {
-  height: 50px;
+/* --- Announcement bar: badge + message + the site's standard primary button,
+       on raised chrome with the same soft purple wash as the footer, so the top
+       and bottom of the page bookend each other. --- */
+
+/* Docusaurus derives layout from this variable - the bar's own height, and
+   .menuWithAnnouncementBar's bottom margin - so the height belongs here rather
+   than as a `height` on the bar itself.
+
+   The `html` qualifier is load-bearing, not decoration: the theme's own :root
+   rules (auto, then 30px above 997px) are bundled AFTER customCss, so a bare
+   :root here ties on specificity and loses. Breakpoint matches the theme's own
+   997px so the two can't disagree at the boundary. */
+html:root {
+  /* Mobile: room for the message to wrap; the bar still grows past this. */
+  --docusaurus-announcement-bar-height: 64px;
+}
+
+@media (min-width: 997px) {
+  html:root {
+    --docusaurus-announcement-bar-height: 46px;
+  }
+}
+
+div.theme-announcement-bar {
+  position: relative;
+  /* min-height, not height: the message wraps on narrow viewports and a fixed
+     height clips it. */
+  height: auto;
+  min-height: var(--docusaurus-announcement-bar-height);
   font-family: var(--type-family-body);
-  font-size: 15px;
-  color: var(--fg-default);
+  /* 14px = the navbar/footer chrome size (dtcg typography.size-small). */
+  font-size: 14px;
+  line-height: 1.4;
+  color: var(--fg-secondary);
+  /* Raised, so the stack reads banner > navbar (--bg-surface) > page as
+     progressively receding chrome instead of one flat slab. */
   background: var(--bg-surface-raised);
   border-bottom: 1px solid var(--border-default);
+  /* Infima puts --ifm-global-shadow-lw here, which our token layer maps to a
+     heavy drop shadow. The border alone is the design-system separator. */
+  box-shadow: none;
 
-  a {
-    color: var(--role-link);
-    text-decoration: none;
-    margin-right: 2rem;
-    font-weight: 600;
+  /* Same wash, geometry, and opacity as .footer::before. */
+  &::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: 0;
+    pointer-events: none;
+    background: radial-gradient(
+      70% 140% at 50% 0%,
+      rgba(var(--sw-purple-rgb), 0.05),
+      transparent 70%
+    );
   }
+}
 
-  .button {
-    font-family: var(--type-family-body);
-    background: var(--sw-blue);
-    color: #ffffff;
-    padding: 0.15rem 0.75rem;
-    margin-left: 1.75rem;
-    border-radius: var(--radius-full);
-    font-weight: 600;
+/* Flex + gap for spacing, so nothing depends on per-anchor margins. Also
+   undoes the theme's own AnnouncementBar/Content module, which sets
+   `font-size: 85%` and underlines every link in the bar (`.content a` sets
+   `color: inherit; text-decoration: underline`). */
+div.theme-announcement-bar div[class*="announcementBarContent"] {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem 0.75rem;
+  padding: 0.5rem 0.75rem;
+  font-size: inherit;
+}
+
+/* Badge, per the dtcg badge tokens: neutral chip, hairline border, fuchsia
+   text - the accent role the token source assigns to eyebrow labels. */
+div.theme-announcement-bar .banner-link {
+  display: inline-flex;
+  align-items: center;
+  margin: 0;
+  padding: 0.125rem 0.625rem;
+  border: 1px solid var(--badge-border);
+  border-radius: var(--radius-full);
+  background: var(--badge-bg);
+  color: var(--badge-text-fuchsia);
+  font-size: 13px;
+  font-weight: 600;
+  text-decoration: none;
+  white-space: nowrap;
+  transition:
+    border-color 0.2s ease,
+    color 0.2s ease;
+
+  &:hover {
+    border-color: var(--border-strong);
+    color: var(--badge-text-fuchsia);
+  }
+}
+
+/* The CTA keeps .button--primary's blue, radius, and hover - same button as
+   everywhere else on the site. The two declarations below only undo the theme's
+   AnnouncementBar/Content link normalization (`.content a { color: inherit;
+   text-decoration: underline }`), which outranks the global .button--primary
+   rule and was painting the label in the bar's body color: near-black on blue
+   in the light theme. */
+div.theme-announcement-bar .button {
+  margin: 0;
+  color: #ffffff;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+div.theme-announcement-bar button[class*="announcementBarClose"] {
+  position: relative;
+  z-index: 1;
+  align-self: stretch;
+  color: var(--fg-muted);
+  opacity: 0.7;
+  transition:
+    color 0.2s ease,
+    opacity 0.2s ease;
+
+  &:hover {
+    color: var(--fg-default);
+    opacity: 1;
   }
 }
 
@@ -447,7 +568,7 @@ div[class^="announcementBar_"] {
   --footer-link: var(--fg-muted);
   --footer-link-hover: var(--fg-default);
   --footer-note: var(--fg-subtle);
-  --footer-glow: rgba(96, 27, 230, 0.05);
+  --footer-glow: rgba(var(--sw-purple-rgb), 0.05);
 
   background: var(--footer-bg);
   color: var(--footer-link);
@@ -607,4 +728,143 @@ div[class^="announcementBar_"] {
   .footer__col:first-child {
     flex: 1 1 100%;
   }
+}
+
+/* ==========================================================================
+   SignalWire cloud callouts
+   Demarcated asides mapping a manual topic to its hosted equivalent.
+   Scope rules: max one per page, never inside a procedure.
+   ========================================================================== */
+
+.sw-callout {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-default);
+  border-left: 3px solid var(--sw-blue);
+  border-radius: var(--radius-md);
+  padding: 1rem 1.25rem;
+  margin: 1.75rem 0;
+}
+
+.sw-callout__eyebrow {
+  font-family: var(--type-family-code);
+  font-size: 0.7rem;
+  font-weight: 500;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--sw-blue);
+  margin: 0 0 0.25rem;
+}
+
+[data-theme="dark"] .sw-callout__eyebrow {
+  color: var(--sw-turquoise);
+}
+
+.sw-callout__title {
+  font-family: var(--type-family-heading);
+  font-weight: 600;
+  font-size: 1rem;
+  color: var(--fg-headings);
+  margin: 0 0 0.5rem;
+}
+
+.sw-callout__body p:last-child {
+  margin-bottom: 0;
+}
+
+.sw-callout__links {
+  margin: 0.75rem 0 0;
+  font-size: 0.875rem;
+}
+
+/* Anchor support: every callout is linkable at #signalwire on its page. */
+.sw-callout {
+  scroll-margin-top: calc(var(--ifm-navbar-height, 3.75rem) + 1rem);
+}
+
+.sw-callout__hash {
+  margin-left: 0.5em;
+  font-weight: 400;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+
+.sw-callout:hover .sw-callout__hash,
+.sw-callout__hash:focus-visible {
+  opacity: 1;
+}
+
+/* Hero variant: the landing-page callout, sized to be seen. */
+.sw-callout--hero {
+  border-left-width: 4px;
+  padding: 1.5rem 1.75rem;
+  margin: 2rem 0;
+  box-shadow: var(--shadow-md);
+}
+
+.sw-callout--hero .sw-callout__title {
+  font-size: 1.35rem;
+}
+
+.sw-callout--hero .sw-callout__body {
+  font-size: 1.05rem;
+}
+
+.sw-callout--hero .sw-callout__links {
+  margin-top: 1.1rem;
+  display: flex;
+  align-items: center;
+  gap: 1.25rem;
+  font-size: 1rem;
+}
+
+.sw-callout--hero .sw-callout__links > span {
+  display: none;
+}
+
+.sw-callout--hero .sw-callout__links > a:first-of-type {
+  background: var(--sw-blue);
+  color: #ffffff;
+  padding: 0.55rem 1.25rem;
+  border-radius: var(--radius-full);
+  font-weight: 500;
+  text-decoration: none;
+}
+
+.sw-callout--hero .sw-callout__links > a:first-of-type:hover,
+.sw-callout--hero .sw-callout__links > a:first-of-type:focus-visible {
+  background: var(--sw-fuchsia);
+  color: #ffffff;
+  text-decoration: none;
+}
+
+/* Official SignalWire mark in the callout eyebrow (never recolored). */
+.sw-callout__eyebrow {
+  display: flex;
+  align-items: center;
+  gap: 0.5em;
+}
+
+.sw-callout__logo {
+  width: 16px;
+  height: 16px;
+  display: block;
+  flex-shrink: 0;
+}
+
+.sw-callout--hero .sw-callout__logo {
+  width: 22px;
+  height: 22px;
+}
+
+/* Full SignalWire logo on the Appendix D capability map. */
+.sw-map-logo {
+  display: block;
+  margin: 1.25rem 0 1.75rem;
+}
+
+.sw-map-logo img {
+  display: block;
+  width: 100%;
+  max-width: 300px;
+  height: auto;
 }
