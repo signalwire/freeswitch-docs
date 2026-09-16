@@ -3,12 +3,107 @@ sidebar_position: 7
 id: mod_com_g729
 slug: /module-reference/codecs/mod_com_g729
 title: "mod_com_g729 — G.729 Codec (Commercial)"
-description: "mod_com_g729: G.729 Codec (Commercial). Documented in Appendix B: Codec Reference."
+description: "The licensed G.729 Annex A codec module: full G.729 encode and decode for transcoding, with per-channel licences from the local license server."
 sidebar_label: "mod_com_g729"
 ---
 
 # mod_com_g729 — G.729 Codec (Commercial)
 
-`mod_com_g729` provides the commercial G.729 codec implementation.
+`mod_com_g729` is the commercial G.729 codec module. It provides a licensed G.729 Annex A encoder and decoder, so FreeSWITCH can transcode between G.729 and other codecs, and can play, record, and conference G.729 calls. G.729 carries narrowband speech at 8 kbit/s and is common on carrier trunks where bandwidth is constrained.
 
-It is documented in detail in **[Appendix B: Codec Reference](../../reference/appendix-codec-table.mdx)**. This page is the module-index entry; see there for its configuration, parameters, and usage in context.
+The open-source [`mod_g729`](./mod_g729.mdx) registers the same codec. When it is built without the G.729 library, it only passes G.729 through between legs that both use it and cannot transcode. `mod_com_g729` is the licensed module that does transcode.
+
+`mod_com_g729` is licensed per channel and is not part of the open-source tree. Purchasing, package installation, licence activation, and the license server are covered in [Commercial Modules and Licensing](../commercial-modules.mdx).
+
+## Codec Details
+
+The module registers one codec, named `G.729`, with twelve packetization intervals:
+
+| Property | Value |
+|---|---|
+| IANA name (use in codec strings) | `G729` |
+| RTP payload type | `18` (static) |
+| Sample rate | 8000 Hz |
+| Channels | 1 |
+| Bit rate | 8000 bit/s |
+| Packetization (ptime) | 10 to 120 ms, in 10 ms steps |
+| Encoded size | 10 bytes per 10 ms |
+| fmtp | `annexb=no` |
+| Codec variant | G.729 Annex A. Annex B (voice activity detection and comfort noise) is not supported, which the `annexb=no` fmtp signals. |
+
+## Loading the Module
+
+Install the `freeswitch-mod-com-g729` package and activate G.729 licences as described in [Commercial Modules and Licensing](../commercial-modules.mdx). The module has no configuration file.
+
+The vanilla `modules.conf.xml` loads `mod_g729`, which registers the same `G729` codec. Load only one of the two. In `autoload_configs/modules.conf.xml`, replace the `mod_g729` line with `mod_com_g729`:
+
+```xml
+<!-- <load module="mod_g729"/> -->
+<load module="mod_com_g729"/>
+```
+
+At load time the module logs its licensed channel count as `G.729A license count => <N>`, or `Couldn't contact license server` if the check fails, and registers the codec and three API commands. After changing the load list, restart FreeSWITCH, or unload `mod_g729` and load `mod_com_g729` from `fs_cli`:
+
+```text
+unload mod_g729
+load mod_com_g729
+```
+
+## Offering G.729
+
+Loading the module makes `G729` available; it is not offered until it appears in a codec preference string. The vanilla `global_codec_prefs` and `outbound_codec_prefs` do not include it. Add `G729` where it should be offered, for example in `vars.xml`:
+
+```xml
+<X-PRE-PROCESS cmd="set" data="global_codec_prefs=OPUS,G722,PCMU,PCMA,G729,H264,VP8"/>
+<X-PRE-PROCESS cmd="set" data="outbound_codec_prefs=OPUS,G722,PCMU,PCMA,G729,H264,VP8"/>
+```
+
+Add a ptime suffix to request a specific packetization, such as `G729@30i`. The preference-string syntax and where each string applies are covered in [Chapter 16: Codecs and Negotiation](../../media/codecs-and-negotiation.mdx#codec-preference-strings).
+
+## Licence Use {#licence-use}
+
+The license server keeps separate pools of G.729 encoders and decoders, each the size of the licensed channel count. One licensed channel therefore covers one encoder and one decoder, which is what a G.729 leg being transcoded in both directions uses.
+
+| Aspect | Behavior |
+|---|---|
+| When a licence is taken | The first time the codec encodes or decodes a frame on a leg, not when G.729 is negotiated. An encoder and a decoder are taken separately, each on first use. |
+| When it is released | When the leg's codec is destroyed, at hangup or when the leg changes codec. |
+| Legs that use no licence | A G.729 leg whose audio FreeSWITCH never encodes or decodes, such as a bridge between two G.729 legs with no recording, playback, or other media processing on either leg. |
+| No free licence | The encode or decode fails, so audio in that direction is lost. The call is not rejected, because negotiation does not check licences. |
+
+Because negotiation does not check licences, a call can settle on G.729 even when no licence is free. Where running out is possible, check `${g729_available()}` in the dialplan before offering G.729, and fall back to a codec list without `G729`. `break="never"` lets routing continue to the bridge whichever way the check goes:
+
+```xml
+<extension name="carrier_outbound">
+  <condition field="destination_number" expression="^9(1\d{10})$"/>
+  <condition field="${g729_available()}" expression="^true$" break="never">
+    <action application="set" data="absolute_codec_string=G729,PCMU"/>
+    <anti-action application="set" data="absolute_codec_string=PCMU,PCMA"/>
+  </condition>
+  <condition field="destination_number" expression="^9(1\d{10})$">
+    <action application="bridge" data="sofia/gateway/carrier/$1"/>
+  </condition>
+</extension>
+```
+
+## API Commands
+
+| Command | Returns |
+|---|---|
+| `g729_info` | `G.729A license available => <free>` and `G.729A license allocated => <in use>`, or `Can't contact licence server.` |
+| `g729_available` | `true` if at least one channel is free, otherwise `false` |
+| `g729_count` | The number of free channels |
+
+The three commands report the encoder pool. Output formats, dialplan use, and troubleshooting are documented in [Commercial Modules and Licensing: Checking Licence Usage](../commercial-modules.mdx#checking-licence-usage).
+
+```text
+freeswitch@internal> g729_info
+G.729A license available => 10
+G.729A license allocated => 0
+```
+
+## Channel Variables
+
+`mod_com_g729` reads and sets no channel variables. Codec selection uses the core codec variables, such as `absolute_codec_string`, documented in [Chapter 16: Codecs and Negotiation](../../media/codecs-and-negotiation.mdx#channel-variables).
+
+**Source:** `mod_com_g729.c` (commercial module source, not in the public FreeSWITCH tree) and the `freeswitch-mod-com-g729` package.

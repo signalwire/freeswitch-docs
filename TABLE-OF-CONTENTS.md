@@ -363,10 +363,14 @@ Say pages. Each module has a page covering its purpose, configuration file and
 parameters, the applications and API commands it registers, and the channel
 variables it uses. Modules documented in depth by a topical chapter carry a short
 pointer page that links to that chapter. Module entries are reference-index
-entries and are not chapter-numbered.
+entries and are not chapter-numbered. A Commercial Modules and Licensing page
+covers the two licensed modules, `mod_com_amd` and `mod_com_g729`: purchasing,
+package installation, licence activation, and the license server.
 
 - Sources: `src/mod/` (all categories) and each module's shipped
-  `conf/vanilla/autoload_configs/*.conf.xml`.
+  `conf/vanilla/autoload_configs/*.conf.xml`. For the commercial modules, the
+  `mod_com_amd` and `mod_com_g729` module sources, their packaged configuration,
+  and the `freeswitch-license-server` sources.
 
 ---
 

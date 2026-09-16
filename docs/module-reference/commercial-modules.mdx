@@ -1,0 +1,169 @@
+---
+sidebar_position: 12
+id: commercial-modules
+slug: /module-reference/commercial-modules
+title: "Commercial Modules and Licensing"
+description: "The licensed FreeSWITCH modules mod_com_amd and mod_com_g729: purchasing, package installation, licence activation, the local license server, and checking licence usage."
+sidebar_label: "Commercial Modules and Licensing"
+---
+
+# Commercial Modules and Licensing
+
+FreeSWITCH has two commercial modules that are sold with per-channel licences rather than shipped in the open-source tree. Both are distributed as binary packages from the SignalWire FreeSWITCH package repository, and both draw their licences from a license server that runs on the same machine as FreeSWITCH. This page covers what the two modules share: buying licences, installing the packages, activating licence files, running the license server, and checking licence usage. Each module's own page documents its configuration, applications, and variables.
+
+| Module | Package | Provides | Licensed product | Reference |
+|---|---|---|---|---|
+| `mod_com_amd` | `freeswitch-mod-com-amd` | Answering machine detection: classifies an answered call as a person or a machine | `AMD` | [mod_com_amd](./applications/mod_com_amd.mdx) |
+| `mod_com_g729` | `freeswitch-mod-com-g729` | A licensed G.729 Annex A encoder and decoder, so FreeSWITCH can transcode G.729 | `G.729A` | [mod_com_g729](./codecs/mod_com_g729.mdx) |
+
+## Purchasing Licences
+
+Licences are sold per concurrent channel at [licensing.freeswitch.com](https://licensing.freeswitch.com/). Each purchase produces a sales code. A sales code is activated on the machine that will run FreeSWITCH, and the resulting licence file is bound to that machine (see [Licence Files](#licence-files)), so each FreeSWITCH server needs its own sales codes.
+
+What one licensed channel covers differs by module:
+
+- **`mod_com_amd`**: one licensed channel runs one detection at a time. The channel is taken when detection starts and released as soon as detection produces a result or is stopped, so the count you need is the peak number of simultaneous detections, not simultaneous calls.
+- **`mod_com_g729`**: one licensed channel provides one encoder and one decoder. A licence is taken only when FreeSWITCH actually encodes or decodes G.729 audio, not when G.729 is negotiated.
+
+## Installing the Packages
+
+The packages are published to the same authenticated repository used to install FreeSWITCH itself. Configure that repository first, as described in [Chapter 2: Installing from Packages](../foundations/getting-started.mdx#installing-from-packages). Packages are built for Debian 11 (bullseye), 12 (bookworm), and 13 (trixie) on amd64 and arm64.
+
+Install the module package for each product you purchased:
+
+```bash
+apt-get install -y freeswitch-mod-com-amd
+apt-get install -y freeswitch-mod-com-g729
+```
+
+Each module package depends on `freeswitch-license-server`, which apt installs alongside it. The packages install these files:
+
+| File | Package | Purpose |
+|---|---|---|
+| `/usr/lib/freeswitch/mod/mod_com_amd.so` | `freeswitch-mod-com-amd` | The AMD module |
+| `/etc/freeswitch/autoload_configs/amd.conf.xml` | `freeswitch-mod-com-amd` | AMD detection settings (see [mod_com_amd](./applications/mod_com_amd.mdx#configuration-amdconfxml)) |
+| `/usr/lib/freeswitch/mod/mod_com_g729.so` | `freeswitch-mod-com-g729` | The G.729 module (no configuration file) |
+| `/usr/sbin/freeswitch-license-validator` | `freeswitch-license-server` | Activates sales codes and downloads licence files |
+| `/usr/sbin/freeswitch-license-server` | `freeswitch-license-server` | Grants licensed channels to the modules |
+
+Neither module is in the vanilla `modules.conf.xml`. After activating licences, add the `<load>` line described on each module's page.
+
+## Activating Licences
+
+Activation turns a sales code into a signed licence file on the FreeSWITCH host.
+
+1. **Run the validator on the FreeSWITCH host.** Run it as root from a working directory, because it writes its output file there. The validator needs outbound HTTPS access to the licensing server.
+
+   ```bash
+   cd /tmp
+   freeswitch-license-validator
+   ```
+
+   Enter each sales code at the prompt, then a blank line to finish, and confirm with `y`:
+
+   ```text
+   freeswitch product licencing tool
+
+   You will require one or more sales codes to activate licences
+   Enter a sales code, or a blank line to end: 0abd19753bf28fbb88a5d74
+   Enter a sales code, or a blank line to end:
+
+   Sales codes to be activated:
+   0abd19753bf28fbb88a5d74
+
+   OK (Y/N)? y
+   Success. The file licences.zip contains valid licences.
+   Unzip this to /etc/freeswitch/
+   ```
+
+   On failure the validator prints `ERROR [<reason>]`, `Failed with HTTP error <code>`, or a transfer error instead of the success lines.
+
+2. **Unpack the licence files into `/etc/freeswitch/`.** The archive holds one `.conf` licence file per activation. Copy the `.conf` files, not the zip:
+
+   ```bash
+   unzip licences.zip
+   cp 0abd19753bf28fbb88a5d74.conf /etc/freeswitch/
+   ```
+
+   `/etc/freeswitch/` is compiled into the license server. Use it even when FreeSWITCH itself runs from a different configuration directory.
+
+3. **Make the license server read the new files.** If the license server is already running, signal it to rescan:
+
+   ```bash
+   pkill -HUP -f freeswitch-license-server
+   ```
+
+   The `-f` flag is required: `pkill` otherwise matches only the first 15 characters of the process name, and `freeswitch-license-server` is longer than that. If the license server is not running, it reads the directory when it starts (see [The License Server](#the-license-server)).
+
+4. **Load the module and confirm the licence count.** Add the module's `<load>` line to `modules.conf.xml` (see its page), load it or restart FreeSWITCH, then check the count with the module's `_info` command:
+
+   ```bash
+   fs_cli -x 'load mod_com_amd'
+   fs_cli -x amd_info
+   ```
+
+   ```text
+   AMD license available => 10
+   AMD license allocated => 0
+   ```
+
+## Licence Files {#licence-files}
+
+A licence file is a signed text file. Editing it invalidates the signature, and the license server then ignores it. The fields the license server reads are:
+
+| Field | Meaning |
+|---|---|
+| `Product` | The licensed product: `AMD` or `G.729A` |
+| `ConcurrentChannels` | The number of channels the file grants |
+| `PurchaseCode` | The sales code or codes the file was issued for. A purchase code counts once: a later file carrying a purchase code the server has already seen is ignored. |
+| `HardwareID` | A MAC address of the machine the validator ran on |
+| `ExpirationDate` | Optional. The last day, as `YYYYMMDD`, on which the channels count. Files without it do not expire. |
+
+The license server counts a file only if its `HardwareID` matches the MAC address of a network interface on the machine it runs on. A licence file copied to another machine, or left on a host whose network interface was replaced, grants no channels. The channels of several valid files for the same product add together.
+
+## The License Server {#the-license-server}
+
+`freeswitch-license-server` holds the licence counts and hands out channels to the commercial modules. The modules talk to it over a local socket, so it always runs on the FreeSWITCH host.
+
+| Aspect | Behavior |
+|---|---|
+| Starting | A commercial module that cannot reach the license server starts `freeswitch-license-server` itself and waits two seconds before retrying. It can also be started by hand, as root. |
+| Process | Detaches into the background and switches to the `freeswitch` user. |
+| Licence directory | `/etc/freeswitch/`, fixed at build time. Scanned at start and again on `SIGHUP`. |
+| Rescan | `pkill -HUP -f freeswitch-license-server` |
+| Expiry | Channels from an expired licence file are removed from the count while the server runs. |
+| Stopping | Exits on `SIGTERM` or `SIGINT`. |
+
+When started by hand from a terminal, the server writes its licence scan to standard error: a `Scanning <file> for licences` line for each file it examines, a `Purchase code <code>` line for each purchase code it reads, and `<N> channels of <product>` (or `<N> channels of <product> expiring YYYY/MM/DD hh:mm:ss`) for each licence it accepts. Only one license server can run at a time; a second instance exits before scanning.
+
+## Checking Licence Usage
+
+Each module registers three API commands that query the license server. They take no arguments and work from `fs_cli`, the Event Socket, and dialplan expansion.
+
+| `mod_com_amd` | `mod_com_g729` | Returns |
+|---|---|---|
+| `amd_info` | `g729_info` | Two lines: `<product> license available => <free>` and `<product> license allocated => <in use>`. Prints `Can't contact licence server.` if the check fails. |
+| `amd_available` | `g729_available` | `true` if at least one channel is free, otherwise `false` (also `false` if the check fails) |
+| `amd_count` | `g729_count` | The number of free channels, or `0` if the check fails |
+
+The "available" figure in `_info` and the value from `_count` are both free channels (licensed minus allocated), not the licensed total.
+
+When a module loads, it logs the licensed total at `INFO` level as `AMD license count => <N>` or `G.729A license count => <N>`. If the check fails, it logs `Couldn't contact license server` at `ERROR` level instead. The module still loads.
+
+Use the `_available` command in dialplan expansion to test for a free channel before starting licensed work. The parentheses are required: they run the API command, while `${amd_available}` without them reads a channel variable of that name, which is empty.
+
+```xml
+<condition field="${amd_available()}" expression="^true$">
+```
+
+## Troubleshooting
+
+| Symptom | Cause | Resolution |
+|---|---|---|
+| `amd_info` or `g729_info` prints `Can't contact licence server.` | The license server is not running and could not be started, **or** it is running but has no valid licence for that product. The server rejects checks for a product it holds no licence for, and the module reports that the same way as an unreachable server. | Confirm the licence `.conf` files are in `/etc/freeswitch/`, were activated on this machine (`HardwareID`), and have not expired. Rescan with `pkill -HUP -f freeswitch-license-server`. |
+| Licensed total is lower than purchased | A licence file failed validation (edited, wrong machine, expired), or two files carry the same purchase code | With FreeSWITCH stopped, stop the running license server and start it by hand from a terminal to see which licences it accepts. |
+| `amd_available` returns `false` during traffic | Every AMD channel is in use | Buy more channels, or stop detections sooner with `voice_stop`. |
+| AMD calls hang up immediately with `DESTINATION_OUT_OF_ORDER` | Detection could not get a channel, and `hangup_on_bug_fail` is on (the default) | See [mod_com_amd: Detection Failures](./applications/mod_com_amd.mdx#detection-failures). |
+| G.729 calls connect but have no audio | No free G.729 encoder or decoder channel when the call began transcoding | See [mod_com_g729: Licence Use](./codecs/mod_com_g729.mdx#licence-use). |
+
+**Source:** `mod_com_amd.c` and `mod_com_g729.c` (commercial module sources, not in the public FreeSWITCH tree), the `freeswitch-license-server` sources (validator, server, and client library), and the module packaging.
