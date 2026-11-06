@@ -55,6 +55,9 @@ const config = {
   tagline: "Configure, set up, and use FreeSWITCH",
   url: "https://developer.signalwire.com",
   baseUrl: "/freeswitch",
+  // nginx serves every page as a directory and 301s the slashless form, so
+  // canonicals and the sitemap must use the trailing slash too.
+  trailingSlash: true,
   onBrokenLinks: "throw",
   onBrokenAnchors: "throw",
   favicon: "img/favicon.webp",
@@ -281,7 +284,7 @@ const config = {
           // /freeswitch/search is the Typesense route: classified as a doc, so
           // without this it becomes search.md. The debug routes only exist when
           // DOCUSAURUS_DEBUG is set; excluded as cheap insurance.
-          excludeRoutes: [`${B}/search`, `${B}/__docusaurus/**`],
+          excludeRoutes: [`${B}/search`, `${B}/search/`, `${B}/__docusaurus/**`],
           beforeDefaultRehypePlugins: [rehypeLlmsCleanup],
         },
 

@@ -350,6 +350,15 @@ profile, context, gateway, registration, SDP, transcoding, proxy media).
 
 - Sources: derived from the chapters above.
 
+### Appendix E: Hangup Cause Code Table
+Every hangup cause with its numeric code and the SIP response `mod_sofia` sends.
+
+- Sources: `src/switch_channel.c`, `src/include/switch_types.h`,
+  `src/mod/endpoints/mod_sofia/mod_sofia.c`.
+
+### Appendix F: Release Notes
+Links to the FreeSWITCH and FreeSWITCH Enterprise release pages.
+
 
 ---
 
