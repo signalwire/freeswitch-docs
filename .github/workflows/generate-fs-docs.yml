@@ -25,3 +25,14 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           push: false
+          load: true
+          tags: freeswitch-docs:ci
+      - name: Check generated redirect map
+        run: node scripts/build-legacy-redirects.mjs --check
+      - name: Validate nginx config
+        run: docker run --rm freeswitch-docs:ci nginx -t
+      - name: Check redirects end to end
+        run: |
+          docker run -d --name fs-docs -p 8080:80 freeswitch-docs:ci
+          sleep 3
+          node scripts/check-redirects.mjs http://localhost:8080

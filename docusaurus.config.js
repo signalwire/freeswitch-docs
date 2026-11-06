@@ -55,6 +55,9 @@ const config = {
   tagline: "Configure, set up, and use FreeSWITCH",
   url: "https://developer.signalwire.com",
   baseUrl: "/freeswitch",
+  // nginx serves every page as a directory and 301s the slashless form, so
+  // canonicals and the sitemap must use the trailing slash too.
+  trailingSlash: true,
   onBrokenLinks: "throw",
   onBrokenAnchors: "throw",
   favicon: "img/favicon.webp",
