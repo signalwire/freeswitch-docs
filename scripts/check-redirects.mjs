@@ -50,8 +50,7 @@ for (const { kind, legacy, target } of rows) {
 const older = readFileSync("provisioning/nginx/redirects.map", "utf8")
   .split("\n")
   .map((line) => line.match(/^(\/\S+)\s+"?([^";]+)"?;\s*$/))
-  .filter(Boolean)
-  .filter((m) => !/\/(FreeSWITCH-Explained|Channel-Variables-Catalog)(\/|$|\?)/.test(m[1]));
+  .filter(Boolean);
 for (const [, from, to] of older) await expectRedirect(from, to);
 
 // Fallback, 404 page and the trailing slash behavior the canonicals rely on.
